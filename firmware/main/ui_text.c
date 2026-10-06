@@ -1,0 +1,36 @@
+#include "ui_text.h"
+
+static const char *const k_en[STR_COUNT] = {
+    [STR_NOT_HEARD] = "Didn’t catch that",
+    [STR_TRY_AGAIN] = "Try again",
+    [STR_NO_ANSWER] = "No answer",
+    [STR_OPENCLAW_OFFLINE] = "Agent offline",
+    [STR_WAITING_FOR_TIME] = "Waiting for network time",
+    [STR_HOLD_TO_TALK] = "Hold the button to talk",
+    [STR_ADD_TO_OPENCLAW] = "Connect agent adapter",
+    [STR_NOT_ALLOWED] = "Not allowed",
+    [STR_SERVER_KEY_CHANGED] = "Server key changed",
+    [STR_LISTENING] = "Listening",
+    [STR_PAUSE_TO_SEND] = "Pause to send",
+    [STR_TAP_TO_SEND] = "Press again to send",
+    [STR_THINKING] = "Thinking",
+    [STR_CONNECTED] = "Connected",
+    [STR_PAIRED] = "Paired",
+    [STR_STOPPED] = "Stopped",
+    [STR_VOLUME] = "Volume",
+    [STR_SETUP_CLOSED] = "Setup closed",
+    [STR_WORKING] = "Working",
+    [STR_USING_TOOLS] = "Using tools",
+    [STR_CODING] = "Coding",
+    [STR_BROWSING] = "Browsing",
+    [STR_DEPLOYING] = "Deploying",
+    [STR_BUILDING] = "Building",
+    [STR_COMPACTING] = "Tidying memory",
+    [STR_STILL_WORKING] = "Still working",
+    [STR_TURNING_OFF] = "Turning off",
+    [STR_WIFI] = "Wi-Fi",
+    [STR_POWER_OFF] = "Power off",
+    [STR_RESET] = "Reset",
+};
+
+const char *str(str_id_t id) { return id < STR_COUNT && k_en[id] ? k_en[id] : ""; }

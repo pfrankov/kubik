@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark">
+<title>Kubik · Setup</title>
+<link rel="stylesheet" href="/setup.css">
+<script src="/tess.js" defer></script>
+</head>
+<body>
+<main>
+<header class="hero" id="hero"><canvas id="tess" aria-hidden="true" data-state="idle"></canvas>
+<h1 id="title">Let's connect Kubik</h1><p class="sub" id="sub">Your agent, a little closer.</p></header>
+<ol class="steps" aria-label="Setup progress"><li id="stepWifi" aria-current="step">1 · Wi-Fi</li><li id="stepAgent">2 · Agent</li><li id="stepReady">3 · Ready</li></ol>
+<form id="form" autocomplete="off">
+<section id="wifiStep" aria-labelledby="wifiTitle">
+<h2 id="wifiTitle" tabindex="-1">Choose your Wi-Fi</h2><p class="hint">Use a 2.4 GHz network. Kubik will remember it.</p>
+<div class="nets" id="nets"><div class="hint">Looking for networks…</div></div>
+<div class="links"><button type="button" class="link" id="rescan">Refresh networks</button><button type="button" class="link" id="manual">Hidden network</button></div>
+<div id="ssidBox" hidden><label for="ssid">Network name</label><input id="ssid" maxlength="32" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+<label for="pass">Wi-Fi password</label><div class="pw"><input id="pass" type="password" maxlength="64" autocapitalize="off" autocorrect="off" spellcheck="false"><button type="button" id="eye" aria-label="Show password">Show</button></div>
+<div class="hint" id="passHint"></div>
+</section>
+<section id="agentStep" aria-labelledby="agentTitle" hidden>
+<div class="connection">Wi-Fi: <strong id="chosenNetwork"></strong><button class="link" type="button" id="back">Change</button></div>
+<h2 id="agentTitle" tabindex="-1">Connect your agent</h2><p class="hint">Choose your agent. Muse connects directly; other agents use a server.</p>
+<div class="agent-options" id="agents"><button type="button" data-agent="OpenClaw" aria-pressed="true">OpenClaw <span>Kubik channel</span></button><button type="button" data-agent="Hermes" aria-pressed="false">Hermes <span>Direct Wi-Fi</span></button><button type="button" data-agent="Muse" aria-pressed="false">Muse <span>Direct Wi-Fi</span></button><button type="button" data-agent="Custom" aria-pressed="false">Another agent <span>Your adapter</span></button></div>
+<p class="hint" id="agentHint">Follow the Kubik setup guide on GitHub to install the OpenClaw channel. Keep OpenClaw running, then connect here.</p>
+<div id="museDetails" hidden><label for="sdkToken">Muse SDK key</label><input id="sdkToken" type="password" maxlength="48" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="sdkHint" placeholder="mgst_…">
+<p class="hint" id="sdkHint">Create your personal key at <a href="https://gadgets.muse.ai/settings/sdk-tokens" target="_blank" rel="noopener noreferrer">Muse Gadgets</a>. After Wi-Fi connects, pair in the Muse app on your phone. No computer or server needed. Replies appear as text.</p></div>
+<details id="serverDetails"><summary>Server address <span class="hint">· optional</span></summary>
+<label for="url">Agent server address</label><input id="url" maxlength="127" inputmode="url" aria-describedby="urlHint" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="kubik://your-computer">
+<p class="hint" id="urlHint">On your trusted home network, leave blank to find the agent. Use kubik://your-computer for a specific local host, or a secure WSS address for a remote server.</p></details>
+</section>
+<div class="actions" id="actions"><div><button class="go" id="go" type="submit">Continue to agent</button><p class="err" id="err" role="alert"></p></div></div>
+</form>
+<section class="status" id="status" aria-live="polite"><h2 id="stTitle"></h2><p class="sub" id="stText"></p>
+<ol id="nextSteps" hidden><li id="pairingHint">Look for a pairing code on Kubik.</li><li id="approvalHint">On your agent computer, run openclaw pairing list kubik. Only if the displayed code matches, run openclaw pairing approve kubik CODE.</li><li id="guideHint">Follow the short guide on Kubik. Change options later in Settings → Agent.</li></ol>
+<button class="link" type="button" id="retry" hidden>Check connection again</button></section>
+<footer class="foot" id="foot"></footer>
+</main>
+<script>
+const getElement = id => document.getElementById(id);
+let setupState = {}, selectedNetworkName = null, manualNetworkSelected = false;
+let connectionSubmitted = false, submitting = false, lostPollCount = 0;
+let selectedAgent = 'OpenClaw', activeStep = 'wifi', pollTimer;
+let polling = false, uncertainSubmission = false, passwordNetworkName = null;
+const DEFAULT_DEVICE_PATH = '/kubik/v1';
+const ERROR_MESSAGES = {
+  password: 'Incorrect password. Check it and try again.',
+  not_found: 'Network not found. Move Kubik closer to the router and use 2.4 GHz Wi-Fi.',
+  other: 'Could not connect. Check the network and try again.',
+  ssid: 'Choose a network or enter its name.',
+  password_format: 'Use at least 8 characters for the Wi-Fi password.',
+  server_format: 'Check the agent server address. Use kubik:// or secure WSS.',
+  busy: 'Kubik is already connecting. Please wait.',
+  agent: 'Choose one of the available agents.',
+  sdk_token: 'Enter the complete Muse SDK key from Muse Gadgets.',
+  bad_request: 'Could not read these settings. Please try again.'
+};
+
+async function requestJson(path, body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const options = {cache: 'no-store', signal: controller.signal};
+    if (body !== undefined) Object.assign(options, {method: 'POST',
+      headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+    const response = await fetch(path, options);
+    if (!response.ok) throw Error('Device unavailable');
+    return await response.json();
+  } finally { clearTimeout(timer); }
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+function friendlyServerAddress(url) {
+  const match = (url || '').match(/^wss:\/\/([^/]+)(\/.*)$/);
+  return match && match[2] === DEFAULT_DEVICE_PATH ? match[1] : url || '';
+}
+function normalizeServerAddress(value) {
+  value = value.trim();
+  if (!value) return '';
+  if (/^kubik:\/\//i.test(value)) return 'kubik://' + value.slice(8).replace(/\/+$/, '');
+  value = value.replace(/^https:\/\//i, 'wss://');
+  if (!/^[a-z]+:\/\//i.test(value)) value = 'wss://' + value;
+  if (/^wss:\/\/[^/]+\/?$/i.test(value)) value = value.replace(/\/?$/, DEFAULT_DEVICE_PATH);
+  return value;
+}
+function isSavedSsid(ssid) { return (setupState.saved_nets || []).includes(ssid); }
+function currentSsid() { return manualNetworkSelected ? getElement('ssid').value : selectedNetworkName; }
+function updatePasswordHint() {
+  if (passwordNetworkName !== currentSsid()) getElement('pass').value = '';
+  passwordNetworkName = currentSsid();
+  const saved = isSavedSsid(currentSsid());
+  getElement('pass').placeholder = saved ? 'Optional' : '';
+  getElement('passHint').textContent = saved ? 'Leave blank to keep the saved password.' : '';
+}
+function signalBars(rssi) {
+  const count = rssi > -55 ? 4 : rssi > -65 ? 3 : rssi > -75 ? 2 : 1;
+  return '<span class="bars" aria-hidden="true">' + [0,1,2,3].map(i =>
+    '<i class="' + (i < count ? 'l' : '') + '" style="height:' + (5 + i * 3) + 'px"></i>').join('') + '</span>';
+}
+function renderNetworks() {
+  const list = getElement('nets');
+  list.innerHTML = (setupState.nets || []).map((network, index) => {
+    const selected = !manualNetworkSelected && selectedNetworkName === network.s;
+    return '<button type="button" class="net' + (selected ? ' on' : '') + '" aria-pressed="' + selected + '" data-i="' + index + '">'
+      + '<span class="n">' + escapeHtml(network.s) + (isSavedSsid(network.s) ? ' <small>· saved</small>' : '')
+      + '</span>' + signalBars(network.r) + '</button>';
+  }).join('') || '<p class="hint">' + (setupState.scanning ? 'Looking for networks…' : 'No networks found. Refresh or enter a hidden network.') + '</p>';
+  list.querySelectorAll('.net').forEach(button => {
+    button.onclick = () => {
+      selectedNetworkName = setupState.nets[+button.dataset.i].s;
+      manualNetworkSelected = false;
+      getElement('ssidBox').hidden = true;
+      renderNetworks(); updatePasswordHint(); getElement('pass').focus();
+    };
+  });
+}
+function progress(step) {
+  ['Wifi','Agent','Ready'].forEach((name, i) => {
+    const el = getElement('step' + name);
+    el.className = i < step ? 'complete' : '';
+    if (i === step) el.setAttribute('aria-current', 'step');
+    else el.removeAttribute('aria-current');
+  });
+}
+function showStep(step, focus = true) {
+  activeStep = step;
+  getElement('wifiStep').hidden = step !== 'wifi';
+  getElement('agentStep').hidden = step !== 'agent';
+  getElement('go').textContent = step === 'wifi' ? 'Continue to agent' : 'Connect Kubik';
+  getElement('chosenNetwork').textContent = currentSsid() || '';
+  getElement('err').textContent = '';
+  progress(step === 'wifi' ? 0 : 1);
+  if (focus) {
+    getElement(step === 'wifi' ? 'wifiTitle' : 'agentTitle').focus({preventScroll: true});
+    window.scrollTo(0, 0);
+  }
+}
+function showStatus(kind, title = '', text = '') {
+  getElement('form').hidden = Boolean(kind);
+  getElement('status').className = kind ? 'status show' : 'status';
+  getElement('tess').dataset.state = kind || 'idle';
+  getElement('stTitle').textContent = title;
+  getElement('stText').textContent = text;
+  getElement('nextSteps').hidden = kind !== 'done';
+  getElement('retry').hidden = kind !== 'lost';
+  if (kind === 'done') progress(2);
+}
+function applySetupState(state) {
+  const first = !setupState.device;
+  setupState = state;
+  lostPollCount = 0;
+  if (first) {
+    // Do not overwrite an address or network already entered while the initial read was delayed.
+    if (!getElement('url').value) getElement('url').value = friendlyServerAddress(state.server);
+    getElement('serverDetails').open = Boolean(getElement('url').value);
+    if (!selectedNetworkName && !manualNetworkSelected) selectedNetworkName = state.saved_nets?.[0] || null;
+    getElement('foot').textContent = state.device;
+    if (state.agent === 'Muse') selectAgent('Muse');
+    updatePasswordHint();
+  }
+  if (state.phase === 'trying') {
+    getElement('sdkToken').value = '';
+    connectionSubmitted = true;
+    showStatus('trying', 'Connecting to ' + state.trying + '…', 'Keep Kubik powered on. Your phone may leave its setup network while it connects.');
+    return;
+  }
+  if (state.phase === 'done') {
+    showStatus('done', 'Wi-Fi connected. Next: pairing.', selectedAgent === 'Muse'
+      ? 'Kubik is restarting. Return to your regular Wi-Fi, then open the Muse app on this phone.'
+      : 'Kubik is restarting and looking for your agent. Continue on its screen.');
+    return;
+  }
+  if (uncertainSubmission && ['join', 'open'].includes(state.phase)) {
+    uncertainSubmission = false; connectionSubmitted = false; showStatus('');
+  }
+  if (connectionSubmitted && (state.phase === 'failed' || state.error)) {
+    connectionSubmitted = false; uncertainSubmission = false;
+    showStatus(''); showStep('wifi');
+    getElement('err').textContent = ERROR_MESSAGES[state.error] || ERROR_MESSAGES.other;
+  } else if (!connectionSubmitted) showStatus('');
+  if (!getElement('nets').contains(document.activeElement)) renderNetworks();
+}
+async function pollSetupState() {
+  clearTimeout(pollTimer);
+  if (document.hidden || polling) return;
+  polling = true;
+  try { applySetupState(await requestJson('/api/state')); }
+  catch {
+    lostPollCount++;
+    if (lostPollCount >= 3) showStatus('lost', connectionSubmitted ? 'Check Kubik’s screen' : 'Reconnect to Kubik',
+      connectionSubmitted ? (selectedAgent === 'Muse'
+        ? 'If Kubik shows Pair Muse on your phone, open the Muse app. If it still shows setup, join its network and check again.'
+        : 'The phone lost the setup connection. Kubik will show a pairing code if Wi-Fi worked. If it still shows setup, join its network and check again.')
+        : 'Join the KUBIK Wi-Fi network shown on its screen, then check again. Your entries are still here.');
+  }
+  polling = false;
+  if (!document.hidden && setupState.phase !== 'done' && lostPollCount < 6) pollTimer = setTimeout(pollSetupState, 1500);
+}
+function positionActions() {
+  const viewport = window.visualViewport;
+  if (viewport) getElement('actions').style.bottom = Math.max(0, innerHeight - viewport.height - viewport.offsetTop) + 'px';
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    positionActions();
+    if (document.activeElement?.tagName === 'INPUT') document.activeElement.scrollIntoView({block: 'center'});
+  });
+  window.visualViewport.addEventListener('scroll', positionActions);
+  positionActions();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && setupState.phase !== 'done') pollSetupState(); });
+getElement('retry').onclick = () => { lostPollCount = 0; pollSetupState(); };
+function revealAboveActions(element) {
+  const bar = getElement('actions').getBoundingClientRect().height;
+  const overlap = element.getBoundingClientRect().bottom - (innerHeight - bar - 16);
+  if (overlap > 0) scrollBy(0, overlap);
+}
+getElement('back').onclick = () => showStep('wifi');
+getElement('serverDetails').ontoggle = () => {
+  if (!getElement('serverDetails').open) return;
+  // Focus scroll runs after this event and would cover the hint again.
+  requestAnimationFrame(() => revealAboveActions(getElement('urlHint')));
+};
+function selectAgent(agent) {
+  selectedAgent = agent;
+  const muse = agent === 'Muse';
+  getElement('agents').querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.agent === agent)));
+  getElement('serverDetails').hidden = muse;
+  getElement('serverDetails').open = agent === 'Hermes';
+  getElement('museDetails').hidden = !muse;
+  getElement('sdkToken').placeholder = setupState.muse_saved ? 'Keep saved account (optional)' : 'mgst_…';
+  const hints = {
+    OpenClaw: 'Follow the Kubik setup guide on GitHub to install the OpenClaw channel. Keep OpenClaw running, then connect here.',
+    Hermes: 'Install the Kubik platform inside your Hermes Gateway using the GitHub guide. Configure speech in Hermes. Enter kubik://HOST:18793 below; no companion host is needed.',
+    Custom: 'Use the Agent SDK to create your adapter. Run the Kubik host on your agent computer, then connect here.',
+    Muse: 'Connect Wi-Fi here, then finish in the Muse app: Settings → Devices → Developer mode → Add device. Bluetooth is used only for pairing.'
+  };
+  getElement('agentHint').textContent = hints[agent];
+  getElement('url').placeholder = agent === 'Hermes' ? 'kubik://HOST:18793' : 'Leave blank for local discovery';
+  getElement('pairingHint').textContent = muse ? 'Open Muse on your phone: Settings → Devices → Developer mode → Add device. Choose the MuseGadget shown on Kubik.' : 'Look for a pairing code on Kubik.';
+  getElement('approvalHint').textContent = muse ? 'When asked, press KEY on Kubik to confirm. Choose Wi-Fi in the Muse app to finish pairing.'
+    : agent === 'OpenClaw' ? 'On your agent computer, run openclaw pairing list kubik. Only if the displayed code matches, run openclaw pairing approve kubik CODE.'
+    : agent === 'Hermes' ? 'On the Hermes machine, approve the matching code with python ~/.hermes/plugins/kubik/pair.py CODE.'
+    : 'On your agent computer, run npx kubik-agent-host pair-list. Only if the displayed code matches, run npx kubik-agent-host approve CODE.';
+  getElement('guideHint').textContent = muse ? 'Kubik restarts with Bluetooth off and connects to Muse directly over Wi-Fi. Press KEY to speak; read the reply on its screen.' : 'Follow the short guide on Kubik. Change options later in Settings → Agent.';
+}
+getElement('agents').querySelectorAll('button').forEach(button => {
+  button.onclick = () => selectAgent(button.dataset.agent);
+});
+getElement('rescan').onclick = async () => {
+  const button = getElement('rescan');
+  button.disabled = true;
+  try {
+    await requestJson('/api/scan', {});
+    setupState.scanning = true; setupState.nets = []; renderNetworks();
+  } catch { getElement('err').textContent = 'Could not refresh. Check your connection to Kubik.'; }
+  finally { button.disabled = false; }
+};
+getElement('manual').onclick = () => {
+  manualNetworkSelected = true; getElement('ssidBox').hidden = false;
+  renderNetworks(); getElement('ssid').focus(); updatePasswordHint();
+};
+getElement('ssid').oninput = updatePasswordHint;
+getElement('eye').onclick = function () {
+  const input = getElement('pass');
+  input.type = input.type === 'password' ? 'text' : 'password';
+  this.textContent = input.type === 'password' ? 'Show' : 'Hide';
+  this.setAttribute('aria-label', this.textContent + ' password');
+};
+getElement('form').onsubmit = async event => {
+  event.preventDefault();
+  if (submitting || connectionSubmitted) return;
+  getElement('err').textContent = '';
+  const body = {ssid: currentSsid() || '', pass: getElement('pass').value, agent: selectedAgent};
+  if (selectedAgent === 'Muse') body.sdk_token = getElement('sdkToken').value.trim();
+  else body.url = normalizeServerAddress(getElement('url').value);
+  if (activeStep === 'agent' && selectedAgent === 'Hermes' && !body.url) {
+    getElement('err').textContent = 'Enter your Hermes address: kubik://HOST:18793'; return;
+  }
+  if (!body.ssid) { getElement('err').textContent = ERROR_MESSAGES.ssid; return; }
+  if (activeStep === 'wifi') { showStep('agent'); return; }
+  submitting = true; getElement('go').disabled = true;
+  try {
+    const response = await requestJson('/api/connect', body);
+    if (!response.ok) {
+      if (response.error === 'sdk_token') getElement('sdkToken').focus();
+      else if (response.error === 'server_format') { getElement('serverDetails').open = true; getElement('url').focus(); }
+      else if (response.error !== 'agent') showStep('wifi');
+      getElement('err').textContent = ERROR_MESSAGES[response.error] || ERROR_MESSAGES.other;
+      return;
+    }
+    getElement('sdkToken').value = '';
+    connectionSubmitted = true;
+    showStatus('trying', 'Connecting to ' + body.ssid + '…', 'Keep Kubik powered on. Follow its screen after it restarts.');
+  } catch {
+    connectionSubmitted = true; uncertainSubmission = true;
+    showStatus('lost', 'Check Kubik’s screen', 'Saving was not confirmed. Reconnect to Kubik and check the status before trying again.');
+  } finally { if (body.sdk_token) body.sdk_token = ''; submitting = false; getElement('go').disabled = false; }
+};
+pollSetupState();
+</script>
+</body>
+</html>

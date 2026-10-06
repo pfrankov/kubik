@@ -1,0 +1,10 @@
+{
+  "diagram_type": "architecture",
+  "validation": "9/9 showcase, 0 errors, 0 warnings",
+  "browser_evidence": "passed",
+  "visual_review": "passed",
+  "correction_rounds": 1,
+  "scope": "Screenshot review: 1440x900 light and 2048x1320 dark; no node/edge/card overlap or clipping. Search, focus and export interactions not manually exercised.",
+  "receipt": "delivery.json",
+  "browser_receipt": "kubik.visual-check.json"
+}

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kubik · Sparkle sounds</title><link rel="stylesheet" href="style.css">
+<main><header><p class="eyebrow">KUBIK / SOUND LAB</p><h1>Find the sparkle.</h1>
+<p>20 different timbres. Play one particle, or hear a rolling cluster. Pick your favourites by number.</p>
+<p class="note">Audio proposals, not device recordings. Same contacts and matched listening level; the physical speaker will need a final check.</p></header>
+<section class="toolbar" aria-label="Playback controls"><button id="stop">Stop audio</button>
+<label>Playback level <input id="volume" type="range" min="0" max="100" value="65"></label>
+<label><input type="checkbox" id="filter"> Favourites only</label>
+<span id="selection" aria-live="polite">No favourites yet</span></section>
+<p id="status" role="status">Choose a sound to listen.</p><section id="variants" aria-label="Sound variants"></section>
+<p id="error" role="alert"></p></main><script src="app.js"></script></html>

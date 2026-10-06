@@ -1,0 +1,14 @@
+{"fps":15,"geometry":{"scale": 0.61, "ox": -20, "oy": 152},"anims":[
+ {"name": "idle", "src": "idle.mp4", "segs": [[0.0, 3.0], [5.9, 6.5]], "fps": 15},
+ {"name": "wave", "src": "wave1.mp4", "segs": [[2.4, 5.4]], "fps": 15},
+ {"name": "listen", "src": "listen.mp4", "segs": [[1.0, 3.7], [6.3, 7.4]], "loop": [2.9, 3.6], "fps": 15},
+ {"name": "think", "src": "think.mp4", "segs": [[1.2, 3.7], [5.4, 6.2]], "loop": [2.3, 3.6], "fps": 10},
+ {"name": "talk", "src": "talk.mp4", "segs": [[1.2, 5.5]], "loop": [1.8, 5.0], "fps": 15},
+ {"name": "joy", "src": "joy.mp4", "segs": [[1.0, 5.2]], "fps": 15},
+ {"name": "love", "src": "love.mp4", "segs": [[0.8, 3.4], [4.4, 5.2]], "loop": [2.0, 3.3], "fps": 10},
+ {"name": "sad", "src": "sad.mp4", "segs": [[1.0, 4.7]], "loop": [2.5, 3.6], "fps": 10},
+ {"name": "surprised", "src": "surprised.mp4", "segs": [[1.2, 4.5]], "fps": 15},
+ {"name": "sleep", "src": "sleep.mp4", "segs": [[3.6, 5.9]], "loop": [4.4, 5.1], "fps": 10},
+ {"name": "dizzy", "src": "dizzy.mp4", "segs": [[1.0, 5.8]], "fps": 10},
+ {"name": "angry", "src": "angry.mp4", "segs": [[1.0, 5.2]], "fps": 10},
+ {"name": "shy", "src": "shy.mp4", "segs": [[0.5, 5.0]], "loop": [1.8, 3.2], "fps": 10}]}

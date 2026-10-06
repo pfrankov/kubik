@@ -1,0 +1,20 @@
+Mbed TLS 3.6.4 (ESP-IDF 5.5.1 components/mbedtls/mbedtls)
+Copyright The Mbed TLS Contributors
+
+From the LICENSE file of that source tree:
+
+  Mbed TLS files are provided under a dual Apache-2.0 OR GPL-2.0-or-later
+  license. This means that users may choose which of these licenses they
+  take the code under.
+
+Kubik uses Mbed TLS under the Apache License, Version 2.0 (Apache-2.0.txt
+in this directory). The GPL-2.0-or-later alternative is not used, and its
+text is not reproduced here; it is in the Mbed TLS source tree above.
+
+Two subdirectories of Mbed TLS carry their own notices and are linked into the
+firmware image:
+  3rdparty/everest (Project Everest, X25519):
+    Copyright 2016-2018 INRIA and Microsoft Corporation, Apache-2.0.
+  3rdparty/p256-m (P-256):
+    Copyright The Mbed TLS Contributors, author Manuel Pegourie-Gonnard,
+    Apache-2.0 OR GPL-2.0-or-later, used under Apache-2.0.

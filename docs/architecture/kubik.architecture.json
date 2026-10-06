@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Кубик — подключение и обработка",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1340,
+      760
+    ]
+  },
+  "components": [
+    {
+      "id": "phone",
+      "type": "external",
+      "label": "Телефон",
+      "sublabel": "ESP BLE Provisioning",
+      "pos": [
+        60,
+        70
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "cube",
+      "type": "frontend",
+      "label": "Кубик · ESP32-C6",
+      "sublabel": "Микрофон, звук, анимация",
+      "pos": [
+        60,
+        330
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "link",
+      "type": "messagebus",
+      "label": "Выбор связи",
+      "sublabel": "Wi-Fi, запасной USB",
+      "pos": [
+        390,
+        330
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "USB-мост · Mac",
+      "sublabel": "Настройки: localhost:18791",
+      "pos": [
+        390,
+        590
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "edge",
+      "type": "security",
+      "label": "Nginx · TLS",
+      "sublabel": "WSS /kubik/v1",
+      "pos": [
+        720,
+        330
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "channel",
+      "type": "backend",
+      "label": "Канал kubik",
+      "sublabel": "Авторизация, очередь речи",
+      "pos": [
+        1050,
+        330
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Агент OpenClaw",
+      "sublabel": "История, модель, инструменты",
+      "pos": [
+        1050,
+        70
+      ],
+      "size": [
+        230,
+        80
+      ]
+    },
+    {
+      "id": "voice",
+      "type": "cloud",
+      "label": "Голос OpenClaw",
+      "sublabel": "STT → текст · TTS → PCM",
+      "pos": [
+        1050,
+        590
+      ],
+      "size": [
+        230,
+        80
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "phone-cube",
+      "from": "phone",
+      "to": "cube",
+      "label": "BLE: SSID / пароль",
+      "labelDy": 100
+    },
+    {
+      "id": "cube-link",
+      "from": "cube",
+      "to": "link",
+      "label": "PCM + события"
+    },
+    {
+      "id": "link-edge",
+      "from": "link",
+      "to": "edge",
+      "label": "Wi-Fi · WSS"
+    },
+    {
+      "id": "link-bridge",
+      "from": "link",
+      "to": "bridge",
+      "label": "USB v2",
+      "labelDy": 100
+    },
+    {
+      "id": "bridge-edge",
+      "from": "bridge",
+      "to": "edge",
+      "label": "WSS через Mac"
+    },
+    {
+      "id": "edge-channel",
+      "from": "edge",
+      "to": "channel",
+      "label": "WebSocket"
+    },
+    {
+      "id": "channel-agent",
+      "from": "channel",
+      "to": "agent",
+      "label": "Текст / ответ"
+    },
+    {
+      "id": "channel-voice",
+      "from": "channel",
+      "to": "voice",
+      "label": "STT / TTS",
+      "labelDy": 100
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "На устройстве",
+      "items": [
+        "Локальная анимация 24 кадра/с; PCM 24 кГц",
+        "Bluetooth работает только при настройке сети"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "На сервере",
+      "items": [
+        "STT → агент → TTS; ответ возвращается тем же каналом",
+        "Конкретные модели и ключи хранятся в OpenClaw"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Правило подключения",
+      "items": [
+        "Wi-Fi основной; USB запасной, по запросу устройства",
+        "Без работающего моста кубик использует Wi-Fi"
+      ]
+    }
+  ]
+}

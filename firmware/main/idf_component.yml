@@ -1,0 +1,11 @@
+dependencies:
+  idf:
+    version: ">=5.5.0"
+  waveshare/esp_lcd_touch_cst9217: "^1.0.4"
+  espressif/esp_codec_dev: "~1.4.0"
+  espressif/esp_websocket_client: "^1.4.0"
+  espressif/qrcode: "^0.2.0"
+  espressif/esp-tflite-micro: "1.4.1"
+  espressif/esp-nn: "1.4.1"
+  esphome/esp-micro-speech-features: "1.2.3"
+  espressif/esp-sr: "2.5.5"

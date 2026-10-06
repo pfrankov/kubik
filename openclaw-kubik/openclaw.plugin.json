@@ -1,0 +1,214 @@
+{
+  "id": "kubik",
+  "name": "Kubik",
+  "version": "0.6.2",
+  "description": "Kubik voice desk device channel (push-to-talk ESP32-C6, OpenAI-compatible voice)",
+  "channels": [
+    "kubik"
+  ],
+  "categories": [
+    "channels"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "channelConfigs": {
+    "kubik": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "listen": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            }
+          },
+          "devices": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "voice": {
+            "type": "object",
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "mode"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "realtime",
+                        "live"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "provider": {
+                      "const": "openclaw"
+                    },
+                    "liveTranscription": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "openai-http",
+                  "openclaw"
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "classic",
+                  "realtime",
+                  "live"
+                ]
+              },
+              "baseUrl": {
+                "type": "string"
+              },
+              "apiKey": {
+                "type": "string"
+              },
+              "apiKeyFile": {
+                "type": "string"
+              },
+              "voice": {
+                "type": "string"
+              },
+              "transcribeModel": {
+                "type": "string"
+              },
+              "language": {
+                "type": "string"
+              },
+              "ttsModel": {
+                "type": "string"
+              },
+              "speechInstructions": {
+                "type": "string"
+              },
+              "pitch": {
+                "type": "number",
+                "minimum": -12,
+                "maximum": 12
+              },
+              "liveTranscription": {
+                "type": "boolean"
+              }
+            }
+          },
+          "allowInsecureBaseUrl": {
+            "type": "boolean"
+          },
+          "volume": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "defaultTo": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "always"
+            ]
+          },
+          "tts": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      },
+      "uiHints": {
+        "listen.enabled": {
+          "label": "LAN TLS listener and discovery (false on hosts without devices in their LAN)"
+        },
+        "listen.public": {
+          "label": "Also accept devices from public addresses on the TLS port (VPS without a domain; discovery stays private)"
+        },
+        "listen.port": {
+          "label": "LAN TLS port for devices (discovery replies carry it)",
+          "placeholder": "18790"
+        },
+        "devices.*.enabled": {
+          "label": "Allow this device (false revokes it, including paired keys)"
+        },
+        "voice.baseUrl": {
+          "label": "OpenAI-compatible API URL",
+          "placeholder": "https://api.openai.com/v1"
+        },
+        "voice.apiKey": {
+          "label": "OpenAI API key",
+          "sensitive": true
+        },
+        "voice.apiKeyFile": {
+          "label": "OpenAI API key file"
+        },
+        "voice.pitch": {
+          "label": "Voice pitch shift, semitones (openclaw engine; +6 = cartoon character)"
+        },
+        "voice.provider": {
+          "label": "Voice engine: openclaw = configured Gateway STT/TTS (default), openai-http = an OpenAI-compatible /audio API"
+        },
+        "voice.mode": {
+          "label": "Classic STT/TTS, OpenAI Realtime, or GPT-Live voice of the same agent (native modes require Gateway OpenAI API-key auth)"
+        },
+        "voice.liveTranscription": {
+          "label": "Stream microphone audio to OpenAI gpt-live-transcribe instead of batch transcription; requires OpenAI API-key auth"
+        },
+        "tts": {
+          "label": "Kubik TTS override (same shape as the top-level tts block)"
+        },
+        "allowInsecureBaseUrl": {
+          "label": "Allow http:// voice provider (local mock only)"
+        }
+      }
+    }
+  }
+}

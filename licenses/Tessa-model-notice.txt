@@ -1,0 +1,14 @@
+Tessa microWakeWord model: distribution license unresolved
+
+Source: https://github.com/mitrokun/espeak-ng-data
+Commit: 68fa929628d0818dff86d4ee7eb976d584158829
+File: mww/tessa.tflite (63496 bytes)
+SHA256: ca8722069633c9a63d7824c9dfc3fec585b44dbe8f50257b8f5a66613b6ecdb8
+
+The upstream repository/model provides no identified distribution license.
+This notice grants no rights to the model. Do not publish or redistribute the
+TESS firmware assets/kit until permission has been established. Local testing
+uses the user-selected model. The model is not covered by Kubik's Apache license.
+
+The manifest names the wake word "tessa" and language "en". The user-facing
+phrase "Hi Tessa" includes this word; the model does not require the "Hi" prefix.

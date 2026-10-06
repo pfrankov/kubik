@@ -1,0 +1,105 @@
+CONFIG_IDF_TARGET="esp32c6"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# CONFIG_COMPILER_OPTIMIZATION_PERF is not set
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+# Allow the crystal-clock floor (40 MHz) while dark; the display holds 160 MHz while awake.
+CONFIG_PM_ENABLE=y
+# Light sleep needs tickless idle. main.c holds a no-light-sleep lock except while dark and idle on battery with Wi-Fi radio off.
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+
+# Setup runs over Kubik's own Wi-Fi network and a web page: no Bluetooth.
+# Muse Bluetooth is initialized only during encrypted phone pairing.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_MAX_BONDS=1
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=12
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=12
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=12
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=15
+CONFIG_CJSON_NESTING_LIMIT=16
+CONFIG_MBEDTLS_ECP_DP_CURVE25519_ENABLED=y
+# Setup page server: a few phones at most.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_LWIP_DHCPS_MAX_STATION_NUM=4
+
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+# A failed assert() is a reboot either way; its file names and expressions (about 67 KB of flash, and ~8 KB of IRAM/data) are not needed.
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+# Bound burst allocations while TLS, the screen and audio share internal RAM.
+# Copy to lwIP frees the driver RX frame before socket reads, preserving ACK
+# headroom without retaining a second eight-frame driver queue during Live.
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_RX_BA_WIN=4
+CONFIG_ESP_WIFI_TX_BA_WIN=4
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Continuous Live sends 968-byte mic/reference frames; keep TX scratch at 1 KB.
+# esp_tls_mbedtls_write fragments larger control messages; RX stays at 16 KB.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
+# Prefer the SDK's ChaCha20-Poly1305 suites on this single-core chip.
+# Keep hardware AES for peers selecting AES; reserve DMA headroom for Wi-Fi.
+CONFIG_MBEDTLS_HARDWARE_AES=y
+CONFIG_MBEDTLS_CHACHA20_C=y
+CONFIG_MBEDTLS_POLY1305_C=y
+CONFIG_MBEDTLS_CHACHAPOLY_C=y
+CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
+
+# mbedTLS allocations go through tls_mem.c: the incoming record buffer, allocated and freed per record,
+# lives in a reserved slot so a fragmented heap can't break the link mid-speech ("alloc(4461) failed").
+CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y
+
+# Keep Wi-Fi throughput code in flash; preserve sleep-specific IRAM placement.
+# Real-device WSS speech and 24 fps are checked before accepting this RAM saving.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_EXTRA_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_LWIP_LOCAL_HOSTNAME="kubik"
+
+# The panel is fed one window per changed band: queueing its transactions must not wait on the flash
+# cache, which the sprite frames stream through.
+CONFIG_SPI_MASTER_IN_IRAM=y
+
+# Speech is 12 KB/s. Two 1440-byte segments bound copied RX pbufs while Live
+# also sends the microphone: 28.8 KB/s at 100 ms RTT, without a four-packet heap burst.
+CONFIG_LWIP_TCP_WND_DEFAULT=2880
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=12
+# Release scarce driver RX buffers before a serialized TLS send can wait for
+# ACKs. TCP keeps its own bounded pbufs instead of holding Wi-Fi buffers hostage.
+CONFIG_LWIP_L2_TO_L3_COPY=y
+
+# Kubik is only ever a TLS client (wss:// to a public server, or the plugin's own self-signed listener with ECDHE-ECDSA):
+# no server code, renegotiation, static-RSA or static-ECDH key exchange, CMAC/PKCS7/CRL/CSR/PEM writing or error strings;
+# nor WPA2-Enterprise (the setup page only takes a password). About 12 KB of flash.
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
+CONFIG_MBEDTLS_SSL_RENEGOTIATION=n
+CONFIG_MBEDTLS_ERROR_STRINGS=n
+CONFIG_MBEDTLS_KEY_EXCHANGE_RSA=n
+CONFIG_MBEDTLS_KEY_EXCHANGE_ECDH_ECDSA=n
+CONFIG_MBEDTLS_KEY_EXCHANGE_ECDH_RSA=n
+CONFIG_MBEDTLS_PKCS7_C=n
+CONFIG_MBEDTLS_CMAC_C=n
+CONFIG_MBEDTLS_X509_CRL_PARSE_C=n
+CONFIG_MBEDTLS_X509_CSR_PARSE_C=n
+CONFIG_MBEDTLS_PEM_WRITE_C=n
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+
+# BLE is used only for low-rate phone pairing. Keep its controller code in
+# flash so it does not consume the wake model's RAM; suspend flash writes
+# while cached BLE code executes (ESP-IDF C6 controller requirement).
+CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
+
+CONFIG_SPI_FLASH_AUTO_SUSPEND=y

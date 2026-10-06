@@ -1,0 +1,56 @@
+ref/
+backup/
+**/build/
+**/build-plush/
+**/managed_components/
+**/dependencies.lock
+**/sdkconfig
+**/sdkconfig.old
+node_modules/
+.tmp/
+*.log
+firmware/main/secrets.h
+.DS_Store
+tools/dev-secrets.json
+tools/dev-device-key.pem
+tools/prod-secrets.json
+tools/.logs/
+tools/.out/
+tools/mock-openai/.cache/
+firmware/sim/out/
+dist/
+tools/sfx/out/
+tools/sprites/out/
+openclaw-kubik/*.tgz
+
+# Python tooling and local environments
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local credentials; committed examples remain visible
+.env
+.env.*
+!.env.example
+!.env.sample
+*.key
+*.pem
+
+# Local wake model: redistribution terms are not established
+/firmware/assets/wake/tessa.tflite
+
+# Local editor runtime and machine state
+.claude/scheduled_tasks*
+.claude/routines/.state/
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local/
+.claude/first-run
+.claude/assistant-daemon-state.json
+**/.claude/settings.local.json

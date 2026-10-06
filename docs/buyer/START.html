@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kubik · Start here</title><link rel="stylesheet" href="start.css"><script src="start.js" defer></script></head>
+<body><main>
+<header><div><p class="brand">KUBIK · SETUP</p><h1>Set up Kubik.</h1><p>Connect Tess to your own agent.</p></div>
+<img src="assets/hello-tess.png" alt="Tess on an isometric Kubik with three physical buttons."></header>
+<p>Your Kubik is already flashed. You need USB-C power, a phone and a <strong>2.4 GHz Wi-Fi</strong> password. <strong>Muse needs only your phone.</strong> OpenClaw and Hermes also need a computer or server that keeps your agent running.</p>
+<p class="note">GitHub setup page: <a href="https://OWNER.github.io/kubik/" data-setup-url>https://OWNER.github.io/kubik/</a> <span class="draft">Temporary address — replace before release.</span></p>
+<nav aria-label="Setup sections"><a href="#buttons">Buttons</a><a href="#agent">1. Prepare your agent</a><a href="#wifi">2. Connect Wi-Fi</a><a href="#pair">3. Approve Kubik</a><a href="#talk">4. Talk to Tess</a><a href="#help">Help</a></nav>
+
+<section id="buttons"><h2>Know the buttons.</h2><svg class="controls" viewBox="0 0 1254 1254" role="img" aria-label="Kubik in three dimensions. Buttons from left to right: BOOT, PWR, KEY.">
+<image href="assets/hello-tess.png" width="1254" height="1254"/>
+<g fill="none" stroke="#17695f" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M200 112 V155 L450 248"/><path d="M627 112 V285"/><path d="M1054 112 V205 L820 321"/></g>
+<g fill="#17695f" text-anchor="middle"><text x="200" y="90">BOOT</text><text x="627" y="90">PWR</text><text x="1054" y="90">KEY</text></g>
+</svg>
+<p class="note">Facing the screen: <strong>BOOT</strong> on the left, <strong>PWR</strong> in the middle, <strong>KEY</strong> on the right.</p>
+<dl class="button-actions"><dt>BOOT</dt><dd>Press to go back one screen. Hold to open or close Settings.</dd><dt>PWR</dt><dd>Press for screen off/on. Hold about two seconds for power off/on.</dd><dt>KEY</dt><dd>Start voice input. How to send depends on the voice mode; see <a href="#talk">Talk</a>.</dd></dl></section>
+
+<section id="agent"><h2>1. Prepare your agent.</h2>
+<p>Choose the setup for your agent. Muse uses your phone. For OpenClaw or Hermes, start on a Mac or Linux computer connected to Kubik’s home network; install your agent, add the Kubik integration and set up voice. Keep this computer awake. Model and speech providers may charge for usage.</p>
+<details id="muse"><summary>Using Muse? Set up with just your phone</summary>
+<p>Experimental direct Muse support needs no computer or Kubik host. Sign in to the Muse app and create a personal <a href="https://gadgets.muse.ai/settings/sdk-tokens">Muse SDK key</a>. Continue straight to <a href="#wifi">Wi-Fi setup</a>; choose <strong>Muse</strong> and enter the key in the hidden field. You do not need a server address.</p>
+<p>After Kubik restarts, return to your phone’s usual Wi-Fi. In Muse, open <strong>Settings → Devices → Developer mode → Add device</strong>. Choose the <strong>MuseGadget</strong> shown on Kubik. Allow Bluetooth, press <strong>KEY</strong> when asked to confirm, then choose Wi-Fi in the app. Bluetooth is built in and turns off after pairing; all later communication uses Wi-Fi.</p>
+<p>Press KEY to send a voice note; read the reply on Kubik. This C6 SDK path returns text: speech output, Realtime, GPT Live and model selection are unavailable. Device/cloud pairing is still awaiting physical verification. A personal key is not included in firmware and cannot be embedded in a retail build under SDK-token terms.</p></details>
+<h3>Install OpenClaw</h3><ol><li>Install OpenClaw using the <a href="https://docs.openclaw.ai/start/getting-started">official Getting Started guide</a> and complete its onboarding. The guide opens your dashboard. If you already have a working OpenClaw, keep it.</li>
+<li>Send a short text message in the dashboard. Continue when your agent answers.</li>
+<li>Keep the Gateway running. Check its service with the command below. If you used a foreground Gateway, follow the official guide to install its background service before closing the terminal.</li></ol>
+<pre data-copy>openclaw gateway status</pre>
+<p class="note">This release supports OpenClaw from 2026.9.7 up to, but not including, 2027, with Node.js 24.16+ in the 24.x line or 26.1+. The clean installation is checked with 2026.9.7. Windows/WSL and Docker instructions are experimental; they have not been verified on a physical host here.</p>
+<details id="other-agent"><summary>Using Hermes or another agent?</summary><p><strong>Hermes:</strong> follow <a href="#voice-hermes">the native Hermes setup</a>. It connects directly to its existing Gateway.</p><p><strong>Your own adapter:</strong> follow the <a href="../agent-sdk.md">Agent SDK</a>. A custom ESM adapter uses kubik-agent-host.</p></details>
+<p class="result"><strong>Continue below:</strong> download the integration, configure voice and check the connection address before scanning Kubik.</p></section>
+
+<section id="channel"><h3>Download and install the Kubik integration</h3>
+<p>Get the current software release from <a href="https://github.com/OWNER/kubik/releases" data-download-url>GitHub Releases (temporary link)</a>. Extract it on the computer running your agent. Software is downloaded separately; no files supplied with the device are required.</p>
+<details open><summary>OpenClaw installation commands</summary>
+<p>Open a terminal in the extracted software folder on the <strong>computer running OpenClaw</strong>. If that computer is a server, copy the downloaded release there first. Keep the <code>.tgz</code> archive packed.</p>
+<pre data-copy>openclaw plugins install ./openclaw-kubik-0.6.2.tgz --force --accept-capabilities</pre>
+<p class="note">In Windows PowerShell, use <code>.\openclaw-kubik-0.6.2.tgz</code> for the archive path. Use the .tgz from the GitHub release. This package is not installed by name from npm.</p>
+<pre data-copy>openclaw channels add --channel kubik --enable
+openclaw channels status --probe</pre>
+<p>A running Gateway applies this as a managed update. Wait for reconnection. If the installed service is stopped, use <code>openclaw gateway start</code>. Do not restart a working Gateway just for this step.</p>
+<p>For the home-network path, allow incoming <strong>TCP and UDP 18790</strong> in the computer’s firewall, limited to your local network. Keep the computer awake. Do not forward these ports on your home router.</p>
+<details><summary>Allow the connection through your firewall</summary>
+<p><strong>macOS:</strong> when macOS asks whether Node/OpenClaw may accept incoming network connections, choose Allow. If you previously blocked it, open System Settings → Network → Firewall → Options and allow incoming connections for that application.</p>
+<p><strong>Ubuntu with UFW:</strong> allow the two protocols from your home subnet. The example below uses <code>192.168.1.0/24</code>; replace it with the actual LAN subnet from your router settings. Do not paste this example unchanged if your network is different.</p>
+<pre>sudo ufw allow from 192.168.1.0/24 to any port 18790 proto tcp
+sudo ufw allow from 192.168.1.0/24 to any port 18790 proto udp</pre>
+<p>For another Linux firewall, add equivalent LAN-only rules. Keep the firewall enabled. A guest network or router client-isolation setting may still prevent devices from talking to each other.</p>
+</details>
+<p class="result"><strong>Ready:</strong> channel status includes a LAN address such as <code>lan kubik://192.168.1.5:18790</code>. This checks configuration; the first conversation checks the actual voice providers.</p></details></section>
+
+<section id="voice"><h3>Choose and configure voice</h3>
+<p>Configure voice providers on the agent computer. After pairing, choose OpenClaw modes and models in <strong>Settings → Agent → Voice</strong>. For Hermes, configure Classic providers and models in Hermes.</p>
+<dl class="button-actions"><dt>STT</dt><dd>Classic recognition and speech use separate models. Available with OpenClaw and Hermes.</dd><dt>Realtime</dt><dd>Speak, then pause to send. One voice model, through OpenClaw.</dd><dt>GPT Live</dt><dd>Keep a conversation open until KEY. One voice model, through OpenClaw.</dd></dl>
+<p>Already have working speech? Keep it. Otherwise open the instructions for your agent below. An agent’s text model and your voice model are separate; a ChatGPT subscription alone does not provide speech API access.</p>
+<details id="voice-openclaw"><summary>OpenClaw: configure Classic STT and TTS</summary>
+<p>Already working? Keep your speech settings. For a new OpenAI setup, obtain a Platform API key in your OpenAI account. Store it locally; never enter it on Kubik. The following uses the current OpenClaw 2026.9.7 configuration.</p>
+<h3>1. Store one speech key, then connect both consumers</h3><p>On the Gateway computer, use the same operating-system account and OpenClaw state as its service. Inspect the channel bindings and identify the agent routed for your Kubik; without an explicit binding, inspect the default route:</p>
+<pre data-copy>openclaw agents list --bindings
+openclaw secrets store set KUBIK_OPENAI_API_KEY --kind secret</pre><p>The second command prompts privately for the Platform key. Do not use a command-line key value. Then run the wizard, replacing AGENT-ID with Kubik's agent:</p>
+<pre data-copy>openclaw secrets configure --agent AGENT-ID</pre><p>Inspect existing credentials first. In the wizard, create a dedicated <strong>OpenAI API-key auth profile</strong> for that agent named <code>openai:kubik-audio</code>. Map its key to the team-store secret: source <strong>store</strong>, provider <strong>default</strong>, ID <strong>KUBIK_OPENAI_API_KEY</strong>. Review only those intended targets and apply the plan. Do not replace an OAuth login, other profiles or their order.</p>
+<p>Configure the separate TTS credential reference. This works even when a new installation has no TTS provider entry for the wizard to discover. First inspect the dry-run, then apply:</p>
+<pre data-copy>openclaw config set tts.providers.openai.apiKey --ref-source store --ref-provider default --ref-id KUBIK_OPENAI_API_KEY --dry-run
+openclaw config set tts.providers.openai.apiKey --ref-source store --ref-provider default --ref-id KUBIK_OPENAI_API_KEY
+openclaw secrets reload</pre><p>The stored key can serve Classic recognition, Classic speech output and native voice. A profile alone does not enable the Classic TTS path: its separate provider reference is necessary. See <a href="https://docs.openclaw.ai/cli/secrets">OpenClaw secrets commands</a> for the wizard and protected store.</p>
+<h3>2. Add recognition and speech settings</h3><p>Add this audio entry to <code>tools.media.models</code>, preserving existing entries. Use the exact profile name chosen in the wizard. Enable <code>tools.media.audio.enabled</code>. These are configuration fragments, not commands:</p><pre>{"tools":{"media":{"audio":{"enabled":true},"models":[
+  {"type":"provider","provider":"openai","model":"gpt-4o-transcribe",
+   "profile":"openai:kubik-audio","capabilities":["audio"]}
+]}}}</pre>
+<p>Merge these non-secret TTS settings, preserving the new apiKey reference and existing providers. The provider selection is scoped to Kubik:</p><pre>{"channels":{"kubik":{"tts":{"provider":"openai","providers":{
+  "openai":{"model":"gpt-4o-mini-tts","speakerVoice":"marin"}
+}}}}}</pre><p>Use your local config editor or ask your agent to merge these fragments. Never replace an existing models array with this example alone. Review changes before applying them. OpenClaw's <a href="https://docs.openclaw.ai/nodes/audio">audio guide</a> and <a href="https://docs.openclaw.ai/providers/openai/voice-and-speech">speech guide</a> describe other providers. Microsoft TTS does not provide Kubik's required PCM output; an already configured PCM-capable provider such as ElevenLabs may be used.</p>
+<p class="note">Before a later setup or upgrade, check the <a href="#model-lifecycle">model lifecycle note</a>.</p><h3>3. New setup: use the Gateway voice path</h3><p>Apply this step for a new Gateway-based setup, or when deliberately switching to native voice. If an existing custom Classic HTTP voice setup works, keep it; this patch changes that route and removes its channel-only key fields.</p><pre data-copy>openclaw config patch --stdin &lt;&lt;'JSON'
+{"channels":{"kubik":{"voice":{"provider":"openclaw","mode":"classic","liveTranscription":false,"apiKey":null,"apiKeyFile":null}}}}
+JSON
+openclaw channels status --probe</pre><p>A running Gateway applies a managed update. Wait for reconnection; preserve the stored device mode. Setting a key in a new terminal alone does not update a running background service. Complete pairing before selecting models on the device.</p>
+</details>
+<details id="voice-native"><summary>OpenClaw: configure Realtime or GPT Live</summary>
+<ol><li>Add an OpenAI Platform API key using the <a href="#voice-openclaw">protected-store and auth-profile steps</a>. Native voice reads the selected agent's OpenAI API-key profiles. For native conversations alone, configure the auth profile; the Classic TTS reference is needed only for Classic speech and spoken notifications.</li><li>Use the Gateway voice configuration in step 3 of <a href="#voice-openclaw">OpenClaw voice setup</a>. You do not need separate Classic STT/TTS for native conversations. Classic TTS still serves ordinary spoken notifications.</li><li>After pairing, hold BOOT for Settings → Agent → Voice. Select <strong>Realtime</strong> or <strong>GPT Live</strong>; the model list opens immediately. Choose a model advertised by your server. Your account must have access to it.</li></ol><p>For STT mode, Recognition and Speech open their separate model lists. Realtime and GPT Live share one voice model for input and output. Choices persist for this device and pairing identity; they do not change your agent's main model.</p><p class="result">A status probe checks settings, not paid-model access. With your consent, try one short conversation after pairing. Volume 20+ and ready TTS give speech; lower volume or missing TTS gives text.</p>
+</details>
+<details id="voice-hermes"><summary>Hermes: connect directly and configure speech</summary>
+<p>Install the Kubik platform inside the existing Hermes Gateway. No companion host, Agent API server, second computer or SSH tunnel is needed.</p>
+<ol><li>Install and configure <a href="https://hermes-agent.nousresearch.com/docs/getting-started/installation">Hermes</a> on your agent machine. Check a text reply.</li><li>Download the Kubik GitHub repository and run this as the Hermes service user, using its Python environment:</li></ol>
+<pre data-copy>python tools/install-hermes.py --home ~/.hermes</pre>
+<p>Use your actual HERMES_HOME if different. When conversations are idle, restart the existing Gateway:</p><pre data-copy>hermes gateway restart</pre>
+<p>Configure STT and TTS providers, models and credentials in Hermes itself using its <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode">voice guide</a>. Ready STT enables voice input; ready TTS and Speech volume 20+ enable spoken replies. Realtime and GPT Live are unavailable in Hermes 0.21.4. Model changes are made in Hermes, not this device's picker.</p>
+<p>Enter <strong>kubik://HOST:18793</strong> on Kubik. HOST must be reachable from its Wi-Fi; a public IP works without a domain. Open TCP 18793 on that server as needed. Blank-address discovery is not provided by the Hermes platform.</p>
+<p>Approve only the matching code shown on Kubik:</p><pre data-copy>python ~/.hermes/plugins/kubik/pair.py CODE</pre>
+<p class="result">Keep only Hermes Gateway running. Its plugin handles the device connection, native speech and device conversation.</p>
+</details>
+<details id="voice-models"><summary>Check model availability before setting up voice</summary>
+<p class="note" id="model-lifecycle">Model examples match the shipped OpenClaw 2026.9.7 and Kubik integration. OpenAI has deprecated GPT-4o Mini TTS; its listed snapshots retire on 6 January 2027. gpt-4o-transcribe retires on 26 February 2027. Before using this guide after those dates, update the integration and verify compatible replacements against the installed Gateway or host catalog and <a href="https://developers.openai.com/api/docs/deprecations">OpenAI model lifecycle</a>; model availability can change.</p>
+</details>
+<details id="assistant"><summary>Ask your agent to help configure Kubik</summary>
+<p>If your agent has access to this computer, copy the request below. Add the actual setup-page link, agent, software folder, voice mode, language and network location. You enter keys locally; the matching pairing-code check still needs you.</p>
+<pre data-copy data-copy-label="Copy setup request">Help me connect my Kubik (Tess) to you, keeping your existing context, tools,
+model choices and other channels.
+
+I will provide:
+- Agent: OpenClaw or Hermes Agent.
+- GitHub setup-page URL and downloaded software folder on the agent computer.
+- Voice: Classic STT/TTS, Realtime or GPT Live.
+- Speech language: en, ru or another two-letter language code.
+- Location: same home network, or remote server.
+- Operating system and, for a remote server, its reachable IP address.
+
+Read the GitHub setup page first. Inspect the installed version and actual
+capabilities. Download the matching GitHub release if needed; use its package,
+not an unpublished package name from npm. Back up changed configuration privately.
+Do not replace working agent/model/channel settings. Configure only the missing
+speech and Kubik settings. Hermes Kubik currently supports Classic only; do not
+claim Hermes CLI/Desktop voice features enable Kubik Realtime or GPT Live.
+
+Keep credentials on the host. Ask me to enter missing secrets through local
+interactive prompts or protected files. Do not ask me to paste keys into this
+chat, logs, commands, screenshots or the device. Do not print existing secrets.
+Prepare commands if you cannot access the computer or an interactive terminal.
+Do not run paid voice/model tests without my explicit request.
+
+For OpenClaw, use the documented speech credential paths: STT/native auth and
+Classic TTS use different configuration paths; one protected store key can back
+both. Enable the Kubik channel. Wait for an idle
+conversation before applying a managed update; do not restart an active service.
+For Hermes, install tools/install-hermes.py on the same machine as the existing
+Hermes Gateway. Use its service user and HERMES_HOME; configure speech through
+Hermes's native providers. Do not enable its Agent API or install a companion
+host. Wait for idle conversations before restarting the existing Gateway.
+
+Then give me one clear next action: scan the two device QR codes and connect
+Wi-Fi. For OpenClaw on the same trusted network, leave Server address blank.
+For a manual connection, use the actual Kubik listener's kubik://IP:PORT address.
+Explain which agent service must stay running. For remote OpenClaw, enter its public
+kubik://IP:18790 address. For Hermes, enter kubik://HOST:18793 with a Wi-Fi-reachable host IP;
+do not leave Server address blank. No domain is required for these paths.
+
+After Kubik displays its pairing code, use OpenClaw pairing list for OpenClaw,
+or the native pair.py command for Hermes. Approve only after I confirm the exact
+code shown on my Kubik. For OpenClaw, explain Settings -&gt; Agent -&gt; Voice mode
+and model choices. For Hermes, explain its Classic provider/model settings on
+the Hermes machine. Show how to replay Guide on Kubik. Report separately
+what you configured, what you checked without inference, and what still needs
+my first real conversation. Do not call a configuration probe a successful
+end-to-end speech test.
+</pre></details>
+<p class="result"><strong>Next:</strong> check the address below, then connect Kubik’s Wi-Fi.</p></section>
+
+<section id="address"><h3>Check the connection address</h3>
+<h4>On the same home network</h4><ol><li>Run OpenClaw with its Kubik channel, or Hermes Gateway with its Kubik platform.</li><li>Connect Kubik to the same trusted network. Avoid guest networks with client isolation.</li><li>For OpenClaw, allow TCP and UDP 18790 on the agent machine and leave <strong>Server address</strong> blank for discovery. For Hermes, allow TCP 18793 and enter <strong>kubik://HOST:18793</strong>, using that machine’s LAN IP.</li></ol>
+<h3>If discovery is blocked</h3><p>For OpenClaw, run:</p><pre data-copy>openclaw channels status --probe</pre><p>Copy the complete <code>kubik://…</code> address in the Kubik channel's <code>lan</code> status. For Hermes, enter <strong>kubik://HOST:18793</strong> using its machine's IP reachable from Kubik's Wi-Fi. Put it in the phone form.</p>
+<p>Example only: <code>kubik://192.168.1.5:18790</code>. Use your own address and actual port. Reserve that computer's LAN address in your router if it changes often. If no reachable address appears, check the listener bind and network first.</p>
+<p class="result">Use the Kubik listener: OpenClaw port 18790, Hermes port 18793. Use the device connection address prepared for your selected agent.</p>
+<details id="address-openclaw"><summary>OpenClaw on a remote server</summary>
+<p>This route needs a server IP reachable from your home, plus permission to configure its firewall. Download the software release there and install the Kubik channel there. On that server, inspect existing settings first. Apply the managed update while conversations are idle and follow any CLI apply hint:</p>
+<pre data-copy>openclaw config patch --stdin &lt;&lt;'JSON'
+{"channels":{"kubik":{"listen":{"enabled":true,"port":18790,"public":true}}}}
+JSON
+openclaw channels status --probe</pre>
+<ol><li>Allow inbound <strong>TCP 18790</strong> in the server and hosting-provider firewalls. Restrict it to your home public IP where practical; update that rule if your home IP changes.</li><li>Obtain the server's public IPv4 address from your hosting account. Do not use a private LAN or Tailscale address unless your router actually routes Kubik to that network.</li><li>Enter <code>kubik://PUBLIC-IP:18790</code> in the phone form, replacing PUBLIC-IP. Approve only the matching device code on this server.</li></ol>
+<p>The channel uses encrypted TLS and device pairing with a pinned server identity. Keep its state directory: replacing that identity requires pairing again. UDP discovery is for the local network; do not open UDP on the internet. Keep the OpenClaw dashboard private.</p>
+<details><summary>Already own a domain?</summary><p>You may use a domain resolving to the server for the direct listener. For a restricted HTTPS tunnel or reverse proxy, follow the <a href="../../deploy/cloudflared/README.md">deployment guide</a> and expose only <code>/kubik/v1</code>. This is an advanced alternative; it requires your own domain and infrastructure. A generic dashboard link will not work.</p></details>
+</details>
+<details id="address-hermes"><summary>Hermes on a remote server</summary><p>Install the Kubik platform on that same server. Enter <strong>kubik://PUBLIC-IP:18793</strong> on Kubik and allow TCP 18793 through its firewall. A domain and a home computer are not required. A Tailscale-only address requires an actual route from Kubik's Wi-Fi; phone Tailscale alone is insufficient.</p><p class="result">Keep the existing Hermes Gateway running; no tunnel or companion daemon is needed.</p></details>
+<p class="result"><strong>Ready:</strong> your agent is running, voice is configured and you know whether to leave Server address blank or enter your prepared address.</p></section>
+<section id="wifi"><h2>2. Connect Kubik to Wi-Fi.</h2>
+<p><strong>Muse:</strong> choose Muse in the agent step and enter your personal SDK key; a server address is not needed. After saving, continue in the Muse app.</p>
+
+<ol><li>Connect USB-C power. Press <kbd>PWR</kbd> briefly to wake the screen; if Kubik is powered off, hold it for about two seconds. An unconfigured device shows <strong>Scan to join Wi-Fi</strong>. Otherwise, hold <kbd>BOOT</kbd> for Settings → <strong>Wi-Fi</strong>.</li>
+<li>Scan the first code with your phone and join <strong>KUBIK-XXXX</strong>. Stay on this network if the phone reports “no internet”.</li>
+<li>Wait for the gold title <strong>Scan again for setup</strong>. Scan the new code to open the setup page. You can also open <code>http://192.168.4.1/</code> while joined to KUBIK-XXXX.</li>
+<li>Select your <strong>2.4 GHz</strong> Wi-Fi, enter its password, then tap <strong>Continue to agent</strong>.</li>
+<li>Select the agent you installed. For OpenClaw on the same trusted home network, leave <strong>Server address</strong> blank. For Hermes, enter <strong>kubik://HOST:18793</strong>. These choices show instructions; they do not install the agent.</li>
+<li>Tap <strong>Connect Kubik</strong>. It saves the network and restarts. The phone may disconnect; watch the device instead of submitting again.</li></ol>
+<p class="result"><strong>Ready:</strong> Kubik reaches the agent and displays an eight-character pairing code. Wi-Fi success alone does not mean the agent is paired.</p></section>
+
+<section id="pair"><h2>3. Approve your Kubik.</h2>
+<p><strong>Muse:</strong> finish pairing in the phone app as described <a href="#muse">above</a>; no computer command or host code is needed. The steps below apply to OpenClaw/Hermes.</p>
+<p>Keep the code on Kubik’s screen visible. Run the following on your own OpenClaw computer:</p>
+<pre data-copy>openclaw pairing list kubik</pre>
+<p><strong>The code on the screen must be in that list.</strong> If it is missing, do not approve anything: use <a href="#help">Connection help</a> to check the server address. If a new device shows Connected before your approval, stop and check the connection; this is not the normal first-pairing path.</p>
+<details><summary>First OpenClaw device? Check command ownership</summary>
+<p>When OpenClaw’s <code>commands.ownerAllowFrom</code> list is empty, CLI approval records the first paired identity there. Kubik’s key-bound identity is not a human command owner. If you use a human owner account on another channel, configure that account before approving Kubik. For example, replace the sample Telegram ID with your own:</p>
+<pre>openclaw config set commands.ownerAllowFrom '["telegram:YOUR_USER_ID"]' --strict-json</pre>
+<p>If you do not have another channel yet, pairing still works; explicitly configure your human owner when adding one later. See <a href="https://docs.openclaw.ai/cli/pairing">OpenClaw pairing</a>. Before removing the Kubik plugin, remove any <code>kubik:…</code> entries from this owner list so they cannot restrict other channels.</p>
+</details>
+<p><strong>Hermes:</strong> approve the displayed code on its machine with <code>python ~/.hermes/plugins/kubik/pair.py CODE</code>.</p><p><strong>OpenClaw:</strong> approve only a matching code. Replace <code>CODE</code> below with the one on your device:</p>
+<pre data-copy>openclaw pairing approve kubik CODE</pre>
+<details><summary>A custom adapter</summary><p>Leave the host running and open another terminal in the downloaded software folder. Use the same host state directory as setup/serve.</p>
+<pre data-copy>npx kubik-agent-host pair-list</pre><p>Approve only the code matching the device:</p><pre data-copy>npx kubik-agent-host approve CODE</pre></details>
+<p class="result"><strong>Ready:</strong> Kubik shows a welcome and its short guide. No token needs to be copied onto the device.</p></section>
+
+<section id="talk"><h2>4. Talk to Tess.</h2>
+<p>Follow the on-device guide, then return to the home screen with <kbd>BOOT</kbd>. Say <strong>“Hi Tessa”</strong>, then ask a question. You can also use <kbd>KEY</kbd>, as shown below.</p>
+<p>OpenClaw supports the modes below. Hermes currently supports Classic; configure its providers and models in Hermes.</p>
+<table><thead><tr><th>Voice mode</th><th>Start and send</th></tr></thead><tbody>
+<tr><td>Classic</td><td>Hold KEY, speak, then release. Or press KEY briefly to record, then press it again to send.</td></tr>
+<tr><td>Realtime</td><td>Press KEY, speak, then pause to send.</td></tr><tr><td>GPT Live</td><td>Press KEY or say “Hi Tessa”. Speak naturally, including during replies; KEY ends the conversation. On Tess, “Listening” shows when you can speak.</td></tr></tbody></table>
+<p>With available voice output and volume <strong>20 or higher</strong>, replies are spoken. Lower volume or unavailable TTS gives text. Tess grows while waiting and responds to the played voice.</p>
+<p><strong>Tess:</strong> “Hi Tessa” can start a conversation on the lit or dimmed home screen when the agent and voice input are ready. In Classic/Realtime, pause to send. In GPT Live, KEY ends the conversation. Activation is disabled in menus, Guide, setup, pairing, sleep, and while the agent is busy or speaking. The model recognises “Tessa” and can also activate without “Hi”. Plush uses KEY.</p>
+<h3>Change settings later</h3><ul><li>Hold <kbd>BOOT</kbd>: open or close Settings. Press briefly: go back one screen.</li><li><strong>OpenClaw — Settings → Agent:</strong> tap the model tile to change the agent model. Tap <strong>Voice</strong> to choose <strong>STT</strong>, <strong>Realtime</strong> or <strong>GPT Live</strong>. The selected mode is marked. Tap it to open its models; tap another available mode to switch. BOOT goes back one level.</li><li><strong>Sound:</strong> the main volume slider controls speech. Hold it for 0.8 seconds without moving to open separate Speech and Interface sliders. BOOT returns to Settings. Both levels are saved; muting Interface does not mute your agent.</li><li><strong>Settings → Status:</strong> swipe through current network addresses, DHCP name, MAC and agent endpoint. BOOT returns.</li><li><strong>Settings → Guide:</strong> replay the tour without erasing anything.</li><li>Press <kbd>PWR</kbd>: screen off/on. Hold about two seconds: power off/on.</li></ul>
+<p>With OpenClaw, STT has separate <strong>Recognition</strong> and <strong>Speech</strong> models. Realtime and GPT-Live share one voice model for both, without changing the agent model. Available choices come from your agent computer and are saved for this paired Kubik. Set up providers and keys on that computer. Modes that need setup are shown but cannot be selected.</p>
+<p class="result"><strong>Done:</strong> your agent responds through Kubik. Keep its computer and service running for future conversations and notifications.</p></section>
+
+<section id="help"><h2>Connection help</h2>
+<details><summary>The setup page will not open</summary><p>Scan the current Wi-Fi QR to reconnect to KUBIK-XXXX: its password changes whenever setup is reopened. Accept staying without internet, then open <code>http://192.168.4.1/</code>. Temporarily disable a phone VPN that blocks local access. If Kubik is already connected, open Settings → Wi-Fi to show setup again.</p></details>
+<details><summary>Wi-Fi connects, but there is no pairing code</summary><p><strong>OpenClaw:</strong> check that its Kubik channel is running. Guest Wi-Fi and client isolation can block discovery.</p>
+<pre data-copy>openclaw channels status --probe</pre><p>Allow local inbound TCP and UDP 18790. If discovery is blocked, follow <a href="#address">Connection address</a>: copy the actual Kubik listener’s complete address, including its port. Open Settings → Wi-Fi, enter it in Server address, save and match the new pairing code.</p><p><strong>Hermes:</strong> keep Hermes Gateway running with its Kubik platform. Enter <strong>kubik://HOST:18793</strong> and allow TCP 18793 on that machine. HOST must be reachable from Kubik’s Wi-Fi. Hermes uses this manual address.</p></details>
+<details><summary>The code is missing from OpenClaw’s pairing list</summary><p>Do not approve another entry. Confirm you are using the intended agent computer. Reopen Settings → Wi-Fi, set its explicit <code>kubik://</code> LAN address and save. Match the code again. Use automatic discovery only on a network you trust.</p></details>
+<details><summary>My agent is on a remote server or another network</summary><p>Follow <a href="#address">Connection address</a>: direct pinned TLS to OpenClaw port 18790 or to Hermes port 18793. Neither path requires buying a domain. Prepare this before connecting Wi-Fi.</p></details>
+<details><summary>A voice mode says “Set up on your agent”</summary><p>Check the status in Settings → Agent. In Classic, set up the missing STT or TTS provider on the agent computer. In Realtime or GPT-Live, check native voice configuration and authorisation. Then use Check again in Guide. Without speech input you cannot record a command; without supported voice output you can still read replies. Volume below 20 also selects text. See <a href="#voice">Voice setup</a>.</p></details>
+<details><summary>No selectable models</summary><p>A working voice provider may not offer model selection. Check Voice in Agent; an empty list alone does not mean voice is unavailable. Tap Refresh to reload the catalogue after updating the agent configuration. Hermes and custom adapters may keep model selection on the agent computer.</p></details>
+<details><summary>No answer, or a provider error</summary><p>Try one short request after checking the provider account, quota and network. A ready status confirms settings, not actual access to a paid model. Inspect the Gateway log on your agent computer. Do not send API keys or full private conversations to support.</p></details>
+<details><summary>Add Wi-Fi, check charging or update firmware</summary><p>Settings → Wi-Fi adds a network. Up to eight networks are remembered; saving the exact same name updates that profile. The home-screen bolt means active charging. In Settings it also means confirmed USB power, including a full battery.</p><p>Firmware updates use USB, not Wi-Fi. Install the application and assets from one matching character archive. The firmware download on GitHub contains the flashing instructions; ordinary updates preserve Wi-Fi and pairing. Never erase settings as a routine update step.</p></details>
+<details><summary>Ownership transfer or complete reset</summary><p>For a tour replay, use Guide instead. A complete reset erases Wi-Fi, server trust, pairing identity and personal settings.</p><p>In Settings, tap the battery percentage five times within four seconds. Tap the revealed Reset, then tap it again within three seconds. Kubik restarts into setup and needs approval again. Revoke its old entry on the agent before giving the device to another person.</p></details>
+<p>Still stuck? Contact the seller through your order. Include the step, the on-screen message, your operating system and software version. Keep passwords and keys private.</p></section>
+<p class="note">Kubik software 0.6.2 · English buyer guide. Setup guide hosted on GitHub. Downloads and official documentation need internet; downloaded copies use local assets. Product and third-party licences are in the release’s LICENSE, NOTICE and licenses folder.</p>
+</main></body></html>

@@ -1,0 +1,11 @@
+name: kubik-platform
+label: Kubik
+kind: platform
+version: 0.1.0
+description: Direct TLS WebSocket connection from Kubik to the existing Hermes gateway.
+author: Kubik
+requires_env: []
+optional_env:
+  - name: KUBIK_PORT
+    description: TLS listener port (default 18793).
+    password: false

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "docs/architecture/kubik.architecture.json",
+  "output": "docs/architecture/kubik.html",
+  "specification": {
+    "sha256": "ac56dbc301e2b1558be0741f6c9fe22c19829c3bf90066dc443ce0398f1c7827",
+    "bytes": 4149
+  },
+  "artifact": {
+    "sha256": "99ddab729fd6423139deb267a86f5b4de6b109f51326d20db90ae5b31f401c57",
+    "bytes": 809486
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

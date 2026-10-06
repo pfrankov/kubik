@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark">
+<title>Kubik · USB setup</title>
+<link rel="stylesheet" href="/setup.css">
+<script src="/tess.js" defer></script>
+</head>
+<body><main>
+<header class="hero"><canvas id="tess" aria-hidden="true" data-state="idle"></canvas>
+<h1>Connect your agent</h1><p class="sub">Keep Kubik connected by USB while you update its server address.</p></header>
+<section class="device-state" aria-labelledby="state-title"><h2 id="state-title">Your Kubik</h2>
+<dl><dt>Device</dt><dd id="device">—</dd><dt>Wi-Fi</dt><dd id="wifi">Checking…</dd><dt>Agent</dt><dd id="server">Checking…</dd><dt>Connected over</dt><dd id="transport">—</dd></dl>
+<button class="link" id="refresh" type="button">Refresh status</button></section>
+<form id="settings">
+<label for="url">Agent server address</label><input id="url" name="url" maxlength="127" placeholder="kubik://your-computer" autocomplete="url" spellcheck="false" aria-describedby="urlHint">
+<p class="hint" id="urlHint">Leave blank to discover an agent on your Wi-Fi network. Use kubik://your-computer for a local host or a full secure wss:// address for a remote server.</p>
+<p class="hint">To change Wi-Fi, open Settings → Wi-Fi on Kubik and follow its two QR steps with your phone.</p>
+<div class="actions"><div><button class="go" id="save" type="submit">Save and connect</button><p id="message" role="status" aria-live="polite"></p></div></div>
+</form>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let busy = false, loaded = false;
+function message(text, error = false) {
+  $('message').textContent = text;
+  $('message').dataset.error = String(error);
+}
+async function request(command) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch('/config', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(command), signal: controller.signal});
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      const error = Error('Device did not confirm the request');
+      error.rejected = response.ok; throw error;
+    }
+    return data;
+  } finally { clearTimeout(timer); }
+}
+function render(info) {
+  $('device').textContent = typeof info.device === 'string' ? info.device : '—';
+  $('wifi').textContent = info.wifi_connected ? (info.ssid || 'Connected') : 'Not connected';
+  $('server').textContent = info.online ? 'Connected' : 'Not connected';
+  $('wifi').dataset.connected = String(Boolean(info.wifi_connected));
+  $('server').dataset.connected = String(Boolean(info.online));
+  $('transport').textContent = info.via === 'usb' ? 'USB' : info.via === 'wifi' ? 'Wi-Fi' : '—';
+  if (!loaded) { $('url').value = typeof info.url === 'string' ? info.url : ''; loaded = true; }
+}
+async function refresh() {
+  try { render(await request({cmd: 'info'})); return true; }
+  catch { for (const id of ['device','wifi','server','transport']) { $(id).textContent = 'Unavailable'; delete $(id).dataset.connected; } return false; }
+}
+function lock(value) {
+  busy = value;
+  for (const id of ['save','refresh','url']) $(id).disabled = value;
+  $('tess').dataset.state = value ? 'trying' : 'idle';
+}
+function validAddress(value) {
+  if (!value) return true;
+  try {
+    const url = new URL(value);
+    if (!url.hostname || url.username || url.password || url.hash || url.search) return false;
+    if (url.protocol === 'kubik:') return !url.pathname || url.pathname === '/';
+    return url.protocol === 'wss:' && /^wss:\/\/[^/]+\/.+/.test(value);
+  } catch { return false; }
+}
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function waitForConnection(url) {
+  const deadline = Date.now() + 30000;
+  await pause(2000);
+  while (Date.now() < deadline) {
+    try {
+      const info = await request({cmd: 'info'});
+      render(info);
+      if (info.online && info.url === url) return true;
+    } catch { /* USB re-enumerates during the requested restart. */ }
+    await pause(1500);
+  }
+  return false;
+}
+$('refresh').onclick = async () => {
+  if (busy) return;
+  lock(true);
+  const ok = await refresh();
+  message(ok ? 'Status refreshed.' : 'No USB connection. Check the cable and running bridge.', !ok);
+  lock(false);
+};
+$('settings').onsubmit = async event => {
+  event.preventDefault();
+  if (busy) return;
+  const url = $('url').value.trim().replace(/^(kubik:\/\/[^/]+)\/$/, '$1');
+  if (!validAddress(url)) {
+    $('tess').dataset.state = 'error';
+    return message('Use kubik://host or a full wss:// URL, without credentials, query or fragment.', true);
+  }
+  const command = {cmd: 'set', url};
+  lock(true); message('Saving settings…');
+  let completion = 'error';
+  try {
+    await request(command);
+    message('Saved. Kubik is restarting and connecting…');
+    const connected = await waitForConnection(url);
+    completion = connected ? 'done' : 'error';
+    message(connected ? 'Connected. Continue on Kubik’s screen.'
+      : 'Saved, but connection is not confirmed. Check the server and refresh status. A pairing code may be waiting on Kubik.', !connected);
+  } catch (error) {
+    message(error.rejected ? 'Not saved. Check the address and try again.'
+      : 'Saving was not confirmed. Check USB and refresh status before retrying.', true);
+  } finally { lock(false); $('tess').dataset.state = completion; }
+};
+lock(true);
+refresh().then(ok => { if (!ok) message('Connect Kubik by USB and start the bridge.', true); }).finally(() => lock(false));
+</script>
+</body></html>

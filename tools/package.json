@@ -1,0 +1,14 @@
+{
+  "name": "kubik-dev-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dev tools for Kubik: mock OpenAI-compatible server and fake device",
+  "scripts": {
+    "mock": "node mock-openai/server.mjs",
+    "device": "node fake-device.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

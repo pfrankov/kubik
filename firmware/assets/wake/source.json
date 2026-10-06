@@ -1,0 +1,10 @@
+{
+  "wake_word": "tessa",
+  "source": "https://github.com/mitrokun/espeak-ng-data",
+  "commit": "68fa929628d0818dff86d4ee7eb976d584158829",
+  "path": "mww/tessa.tflite",
+  "sha256": "ca8722069633c9a63d7824c9dfc3fec585b44dbe8f50257b8f5a66613b6ecdb8",
+  "trained_languages": ["en"],
+  "license": "Unspecified by upstream; redistribution is not cleared",
+  "micro": {"probability_cutoff": 0.99, "sliding_window_size": 5, "feature_step_size": 10, "tensor_arena_size": 30000}
+}

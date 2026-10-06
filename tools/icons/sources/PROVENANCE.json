@@ -1,0 +1,30 @@
+{
+  "repository": "https://github.com/lucide-icons/lucide",
+  "revision": "f12b0de177fbc2a6795e99be065887e72b237123",
+  "icons": [
+    "circle-alert",
+    "circle-help",
+    "hourglass",
+    "wifi-off",
+    "unplug",
+    "mic",
+    "key-round",
+    "plug",
+    "brain",
+    "check",
+    "volume-2",
+    "square",
+    "wrench",
+    "code-xml",
+    "globe",
+    "upload",
+    "blocks",
+    "fold-horizontal",
+    "power",
+    "sun",
+    "volume-x",
+    "qr-code",
+    "audio-lines",
+    "zap"
+  ]
+}

@@ -1,0 +1,17 @@
+Kubik
+Copyright 2026 Pavel Frankov
+
+This product includes the Kubik firmware, the openclaw-kubik OpenClaw channel
+plugin, the device sounds, the on-screen graphics and the documentation.
+They are licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product also includes third-party software under its own licenses.
+Their texts and copyright notices are in the licenses/ directory; licenses/README.txt
+lists what they cover.
+
+Live echo cancellation includes Xiph SpeexDSP 1.2.1, BSD license; see licenses/BSD-SpeexDSP.txt.
+
+Native Muse integration includes Noise core, v5 community pairing and C6 chat link
+from Meta Muse Gadget SDK, revision 74a5e2d7fc895f109f83a9a1dbed705dbcd8b1ff.
+Copyright Meta Platforms, Inc. and affiliates; Apache-2.0. See firmware/components/*/UPSTREAM.md.
+SDK token/account terms are separate from the source license; no token is distributed.

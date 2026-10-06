@@ -1,0 +1,39 @@
+name: Acceptance
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: acceptance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - name: Prepare ESP-IDF and browser
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flex bison gperf python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 openssl tar unzip
+          python3 -m venv "$RUNNER_TEMP/kubik-ci"
+          "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
+          echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
+          git clone --depth 1 --branch v5.5.1 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git "$RUNNER_TEMP/esp-idf"
+          "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
+          "$RUNNER_TEMP/kubik-ci/bin/uv" run --with playwright==1.63.0 playwright install chrome
+      - name: Accept source and local kit
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/esp-idf/export.sh"
+          python3 tools/accept.py

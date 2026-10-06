@@ -1,0 +1,121 @@
+{
+  "name": "openclaw-kubik",
+  "version": "0.6.2",
+  "private": true,
+  "description": "OpenClaw channel for the Kubik voice desk assistant (ESP32-C6)",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Pavel Frankov",
+    "url": "https://github.com/pfrankov"
+  },
+  "engines": {
+    "node": ">=24.16.0 <25 || >=26.1.0"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "openclaw-channel",
+    "voice",
+    "esp32"
+  ],
+  "files": [
+    "src",
+    "licenses",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "exports": {
+    ".": "./src/index.js",
+    "./agent-sdk": "./src/agent-sdk/index.js"
+  },
+  "bin": {
+    "kubik-agent-host": "./src/agent-sdk/cli.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "npm test && npm run check:manifest",
+    "check:manifest": "node scripts/sync-manifest.mjs --check",
+    "check:host": "node scripts/host-smoke.mjs",
+    "check:install": "node scripts/install-smoke.mjs",
+    "sync:manifest": "node scripts/sync-manifest.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.9.7 <2027"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "compat": {
+      "pluginApi": ">=2026.9.7",
+      "minGatewayVersion": "2026.9.7"
+    },
+    "build": {
+      "openclawVersion": "2026.9.7",
+      "pluginSdkVersion": "2026.9.7"
+    },
+    "extensions": [
+      "./src/index.js"
+    ],
+    "runtimeExtensions": [
+      "./src/index.js"
+    ],
+    "setupEntry": "./src/setup-entry.js",
+    "runtimeSetupEntry": "./src/setup-entry.js",
+    "channel": {
+      "id": "kubik",
+      "label": "Kubik",
+      "selectionLabel": "Kubik (voice desk device)",
+      "docsPath": "/channels/kubik",
+      "docsLabel": "kubik",
+      "blurb": "Push-to-talk voice desk assistant (ESP32-C6) over WebSocket.",
+      "order": 90,
+      "setup": {
+        "fields": [
+          {
+            "kind": "boolean",
+            "cli": {
+              "flags": "--enable",
+              "description": "Enable Kubik; approve devices through OpenClaw pairing"
+            },
+            "key": "enable"
+          },
+          {
+            "kind": "string",
+            "cli": {
+              "flags": "--device-id <id>",
+              "description": "Optional device id (e.g. kubik-b6c634) to set a name or default target"
+            },
+            "key": "deviceId"
+          },
+          {
+            "kind": "string",
+            "cli": {
+              "flags": "--device-name <name>",
+              "description": "Display name of the device (needs --device-id)"
+            },
+            "key": "deviceName"
+          }
+        ]
+      }
+    },
+    "install": {
+      "localPath": "extensions/kubik",
+      "defaultChoice": "local"
+    },
+    "setupFeatures": {
+      "configPromotion": "preserve-root"
+    }
+  },
+  "devDependencies": {
+    "openclaw": "2026.9.7"
+  }
+}

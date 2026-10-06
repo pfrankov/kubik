@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Kubik · Quick start</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="booklet.css"></head><body>
+<section class="page cover"><div class="content">
+<p class="stage">Quick start · Tess</p><h1>KUBIK</h1><p class="lead">Set up your agent.<br>Connect. Start talking.</p>
+<img class="art" src="assets/hello-tess.png" alt="Kubik in three dimensions, with three round top buttons and Tess on its screen.">
+<p>Have USB-C power, a phone and your <strong>2.4 GHz Wi-Fi</strong> password ready. Choose your agent on page 3.</p>
+<div class="result"><strong>Open the setup guide on GitHub</strong><br><a class="setup-url" href="https://OWNER.github.io/kubik/" data-setup-url>https://OWNER.github.io/kubik/</a><p class="note">Temporary address — replace before release.</p></div>
+</div><footer><span>Your device is already flashed.</span><span>01</span></footer></section>
+
+<section class="page"><div class="content">
+<h2>Know the buttons.</h2>
+<svg class="controls" viewBox="0 0 1254 1254" role="img" aria-label="Buttons from left to right when facing the screen: BOOT, PWR, KEY.">
+<image href="assets/hello-tess.png" width="1254" height="1254"/>
+<g fill="none" stroke="#17695f" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M200 112 V155 L450 248"/><path d="M627 112 V285"/><path d="M1054 112 V205 L820 321"/></g>
+<g fill="#17695f" text-anchor="middle"><text x="200" y="90">BOOT</text><text x="627" y="90">PWR</text><text x="1054" y="90">KEY</text></g>
+</svg>
+<dl class="rows controls-list"><dt>BOOT<br><small>Left</small></dt><dd><strong>Press:</strong> go back one screen.<br><strong>Hold:</strong> open or close Settings.</dd>
+<dt>PWR<br><small>Middle</small></dt><dd><strong>Press:</strong> screen off or on.<br><strong>Hold ~2 s:</strong> power off or on.</dd>
+<dt>KEY<br><small>Right</small></dt><dd>Start voice input.<br>Ways to speak and send: page 7.</dd></dl>
+<div class="result">The on-screen Guide points to these buttons.</div>
+</div><footer><span>Positions shown when facing the screen.</span><span>02</span></footer></section>
+
+<section class="page"><div class="content">
+<p class="stage">1 · Choose your agent</p><h2>Prepare your agent.</h2>
+<img class="art" src="assets/prepare-agent.png" alt="A laptop and home router connected to the same network.">
+<ol><li><strong>Muse:</strong> sign in on your phone. Create a personal SDK key using the GitHub guide.</li><li><strong>OpenClaw / Hermes:</strong> install the agent and Kubik integration. Check a text reply. Keep it running.</li><li>Configure speech for OpenClaw/Hermes. Muse voice notes return text.</li></ol>
+<p class="note">At home, use the same trusted network. For a remote server, prepare the connection using the GitHub guide first.</p>
+<div class="result"><strong>Ready:</strong> Muse key or agent service running.</div>
+</div><footer><span>Downloads and detailed commands are on GitHub.</span><span>03</span></footer></section>
+
+<section class="page scan"><div class="content">
+<p class="stage">2 · On your phone</p><h2>Scan both QR codes.</h2>
+<p>Connect USB-C power. Press <kbd>PWR</kbd> to wake the screen; if powered off, hold it for about two seconds.</p>
+<div class="scan-pair"><img src="assets/scan-setup.png" alt="Example first screen: Scan to join Wi-Fi with a large QR code."><img src="assets/scan-setup-next.png" alt="Example second screen: Scan again for setup with a new QR code."></div>
+<h3>First: join Kubik’s Wi-Fi</h3><p>Scan <strong>Scan to join Wi-Fi</strong> and join <strong>KUBIK-XXXX</strong>. Stay connected if your phone says “no internet”.</p>
+<h3>Then: open setup</h3><p>Wait for the gold title <strong>Scan again for setup</strong>. Scan the <strong>new QR</strong> to open the setup page.</p>
+<div class="result"><strong>Next:</strong> “Let’s connect Kubik” opens on your phone.</div>
+</div><footer><span>Example screens. Scan your device’s codes.</span><span>04</span></footer></section>
+
+<section class="page"><div class="content">
+<h2>Connect to your agent.</h2>
+<ol><li>Select your <strong>2.4 GHz Wi-Fi</strong>, enter its password and tap <strong>Continue to agent</strong>.</li><li>Choose your agent. <strong>Muse:</strong> enter its SDK key; no server address is needed.</li><li><strong>OpenClaw:</strong> at home, leave <strong>Server address</strong> blank. Remote OpenClaw: enter <strong>kubik://PUBLIC-IP:18790</strong>. Hermes: enter <strong>kubik://HOST:18793</strong>; no home relay.</li><li>Tap <strong>Connect Kubik</strong>.</li></ol>
+<p>Kubik saves the settings and restarts. Your phone may disconnect from KUBIK-XXXX. Watch Kubik now.</p>
+<p class="note">The address belongs to the Kubik integration, not your agent’s dashboard or speech provider. The online guide shows where to find it.</p>
+<div class="result"><strong>Next:</strong> Muse pairs on your phone; OpenClaw/Hermes show a pairing code.</div>
+</div><footer><span>No code? See page 8.</span><span>05</span></footer></section>
+
+<section class="page pairing"><div class="content">
+<p class="stage">3 · Confirm the connection</p><h2>Approve your Kubik.</h2>
+<p><strong>Muse app:</strong> Settings / Devices / Developer mode / Add device. Choose Kubik’s MuseGadget; press <kbd>KEY</kbd> when asked, then choose Wi-Fi. Bluetooth turns off afterward.</p>
+<p><strong>OpenClaw / Hermes:</strong> use the code displayed on your Kubik. For OpenClaw, first match it to the pairing list.</p>
+<h3>OpenClaw</h3><pre class="command">openclaw pairing list kubik</pre>
+<pre class="command">openclaw pairing approve kubik CODE</pre>
+<h3>Hermes</h3><pre class="command">python ~/.hermes/plugins/kubik/pair.py CODE</pre>
+
+<div class="result"><strong>Connected:</strong> follow Guide; BOOT returns home.</div>
+</div><footer><span>No match? Check the GitHub setup guide.</span><span>06</span></footer></section>
+
+<section class="page"><div class="content">
+<p class="stage">4 · On Kubik</p><h2>Talk to Tess.</h2>
+<img class="art" src="assets/first-conversation.png" alt="A person talking to Tess on Kubik.">
+<p>Say <strong>“Hi Tessa”</strong>, then your question.</p>
+<h3>STT / Classic</h3><p>Hold <kbd>KEY</kbd>, speak, release. Or press once to start, again to send.</p>
+<h3>Realtime</h3><p>Press <kbd>KEY</kbd>, speak, then pause to send.</p>
+<h3>GPT Live</h3><p>Start with KEY or “Hi Tessa”. Speak at <strong>Listening</strong>, even during replies. KEY ends it; pauses do not.</p>
+<div class="result">Voice output + volume <strong>20+</strong>: spoken replies. Otherwise: text.</div>
+</div><footer><span>Wake phrase: “Hi Tessa” · Character: Tess</span><span>07</span></footer></section>
+
+<section class="page help"><div class="content">
+<h2>Settings and help.</h2>
+<h3>Open Settings</h3><p>Hold <kbd>BOOT</kbd> for Settings. Hold volume for <strong>Sound</strong>: Speech/Interface. <strong>Agent → Voice</strong>: OpenClaw modes/models. Set Hermes models in Hermes. <strong>Guide</strong> replays the tour. Short BOOT goes back.</p>
+<h3>Add a Wi-Fi network</h3><p>Open <strong>Settings → Wi-Fi</strong>, then scan both codes again. Known networks are remembered.</p>
+<h3>Setup page will not open</h3><p>Stay on KUBIK-XXXX and open <strong>http://192.168.4.1/</strong> in your browser.</p>
+<h3>No pairing code or reply</h3><p>Keep the agent computer and Kubik service running. <strong>Settings → Status</strong> shows IP, MAC and server address. See the GitHub setup guide.</p>
+<div class="result"><a class="setup-url" href="https://OWNER.github.io/kubik/" data-setup-url>https://OWNER.github.io/kubik/</a><p class="note">Temporary address · Help and updates</p></div>
+</div><footer><span>Kubik 0.6.2 · Illustrations are schematic.</span><span>08</span></footer></section>
+</body></html>

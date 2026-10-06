@@ -1,0 +1,13 @@
+{
+  "name": "kubik-usb-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Connects a Kubik device over USB to the kubik OpenClaw channel (no Wi-Fi needed)",
+  "bin": { "kubik-usb-bridge": "bridge.mjs" },
+  "scripts": { "start": "node bridge.mjs" },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.22.0"
+  }
+}

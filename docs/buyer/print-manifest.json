@@ -1,0 +1,21 @@
+{
+  "inputs": {
+    "docs/buyer/START.html": "ffd722e3ab36cc30c39050cd1679dd734a58ec746826b0a21a8a825c206a39f4",
+    "docs/buyer/assets/first-conversation.png": "48668b0e94f61f6e8f0136d5ded895f3c75269c220868713c2227541dcdae13e",
+    "docs/buyer/assets/hello-tess.png": "4e5c546627c831b7e4aebf2c2e3bf237ee4372bef733e5b005b42f89f9192a9d",
+    "docs/buyer/assets/prepare-agent.png": "f7ebfdf99fafd0b15f00250c8aecc9d715ff6bc2472df76928645e2c6574c50d",
+    "docs/buyer/assets/scan-setup-next.png": "435369cbf59cd8d62becb2b3374d0a00684416b5bd5e5ff732b8f130ceeb4553",
+    "docs/buyer/assets/scan-setup.png": "9b1545801fae2660ef3cfad44240d1c2ddbd2a18653122aa63e85133c89067ec",
+    "docs/buyer/booklet.css": "f6f3673f709e1eb91fef6ace92b8da057082d21e15d5cc03e8fc2cd5bd129e5a",
+    "docs/buyer/booklet.html": "50f0b5891664fa8575aaa10258dbbd806d4174c3d7477bfe34062cb9267af2dc",
+    "docs/buyer/start.css": "f2c1a4a4db73ae5f00bca30efc99d2e05941cb4e5cccfc03fe722d09b3c01d7d",
+    "docs/buyer/start.js": "bf9922e2d512d306549e3fb3cf73335ba56aafb07d09c126312157584a42c6f4",
+    "tools/build-buyer-guide.py": "4f004ed5217ac9843c965bd27a75d96cd0b62b483c1b3b3ea0623a8b689dfaa5",
+    "tools/font/sources/PT_Sans-Web-Bold.ttf": "3128bd5ecf01816e59a23d54c57a7a6b14615b07db53ff277c77376010265b05",
+    "tools/font/sources/PT_Sans-Web-Regular.ttf": "9cc831490532009bae2b3ce0d39c62adfc889060beb421593bfd9d2396d0f10a"
+  },
+  "outputs": {
+    "kubik-getting-started-A6.pdf": "d29df6129144abf4da9a01489b8e12ae2c9400548c534ebceb51be05ea4f2f3b",
+    "kubik-booklet-A5-duplex.pdf": "a14a134ff7136747485a33712bcc68d106a32e81b36e27bb7968e092377aefb0"
+  }
+}
