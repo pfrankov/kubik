@@ -398,8 +398,8 @@ export class DeviceSession {
     } else if (stream.kind === 'reply' && stream.epoch === this.epoch) {
       this.#settleIdle();
     }
-    if (stream.kind === 'notify' && !stream.spokenChars && stream.receipt && !stream.cancelled &&
-        stream.epoch === this.epoch && !this.#closed) {
+    if (stream.kind === 'notify' && stream.receipt && !stream.cancelled && stream.epoch === this.epoch &&
+        !this.#closed && (!stream.spokenChars || (playback?.acknowledged && stream.shownAck !== stream.receipt))) {
       playback = stream.shownAck === stream.receipt ? { acknowledged: true } :
         await this.#expectAck('shown', stream.receipt, PLAYED_GRACE_MS);
     }
