@@ -86,6 +86,54 @@ test('a failed newer refresh preserves the live session and does not block an ol
   assert.equal(server.getSession(DEFAULT_DEVICE_KEY.device).sessionId, welcome.session);
 });
 
+async function failedReconnectRecovery(t, reconnectKey) {
+  const pairing = fakePairing({ allowed: [...new Set([DEFAULT_DEVICE_KEY.entry, reconnectKey.entry])] });
+  const engine = fakeEngine();
+  let preparations = 0;
+  engine.prepareCapabilities = async ({ agentId, getVoice }) => {
+    const voice = await getVoice();
+    if (++preparations === 2) throw new Error('candidate capability lookup failed');
+    return { agentId, voice, getVoice, capabilities: { canListen: false, canSpeak: false } };
+  };
+  engine.applyCapabilities = snapshot => Object.assign(engine, snapshot);
+  const agentControl = {
+    agentId: device => `agent-${device.fingerprint}`,
+    voiceSettings: async device => ({ fingerprint: device.fingerprint }),
+  };
+  const { server, url } = await start(t, { pairing, engine, serverOptions: { agentControl } });
+  const first = await connectDevice(url);
+  t.after(() => first.close());
+  await first.waitFor(event => event.t === 'welcome');
+  const oldResolver = engine.getVoice;
+  assert.equal((await oldResolver()).fingerprint, DEFAULT_DEVICE_KEY.fingerprint);
+  first.close();
+  await first.closed;
+  assert.equal(server.getSession(DEFAULT_DEVICE_KEY.device), undefined);
+
+  const reconnectOptions = { hello: reconnectKey.hello(),
+    auth: nonce => reconnectKey.sign(nonce, { bind: FAKE_GATEWAY_BIND }), awaitAuth: false };
+  const reconnect = await connectDevice(url, reconnectOptions);
+  t.after(() => reconnect.close());
+  const result = await Promise.race([
+    reconnect.waitFor(event => event.t === 'welcome').then(() => 'welcome'),
+    reconnect.closed.then(code => `closed:${code}`),
+  ]);
+  assert.equal(result, 'closed:1011', 'a reconnect must not inherit a stale cached voice snapshot');
+  assert.equal(server.getSession(DEFAULT_DEVICE_KEY.device), undefined);
+  assert.equal(engine.getVoice, oldResolver);
+
+  const recovered = await connectDevice(url, reconnectOptions);
+  t.after(() => recovered.close());
+  await recovered.waitFor(event => event.t === 'welcome');
+  assert.notEqual(engine.getVoice, oldResolver, 'a later successful refresh binds the recovered session');
+  assert.equal((await engine.getVoice()).fingerprint, reconnectKey.fingerprint);
+}
+
+test('a failed reconnect cannot reuse a cached voice resolver, then a successful retry recovers', { timeout: 20_000 }, async t => {
+  await t.test('same fingerprint', { timeout: 10_000 }, async t => failedReconnectRecovery(t, DEFAULT_DEVICE_KEY));
+  await t.test('rotated fingerprint', { timeout: 10_000 }, async t => failedReconnectRecovery(t, deviceKey(DEFAULT_DEVICE_KEY.device)));
+});
+
 test('an accepted initial session keeps its admission priority when capability preparation fails', { timeout: 10_000 }, async t => {
   const engine = fakeEngine();
   const { server, url } = await start(t, { engine });

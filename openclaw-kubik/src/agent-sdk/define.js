@@ -5,7 +5,8 @@ const MAX_REPLY_FRAGMENTS = 512;
 
 // A reply returns text. The host queues it; playback continues after dispatch.
 // isCurrent() becomes false when the user interrupts speech, but that must not
-// cancel the agent. signal aborts only on close() or a new connect().
+// cancel the agent. signal aborts on close(), a new connect(), or failure of
+// the current connect().
 function report(callback, error) {
   if (typeof callback !== 'function') return;
   try { callback(error); } catch { /* reporting must not fail the turn twice */ }
@@ -74,7 +75,7 @@ async function connectSpec(spec, state, ctx) {
   const attempt = state.lifetime;
   try { return await spec.connect({ ...ctx, signal }); }
   catch (error) {
-    // Only this attempt may be replaced. close() or a newer connect already owns the slot.
+    // A failed attempt closes only its own lifetime; a newer connect owns its slot.
     if (state.lifetime === attempt) attempt.abort();
     throw error;
   }

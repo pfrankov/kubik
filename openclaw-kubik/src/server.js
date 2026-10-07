@@ -35,7 +35,7 @@ export class KubikServer {
   #sessions = new Map(); // deviceId -> DeviceSession
   #engines = new Map(); // deviceId -> engine (outlives reconnects)
   #lastGen = new Map();
-  #committedAdmission = new Map();
+  #committedAdmission = new Map(); // deviceId -> last admission, retained with the cached engine
   #admissionSeq = 0;
   #handshakes = new Map(); // ws -> source until admission transfers it to pairing or a session
   #pending = new Map(); // ws -> connection waiting for pairing approval (or its upsert in flight)
@@ -431,7 +431,7 @@ export class KubikServer {
     if (admission < (this.#committedAdmission.get(deviceId) ?? 0)) {
       conn.fail(CLOSE.REPLACED, 'replaced'); return;
     }
-    if (!refreshed && previous && !previous.closed) {
+    if (!refreshed && this.#committedAdmission.has(deviceId)) {
       conn.fail(CLOSE.INTERNAL, 'voice capabilities unavailable'); return;
     }
     const session = new DeviceSession({
@@ -492,7 +492,7 @@ export class KubikServer {
     const clients = [...this.#wss?.clients ?? []];
     for (const ws of clients) ws.close(CLOSE.GOING_AWAY, 'server stopping');
     for (const engine of this.#engines.values()) { try { engine.close(); } catch { /* best effort */ } }
-    this.#engines.clear();
+    this.#engines.clear(); this.#committedAdmission.clear();
     setTimeout(() => clients.forEach((ws) => ws.terminate()), 1000).unref?.();
     await new Promise((resolve) => this.#wss ? this.#wss.close(() => resolve()) : resolve());
     this.#wss = null;
