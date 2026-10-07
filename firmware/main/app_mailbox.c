@@ -4,7 +4,7 @@ void app_mailbox_put(app_mailbox_t *box, unsigned slot, app_ev_t event) {
     if (slot >= APP_MAILBOX_SLOTS) return;
     box->events[slot] = event;
     box->order[slot] = box->next++;
-    box->pending |= (uint8_t)(1u << slot);
+    box->pending |= (uint16_t)(1u << slot);
 }
 
 bool app_mailbox_take(app_mailbox_t *box, app_ev_t *event) {
@@ -15,6 +15,6 @@ bool app_mailbox_take(app_mailbox_t *box, app_ev_t *event) {
     }
     if (oldest < 0) return false;
     *event = box->events[oldest];
-    box->pending &= (uint8_t)~(1u << oldest);
+    box->pending &= (uint16_t)~(1u << oldest);
     return true;
 }
