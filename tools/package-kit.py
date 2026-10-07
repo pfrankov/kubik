@@ -36,7 +36,29 @@ def write_member(bundle, name, data, unix_mode=0o100644):
     bundle.writestr(info, data, compress_type=zipfile.ZIP_STORED)
 
 
+def rewrite_acceptance_links(document, revision):
+    def rewrite(match):
+        target = match.group(1)
+        path, marker, fragment = target.partition("#")
+        if path.startswith(("scenarios/", "history/", "architecture/")):
+            source_path = "docs/" + path
+        elif path == "screen-lab.md":
+            source_path = "docs/screen-lab.md"
+        elif path in {"../firmware/dependencies.lock", "../.github/workflows/acceptance.yml"}:
+            source_path = path[3:]
+        else:
+            return match.group(0)
+        anchor = f"#{fragment}" if marker else ""
+        return f"](https://github.com/pfrankov/kubik/blob/{revision}/{source_path}{anchor})"
+
+    return re.sub(r"\]\(([^)]+)\)", rewrite, document)
+
+
 validate_buyer_documents()
+revision = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+    raise ValueError("Cannot determine source revision for acceptance links")
 subprocess.run(["python3", str(root / "tools/package-firmware.py"), "--character", character], check=True)
 with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
     result = subprocess.run(
@@ -83,7 +105,10 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         native = (root / "docs/native-voice.md").read_text().replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
         write_member(bundle, "docs/native-voice.md", native.encode("utf-8"))
         for document in ("protocol.md", "acceptance.md", "muse.md", "hermes.md", "events.md"):
-            content = (root / "docs" / document).read_text().replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
+            content = (root / "docs" / document).read_text()
+            if document == "acceptance.md":
+                content = rewrite_acceptance_links(content, revision)
+            content = content.replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
             write_member(bundle, f"docs/{document}", content.encode("utf-8"))
         for path in sorted((root / "hermes-kubik").iterdir()):
             if path.is_file() and path.suffix in (".py", ".yaml"):
