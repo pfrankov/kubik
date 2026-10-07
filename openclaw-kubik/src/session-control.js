@@ -45,7 +45,7 @@ export class SessionControl {
         if (message.t === 'agent_model') {
           await this.control.selectModel(session.device, message.id, message.target);
           if (message.target !== 'agent') {
-            await session.engine.refreshCapabilities?.({ agentId: this.control.agentId?.(session.device) });
+            await session.engine.refreshCapabilities?.();
           }
         }
         return this.control.options(session.device, message.target);
