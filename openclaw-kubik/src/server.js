@@ -250,8 +250,8 @@ export class KubikServer {
     const { session } = conn;
     if (!session) return;
     session.close();
-    this.#lastGen.set(session.device.id, session.gen);
     if (this.#sessions.get(session.device.id) === session) {
+      this.#lastGen.set(session.device.id, session.gen);
       this.#sessions.delete(session.device.id);
       this.log(`kubik: device ${session.device.id} disconnected`);
       this.#publish();
@@ -420,6 +420,12 @@ export class KubikServer {
     const device = { id: deviceId, name: configured && configured.name !== deviceId ? configured.name : hello.name || deviceId,
       enabled: true, fingerprint: conn.fingerprint, fw: hello.fw, reportedName: hello.name,
       ...(hello.volume !== undefined ? { volume: hello.volume } : {}) };
+    const engine = this.#engineFor(device);
+    try { await engine.refreshCapabilities?.({ agentId: this.agentControl?.agentId?.(device) }); }
+    catch (error) { this.log(`kubik: cannot refresh agent voice capabilities for ${deviceId}: ${error?.message ?? error}`); }
+    if (conn.phase === 'closed' || ws.readyState !== 1) return;
+    // Commit replacement without an await: another authenticated connection may
+    // have become current while capabilities were being refreshed.
     const previous = this.#sessions.get(deviceId);
     if (previous) {
       this.log(`kubik: device ${deviceId} reconnected; replacing the previous connection`);
@@ -427,10 +433,6 @@ export class KubikServer {
       previous.close();
       previous.ws.close(CLOSE.REPLACED, 'replaced');
     }
-    const engine = this.#engineFor(device);
-    try { await engine.refreshCapabilities?.({ agentId: this.agentControl?.agentId?.(device) }); }
-    catch (error) { this.log(`kubik: cannot refresh agent voice capabilities for ${deviceId}: ${error?.message ?? error}`); }
-    if (conn.phase === 'closed' || ws.readyState !== 1) return;
     const session = new DeviceSession({
       ws, device, engine, log: this.log,
       lastGen: this.#lastGen.get(deviceId) ?? 0, sessionId: `s-${++this.#sessionSeq}`, volume: this.account.volume ?? hello.volume,
