@@ -38,6 +38,7 @@ export class SessionControl {
     this.#operations.set(this.#deviceId, operation);
     let timer;
     let pending;
+    let timedOut = false;
     try {
       if (!this.control) throw Object.assign(new Error(), { code: 'unsupported' });
       if (message.t === 'agent_model' && this.isWorking()) throw Object.assign(new Error(), { code: 'busy' });
@@ -48,17 +49,24 @@ export class SessionControl {
             await session.engine.refreshCapabilities?.();
           }
         }
-        return this.control.options(session.device, message.target);
+        const data = await this.control.options(session.device, message.target);
+        if (!timedOut && !session.closed) this.#respond(base, data, message.t === 'agent_model');
+        if (message.t === 'agent_model' && message.target !== 'agent') {
+          // The operation can outlive its UI request or connection. Keep the
+          // catalog-before-capabilities order, but publish to the current device.
+          const current = session.current();
+          if (current && current.engine === session.engine) current.sendCapabilities();
+        }
       };
       pending = request().finally(() => {
         if (this.#operations.get(this.#deviceId) === operation) this.#operations.delete(this.#deviceId);
       });
-      const data = await Promise.race([pending, new Promise((_, reject) => {
-        timer = setTimeout(() => reject(Object.assign(new Error(), { code: 'timeout' })), TIMEOUT_MS);
+      await Promise.race([pending, new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(Object.assign(new Error(), { code: 'timeout' }));
+        }, TIMEOUT_MS);
       })]);
-      if (session.closed) return;
-      this.#respond(base, data, message.t === 'agent_model');
-      if (message.t === 'agent_model' && message.target !== 'agent') session.sendCapabilities();
     } catch (error) {
       this.#respondError(base, error);
     } finally {

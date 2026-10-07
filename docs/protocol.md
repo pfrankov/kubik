@@ -609,7 +609,10 @@ speech catalog and store choices by account, device and pairing fingerprint.
 `mode` returns three rows with IDs `classic`, `realtime`, `live`, explicit boolean `available`,
 and the selected mode in `model`; cursor is zero. Unavailable modes cannot be selected.
 The device displays `classic` as STT. After saving a mode, the host refreshes its engine,
-returns the confirmed catalog, then sends updated capabilities. The device requests the next
+returns the confirmed catalog, then sends updated capabilities.
+If the request times out or its session is replaced, successful completion still
+sends the current engine capabilities to the active connection for that device.
+The expired or replaced request does not receive a late catalog response. The device requests the next
 catalog on its app task, never synchronously inside a WebSocket receive callback.
 `voice` is the single Realtime/Live model; `stt`/`tts` apply only to Classic.
 Wrong-mode targets are rejected as unsupported. Each mode retains its own model selection.

@@ -280,7 +280,6 @@ test('a voice write finishing after reconnect refreshes the current session voic
   assert.equal(engine.voiceMode, 'classic', 'the new connection initially reads the not-yet-saved profile');
   const currentResolver = engine.getVoice;
   assert.equal(typeof currentResolver, 'function');
-
   write.resolve();
   for (let attempt = 0; refreshes.length < 1 && attempt < 100; attempt++) await new Promise(resolve => setImmediate(resolve));
   assert.equal(refreshes.length, 1, 'the completed selection starts a fresh current-session capability read');
@@ -290,6 +289,9 @@ test('a voice write finishing after reconnect refreshes the current session voic
   assert.equal(engine.getVoice, currentResolver);
   assert.equal(engine.agentId, `agent-${currentKey.fingerprint}`, 'the old control keeps the current session agent identity');
   assert.equal(server.getSession(DEFAULT_DEVICE_KEY.device).engine, engine);
+  assert.deepEqual(await current.waitFor(event => event.t === 'capabilities' && event.voice_mode === 'realtime'),
+    { t: 'capabilities', voice_mode: 'realtime', stt: { available: true }, tts: { available: true } });
+  assert.equal(current.events.some(event => event.t === 'agent_options' && event.rid === 111), false);
 });
 
 test('a newer admitted candidate commits its voice snapshot after an older control refresh', { timeout: 10_000 }, async t => {
@@ -429,7 +431,6 @@ async function simultaneousCapabilityRefreshes(t, releaseOrder) {
   await controlReading.promise;
   assert.equal(preparations.length, 3, 'initial, candidate, and control snapshots are prepared');
   assert.equal(refreshes.length, 1);
-
   for (const index of releaseOrder) {
     if (index === 0) candidateVoice.resolve({ provider: 'openclaw', mode: 'classic', voice: 'candidate-device' });
     else controlVoice.resolve({ provider: 'openclaw', mode: 'realtime', voice: 'old-device' });
@@ -440,6 +441,10 @@ async function simultaneousCapabilityRefreshes(t, releaseOrder) {
   assert.equal(engine.voiceMode, 'classic');
   assert.equal(engine.agentId, `agent-${otherKey.fingerprint}`);
   assert.equal(engine.getVoice, preparations[1].settings.getVoice);
+  await candidate.waitFor(event => event.t === 'capabilities' && event.voice_mode === 'classic');
+  candidate.send({ t: 'ping', ts: 114 });
+  await candidate.waitFor(event => event.t === 'pong' && event.ts === 114);
+  assert.equal(candidate.events.some(event => event.t === 'capabilities' && event.voice_mode !== 'classic'), false);
   assert.equal(server.getSession(DEFAULT_DEVICE_KEY.device).sessionId, welcome.session);
   assert.equal(await previous.closed, 4003);
 }

@@ -146,7 +146,6 @@ esp_err_t connection_store_save_setup(connection_record_t *record, const char *s
         return ESP_ERR_NVS_NOT_FOUND;
     } else if (record->muse.magic && record->muse.enabled != (unsigned)muse_selected) {
         record->muse.enabled = muse_selected;
-        record->muse_generation = next_store_generation(record->muse_generation);
     }
     return mock_commit_record(record, true);
 }
@@ -287,6 +286,26 @@ static void check_store(void) {
     for(size_t i=0;i<sizeof loaded;i++)assert(!((unsigned char *)&loaded)[i]);
     persisted_record.muse.access_token[0]='r';
 }
+static void check_refresh_after_setup_switch(void) {
+    muse_credentials_t pending, saved;
+    uint32_t generation, saved_generation;
+    uint64_t network_revision;
+    assert(muse_store_load_generation(&pending, &generation, &network_revision) == ESP_OK);
+    assert(settings_save_setup("Home", "validpass", "kubik://host:18793", false, NULL) == ESP_OK);
+    assert(muse_store_load_generation(&saved, &saved_generation, &network_revision) == ESP_OK);
+    assert(saved_generation == generation && !saved.enabled);
+    strcpy(pending.access_token, "setup-refreshed-access");
+    strcpy(pending.refresh_token, "setup-refreshed-token");
+    assert(muse_store_refresh_save(&pending, generation) == ESP_OK);
+    assert(muse_store_load(&saved) == ESP_OK && !saved.enabled);
+    assert(!strcmp(saved.access_token, "setup-refreshed-access") &&
+           !strcmp(saved.refresh_token, "setup-refreshed-token"));
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_PAIRED);
+    assert(!strcmp(g_settings.server_url, "kubik://host:18793"));
+    assert(muse_store_select(true) == ESP_OK);
+    muse_store_wipe(&pending, sizeof pending);
+    muse_store_wipe(&saved, sizeof saved);
+}
 static void check_json(void) {
     assert(!muse_json_parse("{}{}",4));assert(!muse_json_parse("{\"key\":\"a\\u0000b\"}",20));
     char deep[40];memset(deep,'[',17);memset(deep+17,']',17);assert(!muse_json_parse(deep,34));
@@ -392,6 +411,6 @@ static void check_pair(void) {
     check_provision();
 }
 int main(void) {
-    strcpy(g_settings.name,"Kubik");check_store();check_json();check_setup();check_options();check_control();check_pair();
+    strcpy(g_settings.name,"Kubik");check_store();check_refresh_after_setup_switch();check_json();check_setup();check_options();check_control();check_pair();
     puts("muse: credential isolation, strict JSON, phone setup, capabilities, fragmented control and pairing Wi-Fi/status flow passed");
 }

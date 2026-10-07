@@ -86,6 +86,43 @@ static void test_runtime_fallback_reads_and_writes(void) {
     muse_store_wipe(&saved, sizeof saved);
 }
 
+static void test_refresh_after_setup_agent_switch(void) {
+    nvs_flash_erase();
+    settings_load();
+    assert(settings_save_connection("Home", "validpass", "kubik://host:18793") == ESP_OK);
+    char sdk_token[49];
+    fill_sdk_token(sdk_token, 'A');
+    assert(muse_store_begin(sdk_token) == ESP_OK);
+    muse_credentials_t pending, saved;
+    uint32_t generation, saved_generation;
+    uint64_t network_revision;
+    assert(muse_store_load_generation(&pending, &generation, &network_revision) == ESP_OK);
+    paired_credentials(&pending);
+    assert(muse_store_commit_pairing(&pending, generation, network_revision, "Home", "validpass") == ESP_OK);
+
+    // The pending refresh belongs to this binding even if setup selects another agent.
+    assert(settings_save_setup("Home", "validpass", "kubik://host:18793", false, NULL) == ESP_OK);
+    assert(muse_store_load_generation(&saved, &saved_generation, &network_revision) == ESP_OK);
+    assert(saved_generation == generation && !saved.enabled);
+    strcpy(pending.access_token, "setup-refreshed-access");
+    strcpy(pending.refresh_token, "setup-refreshed-token");
+    assert(muse_store_refresh_save(&pending, generation) == ESP_OK);
+    settings_load();
+    assert(muse_store_load(&saved) == ESP_OK && !saved.enabled);
+    assert(!strcmp(saved.access_token, "setup-refreshed-access") &&
+           !strcmp(saved.refresh_token, "setup-refreshed-token"));
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_PAIRED);
+    assert(!strcmp(g_settings.wifi_ssid, "Home") && !strcmp(g_settings.server_url, "kubik://host:18793"));
+
+    // A new binding still invalidates the old refresh.
+    fill_sdk_token(sdk_token, 'E');
+    assert(settings_save_setup("Home", "validpass", "", true, sdk_token) == ESP_OK);
+    assert(muse_store_refresh_save(&pending, generation) == ESP_ERR_INVALID_STATE);
+    assert(muse_store_load(&saved) == ESP_OK && !strcmp(saved.sdk_token, sdk_token));
+    muse_store_wipe(&pending, sizeof pending);
+    muse_store_wipe(&saved, sizeof saved);
+}
+
 static void test_pairing_preserves_newer_intent(void) {
     nvs_flash_erase();
     settings_load();
@@ -171,6 +208,7 @@ static void test_pairing_selects_known_inactive_network(void) {
 
 void settings_test_connection_runtime(void) {
     test_runtime_fallback_reads_and_writes();
+    test_refresh_after_setup_agent_switch();
     test_pairing_preserves_newer_intent();
     test_pairing_rejects_same_network_intent();
     test_pairing_selects_known_inactive_network();
