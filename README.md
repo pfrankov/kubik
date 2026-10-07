@@ -69,7 +69,7 @@ To support another agent, implement an adapter against the [Agent SDK](docs/agen
 
 ## Build and contribute
 
-The public source snapshot omits `firmware/assets/wake/tessa.tflite`. Tess builds require a locally supplied model with appropriate usage rights; see the [model notice](licenses/Tessa-model-notice.txt).
+The repository includes `firmware/assets/wake/tessa.tflite` for reproducible Tess builds. Its upstream license is unspecified; it is excluded from Kubik’s Apache 2.0 license. See the [model notice](licenses/Tessa-model-notice.txt).
 
 Use ESP-IDF 5.5.1 for firmware. Node.js, uv and Chrome are also required for the complete acceptance suite; versions and prerequisites are in [acceptance](docs/acceptance.md).
 
@@ -114,4 +114,4 @@ The device UI and setup pages are in English. Maintenance documentation and beha
 
 Project code, artwork, sounds and documentation are licensed under [Apache 2.0](LICENSE). See [NOTICE](NOTICE) and [third-party notices](licenses/README.txt) for component-specific terms.
 
-**Public distribution of the Tessa wake-word model is not cleared.** The [model notice](licenses/Tessa-model-notice.txt) records this release blocker. Do not distribute Tess firmware or bundles containing that model until its redistribution terms are established.
+**Exception: the included Tessa wake-word model has an unspecified upstream license.** Its inclusion does not establish permission for use or redistribution, including commercial distribution. It is not licensed under Apache 2.0; see the [model notice](licenses/Tessa-model-notice.txt).

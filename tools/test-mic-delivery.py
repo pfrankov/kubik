@@ -58,13 +58,15 @@ static void vTaskSuspend(void *unused) { (void)unused; pthread_exit(NULL); }
 static void vTaskDelete(TaskHandle_t task) { pthread_join(task->thread,NULL); sem_destroy(&task->wake); }
 static bool done_ready;
 static SemaphoreHandle_t xSemaphoreCreateBinaryStatic(StaticSemaphore_t *s) {
-    if (done_ready) sem_destroy(s); sem_init(s,0,0); done_ready=true; return s;
+    if (done_ready) sem_destroy(s);
+    sem_init(s,0,0); done_ready=true; return s;
 }
 static void xSemaphoreGive(SemaphoreHandle_t s) { sem_post(s); }
 static void xSemaphoreTake(SemaphoreHandle_t s, unsigned timeout) { (void)timeout; assert(!sem_wait(s)); }
 static int alloc_fail=-1, held;
 static void *checked_malloc(size_t n) {
-    if (alloc_fail==0) return NULL; if (alloc_fail>0) alloc_fail--;
+    if (alloc_fail==0) return NULL;
+    if (alloc_fail>0) alloc_fail--;
     void *p=malloc(n); if(p) held++; return p;
 }
 static void checked_free(void *p) { if(p) held--; free(p); }
@@ -76,7 +78,8 @@ static void heap_caps_free(void *p) { checked_free(p); }
 static void *workspace;
 static void *tls_mem_capture_take(size_t n) {
     assert(n==16560); // Packed slots and decode scratch fit the existing TLS workspace.
-    if(!workspace)workspace=checked_malloc(n);return workspace;
+    if(!workspace)workspace=checked_malloc(n);
+    return workspace;
 }
 static void tls_mem_capture_release(void) {
     for(size_t i=0;i<16560;i++)assert(((unsigned char *)workspace)[i]==0);

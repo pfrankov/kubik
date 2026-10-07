@@ -40,8 +40,6 @@ htmlcov/
 *.key
 *.pem
 
-# Local wake model: redistribution terms are not established
-/firmware/assets/wake/tessa.tflite
 
 # Local editor runtime and machine state
 .claude/scheduled_tasks*

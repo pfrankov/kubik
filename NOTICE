@@ -15,3 +15,8 @@ Native Muse integration includes Noise core, v5 community pairing and C6 chat li
 from Meta Muse Gadget SDK, revision 74a5e2d7fc895f109f83a9a1dbed705dbcd8b1ff.
 Copyright Meta Platforms, Inc. and affiliates; Apache-2.0. See firmware/components/*/UPSTREAM.md.
 SDK token/account terms are separate from the source license; no token is distributed.
+
+License exception: firmware/assets/wake/tessa.tflite is a third-party wake-word
+model with an unspecified upstream license. It is included for reproducible
+builds and is not covered by Apache 2.0. Inclusion grants no usage or
+redistribution rights; see licenses/Tessa-model-notice.txt for its provenance.
