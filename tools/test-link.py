@@ -373,9 +373,10 @@ int main(void) {
     }
     int t0=target_stops;wifi_connected=false;manager_run(1);assert(!link_up()&&target_stops>t0);wifi_connected=true;
     // A different key fails TLS; the screen says so and later failures do not hide it.
-    connect_on_start=false;assert(ws_start(last_uri));pin_mismatch=true;
+    char retry_uri[sizeof last_uri];snprintf(retry_uri,sizeof retry_uri,"%s",last_uri);
+    assert(!strcmp(retry_uri,last_uri));connect_on_start=false;assert(ws_start(retry_uri));pin_mismatch=true;
     ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);manager_run(1);assert(link_last_problem()==LINK_KEY_CHANGED);
-    ws_stop();assert(ws_start(last_uri));ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);
+    ws_stop();assert(ws_start(retry_uri));ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);
     assert(link_last_problem()==LINK_KEY_CHANGED);ws_stop();connect_on_start=true;
     target_result=TARGET_NOT_FOUND;time_ms+=60000;manager_run(20);assert(link_last_problem()==LINK_KEY_CHANGED);
     target_result=TARGET_READY;

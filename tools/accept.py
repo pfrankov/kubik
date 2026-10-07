@@ -12,6 +12,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 PLAYWRIGHT = "playwright==1.63.0"
+IDF_TOOLS = {"host": ("idf.py", "clang"), "build": ("idf.py",), "ci": ("idf.py", "clang")}
 HOST_TESTS = (
     "agent-menu", "tls-memory", "audio-capture", "mic-task", "mic-delivery", "audio-stream", "audio-levels", "menu-hold", "audio-wake", "wake-word", "native-voice", "guide", "ima", "link", "navigation", "pin", "power-network",
     "event-journal", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "settings", "setup", "muse", "hermes", "speech", "state", "tess", "wifi", "radio-relay",
@@ -44,7 +45,7 @@ def require_device_voice():
 
 def preflight(level):
     required = ["node", "npm", "uv", "uvx", "cc", "git", "tar", "unzip", "openssl"]
-    if level in {"host", "build", "ci"}: required += ["idf.py"]
+    required.extend(IDF_TOOLS.get(level, ()))
     if level == "device":
         required += ["say"]
         validate_device_environment()
