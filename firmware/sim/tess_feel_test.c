@@ -354,7 +354,14 @@ static void poke(face_t *f, unsigned *seed, bool talks) {
     static const emotion_t words[] = {EMO_JOY, EMO_SAD, EMO_ANGRY, EMO_LOVE, EMO_SURPRISED, EMO_SLEEPY, EMO_NEUTRAL};
     static const face_mode_t modes[] = {MODE_LISTENING, MODE_THINKING, MODE_SPEAKING, MODE_IDLE, MODE_OFFLINE, MODE_IDLE, MODE_SLEEP, MODE_IDLE};
     switch (dice(seed) % 5) {
-    case 0: case 1: face_event(f, touch[dice(seed) % 8], 100 + dice(seed) % 300, 100 + dice(seed) % 300); break;
+    case 0: case 1: {
+        // Keep PRNG draws ordered; C does not define function argument evaluation order.
+        unsigned touch_index = dice(seed) % 8;
+        int x = 100 + dice(seed) % 300;
+        int y = 100 + dice(seed) % 300;
+        face_event(f, touch[touch_index], x, y);
+        break;
+    }
     case 2: face_event(f, FEV_VOLUME, dice(seed) % 100, 0); break;
     case 3: face_set_emotion(f, words[dice(seed) % 7], 3.f); break;
     default: if (talks) face_set_mode(f, modes[dice(seed) % 8]); break;
