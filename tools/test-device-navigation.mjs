@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Real Back routes, preserving settings. GPIO debounce is covered by test-navigation.py.
 import assert from 'node:assert/strict';
-import { assertIdleCapture } from './test-device/diagnostics.mjs';
+import { assertIdleCapture, waitForDeviceLink } from './test-device/diagnostics.mjs';
 import {setTimeout as sleep} from 'node:timers/promises';
 const url=process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
 async function control(body) {
@@ -38,7 +38,7 @@ async function darkScreen() {
   await sim('boot');await until(s=>!s.card_open,'close reply');
 }
 async function main() {
-  const original=await info();
+  const original=await waitForDeviceLink(info);
   assert.ok(original.guide_done, 'configured device required'); assertIdleCapture(original);
   try {
     if(original.menu)await sim('menu');

@@ -14,8 +14,8 @@ with tempfile.TemporaryDirectory(prefix="kubik-pin-") as tmp:
     subprocess.run([
         os.environ.get("CC", "cc"), "-std=gnu11", "-O1", "-g", "-Wall", "-Wextra", "-Wno-unused-parameter",
         "-Wno-deprecated-declarations", "-fsanitize=address,undefined",
-        "-Ifirmware/sim/link_stubs", "-Ifirmware/sim/settings_stubs", "-Ifirmware/main",
-        f"-I{MBEDTLS / 'include'}", f"-I{CJSON}",
+        "-Ifirmware/sim/link_stubs", f"-I{MBEDTLS / 'include'}", f"-I{CJSON}",
+        "-Ifirmware/sim/settings_stubs", "-Ifirmware/main",
         "firmware/sim/link_pin_test.c", str(MBEDTLS / "library/sha256.c"),
         str(MBEDTLS / "library/platform_util.c"), str(CJSON / "cJSON.c"), "-o", exe,
     ], cwd=ROOT, check=True)

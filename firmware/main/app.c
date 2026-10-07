@@ -29,11 +29,25 @@ static portMUX_TYPE s_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
 static app_mailbox_t s_mailbox;
 static TaskHandle_t s_app_task;
 
+static int mailbox_slot(app_ev_type_t type) {
+    switch (type) {
+    case EV_SRV_SPEAK: return APP_MAILBOX_SRV_SPEAK;
+    case EV_SRV_SPEAK_END: return APP_MAILBOX_SRV_SPEAK_END;
+    case EV_SRV_TEXT: return APP_MAILBOX_SRV_TEXT;
+    case EV_PTT_UP: return APP_MAILBOX_PTT_UP;
+    case EV_VOICE_WAKE: return APP_MAILBOX_VOICE_WAKE;
+    case EV_VOICE_END: return APP_MAILBOX_VOICE_END;
+    case EV_INPUT_END: return APP_MAILBOX_INPUT_END;
+    case EV_AGENT_CAPS: return APP_MAILBOX_AGENT_CAPS;
+    case EV_LINK_DOWN: return APP_MAILBOX_LINK_DOWN;
+    case EV_SRV_WELCOME: return APP_MAILBOX_SRV_WELCOME;
+    default: return -1;
+    }
+}
+
 void app_post_in_session(app_ev_type_t type, int a, int b, uint32_t session) {
     app_ev_t event = {.type = (uint8_t)type, .a = a, .b = b, .session = session};
-    int slot = type == EV_SRV_SPEAK ? 0 : type == EV_SRV_SPEAK_END ? 1 :
-               type == EV_SRV_TEXT ? 2 : type == EV_PTT_UP ? 3 : type == EV_VOICE_WAKE ? 4 : type == EV_VOICE_END ? 5 :
-               type == EV_INPUT_END ? 6 : type == EV_AGENT_CAPS ? 7 : -1;
+    int slot = mailbox_slot(type);
     if (slot >= 0) {
         portENTER_CRITICAL(&s_mailbox_mux);
         app_mailbox_put(&s_mailbox, (unsigned)slot, event);

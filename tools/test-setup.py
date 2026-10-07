@@ -27,15 +27,17 @@ MOCKS = r'''
 typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_FAIL -1
+#define ESP_ERR_INVALID_ARG -3
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 typedef struct cJSON cJSON;
 typedef struct { bool muse; char sdk_token[96]; } setup_agent_choice_t;
+esp_err_t setup_connection_save(const setup_agent_choice_t *choice,
+                               const char *ssid, const char *password, const char *url);
 static int muse_store_saved_state(void) { return 0; }
 static int muse_store_state(void) { return 0; }
 #define MUSE_OFF 0
-static esp_err_t setup_agent_save(const setup_agent_choice_t *choice) { (void)choice; return ESP_OK; }
 static const setup_agent_choice_t host_choice;
 static const char *setup_validate_credentials(const char *ssid,const char *pass);
 static const char *setup_agent_choice(const cJSON *request, setup_agent_choice_t *choice);
@@ -167,12 +169,21 @@ static int settings_wifi_find(const char *ssid) {
     return -1;
 }
 static esp_err_t save_result = ESP_OK;
-static esp_err_t settings_save_connection(const char *ssid, const char *pass, const char *url) {
-    if (save_result == ESP_OK) {
-        snprintf(g_settings.wifi_ssid, sizeof g_settings.wifi_ssid, "%s", ssid);
-        snprintf(g_settings.wifi_pass, sizeof g_settings.wifi_pass, "%s", pass);
-        snprintf(g_settings.server_url, sizeof g_settings.server_url, "%s", url);
-    }
+static bool saved_muse_selected = true;
+static char saved_muse_sdk_token[96] = "existing-sdk-token";
+static esp_err_t settings_save_setup(const char *ssid, const char *pass, const char *url,
+                                     bool muse_selected, const char *sdk_token) {
+    if (save_result != ESP_OK) return save_result;
+    int index = settings_wifi_find(ssid);
+    if (index < 0) index = g_settings.wifi_profile_count++;
+    assert(index >= 0 && index < 8);
+    snprintf(g_settings.wifi_profiles[index].ssid, sizeof g_settings.wifi_profiles[index].ssid, "%s", ssid);
+    snprintf(g_settings.wifi_profiles[index].password, sizeof g_settings.wifi_profiles[index].password, "%s", pass);
+    snprintf(g_settings.wifi_ssid, sizeof g_settings.wifi_ssid, "%s", ssid);
+    snprintf(g_settings.wifi_pass, sizeof g_settings.wifi_pass, "%s", pass);
+    snprintf(g_settings.server_url, sizeof g_settings.server_url, "%s", url);
+    saved_muse_selected = muse_selected;
+    if (sdk_token && sdk_token[0]) snprintf(saved_muse_sdk_token, sizeof saved_muse_sdk_token, "%s", sdk_token);
     return save_result;
 }
 
@@ -252,6 +263,9 @@ int main(void) {
     strcpy(g_settings.wifi_profiles[0].ssid, "hidden-home");
     strcpy(g_settings.wifi_profiles[0].password, "saved-password");
     g_settings.wifi_profile_count = 1;
+    strcpy(g_settings.wifi_ssid, "hidden-home");
+    strcpy(g_settings.wifi_pass, "saved-password");
+    strcpy(g_settings.server_url, "ws://old.example/kubik/v1");
 
     // Hold the queue lock while recovery attempts its claim. The request is
     // accepted first and must reach wifi_try intact.
@@ -285,12 +299,23 @@ int main(void) {
     strcpy(s_try.pass, "candidate-password");
     int before_failure = try_calls;
     assert(setup_poll() == SETUP_FAILED);
+    assert(s_error == SETUP_ERR_STORAGE);
     assert(try_calls == before_failure + 1 && !tried_ssid[0] && !tried_pass[0]);
     assert(!s_try.pass[0]);
     assert(!strcmp(g_settings.wifi_profiles[0].password, "saved-password"));
+    assert(!strcmp(g_settings.wifi_ssid, "hidden-home") &&
+           !strcmp(g_settings.wifi_pass, "saved-password") &&
+           !strcmp(g_settings.server_url, "ws://old.example/kubik/v1"));
+    assert(saved_muse_selected && !strcmp(saved_muse_sdk_token, "existing-sdk-token"));
     s_phase = SETUP_TRYING; save_result = ESP_OK;
     strcpy(s_try.ssid, "committed-net");
+    strcpy(s_try.pass, "committed-password");
+    strcpy(s_try.url, "ws://new.example/kubik/v1");
     assert(setup_poll() == SETUP_DONE && try_calls == before_failure + 1);
+    assert(!strcmp(g_settings.wifi_ssid, "committed-net") &&
+           !strcmp(g_settings.wifi_pass, "committed-password") &&
+           !strcmp(g_settings.server_url, "ws://new.example/kubik/v1"));
+    assert(!saved_muse_selected && !strcmp(saved_muse_sdk_token, "existing-sdk-token"));
 
     int before_close = try_calls;
     setup_stop(); // Commit won: DONE retains the newly saved profile.
@@ -304,7 +329,7 @@ int main(void) {
     assert(try_calls == before_close + 2 && !tried_ssid[0] && !s_try.pass[0]);
     assert(!strcmp(queue_connection("late-net", "late-password", "", &host_choice), "busy"));
 
-    puts("setup: saved SSID list without secrets, hidden saved-network empty-password retention, "
+    puts("setup: saved SSID list without secrets, atomic save failure state, hidden saved-network retention, "
          "pending request/close race, empty LAN server and invalid address passed");
 }
 '''
@@ -315,8 +340,10 @@ def main():
     assert 'cJSON_AddArrayToObject(j, "saved_nets")' in source_text
     assert 'cJSON_CreateString(g_settings.wifi_profiles[i].ssid)' in source_text
     assert 'cJSON_AddStringToObject(j, "saved",' not in source_text
+    portal = (ROOT / "firmware/main/portal.html").read_text()
+    assert "storage: 'Kubik could not confirm these settings were saved." in portal
     request_source = (ROOT / "firmware/main/setup_request.c").read_text()
-    source_text += "\n" + request_source[request_source.index("const char *setup_validate_credentials("):request_source.index("const char *setup_agent_choice(")]
+    source_text += "\n" + request_source[request_source.index("const char *setup_validate_credentials("):request_source.index("cJSON *setup_read_request(")]
     production = "\n".join(
         line for line in source_text.splitlines()
         if not line.startswith("#include")

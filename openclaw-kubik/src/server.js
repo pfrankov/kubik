@@ -7,6 +7,7 @@ import { attachDeviceMessages } from './server-connection.js';
 import { guardSessionFrames, readAllowed, withPairingTimeout } from './pairing-access.js';
 import { DeviceSession } from './session.js';
 import { NotificationError, NotificationQueue } from './notification-queue.js';
+import { refreshSessionActivity, sendSessionCron } from './server-status.js';
 import { sanitizeForDisplay, speakableText } from './speech.js';
 
 const HELLO_TIMEOUT_MS = 3000; // until the hello arrives, then again until the auth arrives: a slot is never held longer
@@ -35,7 +36,8 @@ export class KubikServer {
   #sessions = new Map(); // deviceId -> DeviceSession
   #engines = new Map(); // deviceId -> engine (outlives reconnects)
   #lastGen = new Map();
-  #sessionSeq = 0;
+  #committedAdmission = new Map(); // deviceId -> last admission, retained with the cached engine
+  #admissionSeq = 0;
   #handshakes = new Map(); // ws -> source until admission transfers it to pairing or a session
   #pending = new Map(); // ws -> connection waiting for pairing approval (or its upsert in flight)
   #poll = null;
@@ -51,14 +53,12 @@ export class KubikServer {
     pairing = null, pairingPollMs = PAIRING_POLL_MS, pairingTimeoutMs = PAIRING_TIMEOUT_MS, activity = null, cron = null,
     notificationPath = null, agentControl = null }) {
     Object.assign(this, { account, dispatch, log, setStatus, engineFactory, engineOptions, pairing, pairingPollMs, pairingTimeoutMs });
-    this.cron = cron;
-    this.activity = activity;
-    this.agentControl = agentControl;
-    this.#notifications = new NotificationQueue({ path: notificationPath });
+    Object.assign(this, { cron, activity, agentControl });
+    this.#notifications = new NotificationQueue({ path: notificationPath, log });
   }
 
   /** Re-sends what OpenClaw is busy with to every device (called when the Gateway's runs change). */
-  refreshActivity() { for (const session of this.#sessions.values()) this.#refreshActivity(session); }
+  refreshActivity() { for (const session of this.#sessions.values()) refreshSessionActivity(session, this.activity, this.#typing); }
 
   /**
    * A heartbeat (or a cron job through it) is preparing something for this device: its run lives in another
@@ -68,29 +68,12 @@ export class KubikServer {
     const id = normalizeDeviceId(deviceId);
     if (on) this.#typing.set(id, Date.now() + ttlMs); else this.#typing.delete(id);
     const session = this.#sessions.get(id);
-    if (session) this.#refreshActivity(session);
-    if (on) setTimeout(() => { const s = this.#sessions.get(id); if (s) this.#refreshActivity(s); }, ttlMs + 50).unref?.();
+    if (session) refreshSessionActivity(session, this.activity, this.#typing);
+    if (on) setTimeout(() => { const s = this.#sessions.get(id); if (s) refreshSessionActivity(s, this.activity, this.#typing); }, ttlMs + 50).unref?.();
   }
 
   /** Cron jobs changed (the `cron` source's summary, see CronWatcher): tell every device. */
-  refreshCron() { for (const session of this.#sessions.values()) this.#sendCron(session, true); }
-  #sendCron(session, always = false) {  // a fresh connection starts with nothing shown
-    const c = this.cron?.summary();
-    if (c && (always || c.running || c.next >= 0)) session.send(out.cron(c.running, c.next));
-  }
-
-  #refreshActivity(session) {
-    let own = '', other = '';
-    if (this.activity) {
-      let key;
-      try { key = this.activity.sessionKeyFor(session.device.id); } catch { key = undefined; }
-      ({ own, other } = this.activity.summary(key));
-    }
-    const until = this.#typing.get(session.device.id);
-    if (until && until < Date.now()) this.#typing.delete(session.device.id);
-    else if (until && !own) { own = other || 'thinking'; other = ''; }
-    session.setActivity({ own, other });
-  }
+  refreshCron() { for (const session of this.#sessions.values()) sendSessionCron(session, this.cron, true); }
 
   get onlineDevices() { return [...this.#sessions.keys()].sort(); }
   getSession(deviceId) { return this.#sessions.get(normalizeDeviceId(deviceId)); }
@@ -106,13 +89,14 @@ export class KubikServer {
     signal?.throwIfAborted();
     if (!this.pairing || this.account.devices.get(deviceId)?.enabled === false) throw new NotificationError('Device pairing is unavailable or disabled');
     const allowed = await readAllowed(this.pairing);
-    this.#notifications.revoke(allowed);
     const session = this.getSession(deviceId);
     if (session && !allowed.has(`${deviceId}:${session.device.fingerprint}`)) this.#closeRevokedSession(session, 'pairing revoked');
+    this.#notifications.revoke(allowed);
     const keys = [...allowed].filter((entry) => entry.startsWith(`${deviceId}:`)).map((entry) => entry.slice(deviceId.length + 1));
     if (!keys.length) throw new NotificationError('Device is not approved; the message was not accepted');
     signal?.throwIfAborted();
     const entry = this.#notifications.enqueue(deviceId, text, keys);
+    this.#ensurePairingPoll();
     if (!this.#onlineSession(deviceId)) return this.#queuedResult(entry);
     const result = new Promise((resolve, reject) => this.#notificationWaiters.set(entry.id, { resolve, reject, entry }));
     this.#drainNotifications(deviceId);
@@ -179,6 +163,7 @@ export class KubikServer {
     this.#wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD, perMessageDeflate: false });
     this.#heartbeat = setInterval(() => this.#checkLiveness(), HEARTBEAT_MS);
     this.#heartbeat.unref?.();
+    this.#ensurePairingPoll();
   }
 
   /**
@@ -204,7 +189,6 @@ export class KubikServer {
       engine = this.engineFactory(this.account.voice, { log: this.log, ...this.engineOptions });
       this.#engines.set(device.id, engine);
     }
-    if (this.agentControl?.voiceSettings) engine.getVoice = () => this.agentControl.voiceSettings(device);
     return engine;
   }
 
@@ -250,8 +234,8 @@ export class KubikServer {
     const { session } = conn;
     if (!session) return;
     session.close();
-    this.#lastGen.set(session.device.id, session.gen);
     if (this.#sessions.get(session.device.id) === session) {
+      this.#lastGen.set(session.device.id, session.gen);
       this.#sessions.delete(session.device.id);
       this.log(`kubik: device ${session.device.id} disconnected`);
       this.#publish();
@@ -376,13 +360,13 @@ export class KubikServer {
   }
 
   #ensurePairingPoll() {
-    if (!this.pairing || this.#poll || (!this.#pending.size && !this.#sessions.size)) return;
+    if (!this.pairing || this.#poll || (!this.#pending.size && !this.#sessions.size && this.#notifications.empty)) return;
     this.#poll = setInterval(() => { this.checkPairings().catch(() => {}); }, this.pairingPollMs);
     this.#poll.unref?.();
   }
 
   #stopPollIfIdle() {
-    if (this.#pending.size || this.#sessions.size || !this.#poll) return;
+    if (this.#pending.size || this.#sessions.size || !this.#notifications.empty || !this.#poll) return;
     clearInterval(this.#poll);
     this.#poll = null;
   }
@@ -390,7 +374,10 @@ export class KubikServer {
   /** Re-reads approved keys for pending and active sessions; `notifyApproval` calls it for Gateway changes. */
   checkPairings() {
     if (this.#polling) return this.#polling;
-    if (!this.pairing || (!this.#sessions.size && this.#notifications.empty && ![...this.#pending.values()].some((c) => c.phase === 'pending'))) return Promise.resolve();
+    if (!this.pairing || (!this.#sessions.size && this.#notifications.empty &&
+        ![...this.#pending.values()].some((c) => c.phase === 'pending'))) {
+      this.#stopPollIfIdle(); return Promise.resolve();
+    }
     this.#polling = (async () => {
       let allowed;
       try { allowed = await readAllowed(this.pairing); } catch (error) {
@@ -398,10 +385,10 @@ export class KubikServer {
         for (const session of [...this.#sessions.values()]) this.#closeRevokedSession(session, 'pairing unavailable');
         return;
       }
-      this.#notifications.revoke(allowed);
       for (const session of [...this.#sessions.values()]) {
         if (!allowed.has(`${session.device.id}:${session.device.fingerprint}`)) this.#closeRevokedSession(session, 'pairing revoked');
       }
+      this.#notifications.revoke(allowed);
       for (const conn of [...this.#pending.values()]) {
         if (conn.phase !== 'pending' || !allowed.has(conn.entryId)) continue;
         this.#pending.delete(conn.ws);
@@ -415,50 +402,75 @@ export class KubikServer {
   }
 
   async #startSession(conn) {
+    const admission = ++this.#admissionSeq;
     const { ws, remote, hello, deviceId } = conn;
     const configured = this.account.devices.get(deviceId);
     const device = { id: deviceId, name: configured && configured.name !== deviceId ? configured.name : hello.name || deviceId,
       enabled: true, fingerprint: conn.fingerprint, fw: hello.fw, reportedName: hello.name,
       ...(hello.volume !== undefined ? { volume: hello.volume } : {}) };
+    const engine = this.#engineFor(device);
+    const getVoice = this.agentControl?.voiceSettings ? () => this.agentControl.voiceSettings(device) : undefined;
+    let capabilitySnapshot, refreshed = true;
+    try { capabilitySnapshot = await engine.prepareCapabilities?.({ agentId: this.agentControl?.agentId?.(device), getVoice }); }
+    catch (error) { refreshed = false; this.log(`kubik: cannot refresh agent voice capabilities for ${deviceId}: ${error?.message ?? error}`); }
+    if (conn.phase === 'closed' || ws.readyState !== 1) return;
+    if (admission < (this.#committedAdmission.get(deviceId) ?? 0)) {
+      conn.fail(CLOSE.REPLACED, 'replaced'); return;
+    }
+    let allowed, pairingError;
+    try { allowed = await readAllowed(this.pairing); } catch (error) { pairingError = error; }
+    // The pairing read is asynchronous too: the socket may have closed or a newer candidate may have committed
+    // while it was in flight. Do not let this stale candidate publish a session or apply its cached snapshot.
+    if (conn.phase === 'closed' || ws.readyState !== 1) return;
+    if (admission < (this.#committedAdmission.get(deviceId) ?? 0)) {
+      conn.fail(CLOSE.REPLACED, 'replaced'); return;
+    }
+    if (pairingError) {
+      this.log(`kubik: cannot revalidate device ${deviceId} before session admission: ${pairingError?.message ?? pairingError}`);
+      conn.fail(CLOSE.INTERNAL, 'pairing unavailable'); return;
+    }
+    if (this.account.devices.get(deviceId)?.enabled === false) { this.#reject(conn, 'device disabled before session admission'); return; }
+    if (!allowed.has(conn.entryId)) { this.#reject(conn, 'pairing revoked before session admission'); return; }
     const previous = this.#sessions.get(deviceId);
+    if (!refreshed && this.#committedAdmission.has(deviceId)) {
+      conn.fail(CLOSE.INTERNAL, 'voice capabilities unavailable'); return;
+    }
+    const authorize = () => this.#authorizeSession(session);
+    const session = new DeviceSession({
+      ws, device, engine, log: this.log,
+      lastGen: previous?.gen ?? this.#lastGen.get(deviceId) ?? 0, sessionId: `s-${admission}`, volume: this.account.volume ?? hello.volume,
+      agentControl: this.agentControl, textMode: this.account.text ?? 'auto',
+      onActivity: () => this.setStatus({ lastInboundAt: Date.now() }),
+      authorize, current: () => this.#sessions.get(deviceId),
+      dispatch: async (turn) => {
+        if (!turn.isCurrent?.() || !await authorize()) return;
+        if (session.closed || this.#sessions.get(deviceId) !== session || !turn.isCurrent?.()) return;
+        return this.dispatch({ device, ...turn, speak: turn.deliver });
+      },
+    });
+    // The prepared engine snapshot and server session become current in one synchronous commit.
+    if (refreshed && engine.prepareCapabilities) engine.applyCapabilities(capabilitySnapshot);
     if (previous) {
       this.log(`kubik: device ${deviceId} reconnected; replacing the previous connection`);
       this.#lastGen.set(deviceId, previous.gen);
       previous.close();
       previous.ws.close(CLOSE.REPLACED, 'replaced');
     }
-    const engine = this.#engineFor(device);
-    try { await engine.refreshCapabilities?.({ agentId: this.agentControl?.agentId?.(device) }); }
-    catch (error) { this.log(`kubik: cannot refresh agent voice capabilities for ${deviceId}: ${error?.message ?? error}`); }
-    if (conn.phase === 'closed' || ws.readyState !== 1) return;
-    const session = new DeviceSession({
-      ws, device, engine, log: this.log,
-      lastGen: this.#lastGen.get(deviceId) ?? 0, sessionId: `s-${++this.#sessionSeq}`, volume: this.account.volume ?? hello.volume,
-      agentControl: this.agentControl,
-      textMode: this.account.text ?? 'auto',
-      onActivity: () => this.setStatus({ lastInboundAt: Date.now() }),
-      authorize: () => this.#authorizeSession(session),
-      dispatch: async (turn) => {
-        if (!turn.isCurrent?.() || !await this.#authorizeSession(session)) return;
-        if (session.closed || this.#sessions.get(deviceId) !== session || !turn.isCurrent?.()) return;
-        return this.dispatch({ device, ...turn, speak: turn.deliver });
-      },
-      current: () => this.#sessions.get(deviceId),
-    });
     conn.session = session;
     conn.phase = 'session';
-    conn.frames = guardSessionFrames(session, conn, { authorize: () => this.#authorizeSession(session),
+    conn.frames = guardSessionFrames(session, conn, { authorize,
       onFailure: (error) => {
         if (error) this.log(`kubik: pairing check failed for device ${deviceId}: ${error?.message ?? error}`);
         this.#closeRevokedSession(session, error ? 'pairing unavailable' : 'pairing busy');
       },
       onFrameError: (error) => this.#onFrameError(conn, error) });
     this.#sessions.set(deviceId, session);
+    this.#committedAdmission.set(deviceId, admission);
     this.#handshakes.delete(ws); // transfer the slot to the live session
     this.#ensurePairingPoll();
     session.start();
-    this.#refreshActivity(session);
-    this.#sendCron(session);
+    refreshSessionActivity(session, this.activity, this.#typing);
+    sendSessionCron(session, this.cron);
     this.log(`kubik: device ${deviceId} connected from ${remote} via ${conn.via}${hello.fw ? ` (fw ${hello.fw})` : ''} (key ${conn.fingerprint.slice(0, 8)})`);
     this.#publish();
     this.#drainNotifications(deviceId);
@@ -480,7 +492,7 @@ export class KubikServer {
     const clients = [...this.#wss?.clients ?? []];
     for (const ws of clients) ws.close(CLOSE.GOING_AWAY, 'server stopping');
     for (const engine of this.#engines.values()) { try { engine.close(); } catch { /* best effort */ } }
-    this.#engines.clear();
+    this.#engines.clear(); this.#committedAdmission.clear();
     setTimeout(() => clients.forEach((ws) => ws.terminate()), 1000).unref?.();
     await new Promise((resolve) => this.#wss ? this.#wss.close(() => resolve()) : resolve());
     this.#wss = null;

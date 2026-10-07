@@ -1,11 +1,13 @@
 #include "muse_store.h"
+
 #include <ctype.h>
 #include <stdlib.h>
+#include <stdatomic.h>
+#include "app_nvs.h"
 #include <string.h>
-#include "nvs.h"
+#include "connection_store.h"
 #include "mbedtls/platform_util.h"
-
-#define MUSE_MAGIC 0x4d555301u
+#include "nvs.h"
 
 void muse_store_wipe(void *data, size_t size) { mbedtls_platform_zeroize(data, size); }
 
@@ -25,8 +27,8 @@ bool muse_account_token_valid(const char *token) {
     return true;
 }
 
-static bool valid_credentials(const muse_credentials_t *c) {
-    if (c->magic != MUSE_MAGIC || c->state < MUSE_PAIRING || c->state > MUSE_PAIRED || c->enabled > 1 ||
+bool muse_store_credentials_valid(const muse_credentials_t *c) {
+    if (!c || c->magic != MUSE_STORE_MAGIC || c->state < MUSE_PAIRING || c->state > MUSE_PAIRED || c->enabled > 1 ||
         !memchr(c->sdk_token, 0, sizeof c->sdk_token) || !muse_sdk_token_valid(c->sdk_token) ||
         !memchr(c->access_token, 0, sizeof c->access_token) ||
         !memchr(c->refresh_token, 0, sizeof c->refresh_token)) return false;
@@ -34,59 +36,93 @@ static bool valid_credentials(const muse_credentials_t *c) {
         (muse_account_token_valid(c->access_token) && muse_account_token_valid(c->refresh_token));
 }
 
-esp_err_t muse_store_load(muse_credentials_t *out) {
+esp_err_t muse_store_load_generation(muse_credentials_t *out, uint32_t *generation,
+                                     uint64_t *network_revision) {
+    if (!out) return ESP_ERR_INVALID_ARG;
     memset(out, 0, sizeof *out);
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("kubik", NVS_READONLY, &handle);
-    if (err != ESP_OK) return err;
-    size_t size = sizeof *out;
-    err = nvs_get_blob(handle, "muse_v1", out, &size);
-    nvs_close(handle);
-    if (err == ESP_OK && (size != sizeof *out || !valid_credentials(out))) err = ESP_ERR_INVALID_STATE;
-    if (err != ESP_OK) muse_store_wipe(out, sizeof *out);
+    if (generation) *generation = 0;
+    if (network_revision) *network_revision = 0;
+    connection_record_t *record = calloc(1, sizeof *record);
+    if (!record) return ESP_ERR_NO_MEM;
+    bool durable = false;
+    esp_err_t err = connection_store_load(record, &durable);
+    if (err == ESP_OK) {
+        if (!record->muse.magic) err = ESP_ERR_NVS_NOT_FOUND;
+        else if (!muse_store_credentials_valid(&record->muse)) err = ESP_ERR_INVALID_STATE;
+        else {
+            memcpy(out, &record->muse, sizeof *out);
+            if (generation) *generation = record->muse_generation;
+            if (network_revision) *network_revision = record->network_revision;
+        }
+    }
+    muse_store_wipe(record, sizeof *record);
+    free(record);
+    if (err != ESP_OK) {
+        muse_store_wipe(out, sizeof *out);
+        if (generation) *generation = 0;
+        if (network_revision) *network_revision = 0;
+    }
     return err;
 }
 
-esp_err_t muse_store_save(const muse_credentials_t *credentials) {
-    if (!valid_credentials(credentials)) return ESP_ERR_INVALID_ARG;
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("kubik", NVS_READWRITE, &handle);
-    if (err != ESP_OK) return err;
-    err = nvs_set_blob(handle, "muse_v1", credentials, sizeof *credentials);
-    if (err == ESP_OK) err = nvs_commit(handle);
-    nvs_close(handle);
+esp_err_t muse_store_load(muse_credentials_t *out) { return muse_store_load_generation(out, NULL, NULL); }
+
+esp_err_t muse_store_refresh_save(const muse_credentials_t *credentials, uint32_t generation) {
+    if (!muse_store_credentials_valid(credentials) || credentials->state != MUSE_PAIRED)
+        return ESP_ERR_INVALID_ARG;
+    connection_record_t *record = calloc(1, sizeof *record);
+    if (!record) return ESP_ERR_NO_MEM;
+    esp_err_t err = connection_store_refresh_muse(record, credentials, generation);
+    muse_store_wipe(record, sizeof *record);
+    free(record);
+    return err;
+}
+
+esp_err_t muse_store_commit_pairing(const muse_credentials_t *credentials, uint32_t generation,
+                                    uint64_t network_revision,
+                                    const char *ssid, const char *password) {
+    if (!muse_store_credentials_valid(credentials) || credentials->state != MUSE_PAIRED)
+        return ESP_ERR_INVALID_ARG;
+    connection_record_t *record = calloc(1, sizeof *record);
+    if (!record) return ESP_ERR_NO_MEM;
+    esp_err_t err = connection_store_commit_muse_pairing(record, credentials, generation,
+                                                         network_revision, ssid, password);
+    muse_store_wipe(record, sizeof *record);
+    free(record);
     return err;
 }
 
 esp_err_t muse_store_begin(const char *sdk_token) {
     if (!muse_sdk_token_valid(sdk_token)) return ESP_ERR_INVALID_ARG;
-    muse_credentials_t *credentials = calloc(1, sizeof *credentials);
-    if (!credentials) return ESP_ERR_NO_MEM;
-    credentials->magic = MUSE_MAGIC;
-    credentials->state = MUSE_PAIRING;
-    credentials->enabled = 1;
-    memcpy(credentials->sdk_token, sdk_token, strlen(sdk_token) + 1);
-    esp_err_t err = muse_store_save(credentials);
-    muse_store_wipe(credentials, sizeof *credentials);
-    free(credentials);
+    connection_record_t *record = calloc(1, sizeof *record);
+    if (!record) return ESP_ERR_NO_MEM;
+    esp_err_t err = connection_store_begin_muse(record, sdk_token);
+    muse_store_wipe(record, sizeof *record);
+    free(record);
     return err;
 }
 
-static muse_state_t stored_state(bool selected_only) {
-    muse_credentials_t *credentials = calloc(1, sizeof *credentials);
-    if (!credentials) return MUSE_OFF;
-    muse_state_t state = MUSE_OFF;
-    if (muse_store_load(credentials) == ESP_OK && (!selected_only || credentials->enabled)) state = credentials->state;
-    muse_store_wipe(credentials, sizeof *credentials); free(credentials); return state;
+static atomic_uint s_metadata;
+void muse_store_publish_state(const muse_credentials_t *credentials) {
+    unsigned metadata = credentials && muse_store_credentials_valid(credentials)
+        ? credentials->state | (credentials->enabled ? 4u : 0) : 0;
+    atomic_store(&s_metadata, metadata);
 }
+static muse_state_t stored_state(bool selected_only) {
+    if (app_nvs_lock() != ESP_OK) return MUSE_OFF;
+    unsigned metadata = app_nvs_ready_locked() ? atomic_load(&s_metadata) : 0;
+    app_nvs_unlock();
+    return !selected_only || (metadata & 4u) ? (muse_state_t)(metadata & 3u) : MUSE_OFF;
+}
+
 muse_state_t muse_store_state(void) { return stored_state(true); }
 muse_state_t muse_store_saved_state(void) { return stored_state(false); }
 
 esp_err_t muse_store_select(bool muse) {
-    muse_credentials_t *credentials = calloc(1, sizeof *credentials);
-    if (!credentials) return ESP_ERR_NO_MEM;
-    esp_err_t err = muse_store_load(credentials);
-    if (err == ESP_OK) { credentials->enabled = muse; err = muse_store_save(credentials); }
-    else if (!muse && err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
-    muse_store_wipe(credentials, sizeof *credentials); free(credentials); return err;
+    connection_record_t *record = calloc(1, sizeof *record);
+    if (!record) return ESP_ERR_NO_MEM;
+    esp_err_t err = connection_store_select_muse(record, muse);
+    muse_store_wipe(record, sizeof *record);
+    free(record);
+    return err;
 }

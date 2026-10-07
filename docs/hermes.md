@@ -58,6 +58,20 @@ both proof of the device's private key and your local pairing approval.
    Run this as the Hermes service user, with the same `HERMES_HOME`.
    Codes expire after ten minutes. The existing socket completes pairing.
 
+Keep `HERMES_HOME/kubik` when updating or restoring Hermes: it contains the
+pinned TLS identity and device approvals. Startup restores owner-only access
+(0700 for this directory, 0600 for its state files) without changing the key
+or approvals. State files must be regular files, not symbolic links. Writes
+replace complete files atomically; a failed write preserves the previous file.
+
+As the Hermes service user, revoke a paired device by removing its exact
+`device-id:fingerprint` entry from `HERMES_HOME/kubik/approved.json`, keeping
+the remaining entries as a JSON list.
+The current connection stays open, but new recordings, agent handoffs and
+new outbound replies are denied without restarting Hermes. Playback already in
+progress may finish. A turn already accepted by Hermes is allowed to finish in
+its agent conversation.
+
 Use `kubik://`, not raw `wss://`, for this listener: Kubik pins its TLS key.
 A plain `wss://` address expects a publicly trusted certificate. Saving a new
 Server address clears the old pin; a changed key otherwise requires explicit
@@ -76,11 +90,20 @@ which provider/model you want and the location of its existing protected
 credentials. Review the resulting configuration; do not paste secret keys into
 an ordinary chat or the device's Server field.
 
-With ready STT, KEY or Hi Tessa starts a voice request. Classic input ends after
-VAD silence. With ready TTS and Speech volume at least 20, Hermes speaks its
+With ready STT, KEY starts a voice request; Tess also supports Hi Tessa.
+Voice-activated input ends after VAD silence. Manual Classic recording follows
+KEY hold/release or tap controls, with a 60-second limit; a pause does not end it.
+With ready TTS and Speech volume at least 20, Hermes speaks its
 reply; otherwise Kubik shows text. Realtime/Live and the device model pickers are
 not implemented by this Hermes platform. Change the agent and speech models in
 Hermes itself. Disconnects do not reset its device conversation.
+
+Only one authenticated connection is active per device. A reconnect replaces the
+previous socket, including overlapping reconnects. Queued speech rechecks that
+connection, cancellation and the current volume before starting playback, so an
+interrupted reply does not resume when an earlier audio fragment finishes.
+Text, voice and typing updates are sent only after `welcome` and capabilities;
+delivery requested during that handshake returns a retryable connection error.
 
 ## Extend or troubleshoot
 

@@ -8,11 +8,24 @@ const FIELD_TYPES = new Set(['string', 'integer', 'boolean', 'env']);
 const SENSITIVE = /(api.?key|token|secret|password|credential|bearer)/i;
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
+function validateFieldProperties(field) {
+  const allowed = new Set(['key', 'label', 'type', 'required', 'default',
+    ...(field.type === 'string' ? ['maxLength'] : []),
+    ...(field.type === 'integer' ? ['min', 'max'] : [])]);
+  for (const key of Object.keys(field)) {
+    if (!allowed.has(key)) throw new Error(`adapter setup field "${field.key}" has an unknown property "${key}"`);
+  }
+  if (field.required !== undefined && typeof field.required !== 'boolean') {
+    throw new Error(`adapter setup field "${field.key}" required must be true or false`);
+  }
+}
+
 function validateFieldShape(field) {
   if (!field || typeof field !== 'object' || Array.isArray(field)) throw new Error('adapter has an invalid setup field');
-  if (!SETUP_KEY.test(field.key)) throw new Error('adapter setup field has an invalid key');
+  if (typeof field.key !== 'string' || !SETUP_KEY.test(field.key)) throw new Error('adapter setup field has an invalid key');
   if (typeof field.label !== 'string' || !field.label.trim() || field.label.length > 80) throw new Error('adapter setup field has an invalid label');
   if (!FIELD_TYPES.has(field.type)) throw new Error(`adapter setup field "${field.key}" has an unsupported type`);
+  validateFieldProperties(field);
 }
 
 function validateSensitiveField(field) {
@@ -22,7 +35,7 @@ function validateSensitiveField(field) {
 }
 
 function validateStringBounds(field) {
-  const maxLength = field.maxLength ?? 1024;
+  const maxLength = field.maxLength === undefined ? 1024 : field.maxLength;
   if (!Number.isSafeInteger(maxLength) || maxLength < 1 || maxLength > 2048) {
     throw new Error(`adapter setup field "${field.key}" has an invalid maxLength`);
   }
@@ -46,14 +59,15 @@ function validateField(field) {
   validateSensitiveField(field);
   validateFieldBounds(field);
   if (hasOwn(field, 'default')) validateFieldValue(field, field.default);
-  const maxLength = field.maxLength ?? 1024;
+  const maxLength = field.maxLength === undefined ? 1024 : field.maxLength;
   return { ...field, ...(field.type === 'string' ? { maxLength } : {}) };
 }
 
 function validateStringValue(field, value) {
-  if (typeof value !== 'string' || value.length > (field.maxLength ?? 1024)
+  const maxLength = field.maxLength === undefined ? 1024 : field.maxLength;
+  if (typeof value !== 'string' || value.length > maxLength
     || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value)) {
-    throw new Error(`setup field "${field.key}" must be a string of at most ${field.maxLength ?? 1024} characters`);
+    throw new Error(`setup field "${field.key}" must be a string of at most ${maxLength} characters`);
   }
   if (field.required && !value.trim()) throw new Error(`setup field "${field.key}" is required`);
   return value;
@@ -93,7 +107,7 @@ function validateAdapterMethods(adapter) {
 
 function validateAdapterShape(adapter) {
   if (!adapter || typeof adapter !== 'object' || Array.isArray(adapter)) throw new Error('agent adapter must be an object');
-  if (!ADAPTER_ID.test(adapter.id ?? '')) throw new Error('agent adapter id is invalid');
+  if (typeof adapter.id !== 'string' || !ADAPTER_ID.test(adapter.id)) throw new Error('agent adapter id is invalid');
   if (typeof adapter.label !== 'string' || !adapter.label.trim() || adapter.label.length > 80) throw new Error('agent adapter label is invalid');
   if (!Array.isArray(adapter.setup) || adapter.setup.length > 32) throw new Error('agent adapter setup must be an array of at most 32 fields');
   validateAdapterMethods(adapter);

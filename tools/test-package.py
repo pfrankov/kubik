@@ -9,6 +9,8 @@ import math
 import os
 import runpy
 import re
+import shlex
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -71,22 +73,190 @@ def check_plush_config():
 
 
 
+def check_compiler_inputs():
+    module = runpy.run_path(str(ROOT / 'tools/package-firmware.py'))
+    cache = (BUILD / 'CMakeCache.txt').read_text()
+    ninja = re.search(r'^CMAKE_MAKE_PROGRAM:FILEPATH=(.+)$', cache, re.M).group(1)
+    cc = shutil.which('cc')
+    cxx = shutil.which('c++')
+    assert cc and cxx, 'C and C++ compilers are required for the Ninja dependency fixture'
+    with tempfile.TemporaryDirectory(prefix='kubik-ninja-deps-') as temporary:
+        build = Path(temporary)
+        source = build / 'src'
+        include = build / 'include'
+        source.mkdir()
+        include.mkdir()
+        (include / 'shared header.h').write_text('static inline int shared_value(void) { return 41; }\n')
+        (include / 'excluded header.h').write_text('static inline int excluded_value(void) { return 7; }\n')
+        (source / 'selected.c').write_text('#include "shared header.h"\nint c_value(void) { return shared_value(); }\n')
+        (source / 'selected.cpp').write_text('#include "shared header.h"\nint cpp_value() { return shared_value(); }\n')
+        (source / 'excluded.c').write_text('#include "excluded header.h"\nint excluded(void) { return excluded_value(); }\n')
+        (build / 'CMakeCache.txt').write_text(f'CMAKE_MAKE_PROGRAM:FILEPATH={ninja}\n')
+        (build / 'build.ninja').write_text(
+            'rule cc\n'
+            f'  command = {shlex.quote(cc)} -MMD -MF $out.d -MT $out -I include -c $in -o $out\n'
+            '  depfile = $out.d\n'
+            '  deps = gcc\n'
+            'rule cxx\n'
+            f'  command = {shlex.quote(cxx)} -MMD -MF $out.d -MT $out -I include -c $in -o $out\n'
+            '  depfile = $out.d\n'
+            '  deps = gcc\n'
+            'build selected-c.o: cc src/selected.c\n'
+            'build selected-cpp.o: cxx src/selected.cpp\n'
+            'build excluded.o: cc src/excluded.c\n'
+        )
+        subprocess.run([ninja, '-C', str(build), 'selected-c.o', 'selected-cpp.o', 'excluded.o'], check=True,
+                       capture_output=True, text=True)
+        selected_relative = [
+            {'directory': str(build), 'file': str((source / 'selected.c').resolve()), 'output': 'selected-c.o'},
+            {'directory': str(build), 'file': str((source / 'selected.cpp').resolve()), 'output': 'selected-cpp.o'},
+        ]
+        selected = [dict(entry) for entry in selected_relative]
+        selected[1]['output'] = str((build / selected[1]['output']).resolve())
+        expected = {
+            (source / 'selected.c').resolve(),
+            (source / 'selected.cpp').resolve(),
+            (include / 'shared header.h').resolve(),
+        }
+        relative_actual = module['compiler_inputs'](build, selected_relative)
+        mixed_actual = module['compiler_inputs'](build, selected)
+        assert relative_actual == mixed_actual == expected, (relative_actual, mixed_actual, expected)
+        assert (source / 'excluded.c').resolve() not in mixed_actual
+        assert (include / 'excluded header.h').resolve() not in mixed_actual
+
+        duplicate_alias = [dict(selected_relative[0]), dict(selected_relative[1])]
+        duplicate_alias[1]['output'] = str((build / duplicate_alias[0]['output']).resolve())
+        for invalid, label in (
+            (duplicate_alias, 'absolute and relative aliases for one Ninja target were accepted'),
+            ([dict(selected_relative[0], output=str(build.parent / 'outside.o'))],
+             'an output outside the build directory was accepted'),
+        ):
+            try:
+                module['compiler_inputs'](build, invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(label)
+
+        deps_log = build / '.ninja_deps'
+        assert deps_log.is_file() and deps_log.stat().st_size > 0
+        record = subprocess.run([ninja, '-C', str(build), '-t', 'deps', selected[0]['output']],
+                                check=True, capture_output=True, text=True).stdout
+        deps_mtime = re.search(r'deps mtime (\d+) \(VALID\)', record)
+        assert deps_mtime, record
+        output = build / selected[0]['output']
+        output_stat = output.stat()
+        try:
+            stale_mtime = max(output_stat.st_mtime_ns, int(deps_mtime[1])) + 1_000_000_000
+            os.utime(output, ns=(output_stat.st_atime_ns, stale_mtime))
+            try:
+                module['compiler_inputs'](build, selected)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('stale Ninja compiler dependencies were accepted')
+        finally:
+            os.utime(output, ns=(output_stat.st_atime_ns, output_stat.st_mtime_ns))
+
+        deps_log.unlink()
+
+        def rejects_invalid_log(message):
+            try:
+                module['compiler_inputs'](build, selected)
+            except (OSError, ValueError, subprocess.CalledProcessError):
+                return
+            raise AssertionError(message)
+
+        rejects_invalid_log('missing .ninja_deps was accepted')
+        deps_log.write_bytes(b'not a Ninja dependency log')
+        rejects_invalid_log('corrupt .ninja_deps was accepted')
+
+        fake_ninja = build / 'failing-ninja'
+        fake_ninja.write_text(
+            '#!/usr/bin/env python3\n'
+            'import sys\n'
+            "sys.stderr.write('DIAGNOSTIC_START' + 'x' * 3000 + 'DIAGNOSTIC_END')\n"
+            'sys.exit(2)\n'
+        )
+        fake_ninja.chmod(0o755)
+        (build / 'CMakeCache.txt').write_text(f'CMAKE_MAKE_PROGRAM:FILEPATH={fake_ninja}\n')
+        try:
+            module['compiler_inputs'](build, selected)
+        except ValueError as error:
+            assert 'DIAGNOSTIC_START' in str(error)
+            assert 'DIAGNOSTIC_END' not in str(error)
+            assert len(str(error)) < 1400, 'Ninja failure diagnostics were not bounded'
+        else:
+            raise AssertionError('a failed Ninja dependency query was accepted')
+
+    with tempfile.TemporaryDirectory(prefix='kubik-compile-commands-') as temporary:
+        build = Path(temporary)
+        description_path = BUILD / 'project_description.json'
+        commands_path = BUILD / 'compile_commands.json'
+        shutil.copyfile(description_path, build / description_path.name)
+        commands = json.loads(commands_path.read_text())
+        missing_source = (ROOT / 'firmware/main/main.c').resolve()
+        assert any((Path(entry['directory']) / entry['file']).resolve() == missing_source for entry in commands)
+        (build / commands_path.name).write_text(json.dumps([
+            entry for entry in commands
+            if (Path(entry['directory']) / entry['file']).resolve() != missing_source
+        ]))
+        try:
+            module['build_inputs'](build)
+        except ValueError as error:
+            assert 'Missing firmware compile commands' in str(error), str(error)
+        else:
+            raise AssertionError('missing compile command for an owned source was accepted')
+    print('package freshness: mixed relative/absolute Ninja outputs normalized; duplicate aliases, outside '
+          'outputs, stale/missing/corrupt records, failed-query diagnostics and incomplete compile databases checked')
+
+
 def check_freshness():
     module = runpy.run_path(str(ROOT / 'tools/package-firmware.py'))
     inputs = module['build_inputs'](BUILD)
     wake = ROOT / 'firmware/main/wake_model.cc'
+    wake_header = ROOT / 'firmware/main/wake_probability.h'
+    selected_sources = (
+        ROOT / 'firmware/main/main.c',
+        ROOT / 'firmware/main/muse_noise.cc',
+        ROOT / 'firmware/main/muse_chat_helpers.c',
+        ROOT / 'firmware/components/muse_pairing/link_pairing.c',
+    )
     assert (wake in inputs) == (CHARACTER == 'TESS')
-    assert ((ROOT / 'firmware/main/wake_probability.h') in inputs) == (CHARACTER == 'TESS')
+    assert (wake_header in inputs) == (CHARACTER == 'TESS')
+    assert all(path in inputs for path in selected_sources), [path for path in selected_sources if path not in inputs]
     module['check_build_freshness'](BUILD)
-    for path, stale in ((wake, CHARACTER == 'TESS'), (ROOT / 'firmware/main/main.c', True)):
-        stat = path.stat()
-        try:
-            os.utime(path, ns=(stat.st_atime_ns, (BUILD / 'kubik.bin').stat().st_mtime_ns + 1_000_000_000))
-            try: module['check_build_freshness'](BUILD)
-            except ValueError: assert stale
-            else: assert not stale, 'stale selected source accepted'
-        finally: os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    print('package freshness: actual C/C++/header dependencies; excluded character changes do not block')
+
+    checks = [(wake, CHARACTER == 'TESS'), (wake_header, CHARACTER == 'TESS')]
+    checks.extend((path, True) for path in selected_sources)
+    with tempfile.TemporaryDirectory(prefix='kubik-freshness-') as temporary:
+        directory = Path(temporary)
+        image = directory / 'kubik.bin'
+        baseline = directory / 'baseline.c'
+        image.write_bytes(b'build image')
+        baseline.write_bytes(b'baseline source')
+        image_mtime = image.stat().st_mtime_ns
+        baseline_stat = baseline.stat()
+        os.utime(baseline, ns=(baseline_stat.st_atime_ns, image_mtime))
+
+        for index, (path, stale) in enumerate(checks):
+            candidate = directory / f'candidate-{index}.c'
+            candidate.write_bytes(b'candidate source')
+            candidate_stat = candidate.stat()
+            os.utime(candidate, ns=(candidate_stat.st_atime_ns, image_mtime + 1_000_000_000))
+            selected = path in inputs
+            assert selected == stale, f'incorrect selected/excluded dependency for {CHARACTER}: {path}'
+            fixture_inputs = {baseline, candidate} if selected else {baseline}
+            try:
+                module['check_input_freshness'](fixture_inputs, image)
+            except ValueError as error:
+                assert stale and 'sources changed after the build' in str(error), str(error)
+            else:
+                assert not stale, f'stale selected source accepted: {path}'
+
+            os.utime(candidate, ns=(candidate_stat.st_atime_ns, image_mtime))
+            module['check_input_freshness'](fixture_inputs, image)
+    print('package freshness: real Ninja-selected inputs checked; temporary selected/excluded mtime fixtures reject only newer selected inputs')
 
 def check_bridge_selection():
     spec = importlib.util.spec_from_file_location("flash_device", ROOT / "tools/flash-device.py")
@@ -134,11 +304,25 @@ def check_build_choice():
             assert (directory / 'character.txt').read_text().strip() == character
 
 
+def check_wake_workspace(symbols):
+    # Validate the real compiler boundary: no global allocator redirection and
+    # no silent return to DMA SRAM after a component/CMake update.
+    commands = json.loads((BUILD / 'compile_commands.json').read_text())
+    routed = [entry for entry in commands if '-Dmalloc=kubik_wake_fft_alloc' in entry['command']]
+    if CHARACTER == 'TESS':
+        assert len(routed) == 1, 'only the wake FFT allocation may be redirected'
+        assert Path(routed[0]['file']).name == 'fft_util.c'
+        assert 'kubik_wake_fft_alloc' in symbols, 'wake FFT allocator was not linked'
+    else:
+        assert not routed and 'kubik_wake_fft_alloc' not in symbols
+
+
 def check_character_symbols():
     cache = (BUILD / 'CMakeCache.txt').read_text()
     nm = re.search(r'^CMAKE_NM:FILEPATH=(.+)$', cache, re.M).group(1)
     symbols = {line.split()[0] for line in subprocess.check_output(
         [nm, '--defined-only', '--format=posix', str(BUILD / 'kubik.elf')], text=True).splitlines() if line.strip()}
+    check_wake_workspace(symbols)
     tess = {'tess_draw', 'tess_update', 'tess_sound_mix', 'tess_reset', 'app_wake_init', 'app_wake_listening'}
     plush = {'face_plush_draw', 'body_update', 'assets_pcm'}
     required, absent = (tess, plush) if CHARACTER == 'TESS' else (plush, tess)
@@ -179,6 +363,7 @@ def main():
     check_bridge_selection()
     check_web_assets()
     check_character_symbols()
+    check_compiler_inputs()
     check_freshness()
     check_build_choice()
     check_sound_inventory()

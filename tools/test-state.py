@@ -55,8 +55,41 @@ with tempfile.TemporaryDirectory(prefix="kubik-state-") as tmp:
                     "-fsanitize=address,undefined", "-Ifirmware/main", str(welcome_c), "-o", welcome_exe], cwd=ROOT, check=True)
     subprocess.run([welcome_exe], cwd=ROOT, check=True)
 
+    app = (ROOT / "firmware/main/app.c").read_text()
     header = (ROOT / "firmware/main/app.h").read_text()
     event_enum = header[header.index("typedef enum {"):header.index("} app_ev_type_t;") + len("} app_ev_type_t;")]
+    post = app[app.index("static int mailbox_slot("):app.index("static bool take_critical_event(")]
+    take = app[app.index("static bool take_critical_event("):app.index("// ------------------------------------------------------------------ state")]
+    task = app[app.index("static void app_task("):app.index("void app_start(")]
+    task_drain = task[task.index("for (int n = 0; n < 8 && xQueueReceive(s_q, &e, 0);"):task.index("        app_tick();")]
+    link_event = events[events.index("static bool handle_link_event("):events.index("static void handle_cron_event(")]
+    welcome = events[events.index("static void handle_welcome_event("):events.index("static void handle_state_event(")]
+    remote = events[events.index("static bool remote_current("):events.index("static void handle_speak_cancel_event(")]
+    server = events[events.index("static bool handle_server_event("):events.index("static void handle_agent_capabilities(")]
+    dispatch = events[events.index("void app_handle("):]
+    post_fixture = (ROOT / "firmware/sim/app_post_queue_test.c").read_text()
+    replacements = {
+        "/* PRODUCTION_EVENTS */": event_enum,
+        "/* PRODUCTION_POST */": post,
+        "/* PRODUCTION_TAKE */": take,
+        "/* PRODUCTION_LINK_HANDLER */": link_event,
+        "/* PRODUCTION_WELCOME_HANDLER */": welcome,
+        "/* PRODUCTION_REMOTE_CHECK */": remote,
+        "/* PRODUCTION_SERVER_HANDLER */": server,
+        "/* PRODUCTION_DISPATCH */": dispatch,
+        "/* PRODUCTION_TASK_DRAIN */": task_drain.strip(),
+    }
+    for marker, source in replacements.items():
+        assert marker in post_fixture, f"missing fixture marker: {marker}"
+        post_fixture = post_fixture.replace(marker, source)
+    post_c = Path(tmp) / "post-queue.c"
+    post_c.write_text(post_fixture)
+    post_exe = str(Path(tmp) / "post-queue-test")
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-Ifirmware/main", str(post_c),
+                    "firmware/main/app_mailbox.c", "-o", post_exe], cwd=ROOT, check=True)
+    subprocess.run([post_exe], cwd=ROOT, check=True)
+
     dispatch = events[events.index("static bool dark_input_ignored("):]
     dark_c = Path(tmp) / "dark.c"
     dark_c.write_text((ROOT / "firmware/sim/app_dark_input_test.c").read_text().replace("/* PRODUCTION_EVENTS */", event_enum).replace("/* PRODUCTION_DISPATCH */", dispatch).replace("/* PRODUCTION_TOUCH */", events[events.index("static bool is_touch_event("):events.index("static void handle_link_down(")]))

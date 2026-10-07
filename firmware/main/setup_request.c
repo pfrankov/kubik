@@ -1,6 +1,7 @@
 #include "setup_request.h"
 #include "muse_json.h"
 #include "muse_store.h"
+#include "settings.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -27,9 +28,11 @@ const char *setup_agent_choice(const cJSON *request, setup_agent_choice_t *choic
     if (!muse_sdk_token_valid(token)) return "sdk_token";
     memcpy(choice->sdk_token, token, strlen(token) + 1); return NULL;
 }
-esp_err_t setup_agent_save(const setup_agent_choice_t *choice) {
-    if (choice->muse && choice->sdk_token[0]) return muse_store_begin(choice->sdk_token);
-    return muse_store_select(choice->muse);
+esp_err_t setup_connection_save(const setup_agent_choice_t *choice,
+                                const char *ssid, const char *password, const char *url) {
+    if (!choice) return ESP_ERR_INVALID_ARG;
+    const char *sdk_token = choice->muse && choice->sdk_token[0] ? choice->sdk_token : NULL;
+    return settings_save_setup(ssid, password, url, choice->muse, sdk_token);
 }
 cJSON *setup_read_request(httpd_req_t *request) {
     char body[512] = {0};

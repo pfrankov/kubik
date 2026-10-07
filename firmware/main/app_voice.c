@@ -201,10 +201,16 @@ static void receive_live_input(cJSON *json) {
         app_post_in_session(EV_INPUT_END, turn->valueint | ((cJSON_IsTrue(on) ? 4 : 3) << 8), 0, link_session());
 }
 
+int app_voice_parse_generation(cJSON *json) {
+    cJSON *generation = cJSON_GetObjectItemCaseSensitive(json, "gen");
+    if (!cJSON_IsNumber(generation) || generation->valuedouble < 1 || generation->valuedouble > UINT8_MAX ||
+        generation->valuedouble != (double)generation->valueint) return -1;
+    return generation->valueint;
+}
+
 static void cancel_output(cJSON *json) {
-    cJSON *gen = cJSON_GetObjectItem(json, "gen");
-    if (cJSON_IsNumber(gen) && gen->valuedouble == gen->valueint && gen->valueint > 0 && gen->valueint <= 255)
-        app_post_in_session(EV_SRV_SPEAK_CANCEL, gen->valueint, 0, link_session());
+    int gen = app_voice_parse_generation(json);
+    if (gen >= 0) app_post_in_session(EV_SRV_SPEAK_CANCEL, gen, 0, link_session());
 }
 
 static void apply_capabilities(cJSON *json) {

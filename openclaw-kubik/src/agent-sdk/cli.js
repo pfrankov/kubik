@@ -117,7 +117,7 @@ async function collectHostSettings(ask, previous) {
   const enteredPort = (await ask(`Kubik TCP port [${oldPort}]: `)).trim();
   const port = enteredPort ? Number(enteredPort) : oldPort;
   const oldHost = previous?.listener.host ?? '';
-  const listenerHost = (await ask(`Bind address (blank for all interfaces)${oldHost ? ` [${oldHost}]` : ''}: `)).trim() || oldHost;
+  const listenerHost = (await ask(`Bind address (blank for all interfaces${oldHost ? `; current: ${oldHost}` : ''}): `)).trim();
   const voice = await collectSetupValues(VOICE_SETUP_FIELDS, ask, previous?.voice);
   return { port, listenerHost, voice };
 }
@@ -144,7 +144,7 @@ function printSetupInstructions(stateDir, port, config, adapter) {
   stdout.write(`  Keep OPENAI_API_KEY set for voice; the adapter uses ${[...new Set(envNames)].join(', ') || 'its configured environment variables'}. Keep these variables available when starting the host; values are not saved in its configuration.\n`);
 }
 
-async function runSetupWizard(ask, stateDir, env, previous) {
+export async function runSetupWizard(ask, stateDir, env, previous) {
   const { adapter, modulePath } = await selectAdapter(ask, previous);
   const defaults = previous?.adapter.id === adapter.id ? previous.adapter.setup : {};
   const setup = await collectSetupValues(adapter.setup, ask, defaults);

@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -51,23 +50,103 @@ def check_character(build, character):
         raise ValueError("Build character differs from the requested package; use its own build directory")
 
 
+DEPENDENCY_ERROR = "Missing or invalid Ninja compiler dependencies; rebuild firmware"
+
+
+def ninja_record(block):
+    lines = block.splitlines()
+    header = re.fullmatch(r"(.+): #deps (\d+), deps mtime \d+ \(VALID\)", lines[0]) if lines else None
+    if not header or int(header[2]) == 0 or len(lines) != int(header[2]) + 1:
+        raise ValueError(DEPENDENCY_ERROR)
+    if any(not line.startswith("    ") or not line[4:] for line in lines[1:]):
+        raise ValueError(DEPENDENCY_ERROR)
+    # Ninja prints complete paths after a four-space prefix, not shell words.
+    return header[1], [line[4:] for line in lines[1:]]
+
+
+def ninja_target(build, output):
+    if not isinstance(output, str) or not output:
+        raise ValueError(DEPENDENCY_ERROR)
+    build_root = build.resolve()
+    path = Path(output)
+    if not path.is_absolute():
+        path = build_root / path
+    try:
+        relative = path.resolve().relative_to(build_root)
+    except ValueError as error:
+        raise ValueError(DEPENDENCY_ERROR) from error
+    if not relative.parts:
+        raise ValueError(DEPENDENCY_ERROR)
+    return relative.as_posix()
+
+
+def dependency_query_error(stderr):
+    detail = stderr or ""
+    if isinstance(detail, bytes): detail = detail.decode(errors="replace")
+    detail = " ".join(detail.split())
+    if len(detail) > 1200: detail = detail[:1200] + "…"
+    suffix = f": {detail}" if detail else ""
+    return ValueError(f"Cannot read Ninja compiler dependencies; rebuild firmware{suffix}")
+
+
+def query_ninja_dependencies(build, targets):
+    cache = (build / "CMakeCache.txt").read_text()
+    program = re.search(r"^CMAKE_MAKE_PROGRAM:[^=]+=(.+)$", cache, re.MULTILINE)
+    if not program: raise ValueError("Missing Ninja build tool; reconfigure firmware")
+    # Ninja consumes temporary .d files; query its retained compiler dependency records.
+    try:
+        result = subprocess.run([program[1], "-C", str(build), "-t", "deps", *targets],
+                                check=True, capture_output=True, text=True, timeout=30)
+    except subprocess.CalledProcessError as error:
+        raise dependency_query_error(error.stderr) from error
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError("Cannot read Ninja compiler dependencies; rebuild firmware") from error
+    if result.stderr.strip(): raise dependency_query_error(result.stderr)
+    return result.stdout
+
+
+def compiler_inputs(build, entries):
+    build = build.resolve()
+    targets = {}
+    for entry in entries:
+        target = ninja_target(build, entry.get("output"))
+        if target in targets: raise ValueError(DEPENDENCY_ERROR)
+        targets[target] = entry
+    if not targets: raise ValueError(DEPENDENCY_ERROR)
+    output = query_ninja_dependencies(build, targets)
+    inputs, seen = set(), set()
+    for block in output.strip("\n").split("\n\n"):
+        target, names = ninja_record(block)
+        if target not in targets or target in seen: raise ValueError(DEPENDENCY_ERROR)
+        seen.add(target)
+        directory = Path(targets[target]["directory"])
+        inputs.update(directory / name for name in names)
+    if seen != set(targets): raise ValueError(DEPENDENCY_ERROR)
+    return {path.resolve() for path in inputs}
+
+
+def owned_source(path):
+    return path.is_relative_to(ROOT / "firmware/main") or path.is_relative_to(ROOT / "firmware/components")
+
+
+def selected_compile_commands(build, components):
+    # Include selected sources from every local component, even when its code lives in main/.
+    selected = {Path(path).resolve() for component in components for path in component["sources"]}
+    selected = {path for path in selected if owned_source(path)}
+    entries = [entry for entry in json.loads((build / "compile_commands.json").read_text())
+               if (Path(entry["directory"]) / entry["file"]).resolve() in selected]
+    if {(Path(entry["directory"]) / entry["file"]).resolve() for entry in entries} != selected:
+        raise ValueError("Missing firmware compile commands; reconfigure and rebuild firmware")
+    return entries
+
+
 def build_inputs(build):
-    # ESP-IDF's selected sources and their compiler dependencies are authoritative.
     description = json.loads((build / "project_description.json").read_text())
-    selected = {Path(path).resolve() for path in description["build_component_info"]["main"]["sources"]}
-    inputs = set()
-    for entry in json.loads((build / "compile_commands.json").read_text()):
-        source = Path(entry["file"]).resolve()
-        if source not in selected or not source.is_relative_to(ROOT / "firmware/main"): continue
-        dependency = build / (entry["output"] + ".d")
-        if not dependency.is_file(): raise ValueError("Missing compiler dependencies; rebuild firmware")
-        body = dependency.read_text().split(":", 1)[1].replace("\\\n", " ")
-        for name in shlex.split(body):
-            path = Path(name)
-            if not path.is_absolute(): path = Path(entry["directory"]) / path
-            path = path.resolve()
-            if path.is_relative_to(ROOT / "firmware/main"): inputs.add(path)
-    if not inputs: raise ValueError("Missing main source dependencies; rebuild firmware")
+    components = description["build_component_info"].values()
+    entries = selected_compile_commands(build, components)
+    inputs = {path for path in compiler_inputs(build, entries) if owned_source(path)}
+    if not inputs: raise ValueError("Missing firmware source dependencies; rebuild firmware")
+    inputs.update(Path(component["dir"]) / "CMakeLists.txt" for component in components if owned_source(Path(component["dir"])))
     inputs.update(path for path in (ROOT / "firmware/main").iterdir() if path.suffix in {".html", ".css", ".js"})
     character = (build / 'character.txt').read_text().strip()
     inputs.update([ROOT / "firmware/main/CMakeLists.txt", ROOT / "firmware/CMakeLists.txt",
@@ -77,9 +156,15 @@ def build_inputs(build):
     return inputs
 
 
-def check_build_freshness(build):
-    if max(path.stat().st_mtime for path in build_inputs(build)) > (build / "kubik.bin").stat().st_mtime:
+def check_input_freshness(inputs, image):
+    inputs = tuple(inputs)
+    if not inputs: raise ValueError("Missing firmware source dependencies; rebuild firmware")
+    if max(path.stat().st_mtime_ns for path in inputs) > image.stat().st_mtime_ns:
         raise ValueError("Firmware sources changed after the build; run idf.py -C firmware build")
+
+
+def check_build_freshness(build):
+    check_input_freshness(build_inputs(build), build / "kubik.bin")
 
 
 def package(build, output, character):

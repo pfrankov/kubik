@@ -23,7 +23,7 @@ static const char *TAG = "wifi";
 static bool s_inited;
 static atomic_bool s_ap_on;
 static atomic_bool s_started, s_radio_blocked;
-static SemaphoreHandle_t s_driver_mutex;
+static SemaphoreHandle_t s_driver_mutex, s_ap_stopped;
 static atomic_bool s_connected, s_have_sta, s_scanning;
 static esp_timer_handle_t s_reconnect;
 static esp_netif_t *s_ap;
@@ -137,10 +137,23 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
     else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) handle_got_ip(data);
 }
 
+// Registered after IDF's default AP_STOP handler: teardown runs on that same
+// event task, after esp_netif_action_stop, never concurrently with its callback.
+static void ap_stopped(void *arg, esp_event_base_t base, int32_t id, void *data) {
+    xSemaphoreTake(s_driver_mutex, portMAX_DELAY);
+    if (!s_ap_on && s_ap) {
+        esp_netif_destroy_default_wifi(s_ap);
+        s_ap = NULL;
+    }
+    xSemaphoreGive(s_driver_mutex);
+    xSemaphoreGive(s_ap_stopped);
+}
+
 void wifi_init(void) {
     if (s_inited) return;
     s_driver_mutex = xSemaphoreCreateMutex();
-    ESP_ERROR_CHECK(s_driver_mutex ? ESP_OK : ESP_ERR_NO_MEM);
+    s_ap_stopped = xSemaphoreCreateBinary();
+    ESP_ERROR_CHECK(s_driver_mutex && s_ap_stopped ? ESP_OK : ESP_ERR_NO_MEM);
     s_inited = true;
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -156,6 +169,7 @@ void wifi_init(void) {
     esp_sntp_config_t time_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("time.cloudflare.com");
     ESP_ERROR_CHECK(esp_netif_sntp_init(&time_cfg));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STOP, ap_stopped, NULL));
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
 }
@@ -388,10 +402,14 @@ void wifi_ap_start(const char *ssid, const char *password) {
 void wifi_ap_stop(void) {
     if (!s_ap_on) return;
     xSemaphoreTake(s_driver_mutex, portMAX_DELAY);
+    xSemaphoreTake(s_ap_stopped, 0);
     s_ap_on = false;
     s_clients = 0;
-    esp_wifi_set_mode(WIFI_MODE_STA);
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     xSemaphoreGive(s_driver_mutex);
+    // Do not hold the driver mutex while the event task finishes teardown.
+    if (!xSemaphoreTake(s_ap_stopped, pdMS_TO_TICKS(2000)))
+        ESP_LOGW(TAG, "setup access point stop acknowledgment timed out");
     ESP_LOGI(TAG, "setup access point down");
 }
 

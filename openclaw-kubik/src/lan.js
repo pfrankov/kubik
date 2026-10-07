@@ -4,7 +4,7 @@
 import { BlockList, isIP } from 'node:net';
 import { createSocket } from 'node:dgram';
 import { createServer } from 'node:https';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces as systemNetworkInterfaces } from 'node:os';
 import { DEVICE_PATH, DISCOVERY_REQUEST, LAN_PORT } from './protocol.js';
 
 const MAX_REPLIES_PER_SECOND = 10;
@@ -59,19 +59,20 @@ export class LanListener {
   #replies = { second: 0, count: 0 };
   #perPeer = new Map();
   #sockets = new Set(); // every admitted TCP socket, so stop() never waits for an idle one
+  #interfaceErrorReported = false;
 
   /**
    * `host` defaults to `::` (dual stack; falls back to 0.0.0.0 without IPv6). `onUpgrade(req, socket, head, transport)`
    * gets every WebSocket upgrade on /kubik/v1 from a private peer, `transport` = `{ via, bind, remote }` (the SPKI
    * hash a device must have signed). Only the socket address counts as the peer: LAN never reads proxy headers.
    * `isPrivatePeer` (peers that get TLS and discovery replies), `isAllowedPeer` (peers that get TLS: the private ones,
-   * or every valid address with `publicPeers`) and `limits` are injectable for tests.
+   * or every valid address with `publicPeers`), `getNetworkInterfaces` and `limits` are injectable for tests.
    */
   constructor({ identity, port, host, discoveryPort = LAN_PORT, discoveryHost = '0.0.0.0', onUpgrade, publicPeers = false,
     isPrivatePeer = isPrivateAddress, isAllowedPeer = publicPeers ? (peer) => Boolean(normalized(peer)) : isPrivatePeer,
-    limits, log = () => {} }) {
+    getNetworkInterfaces = systemNetworkInterfaces, limits, log = () => {} }) {
     Object.assign(this, { identity, configuredPort: port, host, discoveryPort, discoveryHost, onUpgrade, publicPeers,
-      isPrivatePeer, isAllowedPeer, log });
+      isPrivatePeer, isAllowedPeer, getNetworkInterfaces, log });
     this.limits = { ...LIMITS, ...limits };
     this.discoveryError = null;
   }
@@ -79,19 +80,24 @@ export class LanListener {
   get port() { return this.#tls?.address()?.port ?? this.configuredPort; }
 
   async start() {
-    const { handshakeMs, requestMs } = this.limits;
-    this.#tls = createServer({ key: this.identity.key, cert: this.identity.cert, minVersion: 'TLSv1.2',
-      handshakeTimeout: handshakeMs, headersTimeout: requestMs, requestTimeout: requestMs },
-    (_req, res) => { res.statusCode = 404; res.end('Not found\n'); });
-    this.#tls.maxConnections = this.limits.connections;
-    this.#tls.on('connection', (socket) => this.#admit(socket));
-    this.#tls.on('tlsClientError', (_error, socket) => socket.destroy());
-    this.#tls.on('clientError', (_error, socket) => socket.destroy());
-    this.#tls.on('upgrade', (req, socket, head) => this.#upgrade(req, socket, head));
-    await this.#listenTls();
-    this.#tls.on('error', (error) => this.log(`kubik: LAN listener error: ${error.code ?? error.message}`));
-    await this.#startDiscovery();
-    return this.status;
+    try {
+      const { handshakeMs, requestMs } = this.limits;
+      this.#tls = createServer({ key: this.identity.key, cert: this.identity.cert, minVersion: 'TLSv1.2',
+        handshakeTimeout: handshakeMs, headersTimeout: requestMs, requestTimeout: requestMs },
+      (_req, res) => { res.statusCode = 404; res.end('Not found\n'); });
+      this.#tls.maxConnections = this.limits.connections;
+      this.#tls.on('connection', (socket) => this.#admit(socket));
+      this.#tls.on('tlsClientError', (_error, socket) => socket.destroy());
+      this.#tls.on('clientError', (_error, socket) => socket.destroy());
+      this.#tls.on('upgrade', (req, socket, head) => this.#upgrade(req, socket, head));
+      await this.#listenTls();
+      this.#tls.on('error', (error) => this.log(`kubik: LAN listener error: ${error.code ?? error.message}`));
+      await this.#startDiscovery();
+      return this.status;
+    } catch (error) {
+      try { await this.stop(); } catch { /* preserve the startup failure */ }
+      throw error;
+    }
   }
 
   #upgrade(req, socket, head) {
@@ -156,7 +162,15 @@ export class LanListener {
   /** IPv4 addresses of this host's interfaces a device can reach (private ones; all with `publicPeers`), port, key, discovery. */
   get status() {
     const bound = this.#tls?.address()?.address;
-    const addresses = reachableIPv4Addresses(bound, networkInterfaces(), this.publicPeers);
+    let addresses = [];
+    // Interface discovery only improves the displayed/copyable address; it does not affect the listener.
+    try { addresses = reachableIPv4Addresses(bound, this.getNetworkInterfaces(), this.publicPeers); }
+    catch (error) {
+      if (!this.#interfaceErrorReported) {
+        this.#interfaceErrorReported = true;
+        this.log(`kubik: LAN interface addresses are unavailable (${error?.code ?? 'system error'}); use the listener address directly`);
+      }
+    }
     return { addresses, port: this.port, public: this.publicPeers, spki: this.identity.spkiHash, discovery: this.#udp?.address().port ?? null,
       ...(this.discoveryError ? { discoveryError: this.discoveryError } : {}) };
   }

@@ -24,6 +24,9 @@ fixture = r'''
 typedef struct {double valuedouble; int valueint; const char *valuestring;} cJSON;
 static cJSON field;
 static cJSON *cJSON_GetObjectItem(cJSON *j,const char *name) {(void)j;(void)name;return &field;}
+static cJSON *cJSON_GetObjectItemCaseSensitive(cJSON *j,const char *name) {
+    assert(j && name && !strcmp(name,"gen"));return &field;
+}
 static const char *cJSON_GetStringValue(cJSON *j) {return j->valuestring;}
 static bool cJSON_IsNumber(cJSON *j) {return j && !j->valuestring;}
 static bool cJSON_IsBool(cJSON *j) {(void)j;return false;}

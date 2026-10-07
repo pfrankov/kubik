@@ -1,15 +1,27 @@
-// Fixed-size inbox for wake/playback/card events; caller owns the short critical section.
+// Fixed-size inbox for latency-sensitive events; caller owns the short critical section.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
 
 typedef struct { uint8_t type; int32_t a, b; uint32_t session; } app_ev_t;
-#define APP_MAILBOX_SLOTS 8
+typedef enum {
+    APP_MAILBOX_SRV_SPEAK,
+    APP_MAILBOX_SRV_SPEAK_END,
+    APP_MAILBOX_SRV_TEXT,
+    APP_MAILBOX_PTT_UP,
+    APP_MAILBOX_VOICE_WAKE,
+    APP_MAILBOX_VOICE_END,
+    APP_MAILBOX_INPUT_END,
+    APP_MAILBOX_AGENT_CAPS,
+    APP_MAILBOX_LINK_DOWN,
+    APP_MAILBOX_SRV_WELCOME,
+    APP_MAILBOX_SLOTS,
+} app_mailbox_slot_t;
 
 typedef struct {
     app_ev_t events[APP_MAILBOX_SLOTS];
     uint32_t order[APP_MAILBOX_SLOTS], next;
-    uint8_t pending;
+    uint16_t pending;
 } app_mailbox_t;
 
 void app_mailbox_put(app_mailbox_t *box, unsigned slot, app_ev_t event);

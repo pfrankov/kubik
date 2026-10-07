@@ -19,6 +19,8 @@ static muse_credentials_t *credentials;
 static char node[32], device[48], mac_text[18], name[32];
 static SemaphoreHandle_t send_lock;
 static bool active;
+static uint32_t store_generation;
+static uint64_t store_network_revision;
 
 bool muse_pair_active(void) { return active; }
 
@@ -78,10 +80,8 @@ static const char *field(cJSON *object, const char *key, size_t cap, bool empty)
 }
 static const char *provision_ssid, *provision_password;
 static bool commit_credentials(void) {
-    int saved = settings_wifi_find(provision_ssid);
-    bool same = saved >= 0 && !strcmp(g_settings.wifi_profiles[saved].password, provision_password);
-    esp_err_t err = same ? ESP_OK : settings_save_connection(provision_ssid, provision_password, g_settings.server_url);
-    return err == ESP_OK && muse_store_save(credentials) == ESP_OK;
+    return muse_store_commit_pairing(credentials, store_generation, store_network_revision, provision_ssid,
+                                      provision_password) == ESP_OK;
 }
 static bool endpoint_supported(cJSON *object, const char *key, const char *expected) {
     cJSON *entry = cJSON_GetObjectItemCaseSensitive(object, key);
@@ -186,7 +186,7 @@ bool muse_pair_key(void) {
 esp_err_t muse_pair_start(void) {
     credentials = calloc(1, sizeof *credentials); send_lock = xSemaphoreCreateMutex();
     if (!credentials || !send_lock) return ESP_ERR_NO_MEM;
-    esp_err_t err = muse_store_load(credentials);
+    esp_err_t err = muse_store_load_generation(credentials, &store_generation, &store_network_revision);
     if (err != ESP_OK || credentials->state != MUSE_PAIRING) return ESP_ERR_INVALID_STATE;
     uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(mac_text, sizeof mac_text, "%02x:%02x:%02x:%02x:%02x:%02x", MAC2STR(mac));

@@ -132,6 +132,87 @@ test('agent picker paginates; canonical selection is acknowledged; concurrency i
   assert.equal(events.at(-1).model, 'provider/m5');
 });
 
+test('model changes stay busy across reconnect and timeout until the shared operation settles', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let releaseOld;
+  let markOldStarted;
+  const oldStarted = new Promise((resolve) => { markOldStarted = resolve; });
+  const oldGate = new Promise((resolve) => { releaseOld = resolve; });
+  t.after(releaseOld);
+  const chosen = new Map([['desk', 'model-0'], ['other', 'model-0']]);
+  const models = ['model-0', 'model-1', 'model-2'].map(id => ({ id, label: id }));
+  const agentControl = {
+    async options(device) { return { model: chosen.get(device.id) ?? '', models }; },
+    async selectModel(device, id) {
+      if (device.id === 'desk' && id === 'model-1') { markOldStarted(); await oldGate; }
+      chosen.set(device.id, id);
+    },
+  };
+
+  const old = fixture(t, { agentControl });
+  const oldSelection = old.session.handleMessage({ t: 'agent_model', target: 'agent', rid: 1, cursor: 0, id: 'model-1' });
+  await oldStarted;
+  assert.equal(old.session.controls.changingModel, true);
+  t.mock.timers.tick(8000);
+  await oldSelection;
+  assert.equal(old.events.at(-1).error, 'timeout');
+  old.session.close();
+
+  const current = fixture(t, { agentControl });
+  assert.equal(current.session.controls.changingModel, true, 'the new session observes the outstanding write');
+  await current.session.handleMessage({ t: 'agent_model', target: 'agent', rid: 2, cursor: 0, id: 'model-2' });
+  assert.equal(current.events.at(-1).error, 'busy');
+  assert.equal(chosen.get('desk'), 'model-0', 'the new selection was not allowed to race the old write');
+
+  const otherDevice = fixture(t, { agentControl, device: { id: 'other' } });
+  await otherDevice.session.handleMessage({ t: 'agent_model', target: 'agent', rid: 3, cursor: 0, id: 'model-2' });
+  assert.equal(otherDevice.events.at(-1).model, 'model-2', 'another device has an independent control lane');
+
+  releaseOld();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(chosen.get('desk'), 'model-1');
+  assert.equal(current.session.controls.changingModel, false, 'the lane unlocks when the underlying write settles');
+  await current.session.handleMessage({ t: 'agent_model', target: 'agent', rid: 4, cursor: 0, id: 'model-2' });
+  assert.equal(current.events.at(-1).model, 'model-2');
+  assert.equal(chosen.get('desk'), 'model-2');
+});
+
+
+for (const reconnect of [false, true]) {
+  test(`completed voice changes publish after UI timeout${reconnect ? ' and reconnect' : ''}`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    t.after(release);
+    const engine = fakeEngine();
+    engine.voiceMode = 'classic';
+    engine.refreshCapabilities = async () => { engine.voiceMode = 'realtime'; engine.canListen = true; };
+    const agentControl = { selectModel: () => gate, options: async () => ({ models: [] }) };
+    let current;
+    const old = fixture(t, { engine, agentControl, current: () => current.session });
+    current = old;
+    const other = fixture(t, { agentControl, device: { id: 'other' } });
+    const selecting = old.session.handleMessage({ t: 'agent_model', target: 'voice', rid: 41, id: 'realtime' });
+    t.mock.timers.tick(8000);
+    await selecting;
+    assert.equal(old.events.at(-1).error, 'timeout');
+    assert.equal(old.session.controls.changingModel, true);
+    if (reconnect) {
+      old.session.close();
+      current = fixture(t, { engine, agentControl });
+    }
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(current.events.filter(event => event.t === 'capabilities'), [
+      { t: 'capabilities', voice_mode: 'realtime', stt: { available: true }, tts: { available: true } },
+    ]);
+    assert.equal(old.events.filter(event => event.t === 'agent_options').length, 1,
+      'completion does not send a second response for the expired request');
+    assert.equal(other.events.length, 0, 'another device receives no capabilities broadcast');
+    assert.equal(current.session.controls.changingModel, false);
+  });
+}
+
 test('changing model during a recorded request is rejected without calling the adapter', async (t) => {
   let changed = false;
   const agentControl = { options: async () => ({}), selectModel: async () => { changed = true; } };

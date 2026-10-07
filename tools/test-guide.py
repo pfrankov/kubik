@@ -52,7 +52,7 @@ static void menu_press(int row, int part) { (void)row; (void)part; }
 static void wake(bool sound) { (void)sound; }
 static void audio_sfx(int sound) { (void)sound; }
 static void menu_close(bool sound) { (void)sound; s_menu = false; agent_menu_hide(&g_face.agent); }
-static const char *esp_err_to_name(int err) { (void)err; return "test failure"; }
+const char *esp_err_to_name(esp_err_t err) { (void)err; return "test failure"; }
 esp_err_t settings_complete_guide(void) {
     if (g_settings.guide_done) return ESP_OK;
     writes++;
@@ -140,7 +140,7 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix='kubik-guide-') as tmp:
     src, exe = Path(tmp) / 'guide.c', Path(tmp) / 'guide'
     src.write_text(mocks + source + tests)
-    subprocess.run(['cc', '-std=c11', '-O1', '-g', '-fsanitize=address,undefined',
+    subprocess.run(['cc', '-std=c11', '-D_POSIX_C_SOURCE=200809L', '-O1', '-g', '-fsanitize=address,undefined',
                     '-Ifirmware/main', '-Ifirmware/sim/settings_stubs', str(src),
                     'firmware/main/event_journal.c', 'firmware/main/agent_menu.c', 'firmware/main/app_state.c', '-o', str(exe)], cwd=ROOT, check=True)
     subprocess.run([str(exe)], check=True)

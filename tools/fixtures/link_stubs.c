@@ -69,7 +69,8 @@ void link_pin_usb_bind(uint32_t epoch,const char *bind,size_t len) {
 bool link_pin_bind(bool usb,uint32_t epoch,char out[LINK_BIND_MAX]) {
     if (usb) { if(!usb_bind_set||epoch!=usb_bind_epoch)return false; strcpy(out,usb_bind_text); return true; }
     server_mode_t mode=link_server_mode(g_settings.server_url);
-    if(mode==SERVER_INVALID)return false;strcpy(out,mode==SERVER_CA?"ca:gw.example.com":wifi_bind_seen); return true;
+    if(mode==SERVER_INVALID)return false;
+    strcpy(out,mode==SERVER_CA?"ca:gw.example.com":wifi_bind_seen); return true;
 }
 void link_pin_keep(bool usb,uint32_t epoch) { (void)epoch; if(usb)keeps_usb++; else keeps_wifi++; }
 bool link_pin_take_mismatch(void) { bool m=pin_mismatch; pin_mismatch=false; return m; }
@@ -94,7 +95,7 @@ static bool wifi_radio_started(void) { return true; }
 bool wifi_polling(void) { return poll_mode; }
 static bool wifi_link_attempt_allowed(void) { return !poll_mode || poll_attempts < 3; }
 static void wifi_link_attempt_started(void) { if (poll_mode) poll_attempts++; }
-static const char *esp_err_to_name(int e) { (void)e; return "mock"; }
+const char *esp_err_to_name(esp_err_t e) { (void)e; return "mock"; }
 static unsigned char usb_bytes[32768]; static size_t usb_size;
 static unsigned char usb_input[8192]; static size_t usb_input_size, usb_input_pos;
 static bool stop_usb_rx; static jmp_buf usb_rx_jmp;
@@ -135,7 +136,8 @@ static uint32_t attempts[64]; static int nattempts;
 static esp_websocket_client_handle_t esp_websocket_client_init(const esp_websocket_client_config_t *c) {
     assert(c->disable_auto_reconnect); assert(c->network_timeout_ms==(!strncmp(c->uri,"wss://",6)?15000:8000)); assert(nattempts<64); attempts[nattempts++]=time_ms;
     snprintf(last_uri,sizeof last_uri,"%s",c->uri); last_attach=c->crt_bundle_attach;
-    if(fail_init)return NULL; allocations++; return calloc(1,sizeof(struct MockWS));
+    if(fail_init)return NULL;
+    allocations++; return calloc(1,sizeof(struct MockWS));
 }
 static int esp_websocket_register_events(esp_websocket_client_handle_t ws,int event,void(*cb)(void*,esp_event_base_t,int32_t,void*),void *arg) { (void)event; ws->cb=cb; ws->arg=arg; return fail_register?-1:0; }
 static int esp_websocket_client_start(esp_websocket_client_handle_t ws) { if(stop_during_ws_start) { stop_during_ws_start=false; atomic_store(&s_wifi_allowed,false); } starts++; if(fail_start)return -1; if(connect_on_start)ws->cb(ws->arg,NULL,WEBSOCKET_EVENT_CONNECTED,NULL); return 0; }

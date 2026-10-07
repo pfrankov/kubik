@@ -54,7 +54,7 @@ def main():
                 sources = [*sources, "agent_menu", "face_agent", "ui_text"]
             exe = str(Path(build) / (name + "".join(defines)))
             subprocess.run([
-                os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra",
+                os.environ.get("CC", "cc"), "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-O1", "-g", "-Wall", "-Wextra",
                 "-Wno-unused-parameter", *defines, "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-Ifirmware/sim/present_stubs", f"firmware/sim/{name}_test.c",
                 *[f"firmware/main/{s}.c" for s in sources], "-lm", "-o", exe,

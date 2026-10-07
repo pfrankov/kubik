@@ -73,6 +73,8 @@ export class OpenClawEngine {
   #commit = null;
   #speech = null;
   #live = null;
+  #capabilityRevision = 0;
+  #committedCapabilityRevision = 0;
   #capabilities = { canListen: false, canSpeak: false, stt: { available: false }, tts: { available: false } };
   constructor(voice, { log = () => {}, core, cfg, getConfig, transcribeTimeoutMs = 45_000, speechTimeoutMs = 45_000,
     tmpRoot = tmpdir(), speechSdk, liveOptions = {}, nativeOptions = {}, getVoice } = {}) {
@@ -90,18 +92,42 @@ export class OpenClawEngine {
   /** Without a configured provider and the runtime TTS API, replies are shown on the device screen. */
   get canSpeak() { return this.#capabilities.canSpeak; }
 
-  /** Resolve cheap runtime/config facts before welcome; this never sends audio or invokes provider inference. */
-  async refreshCapabilities({ agentId } = {}) {
-    this.agentId = agentId;
-    if (this.getVoice) this.voice = await this.getVoice();
+  /** Resolve a complete candidate snapshot without changing the shared engine. */
+  async prepareCapabilities(options = {}) {
+    const agentId = options.agentId ?? this.agentId;
+    const getVoice = options.getVoice ?? this.getVoice;
+    const voice = getVoice ? await getVoice() : this.voice;
     const cfg = this.getConfig();
-    this.nativeVoice = await resolveNativeVoice({ cfg, voice: this.voice, agentId, sdk: this.nativeOptions.sdk });
+    const nativeVoice = await resolveNativeVoice({ cfg, voice, agentId, sdk: this.nativeOptions.sdk });
     // Native input uses the host's voice provider; ordinary notifications still use configured TTS.
-    const { stt, tts } = this.nativeVoice
-      ? { stt: this.nativeVoice.stt, tts: configuredTts({ core: this.core, cfg, selection: this.voice.ttsSelection }) }
-      : await resolveOpenClawVoiceCapabilities({ core: this.core, cfg, voice: this.voice, agentId });
-    this.#capabilities = { canListen: stt.available, canSpeak: tts.available, stt, tts };
+    const { stt, tts } = nativeVoice
+      ? { stt: nativeVoice.stt, tts: configuredTts({ core: this.core, cfg, selection: voice.ttsSelection }) }
+      : await resolveOpenClawVoiceCapabilities({ core: this.core, cfg, voice, agentId });
+    const capabilities = { canListen: stt.available, canSpeak: tts.available, stt, tts };
+    return { agentId, voice, nativeVoice, capabilities, getVoice };
+  }
+
+  /** Apply a prepared authenticated-session snapshot synchronously at the server's commit point. */
+  applyCapabilities(snapshot) {
+    const revision = ++this.#capabilityRevision;
+    this.#applyCapabilities(snapshot, revision);
     return this.#capabilities;
+  }
+
+  /** Resolve then apply capabilities for the current session (for example after changing voice mode). */
+  async refreshCapabilities({ agentId } = {}) {
+    const revision = ++this.#capabilityRevision;
+    const resolver = this.getVoice;
+    const snapshot = await this.prepareCapabilities({ agentId, getVoice: resolver });
+    if (revision > this.#committedCapabilityRevision && this.getVoice === resolver) this.#applyCapabilities(snapshot, revision);
+    return this.#capabilities;
+  }
+
+  #applyCapabilities(snapshot, revision) {
+    Object.assign(this, { agentId: snapshot.agentId, voice: snapshot.voice, nativeVoice: snapshot.nativeVoice });
+    if (snapshot.getVoice) this.getVoice = snapshot.getVoice;
+    this.#capabilities = snapshot.capabilities;
+    this.#committedCapabilityRevision = revision;
   }
   beginTurn() {
     this.#chunks = []; this.#bytes = 0; this.#commit?.abort(); this.#live?.cancel();

@@ -9,6 +9,7 @@ voice_mode_t app_voice_mode(void);
 bool app_voice_live_active(void);
 bool app_voice_live_ready(void);
 void app_voice_live_stop(bool tell_server);
+int app_voice_parse_generation(cJSON *json);
 bool app_voice_receive(cJSON *json, const char *type);
 void app_voice_capture_started(uint8_t turn);
 void app_voice_prepare_capture(uint8_t turn);

@@ -4,6 +4,7 @@ backup/
 **/build-plush/
 **/managed_components/
 **/dependencies.lock
+!firmware/dependencies.lock
 **/sdkconfig
 **/sdkconfig.old
 node_modules/

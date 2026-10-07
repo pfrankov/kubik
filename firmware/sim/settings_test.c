@@ -1,33 +1,66 @@
 #include <assert.h>
+#include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "nvs.h"
 #include "../main/settings.h"
+#include "../main/muse_store.h"
+#include "../main/connection_record.h"
+#include "../main/connection_store.h"
 
-typedef struct { char key[16]; unsigned char data[1200]; size_t size; } entry_t;
-static entry_t stored[20], pending[20];
-static const char *fail_write, *fail_erase;
-static bool fail_commit, fail_erase_all;
-static entry_t *records(nvs_handle_t handle) { return handle == 2 ? pending : stored; }
+extern bool app_nvs_test_lock_is_held(void);
+static pthread_mutex_t apply_race_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t apply_race_cond = PTHREAD_COND_INITIALIZER;
+static bool block_first_apply, first_apply_entered, release_first_apply;
+static bool second_save_started, second_save_done;
+static esp_err_t first_save_result, second_save_result;
+
+void settings_test_apply_hook(const connection_record_t *record) {
+    if (!block_first_apply || !record->networks.count ||
+        strcmp(record->networks.profiles[record->networks.active].ssid, "race-first")) return;
+    pthread_mutex_lock(&apply_race_mutex);
+    first_apply_entered = true;
+    pthread_cond_broadcast(&apply_race_cond);
+    while (!release_first_apply) pthread_cond_wait(&apply_race_cond, &apply_race_mutex);
+    pthread_mutex_unlock(&apply_race_mutex);
+}
+
+typedef struct { char key[16]; unsigned char data[6000]; size_t size; } entry_t;
+static entry_t stored[24];
+const char *fail_write, *fail_read;
+static const char *fail_erase;
+static bool fail_after_write, fail_erase_all, fail_commit;
+static bool fail_connection_allocation;
+static unsigned allocation_calls, read_calls;
+void *settings_test_calloc(size_t count, size_t size) {
+    allocation_calls++;
+    if (fail_connection_allocation) return NULL;
+    void *memory = malloc(count * size);
+    if (memory) memset(memory, 0, count * size);
+    return memory;
+}
+static entry_t *records(nvs_handle_t handle) { (void)handle; return stored; }
 static int find(entry_t *list, const char *key) {
-    for (int i = 0; i < 20; i++) if (!strcmp(list[i].key, key)) return i;
+    for (int i = 0; i < 24; i++) if (!strcmp(list[i].key, key)) return i;
     return -1;
 }
 static bool has(const char *key) { return find(stored, key) >= 0; }
+static bool empty_store(void) {
+    for (int i = 0; i < 24; i++) if (stored[i].key[0]) return false;
+    return true;
+}
 
 esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) {
     (void)name;
+    if (mode == NVS_READONLY && empty_store()) return ESP_ERR_NVS_NOT_FOUND;
     *handle = mode == NVS_READWRITE ? 2 : 1;
-    if (*handle == 2) memcpy(pending, stored, sizeof pending);
     return ESP_OK;
 }
 void nvs_close(nvs_handle_t handle) { (void)handle; }
-esp_err_t nvs_commit(nvs_handle_t handle) {
-    if (fail_commit) return ESP_FAIL;
-    if (handle == 2) memcpy(stored, pending, sizeof stored);
-    return ESP_OK;
-}
+esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return fail_commit ? ESP_FAIL : ESP_OK; }
 esp_err_t nvs_flash_init(void) { return ESP_OK; }
+esp_err_t nvs_flash_deinit(void) { return ESP_OK; }
 esp_err_t nvs_flash_erase(void) { memset(stored, 0, sizeof stored); return ESP_OK; }
 esp_err_t nvs_erase_all(nvs_handle_t handle) {
     if (fail_erase_all) return ESP_FAIL;
@@ -44,17 +77,20 @@ esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key) {
     return ESP_OK;
 }
 esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *data, size_t size) {
-    if (fail_write && !strcmp(fail_write, key)) return ESP_FAIL;
+    bool fail = fail_write && !strcmp(fail_write, key);
+    if (fail && !fail_after_write) return ESP_FAIL;
     entry_t *list = records(handle);
     int index = find(list, key);
-    if (index < 0) for (index = 0; index < 20 && list[index].key[0]; index++);
-    assert(index < 20 && size <= sizeof list[index].data);
+    if (index < 0) for (index = 0; index < 24 && list[index].key[0]; index++);
+    assert(index < 24 && size <= sizeof list[index].data);
     strcpy(list[index].key, key);
     memcpy(list[index].data, data, size);
     list[index].size = size;
-    return ESP_OK;
+    return fail ? ESP_FAIL : ESP_OK;
 }
 esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *data, size_t *size) {
+    read_calls++;
+    if (fail_read && !strcmp(fail_read, key)) return ESP_FAIL;
     entry_t *list = records(handle);
     int index = find(list, key);
     if (index < 0) return ESP_ERR_NVS_NOT_FOUND;
@@ -69,6 +105,15 @@ esp_err_t nvs_set_i32(nvs_handle_t h, const char *key, int32_t v) { return nvs_s
 esp_err_t nvs_get_i32(nvs_handle_t h, const char *key, int32_t *v) { size_t n = sizeof *v; return nvs_get_blob(h, key, v, &n); }
 esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t v) { return nvs_set_blob(h, key, &v, sizeof v); }
 esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *v) { size_t n = sizeof *v; return nvs_get_blob(h, key, v, &n); }
+const char *esp_err_to_name(esp_err_t err) { (void)err; return "mock"; }
+void mbedtls_platform_zeroize(void *data, size_t size) { volatile unsigned char *p = data; while (size--) *p++ = 0; }
+int mbedtls_sha256(const unsigned char *input, size_t length, unsigned char output[32], int is224) {
+    (void)is224;
+    uint64_t hash = 1469598103934665603ull;
+    for (size_t i = 0; i < length; i++) { hash ^= input[i]; hash *= 1099511628211ull; }
+    for (size_t i = 0; i < 32; i++) { hash ^= i + 0x9e3779b97f4a7c15ull; hash *= 1099511628211ull; output[i] = hash >> ((i & 7) * 8); }
+    return 0;
+}
 
 typedef struct { char ssid[33], password[65]; } old_wifi_t;
 typedef struct { char url[128], token[80]; } old_server_t;
@@ -89,6 +134,91 @@ static void assert_connection(const char *ssid, const char *pass, const char *ur
     assert(!strcmp(g_settings.server_url, url));
 }
 
+static const char *record_key(unsigned slot) {
+    return slot ? CONNECTION_RECORD_KEY_B : CONNECTION_RECORD_KEY_A;
+}
+static int64_t record_revision(unsigned slot) {
+    connection_record_t record;
+    size_t size = sizeof record;
+    esp_err_t err = nvs_get_blob(1, record_key(slot), &record, &size);
+    if (err == ESP_ERR_NVS_NOT_FOUND) return -1;
+    assert(err == ESP_OK && size == sizeof record && record.magic == CONNECTION_RECORD_MAGIC &&
+           record.version == CONNECTION_RECORD_VERSION && record.revision);
+    return (int64_t)record.revision;
+}
+static const char *next_record_key(void) {
+    int64_t a = record_revision(0), b = record_revision(1);
+    if (a < 0) return CONNECTION_RECORD_KEY_A;
+    if (b < 0) return CONNECTION_RECORD_KEY_B;
+    return a >= b ? CONNECTION_RECORD_KEY_B : CONNECTION_RECORD_KEY_A;
+}
+static const char *newest_record_key(void) {
+    int64_t a = record_revision(0), b = record_revision(1);
+    assert(a >= 0 || b >= 0);
+    if (a < 0) return CONNECTION_RECORD_KEY_B;
+    if (b < 0) return CONNECTION_RECORD_KEY_A;
+    return a >= b ? CONNECTION_RECORD_KEY_A : CONNECTION_RECORD_KEY_B;
+}
+static bool has_connection_record(void) {
+    return has(CONNECTION_RECORD_KEY_A) || has(CONNECTION_RECORD_KEY_B);
+}
+
+static void *save_race_first(void *unused) {
+    (void)unused;
+    first_save_result = settings_save_connection("race-first", "first-password", "kubik://first.local");
+    return NULL;
+}
+static void *save_race_second(void *unused) {
+    (void)unused;
+    pthread_mutex_lock(&apply_race_mutex);
+    second_save_started = true;
+    pthread_cond_broadcast(&apply_race_cond);
+    pthread_mutex_unlock(&apply_race_mutex);
+    second_save_result = settings_save_connection("race-second", "second-password", "kubik://second.local");
+    pthread_mutex_lock(&apply_race_mutex);
+    second_save_done = true;
+    pthread_cond_broadcast(&apply_race_cond);
+    pthread_mutex_unlock(&apply_race_mutex);
+    return NULL;
+}
+static void test_apply_serializes_with_storage(void) {
+    nvs_flash_erase();
+    settings_load();
+    pthread_mutex_lock(&apply_race_mutex);
+    block_first_apply = true;
+    first_apply_entered = release_first_apply = second_save_started = second_save_done = false;
+    first_save_result = second_save_result = ESP_FAIL;
+    pthread_mutex_unlock(&apply_race_mutex);
+
+    pthread_t first, second;
+    assert(pthread_create(&first, NULL, save_race_first, NULL) == 0);
+    pthread_mutex_lock(&apply_race_mutex);
+    while (!first_apply_entered) pthread_cond_wait(&apply_race_cond, &apply_race_mutex);
+    pthread_mutex_unlock(&apply_race_mutex);
+    assert(pthread_create(&second, NULL, save_race_second, NULL) == 0);
+    pthread_mutex_lock(&apply_race_mutex);
+    while (!second_save_started) pthread_cond_wait(&apply_race_cond, &apply_race_mutex);
+    pthread_mutex_unlock(&apply_race_mutex);
+
+    bool connection_lock_held_during_apply = app_nvs_test_lock_is_held();
+    pthread_mutex_lock(&apply_race_mutex);
+    release_first_apply = true;
+    pthread_cond_broadcast(&apply_race_cond);
+    pthread_mutex_unlock(&apply_race_mutex);
+    assert(pthread_join(first, NULL) == 0 && pthread_join(second, NULL) == 0);
+    pthread_mutex_lock(&apply_race_mutex);
+    block_first_apply = false;
+    pthread_mutex_unlock(&apply_race_mutex);
+
+    assert(connection_lock_held_during_apply);
+    assert(first_save_result == ESP_OK && second_save_result == ESP_OK && second_save_done);
+    assert(!strcmp(g_settings.wifi_ssid, "race-second") &&
+           !strcmp(g_settings.server_url, "kubik://second.local"));
+    settings_load();
+    assert(!strcmp(g_settings.wifi_ssid, "race-second") &&
+           !strcmp(g_settings.server_url, "kubik://second.local"));
+}
+
 static void test_old_voice_keys_dropped(void) {  // the voice choice used to live in NVS: a save clears it
     nvs_flash_erase();
     assert(nvs_set_str(1, "vengine", "live") == ESP_OK);
@@ -99,84 +229,60 @@ static void test_old_voice_keys_dropped(void) {  // the voice choice used to liv
     assert(!has("vengine") && !has("vname"));
 }
 
-static void test_server_forms_and_pin(void) {
-    const char *valid[] = {"", "kubik://kubik-host.local", "kubik://192.168.1.5:18790", "kubik://[fe80::1]:18790",
-        "wss://example.com/kubik/v1", "wss://10.0.0.2:18790/kubik/v1"};
-    for (size_t i = 0; i < sizeof valid / sizeof valid[0]; i++) assert(settings_server_valid(valid[i]));
-    const char *invalid[] = {"kubik://", "kubik://host/", "kubik://host/kubik/v1", "kubik://host:0",
-        "kubik://host:65536", "kubik://user@host", "kubik://[::1]x", "kubik://bad..host", "KUBIK://host", " "};
-    for (size_t i = 0; i < sizeof invalid / sizeof invalid[0]; i++) assert(!settings_server_valid(invalid[i]));
-
+static void test_allocator_failure_and_revision_guards(void) {
     nvs_flash_erase();
-    assert(settings_save_connection("home", "home-password", "") == ESP_OK);
-    assert_connection("home", "home-password", "");
-    assert(!g_settings.server_pinned);
-    uint8_t pin[SETTINGS_PIN_BYTES];
-    memset(pin, 0xa5, sizeof pin);
-    assert(settings_save_pin(pin) == ESP_OK && g_settings.server_pinned);
     settings_load();
-    assert(g_settings.server_pinned && !memcmp(g_settings.server_pin, pin, sizeof pin));
-    // A failed save keeps both the old record and its pin.
-    fail_write = "networks";
-    assert(settings_save_connection("home", "home-password", "kubik://other.local") == ESP_FAIL);
+    assert(settings_save_connection("kept-net", "kept-password", "kubik://kept.local") == ESP_OK);
+    const char *current_key = newest_record_key();
+    connection_record_t before;
+    size_t size = sizeof before;
+    assert(nvs_get_blob(1, current_key, &before, &size) == ESP_OK && size == sizeof before);
+    fail_connection_allocation = true;
+    assert(settings_save_connection("lost-net", "lost-password", "kubik://lost.local") == ESP_ERR_NO_MEM);
+    fail_connection_allocation = false;
+    connection_record_t after;
+    size = sizeof after;
+    assert(nvs_get_blob(1, current_key, &after, &size) == ESP_OK && size == sizeof after);
+    assert(!memcmp(&before, &after, sizeof before));
+
+    before.revision = UINT64_MAX;
+    assert(nvs_set_blob(1, current_key, &before, sizeof before) == ESP_OK);
+    assert(settings_save_connection("overflow-net", "overflow-password", "kubik://overflow.local") == ESP_ERR_INVALID_STATE);
+    settings_load();
+    assert(!strcmp(g_settings.wifi_ssid, "kept-net"));
+}
+
+static void test_setup_connection_and_agent_share_record(void) {
+    nvs_flash_erase();
+    settings_load();
+    assert(settings_save_connection("previous-net", "previous-pass", "kubik://previous.local") == ESP_OK);
+    uint8_t pin[SETTINGS_PIN_BYTES] = {0x5a};
+    assert(settings_save_pin(pin) == ESP_OK);
+    char token[49] = "mgst_";
+    memset(token + 5, 'A', 43); token[48] = 0;
+    assert(muse_store_begin(token) == ESP_OK);
+    assert(muse_store_state() == MUSE_PAIRING);
+
+    // This models SET-06: the connection and chosen agent now share one write.
+    fail_write = next_record_key();
+    assert(settings_save_setup("candidate-net", "candidate-pass", "kubik://candidate.local", false, NULL) == ESP_FAIL);
     fail_write = NULL;
     settings_load();
-    assert(g_settings.server_pinned && !strcmp(g_settings.server_url, ""));
-    // Any explicit save forgets the pin, even of the same server (the user's way out of "key changed").
-    assert(settings_save_connection("home", "home-password", "") == ESP_OK);
-    assert(!g_settings.server_pinned && !has("pin"));
-    assert(settings_save_pin(pin) == ESP_OK);
-    assert(settings_save_connection("home", "home-password", "kubik://other.local:18790") == ESP_OK);
-    settings_load();
-    assert(!g_settings.server_pinned && !strcmp(g_settings.server_url, "kubik://other.local:18790"));
-    // A damaged pin record is no pin at all.
-    nvs_set_blob(1, "pin", pin, 16);
-    settings_load();
-    assert(!g_settings.server_pinned);
-}
-
-static void test_current_connection_migration(void) {
-    nvs_flash_erase();
-    old_connection_t old = {0};
-    snprintf(old.ssid, sizeof old.ssid, "current-net");
-    snprintf(old.password, sizeof old.password, "current-password");
-    snprintf(old.url, sizeof old.url, "wss://current/kubik/v1");
-    const uint8_t pin[32] = {0x6b};
-    nvs_set_blob(1, "connection", &old, sizeof old);
-    nvs_set_blob(1, "pin", pin, sizeof pin);
-    settings_load();
-    assert(g_settings.wifi_profile_count == 1 && !strcmp(g_settings.wifi_ssid, "current-net"));
-    assert(!strcmp(g_settings.wifi_profiles[0].password, "current-password"));
+    assert(!strcmp(g_settings.wifi_ssid, "previous-net"));
+    assert(!strcmp(g_settings.server_url, "kubik://previous.local"));
     assert(g_settings.server_pinned && !memcmp(g_settings.server_pin, pin, sizeof pin));
-    assert(has("networks") && !has("connection"));
-}
+    assert(muse_store_state() == MUSE_PAIRING);
 
-static void test_profile_limit_and_reload(void) {
-    nvs_flash_erase();
-    settings_load();
-    char ssid[33];
-    for (int i = 0; i < SETTINGS_WIFI_MAX; i++) {
-        snprintf(ssid, sizeof ssid, "saved-%d", i);
-        assert(settings_save_connection(ssid, "saved-password", "") == ESP_OK);
-    }
-    assert(g_settings.wifi_profile_count == SETTINGS_WIFI_MAX);
-    assert(settings_save_connection("saved-3", "updated-password", "") == ESP_OK);
-    assert(!strcmp(g_settings.wifi_profiles[3].password, "updated-password"));
-    assert(settings_save_connection("saved-overflow", "saved-password", "") == ESP_ERR_NO_MEM);
-    settings_load();
-    assert(g_settings.wifi_profile_count == SETTINGS_WIFI_MAX);
-    assert(settings_wifi_find("saved-7") >= 0 && settings_wifi_find("missing") < 0);
-    assert(!strcmp(g_settings.wifi_profiles[3].password, "updated-password"));
+    assert(settings_save_setup("candidate-net", "candidate-pass", "kubik://candidate.local", false, NULL) == ESP_OK);
+    assert(!strcmp(g_settings.wifi_ssid, "candidate-net") && !g_settings.server_pinned);
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_PAIRING);
 }
 
 static void test_reset_failures(void) {
     fail_erase_all = true;
     assert(settings_factory_reset() == ESP_FAIL);
     fail_erase_all = false;
-    fail_commit = true;
-    assert(settings_factory_reset() == ESP_FAIL);
-    fail_commit = false;
-    assert(has("devkey") && has("networks") && g_settings.volume == 15);
+    assert(has("devkey") && has_connection_record() && g_settings.volume == 15);
 }
 
 static void test_factory_reset(void) {
@@ -199,7 +305,7 @@ static void test_factory_reset(void) {
     assert(!g_settings.wifi_ssid[0] && !g_settings.wifi_pass[0] && !g_settings.server_url[0] && !g_settings.server_pinned);
     assert(g_settings.volume == 70 && g_settings.brightness == 200 &&
            !g_settings.greeted && !g_settings.guide_done && !g_settings.event_overlay && !strcmp(g_settings.name, "Kubik"));
-    const char *gone[] = {"networks", "connection", "pin", "devkey", "name", "character", "volume", "bright", "greeted", "guide_done", "event_overlay", "setup", "vengine"};
+    const char *gone[] = {CONNECTION_RECORD_KEY_A, CONNECTION_RECORD_KEY_B, "networks", "connection", "pin", "devkey", "name", "character", "volume", "bright", "greeted", "guide_done", "event_overlay", "setup", "vengine"};
     for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) assert(!has(gone[i]));
     assert(!has("devkey"));  // factory reset also clears the device identity key
     settings_load();
@@ -213,15 +319,11 @@ static void test_guide_storage(void) {
     settings_t before = g_settings;
     fail_write = "guide_done";
     assert(settings_complete_guide() == ESP_FAIL && !g_settings.guide_done);
-    fail_write = NULL; fail_commit = true;
-    assert(settings_complete_guide() == ESP_FAIL && !g_settings.guide_done);
-    fail_commit = false; settings_load(); assert(!g_settings.guide_done);
+    fail_write = NULL; settings_load(); assert(!g_settings.guide_done);
     assert(settings_complete_guide() == ESP_OK);
     before.guide_done = true; assert(!memcmp(&before, &g_settings, sizeof before));
     settings_save(); settings_load(); assert(g_settings.guide_done);
-    fail_commit = true;
     assert(settings_complete_guide() == ESP_OK); // already seen: no extra write
-    fail_commit = false;
     nvs_flash_erase();
 }
 
@@ -245,14 +347,50 @@ static void english_default_name(void) {
     assert(nvs_get_str(1,"name",saved,&size)==ESP_OK && !strcmp(saved,"Kubik"));
     assert(nvs_set_str(1,"name","Мой робот")==ESP_OK);
     settings_load(); assert(!strcmp(g_settings.name,"Мой робот"));
-    assert(nvs_set_str(1,"name","Кубик")==ESP_OK); fail_commit=true;
+    assert(nvs_set_str(1,"name","Кубик")==ESP_OK); fail_write="name";
     settings_load(); assert(!strcmp(g_settings.name,"Kubik"));
     size=sizeof saved; assert(nvs_get_str(1,"name",saved,&size)==ESP_OK && !strcmp(saved,"Кубик"));
-    fail_commit=false; settings_load(); size=sizeof saved;
+    fail_write=NULL; settings_load(); size=sizeof saved;
     assert(nvs_get_str(1,"name",saved,&size)==ESP_OK && !strcmp(saved,"Kubik"));
     nvs_erase_key(1,"name");
 }
+void settings_test_connection_runtime(void);
+void settings_test_persistence(void);
+
+static void test_muse_metadata_without_allocation_or_reads(void) {
+    nvs_flash_erase(); settings_load();
+    char token[49] = "mgst_"; memset(token + 5, 'A', 43); token[48] = 0;
+    assert(muse_store_begin(token) == ESP_OK);
+    unsigned allocations = allocation_calls, reads = read_calls;
+    fail_connection_allocation = true;
+    fail_read = CONNECTION_RECORD_KEY_A;
+    for (int i = 0; i < 20; i++) {
+        assert(muse_store_state() == MUSE_PAIRING);
+        assert(muse_store_saved_state() == MUSE_PAIRING);
+    }
+    assert(allocation_calls == allocations && read_calls == reads);
+    fail_connection_allocation = false;
+    connection_record_t record; bool durable;
+    assert(connection_store_load(&record, &durable) == ESP_FAIL);
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_OFF);
+    fail_read = NULL;
+    assert(connection_store_load(&record, &durable) == ESP_OK);
+    assert(muse_store_state() == MUSE_PAIRING);
+    assert(muse_store_select(false) == ESP_OK);
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_PAIRING);
+    fail_commit = true;
+    assert(settings_factory_reset() == ESP_FAIL);
+    fail_commit = false;
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_OFF);
+    settings_load();
+    assert(muse_store_begin(token) == ESP_OK);
+    assert(settings_factory_reset() == ESP_OK);
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_OFF);
+    muse_store_wipe(&record, sizeof record);
+}
+
 int main(void) {
+    test_muse_metadata_without_allocation_or_reads();
     english_default_name();
     const char *old_url = "wss://old-host/kubik/v1", *new_url = "wss://example.com/kubik/v1";
     test_factory_reset();
@@ -265,15 +403,12 @@ int main(void) {
     assert(!memcmp(&loaded, &g_settings, sizeof loaded));
     nvs_flash_erase();
     seed_old("old-network", "old-password", old_url, "retired-secret");
-    fail_write = "networks";
+    fail_write = CONNECTION_RECORD_KEY_A;
     assert_connection("old-network", "old-password", old_url);
-    assert(has("server") && has("wifi") && !has("networks"));
-    fail_write = NULL; fail_commit = true;
+    assert(has("server") && has("wifi") && !has_connection_record());
+    fail_write = NULL;
     assert_connection("old-network", "old-password", old_url);
-    assert(has("server") && !has("networks"));
-    fail_commit = false;
-    assert_connection("old-network", "old-password", old_url);
-    assert(has("networks") && !has("connection") && !has("server") && !has("wifi") && !has("token"));
+    assert(has_connection_record() && !has("connection") && !has("server") && !has("wifi") && !has("token"));
 
     assert(settings_save_connection("new-network", "new-password", new_url) == ESP_OK);
     assert_connection("new-network", "new-password", new_url);
@@ -282,14 +417,17 @@ int main(void) {
     assert(g_settings.wifi_profile_count == 2 && !strcmp(g_settings.wifi_profiles[0].password, "old-password"));
     assert(settings_save_connection("old-network", "updated-password", new_url) == ESP_OK);
     assert(!strcmp(g_settings.wifi_profiles[0].password, "updated-password"));
-    fail_write = "networks";
+    fail_write = next_record_key();
     assert(settings_save_connection("broken", "new-password", old_url) == ESP_FAIL);
     fail_write = NULL;
     assert_connection("old-network", "updated-password", new_url);
-    fail_commit = true;
-    assert(settings_save_connection("broken", "new-password", old_url) == ESP_FAIL);
-    fail_commit = false;
-    assert_connection("old-network", "updated-password", new_url);
+    // A write that reports an error after immediate mutation is resolved by
+    // reinitializing NVS and confirms the new complete record.
+    fail_write = next_record_key(); fail_after_write = true;
+    assert(settings_save_connection("written-before-error", "new-password", old_url) == ESP_OK);
+    fail_write = NULL; fail_after_write = false;
+    assert_connection("written-before-error", "new-password", old_url);
+    assert(g_settings.wifi_profile_count == 3);
 
     const char *invalid[] = {"ws://10.0.0.2:18790/kubik/v1", "https://example.com/x", "ws://", "ws:///x", "ws://host", "ws://user@host/x",
         "ws://host/x?secret=y", "ws://host:0/x", "ws://host:65536/x", "ws://bad..host/x", "ws://[::::]/x"};
@@ -298,24 +436,27 @@ int main(void) {
     assert(settings_save_connection("new-network", "short", new_url) == ESP_ERR_INVALID_ARG);
     assert(settings_save_connection(g_settings.wifi_ssid, g_settings.wifi_pass, g_settings.server_url) == ESP_OK);
     strcpy(g_settings.wifi_ssid, "unsaved"); settings_save();
-    assert_connection("old-network", "updated-password", new_url);
+    assert_connection("written-before-error", "new-password", old_url);
 
     assert(!settings_take_provisioning());
     nvs_set_u8(1, "setup", 1);
     fail_erase = "setup"; assert(!settings_take_provisioning());
     fail_erase = NULL; assert(settings_take_provisioning() && !settings_take_provisioning());
 
-    // A damaged current list never falls back to old, possibly secret-bearing records.
+    // A damaged slot never falls back to old, possibly secret-bearing records.
+    nvs_flash_erase();
     seed_old("stale", "stale-pass", old_url, "stale-token");
     unsigned char corrupt[1200];
     memset(corrupt, 'x', sizeof corrupt);
-    nvs_set_blob(1, "networks", corrupt, sizeof corrupt);
+    nvs_set_blob(1, CONNECTION_RECORD_KEY_A, corrupt, sizeof corrupt);
     assert_connection("", "", "");
     test_split_volume();
     test_old_voice_keys_dropped();
-    test_server_forms_and_pin();
-    test_current_connection_migration();
-    test_profile_limit_and_reload();
-    puts("settings: atomic saved Wi-Fi list and URL, exact-SSID upsert, legacy migration, old voice keys dropped, failed write/commit, factory reset clearing the device key, validation, no stale revival, "
-         "LAN/kubik:// server forms and pin clearing passed");
+    test_allocator_failure_and_revision_guards();
+    test_apply_serializes_with_storage();
+    test_setup_connection_and_agent_share_record();
+    settings_test_persistence();
+    settings_test_connection_runtime();
+    puts("settings: A/B record selection, migration read failures, revision guards, serialized in-memory apply, "
+         "exact-SSID upsert, preferences, factory reset, URL validation and pin clearing passed");
 }

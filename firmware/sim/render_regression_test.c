@@ -105,7 +105,7 @@ static double mean_radius(const face_t *t) {
     return radius/TESS_N;
 }
 static bool quarter_turn(float angle) {
-    float remainder=fmodf(angle,(float)M_PI/2); return remainder<2e-3f || (float)M_PI/2-remainder<2e-3f;
+    float remainder=fmodf(angle,PI/2); return remainder<2e-3f || PI/2-remainder<2e-3f;
 }
 
 static void check_jolt_settles(face_t *a) {

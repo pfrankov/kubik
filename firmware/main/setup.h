@@ -20,7 +20,13 @@ typedef enum {
 } setup_phase_t;
 
 typedef enum { SETUP_BY_USER = 0, SETUP_FIRST, SETUP_LOST } setup_reason_t;
-typedef enum { SETUP_ERR_NONE = 0, SETUP_ERR_PASSWORD, SETUP_ERR_NOT_FOUND, SETUP_ERR_OTHER } setup_error_t;
+typedef enum {
+    SETUP_ERR_NONE = 0,
+    SETUP_ERR_PASSWORD,
+    SETUP_ERR_NOT_FOUND,
+    SETUP_ERR_OTHER,
+    SETUP_ERR_STORAGE,
+} setup_error_t;
 
 void setup_start(setup_reason_t why);
 void setup_stop(void);

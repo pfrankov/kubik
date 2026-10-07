@@ -1,8 +1,9 @@
 // The LAN listener's TLS identity: one P-256 key and a self-signed certificate, created once and kept in the
 // plugin state dir. Devices pin the SHA-256 of its SubjectPublicKeyInfo, so the key must survive restarts.
 import { createPrivateKey, generateKeyPairSync, randomBytes, sign, X509Certificate } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { renameSync } from 'node:fs';
+import { join } from 'node:path';
+import { ensurePrivateDirectory, readPrivateFile, writePrivateFileAtomic } from './private-storage.js';
 import { spkiSha256 } from './protocol.js';
 
 export const IDENTITY_FILE = 'lan-tls.json';
@@ -49,47 +50,34 @@ function generate() {
   return describe(privateKey.export({ type: 'pkcs8', format: 'pem' }), cert);
 }
 
-/** Writes `text` to `path` through a 0600 temporary file, fsync, rename and directory fsync: never a half-written identity. */
-function writeFileAtomic(path, text) {
-  const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
-  const fd = openSync(temporary, 'wx', 0o600);
-  try {
-    writeSync(fd, text);
-    fsyncSync(fd);
-  } finally { closeSync(fd); }
-  try { renameSync(temporary, path); } catch (error) { rmSync(temporary, { force: true }); throw error; }
-  try {
-    const directory = openSync(dirname(path), 'r');
-    try { fsyncSync(directory); } finally { closeSync(directory); }
-  } catch { /* directories cannot be fsynced on every platform */ }
-}
-
 /**
  * Loads the identity from `<dir>/lan-tls.json`, creating it on first use. A file that cannot be parsed is moved
  * aside (`.corrupt-<time>`) and replaced by a new key: pinned devices then report "server key changed". A file
  * that cannot be read (permissions, I/O) throws instead, so a passing fault never changes the key.
  */
 export function loadTlsIdentity(dir, { log = () => {} } = {}) {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensurePrivateDirectory(dir, 'LAN TLS identity');
   const path = join(dir, IDENTITY_FILE);
-  let text = null;
-  try { text = readFileSync(path, 'utf8'); } catch (error) {
-    if (error.code !== 'ENOENT') throw error; // EACCES, EIO, …: keep the key; the LAN listener reports the error instead of re-keying
-  }
+  const { text, tooLarge } = readPrivateFile(path, MAX_IDENTITY_BYTES, 'LAN TLS identity');
   if (text !== null) {
     try {
-      if (text.length > MAX_IDENTITY_BYTES) throw new Error('identity file is too large');
+      if (tooLarge) throw new Error('identity file is too large');
       const stored = JSON.parse(text);
       if (stored?.version !== IDENTITY_VERSION) throw new Error('unknown identity format');
       return { ...describe(stored.key, stored.cert), path, created: false };
-    } catch (error) {
+    } catch {
       const aside = `${path}.corrupt-${Date.now()}`;
       renameSync(path, aside);
-      log(`kubik: LAN TLS identity ${path} is unusable (${error?.message ?? error}); moved to ${aside}, creating a new key`);
+      log(`kubik: LAN TLS identity ${path} is unusable; moved to ${aside}, creating a new key`);
     }
   }
   const identity = generate();
-  writeFileAtomic(path, `${JSON.stringify({ version: IDENTITY_VERSION, key: identity.key, cert: identity.cert })}\n`);
+  const directorySyncError = writePrivateFileAtomic(path,
+    `${JSON.stringify({ version: IDENTITY_VERSION, key: identity.key, cert: identity.cert })}\n`);
+  if (directorySyncError) {
+    try { log(`kubik: LAN TLS identity committed but its directory could not be synced (${directorySyncError.code ?? 'I/O error'})`); }
+    catch { /* the identity rename already committed this key */ }
+  }
   log(`kubik: created LAN TLS identity ${path} (key sha256 ${identity.spkiHash.slice(0, 16)}…)`);
   return { ...identity, path, created: true };
 }

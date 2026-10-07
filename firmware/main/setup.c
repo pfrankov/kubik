@@ -180,7 +180,7 @@ static const char *phase_name(setup_phase_t p) {
     return n[p];
 }
 static const char *error_name(setup_error_t e) {
-    static const char *const n[] = {"", "password", "not_found", "other"};
+    static const char *const n[] = {"", "password", "not_found", "other", "storage"};
     return n[e];
 }
 
@@ -436,13 +436,12 @@ static void poll_join_or_open(void) {
 
 static void poll_trying(int64_t now) {
     if (wifi_sta_connected()) {
-        esp_err_t err = settings_save_connection(s_try.ssid, s_try.pass, s_try.url);
-        if (err == ESP_OK) err = setup_agent_save(&s_try.agent);
+        esp_err_t err = setup_connection_save(&s_try.agent, s_try.ssid, s_try.pass, s_try.url);
         lock();
         if (err == ESP_OK) {
             set_phase(SETUP_DONE);
         } else {
-            s_error = SETUP_ERR_OTHER;
+            s_error = SETUP_ERR_STORAGE;
             set_phase(SETUP_FAILED);
         }
         wipe(&s_try.pass, sizeof s_try.pass);

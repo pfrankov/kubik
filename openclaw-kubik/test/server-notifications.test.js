@@ -1,11 +1,33 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import fs from 'node:fs';
+import { chmodSync, readFileSync, statSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
 import { connectDevice, DEFAULT_DEVICE_KEY, DEVICE, deviceKey, fakeEngine, fakePairing, sleep } from './helpers.js';
+import { NotificationQueue } from '../src/notification-queue.js';
 import { start, stateDir } from './server-fixture.js';
 
 const contents = (path) => JSON.parse(readFileSync(path, 'utf8')).entries;
+
+async function mixedNotification(t, notificationPath) {
+  const engine = fakeEngine(), speak = engine.speak.bind(engine);
+  let calls = 0;
+  engine.speak = async (...args) => {
+    if (++calls === 1) return speak(...args);
+    throw Error('later TTS segment failed');
+  };
+  const { url, server } = await start(t, { engine,
+    ...(notificationPath ? { serverOptions: { notificationPath } } : {}) });
+  const device = await connectDevice(url, { autoPlayed: false, autoShown: false });
+  t.after(() => device.close());
+  const delivery = server.notify(DEVICE, '[[happy]] First sentence. [[sad]] Second sentence.');
+  delivery.catch(() => {});
+  return { server, device, delivery };
+}
+
+const acknowledgePlayback = (device, event) => device.send({ t: 'played', gen: event.gen,
+  ms: Math.ceil(device.receivedMs(event.gen)) });
 
 test('sleeping device notifications persist across host restart and play in FIFO order on authenticated reconnect', async (t) => {
   const notificationPath = join(stateDir(t), 'notifications.json');
@@ -63,6 +85,78 @@ test('revoked keys and fresh device identities do not inherit offline notificati
   await sleep(30);
   assert.equal(engine.calls.speak.length, 0);
   assert.equal(device.events.some((event) => event.t === 'speak'), false);
+});
+
+test('a queue persistence failure cannot keep a revoked live session open', { timeout: 10_000 }, async (t) => {
+  for (const operation of ['pairing refresh', 'notification send']) {
+    await t.test(operation, async (t) => {
+      const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry] });
+      const notificationPath = join(stateDir(t), 'notifications.json');
+      const { url, server } = await start(t, { pairing, serverOptions: { notificationPath, pairingPollMs: 60_000 } });
+      const device = await connectDevice(url, { autoPlayed: false });
+      t.after(() => device.close());
+
+      const delivery = server.notify(DEVICE, 'Неотправленное событие');
+      delivery.catch(() => {});
+      await device.waitFor((event) => event.t === 'speak_end');
+      assert.equal(contents(notificationPath).length, 1, 'the durable notification remains pending until playback ACK');
+      pairing.state.allowed = [];
+
+      const failPersistence = t.mock.method(fs, 'fsyncSync', () => { throw new Error('injected queue sync failure'); });
+      syncBuiltinESMExports();
+      try {
+        const operationPromise = operation === 'pairing refresh'
+          ? server.checkPairings()
+          : server.notify(DEVICE, 'This must not be accepted');
+        await assert.rejects(operationPromise, /injected queue sync failure/);
+        assert.equal(await device.closed, 4001, 'the revoked session is closed before queue persistence is attempted');
+      } finally {
+        failPersistence.mock.restore();
+        syncBuiltinESMExports();
+      }
+    });
+  }
+});
+
+test('an offline queue polls pairing revocation without sessions and stops after purge', { timeout: 5000 }, async (t) => {
+  const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry] });
+  const notificationPath = join(stateDir(t), 'notifications.json');
+  const { server } = await start(t, { pairing, serverOptions: { notificationPath, pairingPollMs: 10 } });
+  assert.equal((await server.notify(DEVICE, 'Событие, ожидающее устройство')).status, 'queued');
+  assert.deepEqual(server.onlineDevices, []);
+  const readsBeforeRevocation = pairing.state.reads;
+
+  pairing.state.allowed = [];
+  await sleep(60); // more than two configured pairing-poll intervals, with no live or pending socket
+  assert.equal(contents(notificationPath).length, 0, 'the queue-only poll must remove content for a revoked key');
+  const readsAfterPurge = pairing.state.reads;
+  assert.ok(readsAfterPurge > readsBeforeRevocation);
+  await sleep(30);
+  assert.equal(pairing.state.reads, readsAfterPurge, 'the poll should stop after the queue drains');
+});
+
+test('a restored offline queue is permission-repaired and revocation-polled with LAN disabled', { timeout: 5000 }, async (t) => {
+  const directory = stateDir(t);
+  const notificationPath = join(directory, 'notifications.json');
+  const queue = new NotificationQueue({ path: notificationPath });
+  queue.enqueue(DEVICE, 'Событие со старого запуска', [DEFAULT_DEVICE_KEY.fingerprint]);
+  chmodSync(directory, 0o755);
+  chmodSync(notificationPath, 0o644);
+  const pairing = fakePairing({ allowed: [] });
+
+  const { server } = await start(t, { pairing, lan: { stateDir: directory }, listen: { enabled: false },
+    serverOptions: { notificationPath, pairingPollMs: 10 } });
+
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(directory).mode & 0o777, 0o700);
+    assert.equal(statSync(notificationPath).mode & 0o777, 0o600);
+  }
+  await sleep(60); // restored content must trigger a poll even before any device connects
+  assert.equal(contents(notificationPath).length, 0);
+  assert.equal(server.lan?.off, true);
+  const readsAfterPurge = pairing.state.reads;
+  await sleep(30);
+  assert.equal(pairing.state.reads, readsAfterPurge, 'the queue-only poll should stop once restored content is removed');
 });
 
 test('notification reports played only after matching device acknowledgement', async (t) => {
@@ -153,6 +247,104 @@ test('voice provider failure with a screen delivers shown without waiting for a 
   assert.equal(result.spokenChars, 0);
   assert.ok(result.shownChars > 0);
   await device.waitFor((event) => event.t === 'text');
+});
+
+test('PCM emitted before a synthesis failure still requires playback and card acknowledgements', async (t) => {
+  const engine = fakeEngine(), speak = engine.speak.bind(engine);
+  engine.speak = async (...args) => { await speak(...args); throw Error('TTS failed after emitting PCM'); };
+  const notificationPath = join(stateDir(t), 'notifications.json');
+  const { url, server } = await start(t, { engine, serverOptions: { notificationPath } });
+  const device = await connectDevice(url, { autoPlayed: false, autoShown: false });
+  t.after(() => device.close());
+  const delivery = server.notify(DEVICE, 'The complete reply is on the screen.');
+  let settled = false;
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  assert.ok(device.receivedMs(end.gen) > 0);
+  device.send({ t: 'shown', receipt: card.receipt });
+  await sleep(30);
+  assert.equal(settled, false, 'card receipt must not acknowledge unconfirmed partial audio');
+  assert.equal(contents(notificationPath).length, 1);
+  acknowledgePlayback(device, end);
+  const result = await delivery;
+  assert.equal(result.status, 'shown');
+  assert.equal(result.spokenChars, 0);
+  assert.ok(result.shownChars > 0);
+  assert.equal(contents(notificationPath).length, 0);
+});
+
+test('mixed spoken and fallback text notification waits for both final acknowledgements', async (t) => {
+  const { device, delivery } = await mixedNotification(t);
+  let settled = false;
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await sleep(20);
+  assert.equal(settled, false, 'played audio does not confirm the unacknowledged fallback card');
+  device.send({ t: 'shown', receipt: card.receipt });
+  const result = await delivery;
+  assert.equal(result.status, 'played');
+  assert.ok(result.spokenChars > 0 && result.shownChars > 0);
+});
+
+test('mixed notification accepts the final card ACK before playback completes', async (t) => {
+  const { device, delivery } = await mixedNotification(t);
+  let settled = false;
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  device.send({ t: 'shown', receipt: card.receipt });
+  await sleep(20);
+  assert.equal(settled, false, 'the card ACK cannot replace the playback ACK');
+  acknowledgePlayback(device, end);
+  const result = await delivery;
+  assert.equal(result.status, 'played');
+  assert.ok(result.spokenChars > 0 && result.shownChars > 0);
+});
+
+test('a successful spoken notification with a [[show]] card waits for its shown ACK', async (t) => {
+  const { url, server } = await start(t);
+  const device = await connectDevice(url, { autoPlayed: false, autoShown: false });
+  t.after(() => device.close());
+  let settled = false;
+  const delivery = server.notify(DEVICE, 'Spoken prefix. [[show]]Card text[[/show]]');
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await sleep(20);
+  assert.equal(settled, false, 'successful TTS does not confirm the separate screen card');
+  device.send({ t: 'shown', receipt: card.receipt });
+  const result = await delivery;
+  assert.equal(result.status, 'played');
+  assert.ok(result.spokenChars > 0 && result.shownChars > 0);
+  assert.equal(settled, true);
+});
+
+test('mixed notification stays durable when the fallback card ACK is missing', async (t) => {
+  const notificationPath = join(stateDir(t), 'notifications.json');
+  const { device, delivery } = await mixedNotification(t, notificationPath);
+  const rejected = assert.rejects(delivery, error => /acknowledgement timed out/.test(error.message) && error.attempted);
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await rejected;
+  assert.equal(contents(notificationPath).length, 1, 'a played prefix does not remove an unconfirmed fallback');
+});
+
+test('interrupting mixed delivery while waiting for the fallback ACK consumes it intentionally', async (t) => {
+  const notificationPath = join(stateDir(t), 'notifications.json');
+  const { device, delivery } = await mixedNotification(t, notificationPath);
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await sleep(20);
+  device.send({ t: 'cancel' });
+  const result = await delivery;
+  assert.equal(result.status, 'interrupted');
+  assert.equal(contents(notificationPath).length, 0, 'an explicit cancel consumes the notification');
 });
 
 test('connection failure before the first output retains a notification waiting behind recording', async (t) => {

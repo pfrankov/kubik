@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { createSocket } from 'node:dgram';
 import { connect as connectTcp, Server } from 'node:net';
+import { connect as connectTls } from 'node:tls';
 import test from 'node:test';
 import WebSocket from 'ws';
 import { registerDeviceRoute, routeStatus } from '../src/gateway-route.js';
@@ -56,6 +57,48 @@ test('the default listener falls back from :: to 0.0.0.0 without IPv6', async (t
   await lan.start();
   assert.deepEqual(hosts, ['::', '0.0.0.0']);
   assert.ok(lan.status.port > 0);
+});
+
+test('LAN remains usable when the host cannot enumerate network interfaces', async (t) => {
+  const logs = [];
+  const lan = new LanListener({ identity: loadTlsIdentity(stateDir(t)), host: '127.0.0.1', port: 0,
+    discoveryHost: '127.0.0.1', discoveryPort: 0, onUpgrade: () => {},
+    getNetworkInterfaces() { throw Object.assign(new Error('interface lookup denied'), { code: 'ERR_SYSTEM_ERROR' }); },
+    log: (message) => logs.push(message) });
+  t.after(() => lan.stop());
+  await lan.start();
+  const status = lan.status;
+  assert.deepEqual(status.addresses, []);
+  assert.ok(status.port > 0);
+  assert.ok(status.discovery > 0, 'UDP discovery remains available');
+  assert.equal(logs.filter((line) => line.includes('LAN interface addresses are unavailable')).length, 1,
+    'the degraded address status is logged once even when status is read again');
+
+  const socket = connectTls({ host: '127.0.0.1', port: status.port, rejectUnauthorized: false });
+  t.after(() => socket.destroy());
+  await new Promise((resolve, reject) => {
+    socket.once('secureConnect', resolve);
+    socket.once('error', reject);
+  });
+  await lan.stop();
+  assert.equal(await tcpReachable(status.port), false, 'stop releases the TLS listener');
+  assert.equal(await udpPortAvailable(status.discovery), true, 'stop releases the discovery socket');
+});
+
+test('LAN start releases bound sockets if status construction fails', async (t) => {
+  const discoveryPort = await freeUdpPort();
+  const baseIdentity = loadTlsIdentity(stateDir(t));
+  const identity = { key: baseIdentity.key, cert: baseIdentity.cert };
+  Object.defineProperty(identity, 'spkiHash', { get() { throw new Error('status construction failed'); } });
+  let lan;
+  let listeningPort;
+  lan = new LanListener({ identity, host: '127.0.0.1', port: 0, discoveryHost: '127.0.0.1', discoveryPort,
+    onUpgrade: () => {}, getNetworkInterfaces() { listeningPort = lan.port; return {}; } });
+  t.after(() => lan.stop());
+  await assert.rejects(lan.start(), /status construction failed/);
+  assert.ok(listeningPort > 0);
+  assert.equal(await tcpReachable(listeningPort), false, 'startup failure closes the TLS listener');
+  assert.equal(await udpPortAvailable(discoveryPort), true, 'startup failure closes the UDP listener');
 });
 
 test('a busy discovery port is reported but not fatal: TLS keeps serving', async (t) => {
@@ -136,3 +179,34 @@ test('device addresses follow the actual bind and remain individually copyable',
   assert.deepEqual(deviceServerAddresses({addresses: ['192.168.1.5', '100.100.1.2'], port: 19000}),
     ['kubik://192.168.1.5:19000', 'kubik://100.100.1.2:19000']);
 });
+
+async function tcpReachable(port) {
+  return new Promise((resolve) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => resolve(false));
+  });
+}
+
+async function freeUdpPort() {
+  const socket = createSocket('udp4');
+  await new Promise((resolve, reject) => {
+    socket.once('error', reject);
+    socket.bind(0, '127.0.0.1', resolve);
+  });
+  const { port } = socket.address();
+  await new Promise((resolve) => socket.close(resolve));
+  return port;
+}
+
+async function udpPortAvailable(port) {
+  const socket = createSocket('udp4');
+  try {
+    await new Promise((resolve, reject) => {
+      socket.once('error', reject);
+      socket.bind(port, '127.0.0.1', resolve);
+    });
+    return true;
+  } catch { return false; }
+  finally { try { socket.close(); } catch { /* not bound */ } }
+}

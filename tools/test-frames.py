@@ -119,9 +119,22 @@ def references(actual):
     return by_file
 
 
+def check_structure(exe):
+    frame_total = 0
+    for path, key, character, command, configured_count, *extra in STREAMS:
+        expected_count = len(json.loads(path.read_text())[key])
+        if configured_count is not None and configured_count != expected_count:
+            raise AssertionError(f"{path.stem} {key}: configured frame count {configured_count} does not match reference length {expected_count}")
+        frames = hashes(exe, character, command, expected_count, extra[0] if extra else None)
+        frame_total += len(frames)
+    print(f"Structure checks passed: {len(STREAMS)} streams, {frame_total} frames; RGB hashes were not compared")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--record", action="store_true", help="replace the reviewed reference after inspecting changed frames")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--record", action="store_true", help="replace the reviewed reference after inspecting changed frames")
+    modes.add_argument("--structure-only", action="store_true", help="check stream sizes, lengths and simulator status without comparing RGB hashes")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="kubik-frames-") as temp:
         exe = str(Path(temp) / "sim")
@@ -129,6 +142,9 @@ def main():
                         "-Wno-unused-parameter", "-o", exe,
                         *[str(ROOT / "firmware" / (source + ".c")) for source in SOURCES],
                         "-I" + str(ROOT / "firmware/managed_components/espressif__qrcode"), "-lm"], check=True)
+        if args.structure_only:
+            check_structure(exe)
+            return
         actual = [hashes(exe, *stream[2:]) for stream in STREAMS]
         if args.record:
             for path, frames_by_key in references(actual).items():
@@ -137,7 +153,9 @@ def main():
             return
         failures = [message for message in (check_stream(exe, stream, frames) for stream, frames in zip(STREAMS, actual)) if message]
     if failures:
-        raise AssertionError("\n".join(failures) + "\ninspect the images before updating the reference with --record")
+        raise AssertionError("\n".join(failures) +
+                             "\nRGB references are validated on macOS ARM64; see docs/acceptance.md."
+                             "\nInspect image and toolchain differences before updating reviewed references with --record.")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import fs from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { NotificationQueue, NOTIFICATION_LIMITS } from '../src/notification-queue.js';
 import { DEFAULT_DEVICE_KEY, DEVICE } from './helpers.js';
@@ -27,6 +29,21 @@ test('durable queue preserves FIFO across restart and consumes entries before re
   assert.equal(restarted.peek(DEVICE, keys[0]).id, second.id);
   restarted.remove(second.id);
   assert.equal(new NotificationQueue({ path }).size, 0);
+});
+
+test('restore repairs directory and queue-file permissions without changing queued content', (t) => {
+  const path = pathFor(t);
+  const original = new NotificationQueue({ path }).enqueue(DEVICE, 'Личное напоминание', keys);
+  chmodSync(dirname(path), 0o755);
+  chmodSync(path, 0o644);
+
+  const restored = new NotificationQueue({ path });
+
+  assert.equal(restored.peek(DEVICE, keys[0]).id, original.id);
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(dirname(path)).mode & 0o777, 0o700);
+    assert.equal(statSync(path).mode & 0o777, 0o600);
+  }
 });
 
 test('expiration frees capacity and is persisted; expired content never replays', (t) => {
@@ -79,10 +96,76 @@ test('revocation purges old content, multiple approved keys retain only authoriz
 
 test('malformed or oversized durable state fails closed, with no silent in-memory fallback', (t) => {
   const path = pathFor(t);
-  writeFileSync(path, '{oops');
-  assert.throws(() => new NotificationQueue({ path }), SyntaxError);
+  const secret = 'TOPSECRET_NOTIFICATION_CONTENT';
+  writeFileSync(path, secret);
+  assert.throws(() => new NotificationQueue({ path }), (error) => {
+    assert.match(error.message, /Invalid notification queue JSON/);
+    assert.doesNotMatch(error.message, /TOPSECRET_NOTIFICATION_CONTENT/);
+    return true;
+  });
+  writeFileSync(path, '{"version":1,"entries":[]}');
   writeFileSync(path, JSON.stringify({ version: 7, entries: [] }));
   assert.throws(() => new NotificationQueue({ path }), /Invalid notification queue/);
   writeFileSync(path, ' '.repeat(512 * 1024 + 1));
   assert.throws(() => new NotificationQueue({ path }), /exceeds its limit/);
+});
+
+test('restore refuses queue symlinks without changing the target file', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX no-follow flags are required');
+  const root = mkdtempSync(join(tmpdir(), 'kubik-notification-links-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const queueDir = join(root, 'queue');
+  const target = join(root, 'target.json');
+  const contents = JSON.stringify({ version: 1, entries: [] });
+  mkdirSync(queueDir, { mode: 0o700 });
+  writeFileSync(target, contents, { mode: 0o644 });
+  symlinkSync(target, join(queueDir, 'notifications.json'));
+
+  assert.throws(() => new NotificationQueue({ path: join(queueDir, 'notifications.json') }));
+  assert.equal(readFileSync(target, 'utf8'), contents);
+  assert.equal(statSync(target).mode & 0o777, 0o644, 'restore must not chmod the symlink target');
+});
+
+test('failed queue persistence removes its unique temporary file and retains the prior queue', (t) => {
+  const path = pathFor(t);
+  const queue = new NotificationQueue({ path });
+  const first = queue.enqueue(DEVICE, 'Сохранённое сообщение', keys);
+  const before = readFileSync(path, 'utf8');
+  const fail = t.mock.method(fs, 'fsyncSync', () => { throw new Error('injected sync failure'); });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => queue.enqueue(DEVICE, 'Не должно сохраниться', keys), /injected sync failure/);
+    assert.equal(readFileSync(path, 'utf8'), before, 'pre-rename failure preserves the old queue file');
+    assert.deepEqual(readdirSync(dirname(path)), ['notifications.json']);
+    assert.equal(queue.peek(DEVICE, keys[0]).id, first.id, 'memory changes only after persistence succeeds');
+  } finally {
+    fail.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+test('post-rename directory sync failures do not report a committed notification as failed', (t) => {
+  if (process.platform === 'win32') return t.skip('directory fsync is unsupported on Windows');
+  for (const [code, warning] of [['EIO', true], ['EINVAL', false]]) {
+    const path = pathFor(t);
+    const logs = [];
+    const queue = new NotificationQueue({ path, log: (line) => logs.push(line) });
+    let syncs = 0;
+    const realFsync = fs.fsyncSync.bind(fs);
+    const failDirectorySync = t.mock.method(fs, 'fsyncSync', (fd) => {
+      if (++syncs === 2) throw Object.assign(new Error('injected directory sync failure'), { code });
+      return realFsync(fd);
+    });
+    syncBuiltinESMExports();
+    try {
+      const entry = queue.enqueue(DEVICE, 'Доставить после переименования', keys);
+      assert.equal(queue.peek(DEVICE, keys[0]).id, entry.id);
+      assert.equal(JSON.parse(readFileSync(path, 'utf8')).entries[0].id, entry.id);
+      assert.deepEqual(readdirSync(dirname(path)), ['notifications.json']);
+      assert.equal(logs.some((line) => line.includes('EIO')), warning);
+    } finally {
+      failDirectorySync.mock.restore();
+      syncBuiltinESMExports();
+    }
+  }
 });

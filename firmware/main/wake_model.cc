@@ -15,8 +15,14 @@
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/micro_resource_variable.h"
 
-// Measured on C6 with ESP-NN 1.4.1: 22,860 bytes used (including variable payloads).
-static constexpr size_t ARENA_BYTES = 24576, VARIABLES_BYTES = 1024;
+// Main tensor arena measured on C6 with ESP-NN 1.4.1: 22,860 bytes used.
+// ResourceVariables has its own separate 1 KB allocator below.
+// Keep 692 bytes above that bound without spending another KB of scarce DMA SRAM.
+static constexpr size_t ARENA_BYTES = 23 * 1024, VARIABLES_BYTES = 1024;
+// Used only by the SDK's fft_util.c, never by I2S or Wi-Fi DMA allocations.
+extern "C" void *kubik_wake_fft_alloc(size_t bytes) {
+    return heap_caps_malloc(bytes, MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT);
+}
 static tflite::MicroMutableOpResolver<13> s_ops;
 static bool s_registered;
 static uint8_t *s_arena, *s_variables;
@@ -70,7 +76,8 @@ void wake_model_stop() {
 }
 static bool interpreter_start(const uint8_t *bytes) {
     s_arena = static_cast<uint8_t *>(heap_caps_malloc(ARENA_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-    s_variables = static_cast<uint8_t *>(heap_caps_malloc(VARIABLES_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    // Resource variables are CPU-only; wake releases this LP lease before voice I/O.
+    s_variables = static_cast<uint8_t *>(heap_caps_malloc(VARIABLES_BYTES, MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT));
     if (!s_arena || !s_variables) return false;
     auto allocator = tflite::MicroAllocator::Create(s_variables, VARIABLES_BYTES);
     auto variables = tflite::MicroResourceVariables::Create(allocator, 20);

@@ -5,6 +5,7 @@ import argparse
 from hashlib import sha256
 from io import BytesIO
 import json
+import posixpath
 from pathlib import PurePosixPath, Path
 import re
 import subprocess
@@ -60,6 +61,40 @@ def package_hashes():
                 sha256(package.read(manifest["plugin"])).hexdigest())
 
 
+def check_acceptance_links(contents):
+    revision = subprocess.run(["git", "-C", str(source_root), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    source = (source_root / "docs/acceptance.md").read_text()
+    source_targets = set(re.findall(r"\]\(([^)]+)\)", source))
+    tracked = set(subprocess.run(["git", "-C", str(source_root), "ls-tree", "-r", "--name-only", revision],
+                                 check=True, capture_output=True, text=True).stdout.splitlines())
+    blob_prefix = "https://github.com/pfrankov/kubik/blob/"
+    linked = set()
+
+    def restore_link(match):
+        target = match.group(1)
+        if target in source_targets or not target.startswith(blob_prefix): return match.group(0)
+        pinned_revision, separator, path_and_fragment = target[len(blob_prefix):].partition("/")
+        assert separator and pinned_revision == revision, target
+        path, marker, fragment = path_and_fragment.partition("#")
+        assert path in tracked and (source_root / path).is_file(), target
+        linked.add(path)
+        anchor = f"#{fragment}" if marker else ""
+        return f"]({posixpath.relpath(path, 'docs')}{anchor})"
+
+    restored = re.sub(r"\]\(([^)]+)\)", restore_link, contents)
+    assert "docs/architecture/connection-storage.md" in linked
+
+    if "agent-sdk.md" in source_targets:
+        restored = restored.replace("(../agent-sdk.md)", "(agent-sdk.md)")
+    if "KIT.ru.md" in source_targets:
+        restored = restored.replace("(../README.md)", "(KIT.ru.md)")
+    for target in source_targets:
+        if target.startswith("buyer/"):
+            restored = restored.replace(f"](../{target[6:]})", f"]({target})")
+    assert restored == source, "packaged acceptance content or source links changed"
+
+
 first_hashes = package_hashes()
 second_hashes = package_hashes()
 assert first_hashes == second_hashes, ("release packaging changed without source changes: "
@@ -88,7 +123,9 @@ with zipfile.ZipFile(kit_path) as kit:
     for name, digest in manifest["parts"].items():
         assert name in names and sha256(kit.read(name)).hexdigest() == digest
 
-    for name in ("README.md", "agent-sdk.md", "openclaw-kubik/README.md", "docs/agent-controls.md", "docs/native-voice.md", "docs/protocol.md", "docs/muse.md", "docs/hermes.md", "docs/events.md"):
+    check_acceptance_links(kit.read("docs/acceptance.md").decode())
+
+    for name in sorted(name for name in names if PurePosixPath(name).suffix.lower() in {".md", ".markdown"}):
         contents = kit.read(name).decode()
         for target in re.findall(r"\]\(([^)]+)\)", contents):
             if target.startswith(("https:", "http:", "#")):

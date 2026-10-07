@@ -23,14 +23,21 @@ typedef uint32_t TickType_t;
 typedef pthread_mutex_t *SemaphoreHandle_t;
 #define portMAX_DELAY UINT32_MAX
 static int driver_locked;
-static pthread_mutex_t driver_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t driver_mutex = PTHREAD_MUTEX_INITIALIZER, binary;
+static bool signaled;
+static void (*pending_ap_stop)(void);
+SemaphoreHandle_t xSemaphoreCreateBinary(void) { return &binary; }
 static void (*before_take)(void);
 SemaphoreHandle_t xSemaphoreCreateMutex(void) { return &driver_mutex; }
 int xSemaphoreTake(SemaphoreHandle_t lock, uint32_t timeout) {
+    if (lock == &binary) {
+        if (timeout && pending_ap_stop) { assert(!driver_locked); pending_ap_stop(); }
+        int result = signaled; signaled = false; return result;
+    }
     if (before_take) { void (*hook)(void) = before_take; before_take = NULL; hook(); }
     assert(pthread_mutex_lock(lock) == 0); assert(!driver_locked); driver_locked = 1; return 1;
 }
-int xSemaphoreGive(SemaphoreHandle_t lock) { assert(driver_locked); driver_locked = 0; assert(pthread_mutex_unlock(lock) == 0); return 1; }
+int xSemaphoreGive(SemaphoreHandle_t lock) { if (lock == &binary) { signaled = true; return 1; } assert(driver_locked); driver_locked = 0; assert(pthread_mutex_unlock(lock) == 0); return 1; }
 typedef int esp_event_base_t;
 typedef void *esp_timer_handle_t;
 typedef int esp_netif_t;
@@ -78,6 +85,7 @@ static const char *esp_err_to_name(int err) { (void)err; return "error"; }
 #define WIFI_EVENT_STA_DISCONNECTED 2
 #define WIFI_EVENT_AP_STACONNECTED 4
 #define WIFI_EVENT_AP_STADISCONNECTED 5
+#define WIFI_EVENT_AP_STOP 6
 #define IP_EVENT_STA_GOT_IP 3
 #define ESP_EVENT_ANY_ID 99
 #define WIFI_MODE_STA 1
@@ -126,7 +134,11 @@ static void fire_timer(void) { if (timer_armed) { timer_armed = false; reconnect
 int esp_netif_init(void) { return 0; }
 int esp_event_loop_create_default(void) { return 0; }
 esp_netif_t *esp_netif_create_default_wifi_sta(void) { static int n; return &n; }
-esp_netif_t *esp_netif_create_default_wifi_ap(void) { static int n; ap_netifs++; return &n; }
+static esp_netif_t ap_netif;
+static int ap_destroys;
+static bool default_ap_stopped;
+esp_netif_t *esp_netif_create_default_wifi_ap(void) { assert(ap_netifs == ap_destroys); ap_netifs++; return &ap_netif; }
+void esp_netif_destroy_default_wifi(void *n) { assert(n == &ap_netif && mode == WIFI_MODE_STA && default_ap_stopped && ap_netifs == ap_destroys + 1); ap_destroys++; }
 int esp_netif_set_hostname(esp_netif_t *n, const char *name) { snprintf(hostname, sizeof hostname, "%s", name); return 0; }
 typedef struct { esp_ip4_addr_t ip, gw, netmask; } esp_netif_ip_info_t;
 typedef struct { struct { int type; union { esp_ip4_addr_t ip4; } u_addr; } ip; } esp_netif_dns_info_t;
@@ -151,8 +163,23 @@ int esp_netif_dhcps_option(esp_netif_t *n, int op, int id, void *v, uint32_t len
 }
 int esp_wifi_init(wifi_init_config_t *cfg) { assert(!cfg->nvs_enable); return 0; }
 int esp_wifi_set_storage(int s) { assert(s==WIFI_STORAGE_RAM); return 0; }
-int esp_event_handler_register(int a,int b,void (*f)(void *,int,int32_t,void *),void *arg) { return 0; }
-int esp_wifi_set_mode(int v) { mode = v; return 0; }
+static void (*ap_stop_handler)(void *,int,int32_t,void *);
+static bool deliver_ap_stop = true;
+static void process_ap_stop(void) {
+    pending_ap_stop = NULL; default_ap_stopped = true;
+    ap_stop_handler(NULL, WIFI_EVENT, WIFI_EVENT_AP_STOP, NULL);
+}
+int esp_event_handler_register(int a,int b,void (*f)(void *,int,int32_t,void *),void *arg) {
+    if (a == WIFI_EVENT && b == WIFI_EVENT_AP_STOP) ap_stop_handler = f;
+    return 0;
+}
+int esp_wifi_set_mode(int v) {
+    if (mode == WIFI_MODE_APSTA && v == WIFI_MODE_STA) {
+        default_ap_stopped = false;
+        pending_ap_stop = deliver_ap_stop ? process_ap_stop : NULL;
+    }
+    mode = v; return 0;
+}
 int esp_wifi_set_config(int i,wifi_config_t *cfg) {
     if (i == WIFI_IF_STA) { memcpy(sta_ssid, cfg->sta.ssid, 32); sta_ssid[32] = 0; }
     else { assert(i == WIFI_IF_AP); ap_cfg = *cfg; memcpy(ap_ssid, cfg->ap.ssid, 32); ap_ssid[32] = 0; }
@@ -352,8 +379,17 @@ int main(void) {
     on_event(NULL,WIFI_EVENT,WIFI_EVENT_AP_STACONNECTED,NULL);
     wifi_ap_start("Kubik-abcdef","setup-pass"); assert(ap_netifs==1 && wifi_ap_clients()==0);
     on_event(NULL,WIFI_EVENT,WIFI_EVENT_AP_STACONNECTED,NULL);
-    wifi_ap_stop(); assert(mode==WIFI_MODE_STA && wifi_ap_clients()==0);
-    wifi_ap_stop(); assert(mode==WIFI_MODE_STA);
+    wifi_ap_stop(); assert(mode==WIFI_MODE_STA && wifi_ap_clients()==0 && !s_ap && ap_destroys==1);
+    wifi_ap_stop(); assert(mode==WIFI_MODE_STA && ap_destroys==1);
+    wifi_ap_start("Kubik-abcdef","setup-pass"); assert(ap_netifs==2 && s_ap && wifi_ap_active());
+    wifi_ap_stop(); assert(!s_ap && !wifi_ap_active() && ap_destroys==2);
+    // A missing stop event never permits cross-task destruction. A late callback
+    // must not tear down an AP that was reopened before it arrived.
+    wifi_ap_start("Kubik-abcdef","setup-pass"); deliver_ap_stop=false;
+    wifi_ap_stop(); assert(s_ap && ap_destroys==2);
+    wifi_ap_start("Kubik-abcdef","setup-pass"); process_ap_stop();
+    assert(s_ap && wifi_ap_active() && ap_destroys==2);
+    deliver_ap_stop=true; wifi_ap_stop(); assert(!s_ap && ap_destroys==3);
 
     // Scan pauses retries, merges duplicates, skips hidden, respects cap, then resumes retries.
     wifi_net_t nets[3]; int d0=disconnects;

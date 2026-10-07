@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,33 +12,174 @@
 #include "muse_json.h"
 #include "muse_vm.h"
 #include "settings.h"
+#include "connection_store.h"
+#include "connection_record.h"
 #include "version.h"
 #include "setup_request.h"
 
-typedef int nvs_handle_t;
-#define NVS_READONLY 0
-#define NVS_READWRITE 1
-static unsigned char saved_blob[5000], staged_blob[5000];
-static size_t blob_size, staged_size;
-static bool nvs_fail;
-static esp_err_t nvs_open(const char *ns, int mode, nvs_handle_t *handle) { assert(!strcmp(ns,"kubik")); (void)mode; *handle=1; return ESP_OK; }
-static void nvs_close(nvs_handle_t handle) { assert(handle==1); }
-static esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *data,size_t *size) {
-    assert(h==1&&!strcmp(key,"muse_v1"));
-    if(!blob_size)return ESP_ERR_NVS_NOT_FOUND;
-    if(*size<blob_size)return ESP_ERR_INVALID_ARG;
-    memcpy(data,saved_blob,blob_size);*size=blob_size;return ESP_OK;
-}
-static esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *data,size_t size) {
-    assert(h==1&&!strcmp(key,"muse_v1")&&size<=sizeof staged_blob);
-    if(nvs_fail)return ESP_FAIL;
-    memcpy(staged_blob,data,size);staged_size=size;return ESP_OK;
-}
-static esp_err_t nvs_commit(nvs_handle_t h) { assert(h==1);if(nvs_fail)return ESP_FAIL;memcpy(saved_blob,staged_blob,staged_size);blob_size=staged_size;return ESP_OK; }
+// The real recursive NVS lock is exercised by test-settings.py.
+static esp_err_t app_nvs_lock(void) { return ESP_OK; }
+static void app_nvs_unlock(void) {}
+static bool app_nvs_ready_locked(void) { return true; }
+
 static unsigned wipes;
 static void mbedtls_platform_zeroize(void *data,size_t size) { volatile unsigned char *p=data;while(size--)*p++=0;wipes++; }
 
 settings_t g_settings;
+static connection_record_t persisted_record;
+static bool record_present, nvs_fail;
+static const uint32_t NETWORKS_MAGIC = 0x4b574946u;
+static void record_defaults(connection_record_t *record) {
+    memset(record, 0, sizeof *record);
+    record->magic = CONNECTION_RECORD_MAGIC;
+    record->version = CONNECTION_RECORD_VERSION;
+    record->networks.magic = NETWORKS_MAGIC;
+    record->networks.version = 1;
+}
+static esp_err_t mock_load_record(connection_record_t *record) {
+    if (record_present) memcpy(record, &persisted_record, sizeof *record);
+    else record_defaults(record);
+    muse_store_publish_state(&record->muse);
+    return ESP_OK;
+}
+static esp_err_t mock_commit_record(connection_record_t *record, bool network_change) {
+    if (nvs_fail) return ESP_FAIL;
+    record->revision = record_present ? persisted_record.revision + 1 : 1;
+    if (!record->revision) return ESP_ERR_INVALID_STATE;
+    if (network_change) record->network_revision = record->revision;
+    memcpy(&persisted_record, record, sizeof *record);
+    record_present = true;
+    muse_store_publish_state(&record->muse);
+    return ESP_OK;
+}
+static int mock_find_profile(const connection_networks_t *networks, const char *ssid) {
+    for (int i = 0; i < networks->count; i++)
+        if (!strcmp(networks->profiles[i].ssid, ssid)) return i;
+    return -1;
+}
+static esp_err_t mock_upsert_network(connection_networks_t *networks,
+                                     const char *ssid, const char *password) {
+    int index = mock_find_profile(networks, ssid);
+    if (index < 0) {
+        if (networks->count >= SETTINGS_WIFI_MAX) return ESP_ERR_NO_MEM;
+        index = networks->count++;
+    }
+    if (password && password[0]) snprintf(networks->profiles[index].password,
+                                           sizeof networks->profiles[index].password, "%s", password);
+    snprintf(networks->profiles[index].ssid, sizeof networks->profiles[index].ssid, "%s", ssid);
+    networks->active = index;
+    return ESP_OK;
+}
+static uint32_t next_store_generation(uint32_t generation) { return generation + 1 ? generation + 1 : 1; }
+esp_err_t connection_store_load(connection_record_t *record, bool *durable) {
+    if (!record || !durable) return ESP_ERR_INVALID_ARG;
+    *durable = record_present;
+    return mock_load_record(record);
+}
+esp_err_t connection_store_begin_muse(connection_record_t *record, const char *token) {
+    if (!muse_sdk_token_valid(token)) return ESP_ERR_INVALID_ARG;
+    mock_load_record(record);
+    memset(&record->muse, 0, sizeof record->muse);
+    record->muse.magic = MUSE_STORE_MAGIC; record->muse.state = MUSE_PAIRING; record->muse.enabled = 1;
+    snprintf(record->muse.sdk_token, sizeof record->muse.sdk_token, "%s", token);
+    record->muse_generation = next_store_generation(record->muse_generation);
+    return mock_commit_record(record, false);
+}
+esp_err_t connection_store_select_muse(connection_record_t *record, bool enabled) {
+    mock_load_record(record);
+    if (!record->muse.magic) return enabled ? ESP_ERR_NVS_NOT_FOUND : ESP_OK;
+    if (record->muse.enabled != (unsigned)enabled) {
+        record->muse.enabled = enabled;
+        return mock_commit_record(record, false);
+    }
+    return ESP_OK;
+}
+esp_err_t connection_store_refresh_muse(connection_record_t *record,
+                                         const muse_credentials_t *credentials, uint32_t generation) {
+    if (!credentials) return ESP_ERR_INVALID_ARG;
+    mock_load_record(record);
+    if (!record->muse.magic || record->muse_generation != generation ||
+        record->muse.state != MUSE_PAIRED || strcmp(record->muse.sdk_token, credentials->sdk_token))
+        return ESP_ERR_INVALID_STATE;
+    memcpy(record->muse.access_token, credentials->access_token, sizeof record->muse.access_token);
+    memcpy(record->muse.refresh_token, credentials->refresh_token, sizeof record->muse.refresh_token);
+    return mock_commit_record(record, false);
+}
+static bool mock_pairing_identity_matches(const connection_record_t *record,
+                                          const muse_credentials_t *credentials, uint32_t generation) {
+    return record->muse.magic && record->muse_generation == generation &&
+        record->muse.state == MUSE_PAIRING && !strcmp(record->muse.sdk_token, credentials->sdk_token) &&
+        credentials->state == MUSE_PAIRED;
+}
+esp_err_t connection_store_commit_muse_pairing(connection_record_t *record,
+                                                const muse_credentials_t *credentials,
+                                                uint32_t generation, uint64_t network_revision,
+                                                const char *ssid,
+                                                const char *password) {
+    if (!credentials || !ssid || !password) return ESP_ERR_INVALID_ARG;
+    mock_load_record(record);
+    if (record->network_revision != network_revision ||
+        !mock_pairing_identity_matches(record, credentials, generation))
+        return ESP_ERR_INVALID_STATE;
+    int existing = mock_find_profile(&record->networks, ssid);
+    bool same = existing >= 0 && record->networks.active == existing &&
+        !strcmp(record->networks.profiles[existing].password, password);
+    if (!same) {
+        esp_err_t err = mock_upsert_network(&record->networks, ssid, password);
+        if (err != ESP_OK) return err;
+        record->flags &= ~CONNECTION_RECORD_PIN_SET;
+        memset(record->server_pin, 0, sizeof record->server_pin);
+    }
+    unsigned enabled = record->muse.enabled;
+    memcpy(&record->muse, credentials, sizeof record->muse);
+    record->muse.enabled = enabled;
+    return mock_commit_record(record, !same);
+}
+esp_err_t connection_store_save_setup(connection_record_t *record, const char *ssid,
+                                      const char *password, const char *url,
+                                      bool muse_selected, const char *sdk_token) {
+    if (!record || !ssid || !password || !url) return ESP_ERR_INVALID_ARG;
+    mock_load_record(record);
+    esp_err_t err = mock_upsert_network(&record->networks, ssid, password);
+    if (err != ESP_OK) return err;
+    snprintf(record->networks.url, sizeof record->networks.url, "%s", url);
+    record->flags &= ~CONNECTION_RECORD_PIN_SET;
+    memset(record->server_pin, 0, sizeof record->server_pin);
+    if (sdk_token && sdk_token[0]) {
+        memset(&record->muse, 0, sizeof record->muse);
+        record->muse.magic = MUSE_STORE_MAGIC; record->muse.state = MUSE_PAIRING; record->muse.enabled = 1;
+        snprintf(record->muse.sdk_token, sizeof record->muse.sdk_token, "%s", sdk_token);
+        record->muse_generation = next_store_generation(record->muse_generation);
+    } else if (!record->muse.magic && muse_selected) {
+        return ESP_ERR_NVS_NOT_FOUND;
+    } else if (record->muse.magic && record->muse.enabled != (unsigned)muse_selected) {
+        record->muse.enabled = muse_selected;
+    }
+    return mock_commit_record(record, true);
+}
+void settings_apply_connection_record(const connection_record_t *record) {
+    if (!record) return;
+    g_settings.wifi_profile_count = record->networks.count;
+    memcpy(g_settings.wifi_profiles, record->networks.profiles, sizeof g_settings.wifi_profiles);
+    snprintf(g_settings.server_url, sizeof g_settings.server_url, "%s", record->networks.url);
+    memset(g_settings.wifi_ssid, 0, sizeof g_settings.wifi_ssid);
+    memset(g_settings.wifi_pass, 0, sizeof g_settings.wifi_pass);
+    if (record->networks.count) {
+        int active = record->networks.active;
+        snprintf(g_settings.wifi_ssid, sizeof g_settings.wifi_ssid, "%s", record->networks.profiles[active].ssid);
+        snprintf(g_settings.wifi_pass, sizeof g_settings.wifi_pass, "%s", record->networks.profiles[active].password);
+    }
+}
+esp_err_t settings_save_setup(const char *ssid, const char *password, const char *url,
+                              bool muse_selected, const char *sdk_token) {
+    connection_record_t *record = calloc(1, sizeof *record);
+    if (!record) return ESP_ERR_NO_MEM;
+    esp_err_t err = connection_store_save_setup(record, ssid, password, url, muse_selected, sdk_token);
+    if (err == ESP_OK) settings_apply_connection_record(record);
+    muse_store_wipe(record, sizeof *record);
+    free(record);
+    return err;
+}
 static int64_t fake_us;
 static int64_t esp_timer_get_time(void) { return fake_us; }
 static uint32_t esp_random(void) { return 123; }
@@ -56,17 +198,9 @@ static bool muse_link_req_send(int64_t id,const void *bytes,size_t size,bool end
 }
 static void muse_link_req_cancel(int64_t id) { assert(id==request_id); }
 
-static int settings_result=ESP_OK;
 int settings_wifi_find(const char *ssid) {
     for(unsigned i=0;i<g_settings.wifi_profile_count;i++)if(!strcmp(ssid,g_settings.wifi_profiles[i].ssid))return i;
     return -1;
-}
-esp_err_t settings_save_connection(const char *ssid,const char *password,const char *url) {
-    if(settings_result!=ESP_OK)return settings_result;
-    snprintf(g_settings.wifi_profiles[0].ssid,33,"%s",ssid);
-    snprintf(g_settings.wifi_profiles[0].password,65,"%s",password);
-    g_settings.wifi_profile_count=1;
-    snprintf(g_settings.server_url,sizeof g_settings.server_url,"%s",url);return ESP_OK;
 }
 static char attempted_ssid[33];static bool join_ok, expire_join;
 static unsigned sleeps;
@@ -116,8 +250,13 @@ static bool muse_ble_send(const char *json,uint32_t record){(void)json;(void)rec
 static void muse_ble_disconnect(void){}
 static esp_err_t muse_ble_start(const char *name,void (*dispatch)(const char *,bool,uint32_t)){(void)name;(void)dispatch;return ESP_OK;}
 static int httpd_req_recv(httpd_req_t *r,char *body,size_t size){
-    if(r->fail)return -1;
-    if(size>7)size=7;memcpy(body,r->body+r->offset,size);r->offset+=size;return size;
+    if (r->fail) return -1;
+    if (size > 7) {
+        size = 7;
+    }
+    memcpy(body, r->body + r->offset, size);
+    r->offset += size;
+    return (int)size;
 }
 
 /* PRODUCTION */
@@ -130,20 +269,50 @@ static void check_store(void) {
     assert(muse_sdk_token_valid(token));token[47]='B';assert(!muse_sdk_token_valid(token));token[47]='A';
     assert(!muse_sdk_token_valid("mgst_short")&&!muse_sdk_token_valid(NULL));
     assert(muse_store_begin(token)==ESP_OK&&muse_store_state()==MUSE_PAIRING);
-    muse_credentials_t loaded;assert(muse_store_load(&loaded)==ESP_OK);
+    muse_credentials_t loaded;uint32_t generation;uint64_t network_revision;
+    assert(muse_store_load_generation(&loaded,&generation,&network_revision)==ESP_OK);
     loaded.state=MUSE_PAIRED;strcpy(loaded.access_token,"access");strcpy(loaded.refresh_token,"refresh");
     assert(muse_account_token_valid("hatch_refresh:base64-url_token"));
     assert(!muse_account_token_valid(NULL)&&!muse_account_token_valid("access\r\nInjected: header"));
-    strcpy(loaded.access_token,"bad\nheader");assert(muse_store_save(&loaded)==ESP_ERR_INVALID_ARG);
+    strcpy(loaded.access_token,"bad\nheader");assert(muse_store_refresh_save(&loaded,generation)==ESP_ERR_INVALID_ARG);
     strcpy(loaded.access_token,"access");
-    assert(muse_store_save(&loaded)==ESP_OK&&muse_store_state()==MUSE_PAIRED);
+    assert(muse_store_commit_pairing(&loaded,generation,network_revision,"Home","validpass")==ESP_OK&&
+           muse_store_state()==MUSE_PAIRED);
     assert(muse_store_select(false)==ESP_OK&&muse_store_state()==MUSE_OFF&&muse_store_saved_state()==MUSE_PAIRED);
-    assert(muse_store_select(true)==ESP_OK&&muse_store_load(&loaded)==ESP_OK&&!strcmp(loaded.refresh_token,"refresh"));
+    strcpy(loaded.access_token,"disabled-refresh");strcpy(loaded.refresh_token,"disabled-refresh-token");
+    assert(muse_store_refresh_save(&loaded,generation)==ESP_OK);
+    assert(muse_store_state()==MUSE_OFF&&muse_store_saved_state()==MUSE_PAIRED);
+    assert(muse_store_select(true)==ESP_OK&&muse_store_load_generation(&loaded,&generation,&network_revision)==ESP_OK&&
+           !strcmp(loaded.refresh_token,"disabled-refresh-token"));
+    strcpy(loaded.access_token,"refreshed-access");strcpy(loaded.refresh_token,"refreshed-refresh");
+    assert(muse_store_refresh_save(&loaded,generation)==ESP_OK);
+    assert(muse_store_load(&loaded)==ESP_OK&&!strcmp(loaded.access_token,"refreshed-access"));
     nvs_fail=true;assert(muse_store_begin(token)==ESP_FAIL);nvs_fail=false;
     assert(muse_store_state()==MUSE_PAIRED);
-    saved_blob[0]^=1;memset(&loaded,0x55,sizeof loaded);assert(muse_store_load(&loaded)==ESP_ERR_INVALID_STATE);
+    persisted_record.muse.access_token[0]='\n';memset(&loaded,0x55,sizeof loaded);
+    assert(muse_store_load(&loaded)==ESP_ERR_INVALID_STATE);
     for(size_t i=0;i<sizeof loaded;i++)assert(!((unsigned char *)&loaded)[i]);
-    saved_blob[0]^=1;
+    persisted_record.muse.access_token[0]='r';
+}
+static void check_refresh_after_setup_switch(void) {
+    muse_credentials_t pending, saved;
+    uint32_t generation, saved_generation;
+    uint64_t network_revision;
+    assert(muse_store_load_generation(&pending, &generation, &network_revision) == ESP_OK);
+    assert(settings_save_setup("Home", "validpass", "kubik://host:18793", false, NULL) == ESP_OK);
+    assert(muse_store_load_generation(&saved, &saved_generation, &network_revision) == ESP_OK);
+    assert(saved_generation == generation && !saved.enabled);
+    strcpy(pending.access_token, "setup-refreshed-access");
+    strcpy(pending.refresh_token, "setup-refreshed-token");
+    assert(muse_store_refresh_save(&pending, generation) == ESP_OK);
+    assert(muse_store_load(&saved) == ESP_OK && !saved.enabled);
+    assert(!strcmp(saved.access_token, "setup-refreshed-access") &&
+           !strcmp(saved.refresh_token, "setup-refreshed-token"));
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_PAIRED);
+    assert(!strcmp(g_settings.server_url, "kubik://host:18793"));
+    assert(muse_store_select(true) == ESP_OK);
+    muse_store_wipe(&pending, sizeof pending);
+    muse_store_wipe(&saved, sizeof saved);
 }
 static void check_json(void) {
     assert(!muse_json_parse("{}{}",4));assert(!muse_json_parse("{\"key\":\"a\\u0000b\"}",20));
@@ -158,10 +327,11 @@ static void check_setup(void) {
     o=parse("{\"agent\":\"Muse\",\"sdk_token\":\"invalid\"}");assert(!strcmp(setup_agent_choice(o,&choice),"sdk_token"));muse_json_clear(o);
     o=cJSON_CreateObject();cJSON_AddStringToObject(o,"agent","Muse");cJSON_AddStringToObject(o,"sdk_token",token);
     assert(!setup_agent_choice(o,&choice)&&!strcmp(choice.sdk_token,token));muse_json_clear(o);
-    assert(setup_agent_save(&choice)==ESP_OK&&muse_store_state()==MUSE_PAIRING);
+    assert(setup_connection_save(&choice,"Home","validpass","")==ESP_OK&&muse_store_state()==MUSE_PAIRING);
     o=parse("{\"agent\":\"Hermes\"}");assert(!strcmp(setup_agent_choice(o,&choice),"url"));muse_json_clear(o);
     o=parse("{\"agent\":\"Hermes\",\"url\":\"kubik://host:18793\"}");assert(!setup_agent_choice(o,&choice)&&!choice.muse);
-    assert(setup_agent_save(&choice)==ESP_OK&&muse_store_state()==MUSE_OFF&&muse_store_saved_state()==MUSE_PAIRING);muse_json_clear(o);
+    assert(setup_connection_save(&choice,"Home","validpass","kubik://host:18793")==ESP_OK&&
+           muse_store_state()==MUSE_OFF&&muse_store_saved_state()==MUSE_PAIRING);muse_json_clear(o);
     assert(!setup_validate_credentials("Home","validpass"));assert(!strcmp(setup_validate_credentials("Home","short"),"password_format"));
     const char *body="{\"agent\":\"Muse\"}";httpd_req_t req={.content_len=(int)strlen(body),.body=body};
     unsigned before=wipes;o=setup_read_request(&req);assert(o&&wipes>before);muse_json_clear(o);
@@ -213,30 +383,42 @@ static void check_control(void) {
     check_registration_errors();
 }
 static cJSON *provision_message(void){return parse("{\"ssid\":\"Home\",\"password\":\"validpass\",\"access_token\":\"access\",\"refresh_token\":\"refresh\",\"token_type\":\"device\"}");}
+static void assert_status_sequence(const char *const *expected, size_t count) {
+    assert(status_count == count);
+    for (size_t i = 0; i < count; i++) assert(!strcmp(statuses[i], expected[i]));
+}
 static void check_provision(void) {
     cJSON *o;
+    const char *failed[] = {"wifi_connecting", "wifi_failed"};
+    const char *paired[] = {"wifi_connecting", "wifi_connected", "auth_ok"};
+    const char *invalid[] = {"error_invalid_command"};
     status_count=0;join_ok=false;sleeps=0;o=provision_message();provision(o);muse_json_clear(o);
-    assert(!restarts&&!strcmp(statuses[0],"wifi_connecting")&&!strcmp(statuses[1],"wifi_failed"));
+    assert(!restarts);
+    assert_status_sequence(failed, 2);
     assert(muse_store_saved_state()==MUSE_PAIRING&&!attempted_ssid[0]);
     status_count=0;join_ok=true;expire_join=true;sleeps=0;o=provision_message();provision(o);muse_json_clear(o);
     assert(!restarts&&muse_store_saved_state()==MUSE_PAIRING);expire_join=false;
     status_count=0;sleeps=0;o=provision_message();provision(o);muse_json_clear(o);
-    assert(restarts==1&&status_count==3&&!strcmp(statuses[0],"wifi_connecting")&&!strcmp(statuses[1],"wifi_connected")&&!strcmp(statuses[2],"auth_ok"));
-    assert(muse_store_saved_state()==MUSE_PAIRED&&!strcmp(g_settings.wifi_profiles[0].ssid,"Home"));
+    assert(restarts==1);
+    assert_status_sequence(paired, 3);
+    assert(muse_store_saved_state()==MUSE_PAIRED);
+    assert(!strcmp(g_settings.wifi_profiles[0].ssid,"Home"));
     status_count=0;o=provision_message();cJSON_AddStringToObject(o,"noise_host","evil.example");provision(o);muse_json_clear(o);
-    assert(restarts==1&&!strcmp(statuses[0],"error_invalid_command"));
+    assert(restarts==1);
+    assert_status_sequence(invalid, 1);
     unsigned before=wipes;dispatch_command("{\"access_token\":\"private\"}",true,1);assert(wipes>before);
 }
 static void check_pair(void) {
     assert(muse_store_select(true)==ESP_OK);
-    credentials=calloc(1,sizeof *credentials);assert(credentials&&muse_store_load(credentials)==ESP_OK);active=true;
+    // Exercise the real pairing startup path so its expected store generation
+    // is initialized alongside the credentials used by provisioning.
+    assert(muse_pair_start()==ESP_OK&&muse_pair_active());
     cJSON *o=parse("{\"action\":\"pairing_client_finished\"}");finish_handshake(o);muse_json_clear(o);
     assert(status_count==1&&!strcmp(statuses[0],"confirm_required")&&confirmation_armed);
     assert(muse_pair_key()&&confirmed&&!strcmp(statuses[1],"pairing_confirmed"));
     check_provision();
-    muse_store_wipe(credentials,sizeof *credentials);free(credentials);credentials=NULL;
 }
 int main(void) {
-    strcpy(g_settings.name,"Kubik");check_store();check_json();check_setup();check_options();check_control();check_pair();
+    strcpy(g_settings.name,"Kubik");check_store();check_refresh_after_setup_switch();check_json();check_setup();check_options();check_control();check_pair();
     puts("muse: credential isolation, strict JSON, phone setup, capabilities, fragmented control and pairing Wi-Fi/status flow passed");
 }

@@ -15,13 +15,14 @@ from gateway.config import Platform
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
-from .codec import decode, encode
+from .codec import decode
 from .security import Security
 
 
 class Peer:
     def __init__(self, socket, identity, hello):
         self.socket, self.identity = socket, identity
+        self.ready = False
         self.volume = hello.get('volume', 0)
         if type(self.volume) is not int or not 0 <= self.volume <= 100:
             raise ValueError('Invalid volume')
@@ -135,18 +136,18 @@ class KubikAdapter(BasePlatformAdapter):
             await socket.prepare(request)
             peer = await self.authenticate(socket)
             old = self.peers.get(peer.identity)
+            # Publish the replacement before close yields to another handshake.
+            self.peers[peer.identity] = peer
             if old:
                 await old.socket.close(code=4003)
-            self.peers[peer.identity] = peer
+            if self.peers.get(peer.identity) is not peer or socket.closed:
+                return socket
             await peer.send('welcome', session=secrets.token_hex(8), progress=True)
             stt, tts = self.speech_available()
             await peer.send('capabilities', stt=stt, tts=tts, voice_mode='classic')
+            peer.ready = self.peers.get(peer.identity) is peer and not socket.closed
             async for message in socket:
-                if message.type == WSMsgType.TEXT:
-                    await self.command(peer, json.loads(message.data))
-                elif message.type == WSMsgType.BINARY:
-                    self.microphone(peer, message.data)
-                elif message.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                if not await self._handle_frame(peer, message):
                     break
         except asyncio.CancelledError:
             raise
@@ -156,12 +157,24 @@ class KubikAdapter(BasePlatformAdapter):
             # No payloads, transcripts or cryptographic material in the log/close reason.
             await socket.close(code=4001)
         finally:
-            self.sockets.discard(socket)
-            if peer:
-                if self.peers.get(peer.identity) is peer:
-                    del self.peers[peer.identity]
-                await self.cancel(peer)
+            await self._remove_peer(socket, peer)
         return socket
+
+    async def _handle_frame(self, peer, message):
+        if message.type == WSMsgType.TEXT:
+            await self.command(peer, json.loads(message.data))
+        elif message.type == WSMsgType.BINARY:
+            self.microphone(peer, message.data)
+        return message.type not in (WSMsgType.CLOSE, WSMsgType.ERROR)
+
+    async def _remove_peer(self, socket, peer):
+        self.sockets.discard(socket)
+        if not peer:
+            return
+        peer.ready = False
+        if self.peers.get(peer.identity) is peer:
+            del self.peers[peer.identity]
+        await self.cancel(peer)
 
     def microphone(self, peer, frame):
         if len(frame) < 6 or frame[0] != 4 or peer.turn != frame[1]:
@@ -191,6 +204,15 @@ class KubikAdapter(BasePlatformAdapter):
         if not isinstance(value, dict):
             raise ValueError('Expected object')
         kind = value.get('t')
+        if kind in ('ping', 'device_state', 'ptt', 'cancel'):
+            await self._control_command(peer, kind, value)
+        elif kind in ('progress', 'played', 'shown'):
+            self._playback_command(peer, kind, value)
+        elif kind in ('agent_options', 'agent_model'):
+            await peer.send('agent_options', target=value.get('target'), rid=value.get('rid'),
+                            cursor=value.get('cursor', 0), error='unsupported')
+
+    async def _control_command(self, peer, kind, value):
         if kind == 'ping':
             await peer.send('pong', ts=value.get('ts'))
         elif kind == 'device_state':
@@ -201,7 +223,9 @@ class KubikAdapter(BasePlatformAdapter):
             await self.ptt(peer, value)
         elif kind == 'cancel':
             await self.cancel_request(peer, value)
-        elif kind == 'progress' and value.get('gen') == peer.gen:
+
+    def _playback_command(self, peer, kind, value):
+        if kind == 'progress' and value.get('gen') == peer.gen:
             ms = value.get('ms')
             if isinstance(ms, int) and peer.played_ms <= ms <= 120000:
                 peer.played_ms = ms
@@ -211,32 +235,44 @@ class KubikAdapter(BasePlatformAdapter):
             full = kind == 'shown' or (type(value.get('ms')) is int and value['ms'] >= peer.sent_ms)
             if full and key in peer.receipts:
                 peer.receipts[key].set()
-        elif kind in ('agent_options', 'agent_model'):
-            await peer.send('agent_options', target=value.get('target'), rid=value.get('rid'),
-                            cursor=value.get('cursor', 0), error='unsupported')
 
     async def ptt(self, peer, value):
         turn = value.get('turn')
         if not isinstance(turn, int) or not 0 <= turn <= 255 or type(value.get('on')) is not bool:
             raise ValueError('Invalid PTT')
-        if value['on']:
-            running = peer.task and not peer.task.done()
-            if peer.turn is not None or peer.waiting or (running and not peer.muted):
-                await peer.send('error', code='busy')
-                return
-            peer.turn, peer.recorded_at = turn, time.monotonic()
-            peer.input_turn = turn
-            if not running:
-                peer.muted = False
-            peer.pcm.clear()
-        elif peer.turn == turn:
-            pcm = bytes(peer.pcm)
+        if not self._is_approved(peer.identity):
             peer.turn = None
+            peer.input_turn = None
             peer.pcm.clear()
-            if pcm:
-                peer.pending_previous = peer.task
-                peer.waiting = bool(peer.task and not peer.task.done())
-                peer.task = asyncio.create_task(self.dispatch_after(peer, pcm, peer.task))
+            await peer.send('error', code='unauthorized')
+            await peer.send('state', s='idle')
+            return
+        if value['on']:
+            await self._start_ptt(peer, turn)
+        else:
+            self._finish_ptt(peer, turn)
+
+    async def _start_ptt(self, peer, turn):
+        running = peer.task and not peer.task.done()
+        if peer.turn is not None or peer.waiting or (running and not peer.muted):
+            await peer.send('error', code='busy')
+            return
+        peer.turn, peer.recorded_at = turn, time.monotonic()
+        peer.input_turn = turn
+        if not running:
+            peer.muted = False
+        peer.pcm.clear()
+
+    def _finish_ptt(self, peer, turn):
+        if peer.turn != turn:
+            return
+        pcm = bytes(peer.pcm)
+        peer.turn = None
+        peer.pcm.clear()
+        if pcm:
+            peer.pending_previous = peer.task
+            peer.waiting = bool(peer.task and not peer.task.done())
+            peer.task = asyncio.create_task(self.dispatch_after(peer, pcm, peer.task))
 
     async def cancel_request(self, peer, value):
         if 'turn' in value:
@@ -286,62 +322,94 @@ class KubikAdapter(BasePlatformAdapter):
                 peer.muted = False
 
     async def dispatch(self, peer, pcm):
-        from tools.transcription_tools import transcribe_audio
         input_turn = peer.input_turn
         session_key = None
         path = None
         transcription = None
         try:
-            if len(self.transcriptions) >= 2:
-                await peer.send('error', code='busy')
+            if not self._is_approved(peer.identity):
+                peer.pcm.clear()
                 return
-            peer.stage = 'transcribing'
-            await peer.send('state', s='transcribing')
-            fd, path = tempfile.mkstemp(prefix='kubik-', suffix='.wav')
-            os.close(fd)
-            with wave.open(path, 'wb') as stream:
-                stream.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
-                stream.writeframes(pcm)
-            transcription = asyncio.create_task(asyncio.to_thread(transcribe_audio, path, source='gateway'))
-            self.transcriptions.add(transcription)
-            transcription.add_done_callback(lambda task: self.finish_transcription(task, path))
-            async with asyncio.timeout(120):
-                result = await asyncio.shield(transcription)
-            text = result.get('transcript', '') if result.get('success') else ''
-            if not isinstance(text, str) or not text.strip() or len(text) > 16000:
-                await peer.send('error', code='stt_empty' if result.get('success') else 'stt_failed')
+            path, transcription = await self._start_transcription(peer, pcm)
+            if transcription is None:
                 return
-            # This device's request enters the normal gateway memory/tool/voice-reply pipeline.
-            event = MessageEvent(text=text, message_type=MessageType.VOICE,
-                source=self.build_source(peer.identity, chat_name='Kubik', user_id=peer.identity,
-                                         role_authorized=self.security.approved(peer.identity)),
-                user_id=peer.identity, message_id=secrets.token_hex(8))
-            peer.complete.clear()
-            peer.message_id = event.message_id
+            text = await self._transcript_text(peer, transcription)
+            if text is None:
+                return
+            event = self._authorized_voice_event(peer, text)
+            if event is None:
+                return
             session_key = self._event_session_key(event)
             peer.session_key = session_key
-            peer.stage = 'agent'
-            async with asyncio.timeout(240):
-                await self.handle_message(event)
-                if not event._gateway_accepted:
-                    raise ValueError('Hermes rejected voice event')
-                await peer.complete.wait()
-        except asyncio.CancelledError:
-            raise
+            await self._run_voice_event(peer, event)
         except Exception:
             if session_key:
                 await self.cancel_session_processing(session_key, discard_pending=True)
             if not peer.socket.closed:
                 await peer.send('error', code='agent_failed')
         finally:
-            if path and (transcription is None or transcription.done()):
-                Path(path).unlink(missing_ok=True)
-            peer.stage = 'idle'
-            if peer.input_turn == input_turn:
-                peer.input_turn = None
-            peer.muted = False
-            if not peer.socket.closed:
-                await peer.send('state', s='idle')
+            await self._finish_dispatch(peer, input_turn, path, transcription)
+
+    async def _finish_dispatch(self, peer, input_turn, path, transcription):
+        if path and (transcription is None or transcription.done()):
+            Path(path).unlink(missing_ok=True)
+        peer.stage = 'idle'
+        if peer.input_turn == input_turn:
+            peer.input_turn = None
+        peer.muted = False
+        if not peer.socket.closed:
+            await peer.send('state', s='idle')
+
+    async def _start_transcription(self, peer, pcm):
+        if len(self.transcriptions) >= 2:
+            await peer.send('error', code='busy')
+            return None, None
+        from tools.transcription_tools import transcribe_audio
+        peer.stage = 'transcribing'
+        await peer.send('state', s='transcribing')
+        fd, path = tempfile.mkstemp(prefix='kubik-', suffix='.wav')
+        os.close(fd)
+        try:
+            with wave.open(path, 'wb') as stream:
+                stream.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
+                stream.writeframes(pcm)
+        except Exception:
+            Path(path).unlink(missing_ok=True)
+            raise
+        if not self._is_approved(peer.identity):
+            return path, None
+        task = asyncio.create_task(asyncio.to_thread(transcribe_audio, path, source='gateway'))
+        self.transcriptions.add(task)
+        task.add_done_callback(lambda done: self.finish_transcription(done, path))
+        return path, task
+
+    async def _transcript_text(self, peer, task):
+        async with asyncio.timeout(120):
+            result = await asyncio.shield(task)
+        text = result.get('transcript', '') if result.get('success') else ''
+        if not isinstance(text, str) or not text.strip() or len(text) > 16000:
+            await peer.send('error', code='stt_empty' if result.get('success') else 'stt_failed')
+            return None
+        return text
+
+    def _authorized_voice_event(self, peer, text):
+        if not self._is_approved(peer.identity):
+            return None
+        # This device's request enters the normal gateway memory/tool/voice-reply pipeline.
+        return MessageEvent(text=text, message_type=MessageType.VOICE,
+            source=self.build_source(peer.identity, chat_name='Kubik', user_id=peer.identity,
+                                     role_authorized=True),
+            user_id=peer.identity, message_id=secrets.token_hex(8))
+
+    async def _run_voice_event(self, peer, event):
+        peer.complete.clear()
+        peer.message_id = event.message_id
+        peer.stage = 'agent'
+        async with asyncio.timeout(240):
+            await self.handle_message(event)
+            if not event._gateway_accepted:
+                raise ValueError('Hermes rejected voice event')
+            await peer.complete.wait()
 
     def finish_transcription(self, task, path):
         self.transcriptions.discard(task)
@@ -356,19 +424,30 @@ class KubikAdapter(BasePlatformAdapter):
 
     def _is_sender_authorized(self, user_id, chat_type=None, **kwargs):
         # A normal gateway session can only be created by this adapter after v5 proof and local approval.
-        return isinstance(user_id, str) and self.security.approved(user_id)
+        return isinstance(user_id, str) and self._is_approved(user_id)
+
+    def _is_approved(self, identity):
+        try:
+            return self.security.approved(identity)
+        except (OSError, TypeError, ValueError):
+            return False
+
+    def _ready_peer(self, chat_id):
+        peer = self.peers.get(chat_id)
+        return peer if (peer and peer.ready and not peer.socket.closed and
+                       self._is_approved(peer.identity)) else None
 
     def _should_auto_tts_for_chat(self, chat_id):
-        peer = self.peers.get(chat_id)
+        peer = self._ready_peer(chat_id)
         return bool(peer and type(peer.volume) is int and peer.volume >= 20)
 
     async def send_typing(self, chat_id, **kwargs):
-        peer = self.peers.get(chat_id)
+        peer = self._ready_peer(chat_id)
         if peer and not peer.muted:
             await peer.send('state', s='thinking')
 
     async def send(self, chat_id, content, reply_to=None, metadata=None, **kwargs):
-        peer = self.peers.get(chat_id)
+        peer = self._ready_peer(chat_id)
         if not peer:
             return SendResult(success=False, error='Kubik disconnected', retryable=True)
         if peer.muted:
@@ -396,12 +475,14 @@ class KubikAdapter(BasePlatformAdapter):
 
     async def send_voice(self, chat_id, audio_path, caption=None, **kwargs):
         from .speech import play_file
-        peer = self.peers.get(chat_id)
+        peer = self._ready_peer(chat_id)
         if not peer:
             return SendResult(success=False, error='Kubik disconnected', retryable=True)
-        if peer.muted or peer.volume < 20:
-            return SendResult(success=True, message_id='muted')
         async with peer.output_lock:
+            if self._ready_peer(chat_id) is not peer:
+                return SendResult(success=False, error='Kubik disconnected', retryable=True)
+            if peer.muted or peer.volume < 20:
+                return SendResult(success=True, message_id='muted')
             peer.output_task = asyncio.create_task(play_file(peer, audio_path))
             try:
                 return await peer.output_task

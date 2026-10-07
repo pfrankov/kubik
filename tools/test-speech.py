@@ -17,6 +17,8 @@ def body(name):
 protocol = body("app_protocol.c")
 callbacks = protocol[protocol.index("static void handle_speak_json"):protocol.index("static void handle_error_json")]
 callbacks += protocol[protocol.index("static void on_audio"):protocol.index("static void on_pair")]
+voice = body("app_voice.c")
+callbacks += voice[voice.index("int app_voice_parse_generation"):voice.index("static void cancel_output")]
 events = body("app_events.c")
 callbacks += events[events.index("static void handle_speak_end_event"):events.index("static void handle_error_event")]
 callbacks += events[events.index("static void handle_speak_event"):events.index("static void handle_text_event")]
@@ -29,6 +31,7 @@ mock = r'''
 #include <string.h>
 #include "cJSON.h"
 #include "app_speech.h"
+#include "app_voice.h"
 #include "app_mailbox.h"
 #define ESP_OK 0
 #define ESP_ERR_NO_MEM -1
@@ -97,6 +100,36 @@ static void end(void) {
     cJSON *j = cJSON_Parse("{\"t\":\"speak_end\",\"gen\":7}");
     handle_speak_end_json(j); cJSON_Delete(j);
 }
+static void speak_payload(const char *json) {
+    cJSON *j = cJSON_Parse(json); assert(j); handle_speak_json(j); cJSON_Delete(j);
+}
+static void end_payload(const char *json) {
+    cJSON *j = cJSON_Parse(json); assert(j); handle_speak_end_json(j); cJSON_Delete(j);
+}
+static void validate_generations(void) {
+    static const char *const invalid[] = {"0", "-1", "256", "1.5", "\"1\"", "null"};
+    uint8_t pcm[24] = {0};
+    speak_payload("{\"t\":\"speak\",\"gen\":1}");
+    app_ev_t event; assert(app_mailbox_take(&inbox, &event) && event.a == 1 && s_gen == 1);
+    on_audio(3, 1, pcm, sizeof pcm); unsigned before_bytes = bytes, before_begins = begins;
+    for (unsigned i = 0; i < sizeof invalid / sizeof invalid[0]; i++) {
+        char json[96]; snprintf(json, sizeof json, "{\"t\":\"speak\",\"gen\":%s}", invalid[i]);
+        speak_payload(json);
+        snprintf(json, sizeof json, "{\"t\":\"speak_end\",\"gen\":%s}", invalid[i]);
+        end_payload(json);
+        assert(s_gen == 1 && active && !ended && begins == before_begins && bytes == before_bytes);
+        assert(!app_mailbox_take(&inbox, &event));
+    }
+    end_payload("{\"t\":\"speak_end\",\"gen\":1}");
+    assert(app_mailbox_take(&inbox, &event) && event.type == EV_SRV_SPEAK_END && event.a == 1);
+    handle_speak_end_event(&event); assert(ended);
+    speak_payload("{\"t\":\"speak\",\"gen\":255}");
+    assert(app_mailbox_take(&inbox, &event) && event.type == EV_SRV_SPEAK && event.a == 255 && s_gen == 255);
+    on_audio(3, 255, pcm, sizeof pcm);
+    end_payload("{\"t\":\"speak_end\",\"gen\":255}");
+    assert(app_mailbox_take(&inbox, &event) && event.type == EV_SRV_SPEAK_END && event.a == 255);
+    handle_speak_end_event(&event); assert(app_speech_tick(5000, false) && s_gen == -1);
+}
 int main(void) {
     app_speech_init(); speak();
     app_ev_t event; assert(app_mailbox_take(&inbox, &event));
@@ -137,6 +170,7 @@ int main(void) {
     assert(handle_link_event(&down) && down_calls == 0 && s_gen == 7);
     via = "none"; assert(handle_link_event(&down) && down_calls == 1 && s_gen == -1);
     assert(begins == 8);
+    validate_generations();
     puts("speech: colliding generation/stale END, origin-bound ACK/progress/cancel, lost disconnect exact");
 }
 '''

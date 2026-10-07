@@ -12,9 +12,10 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 PLAYWRIGHT = "playwright==1.63.0"
+IDF_TOOLS = {"host": ("idf.py", "clang"), "host-portable": ("idf.py", "clang"), "build": ("idf.py",), "ci": ("idf.py", "clang")}
 HOST_TESTS = (
     "agent-menu", "tls-memory", "audio-capture", "mic-task", "mic-delivery", "audio-stream", "audio-levels", "menu-hold", "audio-wake", "wake-word", "native-voice", "guide", "ima", "link", "navigation", "pin", "power-network",
-    "event-journal", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "settings", "setup", "muse", "hermes", "speech", "state", "tess", "wifi", "radio-relay",
+    "event-journal", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "settings", "nvs", "setup", "muse", "devkey", "hermes", "speech", "state", "tess", "wifi", "radio-relay",
 )
 
 
@@ -44,16 +45,17 @@ def require_device_voice():
 
 def preflight(level):
     required = ["node", "npm", "uv", "uvx", "cc", "git", "tar", "unzip", "openssl"]
-    if level in {"host", "build", "ci"}: required += ["idf.py"]
+    required.extend(IDF_TOOLS.get(level, ()))
+    if level in IDF_TOOLS: required.append("ninja")
     if level == "device":
         required += ["say"]
         validate_device_environment()
     missing = [tool for tool in required if not shutil.which(tool)]
     if missing: raise RuntimeError("Missing required tools: " + ", ".join(missing))
     if level == "device": require_device_voice()
-    if level in {"host", "ci"} and hasattr(os, "geteuid") and os.geteuid() == 0:
+    if level in {"host", "host-portable", "ci"} and hasattr(os, "geteuid") and os.geteuid() == 0:
         raise RuntimeError("Run acceptance as a regular user: root skips the private-key permission test")
-    if level in {"host", "build", "ci"}:
+    if level in {"host", "host-portable", "build", "ci"}:
         version = subprocess.check_output(["idf.py", "--version"], text=True)
         if "v5.5.1" not in version: raise RuntimeError("Activate ESP-IDF v5.5.1 before acceptance")
         # Fetches the QR component used by native host harnesses on a clean checkout.
@@ -67,7 +69,7 @@ def lint():
     run(["uvx", "--from", "lizard==1.24.0", "python", "tools/check-shape.py"])
 
 
-def host():
+def host(portable=False):
     plugin = ROOT / "openclaw-kubik"
     run(["npm", "ci"], plugin)
     run(["node", "tools/check-live-voice.mjs"])
@@ -79,7 +81,11 @@ def host():
     run(["node", "--test", "tools/test-device/frames.test.mjs", "tools/test-device/mock.test.mjs", "tools/test-device/diagnostics.test.mjs", "tools/test-device/acoustic.test.mjs", "tools/test-install/device.test.mjs"])
     run(["uv", "run", "--with", "numpy==2.2.6", "python", "tools/test-device/analyze-live-acoustic.test.py"])
     run(["node", "tools/test-portal.mjs"])
-    for name in HOST_TESTS: run([sys.executable, f"tools/test-{name}.py"])
+    for name in HOST_TESTS:
+        if portable and name == "frames":
+            run([sys.executable, "tools/test-frames.py", "--structure-only"])
+            continue
+        run([sys.executable, f"tools/test-{name}.py"])
     run(["uv", "run", "--with", PLAYWRIGHT, "python", "tools/test-portal-browser.py"])
     run(["uv", "run", "--with", PLAYWRIGHT, "python", "tools/test-emulator-browser.py"])
     run(["uv", "run", "--with", PLAYWRIGHT, "--with", "pymupdf==1.26.7", "python", "tools/test-buyer-guide.py"])
@@ -117,14 +123,14 @@ def device():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("level", nargs="?", choices=("lint", "host", "build", "device", "ci"), default="ci")
+    parser.add_argument("level", nargs="?", choices=("lint", "host", "host-portable", "build", "device", "ci"), default="ci")
     args = parser.parse_args()
     started = time.monotonic()
     try:
         preflight(args.level)
         if args.level == "build": run(["npm", "ci"], ROOT / "openclaw-kubik")
         if args.level in {"lint", "ci"}: lint()
-        if args.level in {"host", "ci"}: host()
+        if args.level in {"host", "host-portable", "ci"}: host(portable=args.level == "host-portable")
         if args.level in {"build", "ci"}: build()
         if args.level == "device": device()
     except (RuntimeError, subprocess.SubprocessError) as error:
