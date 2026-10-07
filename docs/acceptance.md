@@ -40,6 +40,14 @@ python3 tools/accept.py
 `reconfigure` перед host/build получает компонент QR на чистом checkout.
 Нельзя заново генерировать спрайты или менять эталоны кадров для прохождения тестов.
 
+Точные версии и хеши компонентов ESP-IDF сохранены в
+[`firmware/dependencies.lock`](../firmware/dependencies.lock). Обе сборки используют
+один lock-файл для ESP32-C6. Не редактируйте его вручную: изменение зависимостей
+выполняется через Component Manager, затем проверяется вместе с manifest и обеими
+сборками. Каталог `managed_components` остаётся загружаемым кешем. Такое хранение
+lock-файла соответствует [рекомендации Espressif](https://docs.espressif.com/projects/idf-component-manager/en/latest/guides/faq.html#should-i-commit-the-managed-components-directory-and-dependencies-lock-file)
+для проекта с фиксированными устройством, SDK и конфигурацией.
+
 Побитовые RGB-эталоны проверяются на macOS / ARM64: все 16 043 кадра воспроизведены
 на macOS 15.7.9, Apple Clang 17.0.0 (`clang-1700.0.13.5`), SDK 15.5.
 На Linux неизменные исходники дают другие хеши; настройки вычислений с плавающей
