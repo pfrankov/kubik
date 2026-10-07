@@ -1,0 +1,2 @@
+# ESP-IDF's component manager emits trailing spaces in this generated YAML.
+firmware/dependencies.lock whitespace=-blank-at-eol

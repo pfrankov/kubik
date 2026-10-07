@@ -107,19 +107,36 @@ def check_compiler_inputs():
         )
         subprocess.run([ninja, '-C', str(build), 'selected-c.o', 'selected-cpp.o', 'excluded.o'], check=True,
                        capture_output=True, text=True)
-        selected = [
+        selected_relative = [
             {'directory': str(build), 'file': str((source / 'selected.c').resolve()), 'output': 'selected-c.o'},
             {'directory': str(build), 'file': str((source / 'selected.cpp').resolve()), 'output': 'selected-cpp.o'},
         ]
+        selected = [dict(entry) for entry in selected_relative]
+        selected[1]['output'] = str((build / selected[1]['output']).resolve())
         expected = {
             (source / 'selected.c').resolve(),
             (source / 'selected.cpp').resolve(),
             (include / 'shared header.h').resolve(),
         }
-        actual = module['compiler_inputs'](build, selected)
-        assert actual == expected, (actual, expected)
-        assert (source / 'excluded.c').resolve() not in actual
-        assert (include / 'excluded header.h').resolve() not in actual
+        relative_actual = module['compiler_inputs'](build, selected_relative)
+        mixed_actual = module['compiler_inputs'](build, selected)
+        assert relative_actual == mixed_actual == expected, (relative_actual, mixed_actual, expected)
+        assert (source / 'excluded.c').resolve() not in mixed_actual
+        assert (include / 'excluded header.h').resolve() not in mixed_actual
+
+        duplicate_alias = [dict(selected_relative[0]), dict(selected_relative[1])]
+        duplicate_alias[1]['output'] = str((build / duplicate_alias[0]['output']).resolve())
+        for invalid, label in (
+            (duplicate_alias, 'absolute and relative aliases for one Ninja target were accepted'),
+            ([dict(selected_relative[0], output=str(build.parent / 'outside.o'))],
+             'an output outside the build directory was accepted'),
+        ):
+            try:
+                module['compiler_inputs'](build, invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(label)
 
         deps_log = build / '.ninja_deps'
         assert deps_log.is_file() and deps_log.stat().st_size > 0
@@ -154,6 +171,24 @@ def check_compiler_inputs():
         deps_log.write_bytes(b'not a Ninja dependency log')
         rejects_invalid_log('corrupt .ninja_deps was accepted')
 
+        fake_ninja = build / 'failing-ninja'
+        fake_ninja.write_text(
+            '#!/usr/bin/env python3\n'
+            'import sys\n'
+            "sys.stderr.write('DIAGNOSTIC_START' + 'x' * 3000 + 'DIAGNOSTIC_END')\n"
+            'sys.exit(2)\n'
+        )
+        fake_ninja.chmod(0o755)
+        (build / 'CMakeCache.txt').write_text(f'CMAKE_MAKE_PROGRAM:FILEPATH={fake_ninja}\n')
+        try:
+            module['compiler_inputs'](build, selected)
+        except ValueError as error:
+            assert 'DIAGNOSTIC_START' in str(error)
+            assert 'DIAGNOSTIC_END' not in str(error)
+            assert len(str(error)) < 1400, 'Ninja failure diagnostics were not bounded'
+        else:
+            raise AssertionError('a failed Ninja dependency query was accepted')
+
     with tempfile.TemporaryDirectory(prefix='kubik-compile-commands-') as temporary:
         build = Path(temporary)
         description_path = BUILD / 'project_description.json'
@@ -172,8 +207,8 @@ def check_compiler_inputs():
             assert 'Missing firmware compile commands' in str(error), str(error)
         else:
             raise AssertionError('missing compile command for an owned source was accepted')
-    print('package freshness: selected C/C++ dependencies; stale, missing and corrupt Ninja records '
-          'and incomplete compile databases rejected')
+    print('package freshness: mixed relative/absolute Ninja outputs normalized; duplicate aliases, outside '
+          'outputs, stale/missing/corrupt records, failed-query diagnostics and incomplete compile databases checked')
 
 
 def check_freshness():
@@ -194,19 +229,34 @@ def check_freshness():
 
     checks = [(wake, CHARACTER == 'TESS'), (wake_header, CHARACTER == 'TESS')]
     checks.extend((path, True) for path in selected_sources)
-    for path, stale in checks:
-        stat = path.stat()
-        try:
-            os.utime(path, ns=(stat.st_atime_ns, (BUILD / 'kubik.bin').stat().st_mtime_ns + 1_000_000_000))
+    with tempfile.TemporaryDirectory(prefix='kubik-freshness-') as temporary:
+        directory = Path(temporary)
+        image = directory / 'kubik.bin'
+        baseline = directory / 'baseline.c'
+        image.write_bytes(b'build image')
+        baseline.write_bytes(b'baseline source')
+        image_mtime = image.stat().st_mtime_ns
+        baseline_stat = baseline.stat()
+        os.utime(baseline, ns=(baseline_stat.st_atime_ns, image_mtime))
+
+        for index, (path, stale) in enumerate(checks):
+            candidate = directory / f'candidate-{index}.c'
+            candidate.write_bytes(b'candidate source')
+            candidate_stat = candidate.stat()
+            os.utime(candidate, ns=(candidate_stat.st_atime_ns, image_mtime + 1_000_000_000))
+            selected = path in inputs
+            assert selected == stale, f'incorrect selected/excluded dependency for {CHARACTER}: {path}'
+            fixture_inputs = {baseline, candidate} if selected else {baseline}
             try:
-                module['check_build_freshness'](BUILD)
-            except ValueError:
-                assert stale, f'excluded source unexpectedly invalidated {CHARACTER} build: {path}'
+                module['check_input_freshness'](fixture_inputs, image)
+            except ValueError as error:
+                assert stale and 'sources changed after the build' in str(error), str(error)
             else:
                 assert not stale, f'stale selected source accepted: {path}'
-        finally:
-            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    print('package freshness: selected main/component sources and headers stale the build; excluded wake inputs do not')
+
+            os.utime(candidate, ns=(candidate_stat.st_atime_ns, image_mtime))
+            module['check_input_freshness'](fixture_inputs, image)
+    print('package freshness: real Ninja-selected inputs checked; temporary selected/excluded mtime fixtures reject only newer selected inputs')
 
 def check_bridge_selection():
     spec = importlib.util.spec_from_file_location("flash_device", ROOT / "tools/flash-device.py")

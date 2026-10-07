@@ -64,9 +64,32 @@ def ninja_record(block):
     return header[1], [line[4:] for line in lines[1:]]
 
 
-def compiler_inputs(build, entries):
-    targets = {entry["output"]: entry for entry in entries}
-    if not targets or len(targets) != len(entries): raise ValueError(DEPENDENCY_ERROR)
+def ninja_target(build, output):
+    if not isinstance(output, str) or not output:
+        raise ValueError(DEPENDENCY_ERROR)
+    build_root = build.resolve()
+    path = Path(output)
+    if not path.is_absolute():
+        path = build_root / path
+    try:
+        relative = path.resolve().relative_to(build_root)
+    except ValueError as error:
+        raise ValueError(DEPENDENCY_ERROR) from error
+    if not relative.parts:
+        raise ValueError(DEPENDENCY_ERROR)
+    return relative.as_posix()
+
+
+def dependency_query_error(stderr):
+    detail = stderr or ""
+    if isinstance(detail, bytes): detail = detail.decode(errors="replace")
+    detail = " ".join(detail.split())
+    if len(detail) > 1200: detail = detail[:1200] + "…"
+    suffix = f": {detail}" if detail else ""
+    return ValueError(f"Cannot read Ninja compiler dependencies; rebuild firmware{suffix}")
+
+
+def query_ninja_dependencies(build, targets):
     cache = (build / "CMakeCache.txt").read_text()
     program = re.search(r"^CMAKE_MAKE_PROGRAM:[^=]+=(.+)$", cache, re.MULTILINE)
     if not program: raise ValueError("Missing Ninja build tool; reconfigure firmware")
@@ -74,11 +97,25 @@ def compiler_inputs(build, entries):
     try:
         result = subprocess.run([program[1], "-C", str(build), "-t", "deps", *targets],
                                 check=True, capture_output=True, text=True, timeout=30)
+    except subprocess.CalledProcessError as error:
+        raise dependency_query_error(error.stderr) from error
     except (OSError, subprocess.SubprocessError) as error:
         raise ValueError("Cannot read Ninja compiler dependencies; rebuild firmware") from error
-    if result.stderr.strip(): raise ValueError(DEPENDENCY_ERROR)
+    if result.stderr.strip(): raise dependency_query_error(result.stderr)
+    return result.stdout
+
+
+def compiler_inputs(build, entries):
+    build = build.resolve()
+    targets = {}
+    for entry in entries:
+        target = ninja_target(build, entry.get("output"))
+        if target in targets: raise ValueError(DEPENDENCY_ERROR)
+        targets[target] = entry
+    if not targets: raise ValueError(DEPENDENCY_ERROR)
+    output = query_ninja_dependencies(build, targets)
     inputs, seen = set(), set()
-    for block in result.stdout.strip("\n").split("\n\n"):
+    for block in output.strip("\n").split("\n\n"):
         target, names = ninja_record(block)
         if target not in targets or target in seen: raise ValueError(DEPENDENCY_ERROR)
         seen.add(target)
@@ -119,9 +156,15 @@ def build_inputs(build):
     return inputs
 
 
-def check_build_freshness(build):
-    if max(path.stat().st_mtime for path in build_inputs(build)) > (build / "kubik.bin").stat().st_mtime:
+def check_input_freshness(inputs, image):
+    inputs = tuple(inputs)
+    if not inputs: raise ValueError("Missing firmware source dependencies; rebuild firmware")
+    if max(path.stat().st_mtime_ns for path in inputs) > image.stat().st_mtime_ns:
         raise ValueError("Firmware sources changed after the build; run idf.py -C firmware build")
+
+
+def check_build_freshness(build):
+    check_input_freshness(build_inputs(build), build / "kubik.bin")
 
 
 def package(build, output, character):
