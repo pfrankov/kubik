@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,11 @@
 #include "connection_record.h"
 #include "version.h"
 #include "setup_request.h"
+
+// The real recursive NVS lock is exercised by test-settings.py.
+static esp_err_t app_nvs_lock(void) { return ESP_OK; }
+static void app_nvs_unlock(void) {}
+static bool app_nvs_ready_locked(void) { return true; }
 
 static unsigned wipes;
 static void mbedtls_platform_zeroize(void *data,size_t size) { volatile unsigned char *p=data;while(size--)*p++=0;wipes++; }
@@ -33,6 +39,7 @@ static void record_defaults(connection_record_t *record) {
 static esp_err_t mock_load_record(connection_record_t *record) {
     if (record_present) memcpy(record, &persisted_record, sizeof *record);
     else record_defaults(record);
+    muse_store_publish_state(&record->muse);
     return ESP_OK;
 }
 static esp_err_t mock_commit_record(connection_record_t *record, bool network_change) {
@@ -42,6 +49,7 @@ static esp_err_t mock_commit_record(connection_record_t *record, bool network_ch
     if (network_change) record->network_revision = record->revision;
     memcpy(&persisted_record, record, sizeof *record);
     record_present = true;
+    muse_store_publish_state(&record->muse);
     return ESP_OK;
 }
 static int mock_find_profile(const connection_networks_t *networks, const char *ssid) {
