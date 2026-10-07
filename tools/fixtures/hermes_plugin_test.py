@@ -160,6 +160,7 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
             async def send_json(self, value):
                 pass
         peer = Peer(Socket(), identity, self.hello)
+        peer.ready = True
         adapter.peers[identity] = peer
         paths = []
         def native_stt(path, source):
@@ -185,7 +186,9 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
         identity, _ = self.store.identity(self.hello)
         release_old = asyncio.Event()
         old, first, latest = DeviceSocket(release_old), DeviceSocket(), DeviceSocket()
-        adapter.peers[identity] = Peer(old, identity, self.hello)
+        old_peer = Peer(old, identity, self.hello)
+        old_peer.ready = True
+        adapter.peers[identity] = old_peer
 
         async def authenticate(socket):
             return Peer(socket, identity, self.hello)
@@ -212,12 +215,84 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(adapter.peers)
         self.assertFalse(adapter.sockets)
 
+    async def test_reconnecting_peer_is_hidden_until_handshake_finishes(self):
+        from hermes_kubik import speech
+        adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+        adapter.speech_available = lambda: ({'available': True}, {'available': True})
+        identity, _ = self.store.identity(self.hello)
+        release_old = asyncio.Event()
+        old, replacement = DeviceSocket(release_old), DeviceSocket()
+        old_peer = Peer(old, identity, self.hello)
+        old_peer.ready = True
+        adapter.peers[identity] = old_peer
+
+        async def authenticate(socket):
+            return Peer(socket, identity, self.hello)
+
+        adapter.authenticate = authenticate
+        played = []
+
+        async def play_file(peer, path):
+            played.append(path)
+            return SimpleNamespace(success=True)
+
+        task = None
+        with patch.object(speech, 'play_file', play_file), \
+                patch('hermes_kubik.adapter.web.WebSocketResponse', return_value=replacement):
+            try:
+                task = asyncio.create_task(adapter.accept(None))
+                await asyncio.wait_for(old.close_started.wait(), 1)
+                peer = adapter.peers[identity]
+                self.assertIs(peer.socket, replacement)
+                self.assertFalse(peer.ready)
+
+                text = await adapter.send(identity, 'too early')
+                voice = await adapter.send_voice(identity, 'too-early.wav')
+                await adapter.send_typing(identity)
+                self.assertFalse(text.success)
+                self.assertTrue(text.retryable)
+                self.assertFalse(voice.success)
+                self.assertTrue(voice.retryable)
+                self.assertFalse(adapter._should_auto_tts_for_chat(identity))
+                self.assertEqual(replacement.messages, [])
+                self.assertEqual(played, [])
+
+                release_old.set()
+                async with asyncio.timeout(1):
+                    while len(replacement.messages) < 2:
+                        await asyncio.sleep(0)
+                self.assertEqual([message['t'] for message in replacement.messages],
+                                 ['welcome', 'capabilities'])
+                self.assertTrue(peer.ready)
+                self.assertTrue(adapter._should_auto_tts_for_chat(identity))
+
+                await adapter.send_typing(identity)
+                self.assertEqual(replacement.messages[2], {'t': 'state', 's': 'thinking'})
+                send_task = asyncio.create_task(adapter.send(identity, 'after handshake'))
+                async with asyncio.timeout(1):
+                    while not any(message.get('t') == 'text' for message in replacement.messages):
+                        await asyncio.sleep(0)
+                text_message = next(message for message in replacement.messages
+                                     if message.get('t') == 'text')
+                await adapter.command(peer, {'t': 'shown', 'receipt': text_message['receipt']})
+                self.assertTrue((await send_task).success)
+                self.assertTrue((await adapter.send_voice(identity, 'voice.wav')).success)
+                self.assertEqual(played, ['voice.wav'])
+            finally:
+                release_old.set()
+                await replacement.close()
+                if task:
+                    await asyncio.gather(task, return_exceptions=True)
+        self.assertFalse(adapter.peers)
+        self.assertFalse(adapter.sockets)
+
     async def test_queued_speech_rechecks_mute_and_connection_before_playback(self):
         from hermes_kubik import speech
         for change in ('interrupt', 'volume', 'disconnect'):
             with self.subTest(change=change):
                 adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
                 peer = Peer(DeviceSocket(), 'device', self.hello)
+                peer.ready = True
                 peer.stage = 'agent'
                 adapter.peers['device'] = peer
                 started, release = asyncio.Event(), asyncio.Event()
