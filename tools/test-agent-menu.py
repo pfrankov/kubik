@@ -13,7 +13,8 @@ CJSON = IDF / "components/json/cJSON"
 def build_test(build, name, test, sources, extra=()):
     exe = Path(build) / name
     subprocess.run([
-        os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra",
+        os.environ.get("CC", "cc"), "-std=c11", "-D_POSIX_C_SOURCE=200809L",
+        "-O1", "-g", "-Wall", "-Wextra",
         "-Wno-unused-parameter", "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
         "-Ifirmware/main", f"-I{CJSON}", *extra,
         test, *sources, "-o", str(exe),
