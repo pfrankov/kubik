@@ -67,9 +67,9 @@ static int alloc_fail=-1, held;
 static void *checked_malloc(size_t n) {
     if (alloc_fail==0) return NULL;
     if (alloc_fail>0) alloc_fail--;
-    void *p=malloc(n); if(p) held++; return p;
+    void *p=malloc(n); if(p) { held++; } return p;
 }
-static void checked_free(void *p) { if(p) held--; free(p); }
+static void checked_free(void *p) { if(p) { held--; } free(p); }
 static void *heap_caps_malloc(size_t n, unsigned caps) {
     assert(((n==4096 || n==3072) && caps==(MALLOC_CAP_RTCRAM|MALLOC_CAP_8BIT)) || (n==15552 && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));
     return checked_malloc(n);

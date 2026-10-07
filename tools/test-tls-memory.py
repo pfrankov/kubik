@@ -33,7 +33,7 @@ static void xSemaphoreTake(int m, int t) { (void)m; (void)t; assert(!held); held
 static void xSemaphoreGive(int m) { (void)m; assert(held); held = false; }
 static void *heap_caps_malloc(size_t n, int flags) { (void)flags; return pressure ? NULL : malloc(n); }
 static void *heap_caps_calloc(size_t n, size_t size, int flags) { (void)flags; return pressure ? NULL : calloc(n, size); }
-static void heap_caps_free(void *p) { if (p) frees++; free(p); }
+static void heap_caps_free(void *p) { if (p) { frees++; } free(p); }
 static void mbedtls_platform_set_calloc_free(void *(*a)(size_t,size_t), void (*f)(void *)) { assert(a && f); }
 '''
 tests = r'''

@@ -81,7 +81,8 @@ static bool audio_mic_gate(bool enabled,void (*cb)(const int16_t*,int,const uint
 }
 static void audio_mic_request_stop(void) {open=false;epoch++;stops++;}
 static bool audio_mic_request_stop_epoch(uint32_t expected) {
-    if(expected!=epoch)return false;audio_mic_request_stop();return true;
+    if(expected!=epoch)return false;
+    audio_mic_request_stop();return true;
 }
 static void app_post_in_session(int type,int turn,int reason,uint32_t route) {
     event_type=type;event_turn=turn;event_reason=reason;event_session=route;posts++;
@@ -90,9 +91,9 @@ static bool link_send_duplex_in_session(uint8_t turn,const uint8_t *ima,uint32_t
 
 static void audio_mic_set_duplex(bool enabled) {(void)enabled;}
 static bool link_send_mic_in_session(int turn,const int16_t *pcm,int bytes,uint32_t route,const uint8_t *ima) {
-    assert(ima==(const uint8_t *)1); (void)pcm;assert(turn==s_turn&&bytes==1920);if(route!=session)return false;uploaded++;return true;
+    assert(ima==(const uint8_t *)1); (void)pcm;assert(turn==s_turn&&bytes==1920);if(route!=session) { return false; }uploaded++;return true;
 }
-static bool link_send_json_in_session(const char *json,uint32_t route) {if(strstr(json,"live_input_ack"))input_acks++;assert(route==session);return true;}
+static bool link_send_json_in_session(const char *json,uint32_t route) {if(strstr(json,"live_input_ack")) { input_acks++; }assert(route==session);return true;}
 static bool audio_self_audible(void) {return muted;}
 static bool talk_is_listening(int talk) {return talk==1||talk==2;}
 static void talk_fire(int why) {s_talk=why==TE_ABORT?0:3;}

@@ -97,7 +97,7 @@ static uint32_t audio_capture_epoch(void) {return capture_epoch;}
 static uint32_t link_session(void) {return current_session;}
 
 static bool audio_wake_gate(bool open, void (*cb)(const int16_t *, int, const uint8_t *)) {
-    (void)cb; if(open) ++capture_epoch; return gate_ok;
+    (void)cb; if(open) { ++capture_epoch; } return gate_ok;
 }
 static bool link_send_json_in_session(const char *json, uint32_t session) {
     assert(strstr(json,"ptt") && session==s_auto_session); json_sent=json_ok; return json_ok;

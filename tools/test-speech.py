@@ -68,7 +68,7 @@ static void audio_stream_begin(void) { assert(held && wake_suspends == begins + 
 static void audio_stream_end(void) { assert(held); ended = true; }
 static void audio_stream_stop(void) { assert(held); active = false; ended = true; bytes = 0; stops++; }
 static unsigned audio_stream_write_ima(const uint8_t *p, size_t len) {
-    (void)p; if (ended) return 0; bytes += (unsigned)len; return (unsigned)len;
+    (void)p; if (ended) { return 0; } bytes += (unsigned)len; return (unsigned)len;
 }
 static bool tail_pending;
 static bool audio_stream_drained(void) { return ended && !tail_pending; }
