@@ -1,0 +1,41 @@
+name: Sound cost diagnostic
+on:
+  push:
+    branches: [diagnostics/sound-cost-counters]
+permissions:
+  contents: read
+jobs:
+  sound-cost:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12.10'
+          architecture: arm64
+      - name: Record diagnostic environment
+        shell: bash
+        run: |
+          uname -a
+          sw_vers
+          cc --version
+          xcrun --show-sdk-version
+          python3 --version
+      - name: Run the fixed three-process diagnostic batch
+        shell: bash
+        run: |
+          failed=0
+          for trial in 1 2 3; do
+            echo "Sound cost diagnostic trial $trial of 3"
+            if python3 tools/test-tess.py; then
+              echo "Sound cost diagnostic trial $trial: PASS"
+            else
+              trial_status=$?
+              echo "Sound cost diagnostic trial $trial: FAIL (exit $trial_status)"
+              failed=1
+            fi
+          done
+          exit "$failed"
