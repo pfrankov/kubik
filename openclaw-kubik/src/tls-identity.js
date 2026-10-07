@@ -1,7 +1,7 @@
 // The LAN listener's TLS identity: one P-256 key and a self-signed certificate, created once and kept in the
 // plugin state dir. Devices pin the SHA-256 of its SubjectPublicKeyInfo, so the key must survive restarts.
 import { createPrivateKey, generateKeyPairSync, randomBytes, sign, X509Certificate } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { spkiSha256 } from './protocol.js';
 
@@ -54,10 +54,12 @@ function writeFileAtomic(path, text) {
   const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   const fd = openSync(temporary, 'wx', 0o600);
   try {
-    writeSync(fd, text);
-    fsyncSync(fd);
-  } finally { closeSync(fd); }
-  try { renameSync(temporary, path); } catch (error) { rmSync(temporary, { force: true }); throw error; }
+    try {
+      writeFileSync(fd, text);
+      fsyncSync(fd);
+    } finally { closeSync(fd); }
+    renameSync(temporary, path);
+  } finally { rmSync(temporary, { force: true }); }
   try {
     const directory = openSync(dirname(path), 'r');
     try { fsyncSync(directory); } finally { closeSync(directory); }
@@ -70,26 +72,87 @@ function writeFileAtomic(path, text) {
  * that cannot be read (permissions, I/O) throws instead, so a passing fault never changes the key.
  */
 export function loadTlsIdentity(dir, { log = () => {} } = {}) {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensurePrivateDirectory(dir);
   const path = join(dir, IDENTITY_FILE);
-  let text = null;
-  try { text = readFileSync(path, 'utf8'); } catch (error) {
-    if (error.code !== 'ENOENT') throw error; // EACCES, EIO, …: keep the key; the LAN listener reports the error instead of re-keying
-  }
+  const { text, tooLarge } = readIdentityFile(path);
   if (text !== null) {
     try {
-      if (text.length > MAX_IDENTITY_BYTES) throw new Error('identity file is too large');
+      if (tooLarge) throw new Error('identity file is too large');
       const stored = JSON.parse(text);
       if (stored?.version !== IDENTITY_VERSION) throw new Error('unknown identity format');
       return { ...describe(stored.key, stored.cert), path, created: false };
-    } catch (error) {
+    } catch {
       const aside = `${path}.corrupt-${Date.now()}`;
       renameSync(path, aside);
-      log(`kubik: LAN TLS identity ${path} is unusable (${error?.message ?? error}); moved to ${aside}, creating a new key`);
+      log(`kubik: LAN TLS identity ${path} is unusable; moved to ${aside}, creating a new key`);
     }
   }
   const identity = generate();
   writeFileAtomic(path, `${JSON.stringify({ version: IDENTITY_VERSION, key: identity.key, cert: identity.cert })}\n`);
   log(`kubik: created LAN TLS identity ${path} (key sha256 ${identity.spkiHash.slice(0, 16)}…)`);
   return { ...identity, path, created: true };
+}
+
+/** Tightens an existing state directory through its descriptor on Unix; never chmod a symlink target. */
+function ensurePrivateDirectory(dir) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Windows does not support O_DIRECTORY / O_NOFOLLOW and opening a directory descriptor is not portable there.
+  // lstat keeps the portable fallback from following an existing symlink. Windows chmod only controls writability.
+  if (process.platform === 'win32') {
+    const stat = lstatSync(dir);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('LAN TLS identity path is not a directory');
+    chmodSync(dir, 0o700);
+    return;
+  }
+  const flags = constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0);
+  const fd = openSync(dir, flags);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isDirectory()) throw new Error('LAN TLS identity path is not a directory');
+    if ((stat.mode & 0o7777) !== 0o700) fchmodSync(fd, 0o700);
+  } finally { closeSync(fd); }
+}
+
+/** Opens without following a symlink and reads at most the identity limit plus one byte. */
+function readIdentityFile(path) {
+  const fd = openIdentityFile(path);
+  if (fd === null) return { text: null, tooLarge: false };
+  try { return readIdentityDescriptor(fd); }
+  finally { closeSync(fd); }
+}
+
+function openIdentityFile(path) {
+  try {
+    // O_NOFOLLOW is not available on Windows. Reject an already-present link there before opening it; on Unix the
+    // descriptor flag remains the race-resistant check.
+    if (process.platform === 'win32') {
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw new Error('LAN TLS identity is not a regular file');
+    }
+    return openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error; // EACCES, EIO, a symlink, …: preserve the key and report the read failure
+  }
+}
+
+function readIdentityDescriptor(fd) {
+  const stat = fstatSync(fd);
+  if (!stat.isFile()) throw new Error('LAN TLS identity is not a regular file');
+  if ((stat.mode & 0o7777) !== 0o600) fchmodSync(fd, 0o600);
+  if (stat.size > MAX_IDENTITY_BYTES) return { text: '', tooLarge: true };
+  const bytes = readBounded(fd, MAX_IDENTITY_BYTES + 1);
+  if (bytes.length > MAX_IDENTITY_BYTES) return { text: '', tooLarge: true };
+  return { text: bytes.toString('utf8'), tooLarge: false };
+}
+
+function readBounded(fd, maxBytes) {
+  const buffer = Buffer.alloc(maxBytes);
+  let bytes = 0;
+  while (bytes < buffer.length) {
+    const count = readSync(fd, buffer, bytes, buffer.length - bytes, null);
+    if (!count) break;
+    bytes += count;
+  }
+  return buffer.subarray(0, bytes);
 }

@@ -20,9 +20,12 @@ configuration:
 
 1. **LAN (default).** The plugin creates once a P-256 key and a self-signed X.509 v3 certificate (hand-built
    DER, valid 1950-01-01 … 9999-12-31, no extensions) and keeps it in the OpenClaw state dir as
-   `<stateDir>/kubik/lan-tls.json` (JSON with PEM key and certificate, mode 0600, atomic write). An unreadable
-   or corrupt file is moved aside as `lan-tls.json.corrupt-<ms>` and a new key is created (pinned devices then
-   report "server key changed"). It listens with TLS ≥ 1.2 on TCP port `channels.kubik.listen.port` (default
+   `<stateDir>/kubik/lan-tls.json` (JSON with PEM key and certificate, atomic write).
+   On POSIX, startup restores directory mode 0700 and file mode 0600 without changing a valid key.
+   Symbolic links and non-regular identity files are rejected; reads are bounded to 16 KiB plus one byte.
+   A corrupt or oversized file is moved aside as `lan-tls.json.corrupt-<ms>` and a new key is created
+   (pinned devices then report "server key changed"). A file that cannot be read because of permissions
+   or I/O errors is left intact and startup reports the failure. It listens with TLS ≥ 1.2 on TCP port `channels.kubik.listen.port` (default
    18790) on all interfaces (`::` dual stack, `0.0.0.0` without IPv6). A TCP peer that is not private is
    closed before any TLS byte: loopback, 10/8, 172.16/12, 192.168/16, 169.254/16, 100.64/10 (CGNAT,
    Tailscale), `::1`, fc00::/7, fe80::/10 and the IPv4-mapped forms. Before the WebSocket upgrade (where the
