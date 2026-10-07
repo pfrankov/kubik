@@ -1,0 +1,59 @@
+# Diagnostic only: bracket timing separates clock-call intervals from time between
+# the two mix-wall reads, but cannot distinguish hypervisor delay from CPU work in mix.
+name: Sound cost clock brackets
+on:
+  push:
+    branches: [diagnostics/sound-cost-clock-brackets]
+permissions:
+  contents: read
+jobs:
+  sound-cost:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12.10'
+          architecture: arm64
+      - name: Record diagnostic environment
+        shell: bash
+        run: |
+          uname -a
+          sw_vers
+          cc --version
+          xcrun --show-sdk-version
+          python3 --version
+      - name: Run exactly three independent strict sound tests
+        shell: bash
+        run: |
+          evidence="$RUNNER_TEMP/sound-cost-clock-brackets"
+          mkdir -p "$evidence"
+          failed=0
+          for trial in 1 2 3; do
+            log="$evidence/trial-$trial.log"
+            echo "Sound cost clock-bracket diagnostic trial $trial of 3"
+            set +e
+            python3 tools/test-tess.py >"$log" 2>&1
+            status=$?
+            set -e
+            cat "$log"
+            printf '%s\n' "$status" >"$evidence/trial-$trial.exit"
+            if [ "$status" -eq 0 ]; then
+              echo "Sound cost clock-bracket diagnostic trial $trial: PASS (exit $status)"
+            else
+              echo "Sound cost clock-bracket diagnostic trial $trial: FAIL (exit $status)"
+              failed=1
+            fi
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: sound-cost-clock-bracket-logs
+          path: ${{ runner.temp }}/sound-cost-clock-brackets
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
