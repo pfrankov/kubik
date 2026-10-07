@@ -17,7 +17,7 @@ async function playback(rtt, reportMs, phase) {
       await new Promise(resolve => setImmediate(resolve));
       while (packets[0]?.at <= clock) held += packets.shift().ms;
       peak = Math.max(peak, held);
-      if (!started && held >= 400) started = true;
+      if (!started && held >= 600) started = true; // firmware/main/audio.c prebuffer
       if (started) {
         if (held >= 20) { held -= 20; played += 20; } else gaps++;
       }
@@ -33,12 +33,12 @@ async function playback(rtt, reportMs, phase) {
 test('production speech budget sustains 50–200 ms RTT, report phases and 420 ms progress cadence', async () => {
   assert.equal(SPEECH_LEAD_MS, 800);
   for (const rtt of [50, 120, 200]) {
-    for (const reportMs of [250, 300, 420]) {
+    for (const reportMs of [100, 250, 300, 420]) {
       for (const phase of [0, 100, 240]) {
         const result = await playback(rtt, reportMs, phase);
         assert.equal(result.played, 5000);
         assert.equal(result.gaps, 0, JSON.stringify({ rtt, reportMs, phase, ...result }));
-        assert.ok(result.peak <= 1100, 'exceeded physical ring capacity');
+        assert.ok(result.peak <= 900, 'exceeded physical ring capacity');
       }
     }
   }
