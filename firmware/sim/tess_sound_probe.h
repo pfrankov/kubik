@@ -7,6 +7,8 @@
 #include <string.h>
 #include "../main/tess_sound.h"
 
+#define PROBE_PI 3.14159265358979323846
+#define PROBE_SQRT2 1.41421356237309504880
 #define PROBE_FRAME 480                    // 20 ms, as the speaker task mixes
 #define PROBE_MAX_SAMPLES (AUDIO_RATE * 7)  // no sound may sound (with its tail) longer than this
 typedef struct {
@@ -153,9 +155,9 @@ static inline uint64_t probe_signature(const probe_t *p) {
 }
 // Power near `hz` (Goertzel over one Hann-windowed frame).
 static inline double probe_bin(const int32_t *x, int n, double hz) {
-    double coeff = 2 * cos(2 * M_PI * hz / AUDIO_RATE), s1 = 0, s2 = 0;
+    double coeff = 2 * cos(2 * PROBE_PI * hz / AUDIO_RATE), s1 = 0, s2 = 0;
     for (int i = 0; i < n; i++) {
-        double w = .5 - .5 * cos(2 * M_PI * i / (n - 1)), s0 = x[i] * w + coeff * s1 - s2;
+        double w = .5 - .5 * cos(2 * PROBE_PI * i / (n - 1)), s0 = x[i] * w + coeff * s1 - s2;
         s2 = s1;
         s1 = s0;
     }
@@ -179,8 +181,8 @@ static inline double probe_centroid(const probe_t *p) {
 // The share of the sound's energy above `hz`: two cascaded 2nd-order high-passes (Butterworth, 24 dB per octave) over the
 // whole render. The "no high ringing" measure.
 static inline double probe_high_share(const probe_t *p, double hz) {
-    double k = tan(M_PI * hz / AUDIO_RATE), norm = 1 / (1 + M_SQRT2 * k + k * k);
-    double b0 = norm, b1 = -2 * norm, a1 = 2 * (k * k - 1) * norm, a2 = (1 - M_SQRT2 * k + k * k) * norm;
+    double k = tan(PROBE_PI * hz / AUDIO_RATE), norm = 1 / (1 + PROBE_SQRT2 * k + k * k);
+    double b0 = norm, b1 = -2 * norm, a1 = 2 * (k * k - 1) * norm, a2 = (1 - PROBE_SQRT2 * k + k * k) * norm;
     double z[2][2] = {{0, 0}, {0, 0}}, high = 0, total = 0;
     for (long i = 0; i < p->length; i++) {
         double x = p->pcm[i], y = x;
@@ -206,7 +208,7 @@ static inline void probe_fft(double *re, double *im) {
         if (i < j) { double t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
     }
     for (int len = 2; len <= PROBE_FFT; len <<= 1) {
-        double angle = -2 * M_PI / len;
+        double angle = -2 * PROBE_PI / len;
         for (int i = 0; i < PROBE_FFT; i += len)
             for (int k = 0; k < len / 2; k++) {
                 double wr = cos(angle * k), wi = sin(angle * k);
@@ -221,7 +223,7 @@ static inline void probe_fft(double *re, double *im) {
 static inline void probe_spectrum(const probe_t *p, long start, double *mag) {
     static double re[PROBE_FFT], im[PROBE_FFT];
     for (int i = 0; i < PROBE_FFT; i++) {
-        re[i] = start + i < p->length ? p->pcm[start + i] * (.5 - .5 * cos(2 * M_PI * i / (PROBE_FFT - 1))) : 0;
+        re[i] = start + i < p->length ? p->pcm[start + i] * (.5 - .5 * cos(2 * PROBE_PI * i / (PROBE_FFT - 1))) : 0;
         im[i] = 0;
     }
     probe_fft(re, im);
