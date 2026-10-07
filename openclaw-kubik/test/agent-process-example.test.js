@@ -61,16 +61,21 @@ async function waitFor(predicate) {
   throw new Error('agent fixture did not start');
 }
 
-function processGone(directory, id) {
+async function processGone(directory, id) {
   const pid = Number(readFileSync(join(directory, id), 'utf8'));
-  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  await processExits(pid);
 }
 
 async function processExits(pid) {
-  await waitFor(() => {
-    try { process.kill(pid, 0); return false; }
-    catch (error) { return error.code === 'ESRCH'; }
-  });
+  for (let i = 0; i < 500; i++) {
+    try { process.kill(pid, 0); }
+    catch (error) {
+      if (error.code === 'ESRCH') return;
+      throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.fail(`process ${pid} did not exit within 5 seconds`);
 }
 
 const posix = { skip: process.platform === 'win32' };
@@ -108,7 +113,7 @@ test('process example bounds concurrency, kills on close, and reconnects cleanly
   assert.equal(existsSync(join(directory, 'ninth')), false);
   await adapter.close();
   await Promise.all(jobs);
-  for (const id of ids) processGone(directory, id);
+  await Promise.all(ids.map(id => processGone(directory, id)));
   await turn('already-closed', 'hello');
   assert.equal(existsSync(join(directory, 'already-closed')), false);
   await adapter.connect({ config: { command } });
@@ -161,7 +166,7 @@ test('process example enforces its deadline even when SIGTERM is ignored',
     assert.ok(Date.now() - started >= 29_000);
     assert.deepEqual(spoken, []);
     assert.deepEqual(errors, ['Agent process failed']);
-    processGone(directory, 'timeout');
+    await processGone(directory, 'timeout');
     const grandchild = Number(readFileSync(join(directory, 'timeout-grandchild'), 'utf8'));
     assert.doesNotThrow(() => process.kill(grandchild, 0));
     process.kill(grandchild, 'SIGKILL');
