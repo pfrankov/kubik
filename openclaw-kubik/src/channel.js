@@ -57,8 +57,9 @@ export const channelPlugin = {
   agentPrompt: {
     inboundFormattingHints: () => ({ text_markup: 'plain_speech', rules: SPEECH_RULES }),
     messageToolHints: () => [
-      'Kubik: message(action=send) to target kubik:<deviceId> is spoken aloud on that desk device right away, after an attention chime. Plain short sentences only; emotion tags like [[happy]] are allowed.',
-      'Kubik cannot show images or files. Delivery fails when the device is offline.',
+      'Kubik: message(action=send) to target kubik:<deviceId> delivers a notification. The device may speak audio or show text depending on voice availability and its settings.',
+      'If the device is offline, an approved message is queued for the next connection, so delivery is not immediate. Plain short sentences only; emotion tags like [[happy]] are allowed.',
+      'Kubik cannot show images or files.',
     ],
   },
   messaging: {

@@ -92,3 +92,27 @@ test('failed identity persistence removes its private temporary file and permits
   assert.equal(saved.created, true);
   assert.equal(loadTlsIdentity(dir).spkiHash, saved.spkiHash);
 });
+
+test('post-rename sync and logging errors do not make a committed TLS identity appear unpersisted', (t) => {
+  if (process.platform === 'win32') return t.skip('directory fsync is unsupported on Windows');
+  const dir = temporaryDirectory(t);
+  let syncs = 0;
+  const realFsync = fs.fsyncSync.bind(fs);
+  const failDirectorySync = t.mock.method(fs, 'fsyncSync', (fd) => {
+    if (++syncs === 2) throw Object.assign(new Error('injected directory sync failure'), { code: 'EIO' });
+    return realFsync(fd);
+  });
+  syncBuiltinESMExports();
+  try {
+    const identity = loadTlsIdentity(dir, {
+      log: (line) => {
+        if (line.includes('committed but its directory could not be synced')) throw new Error('injected logger failure');
+      },
+    });
+    assert.equal(identity.created, true);
+    assert.equal(loadTlsIdentity(dir).spkiHash, identity.spkiHash);
+  } finally {
+    failDirectorySync.mock.restore();
+    syncBuiltinESMExports();
+  }
+});

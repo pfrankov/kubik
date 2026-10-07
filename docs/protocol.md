@@ -654,6 +654,21 @@ receive a push, so notifications use a durable bounded queue: 8 per device,
 128 total, 24-hour TTL, bound to the approved identity fingerprint. They drain
 on authenticated reconnect and wait behind active PTT.
 
+A nonempty queue keeps approval polling active even without connected or pending
+devices, including after a host restart with the LAN listener disabled. Once a
+poll observes revocation, that key loses its queued messages. Re-approval does
+not restore them. Empty queues do not keep an otherwise idle poll running.
+
+The queue file is read through a bounded, regular-file descriptor. On Unix,
+restoring a backup repairs its mode to 0600 and the state directory to 0700;
+symlinks are rejected. Unreadable or invalid queue data stops startup and is
+preserved for repair, without including message content in the error.
+Writes sync a private temporary file before replacement. A failure before rename
+preserves the previous queue; after rename, memory follows the committed file.
+A real directory-sync failure after rename is logged: the new file is visible,
+but its survival across immediate power loss cannot be guaranteed. Platforms
+without directory-sync support retain atomic replacement without that guarantee.
+
 An item is removed after device acknowledgement, explicit user cancellation,
 identity revocation or its 24-hour expiry. Spoken notifications await matching
 `played` covering the full sent PCM duration; text notifications await `shown`

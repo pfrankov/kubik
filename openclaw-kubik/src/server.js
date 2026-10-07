@@ -53,14 +53,12 @@ export class KubikServer {
     pairing = null, pairingPollMs = PAIRING_POLL_MS, pairingTimeoutMs = PAIRING_TIMEOUT_MS, activity = null, cron = null,
     notificationPath = null, agentControl = null }) {
     Object.assign(this, { account, dispatch, log, setStatus, engineFactory, engineOptions, pairing, pairingPollMs, pairingTimeoutMs });
-    this.cron = cron;
-    this.activity = activity;
-    this.agentControl = agentControl;
-    this.#notifications = new NotificationQueue({ path: notificationPath });
+    Object.assign(this, { cron, activity, agentControl });
+    this.#notifications = new NotificationQueue({ path: notificationPath, log });
   }
 
   /** Re-sends what OpenClaw is busy with to every device (called when the Gateway's runs change). */
-  refreshActivity() { for (const session of this.#sessions.values()) this.#refreshActivity(session); }
+  refreshActivity() { for (const session of this.#sessions.values()) refreshSessionActivity(session, this.activity, this.#typing); }
 
   /**
    * A heartbeat (or a cron job through it) is preparing something for this device: its run lives in another
@@ -70,14 +68,12 @@ export class KubikServer {
     const id = normalizeDeviceId(deviceId);
     if (on) this.#typing.set(id, Date.now() + ttlMs); else this.#typing.delete(id);
     const session = this.#sessions.get(id);
-    if (session) this.#refreshActivity(session);
-    if (on) setTimeout(() => { const s = this.#sessions.get(id); if (s) this.#refreshActivity(s); }, ttlMs + 50).unref?.();
+    if (session) refreshSessionActivity(session, this.activity, this.#typing);
+    if (on) setTimeout(() => { const s = this.#sessions.get(id); if (s) refreshSessionActivity(s, this.activity, this.#typing); }, ttlMs + 50).unref?.();
   }
 
   /** Cron jobs changed (the `cron` source's summary, see CronWatcher): tell every device. */
-  refreshCron() { for (const session of this.#sessions.values()) this.#sendCron(session, true); }
-  #sendCron(session, always = false) { sendSessionCron(session, this.cron, always); }
-  #refreshActivity(session) { refreshSessionActivity(session, this.activity, this.#typing); }
+  refreshCron() { for (const session of this.#sessions.values()) sendSessionCron(session, this.cron, true); }
 
   get onlineDevices() { return [...this.#sessions.keys()].sort(); }
   getSession(deviceId) { return this.#sessions.get(normalizeDeviceId(deviceId)); }
@@ -93,13 +89,14 @@ export class KubikServer {
     signal?.throwIfAborted();
     if (!this.pairing || this.account.devices.get(deviceId)?.enabled === false) throw new NotificationError('Device pairing is unavailable or disabled');
     const allowed = await readAllowed(this.pairing);
-    this.#notifications.revoke(allowed);
     const session = this.getSession(deviceId);
     if (session && !allowed.has(`${deviceId}:${session.device.fingerprint}`)) this.#closeRevokedSession(session, 'pairing revoked');
+    this.#notifications.revoke(allowed);
     const keys = [...allowed].filter((entry) => entry.startsWith(`${deviceId}:`)).map((entry) => entry.slice(deviceId.length + 1));
     if (!keys.length) throw new NotificationError('Device is not approved; the message was not accepted');
     signal?.throwIfAborted();
     const entry = this.#notifications.enqueue(deviceId, text, keys);
+    this.#ensurePairingPoll();
     if (!this.#onlineSession(deviceId)) return this.#queuedResult(entry);
     const result = new Promise((resolve, reject) => this.#notificationWaiters.set(entry.id, { resolve, reject, entry }));
     this.#drainNotifications(deviceId);
@@ -166,6 +163,7 @@ export class KubikServer {
     this.#wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD, perMessageDeflate: false });
     this.#heartbeat = setInterval(() => this.#checkLiveness(), HEARTBEAT_MS);
     this.#heartbeat.unref?.();
+    this.#ensurePairingPoll();
   }
 
   /**
@@ -362,13 +360,13 @@ export class KubikServer {
   }
 
   #ensurePairingPoll() {
-    if (!this.pairing || this.#poll || (!this.#pending.size && !this.#sessions.size)) return;
+    if (!this.pairing || this.#poll || (!this.#pending.size && !this.#sessions.size && this.#notifications.empty)) return;
     this.#poll = setInterval(() => { this.checkPairings().catch(() => {}); }, this.pairingPollMs);
     this.#poll.unref?.();
   }
 
   #stopPollIfIdle() {
-    if (this.#pending.size || this.#sessions.size || !this.#poll) return;
+    if (this.#pending.size || this.#sessions.size || !this.#notifications.empty || !this.#poll) return;
     clearInterval(this.#poll);
     this.#poll = null;
   }
@@ -376,7 +374,10 @@ export class KubikServer {
   /** Re-reads approved keys for pending and active sessions; `notifyApproval` calls it for Gateway changes. */
   checkPairings() {
     if (this.#polling) return this.#polling;
-    if (!this.pairing || (!this.#sessions.size && this.#notifications.empty && ![...this.#pending.values()].some((c) => c.phase === 'pending'))) return Promise.resolve();
+    if (!this.pairing || (!this.#sessions.size && this.#notifications.empty &&
+        ![...this.#pending.values()].some((c) => c.phase === 'pending'))) {
+      this.#stopPollIfIdle(); return Promise.resolve();
+    }
     this.#polling = (async () => {
       let allowed;
       try { allowed = await readAllowed(this.pairing); } catch (error) {
@@ -384,10 +385,10 @@ export class KubikServer {
         for (const session of [...this.#sessions.values()]) this.#closeRevokedSession(session, 'pairing unavailable');
         return;
       }
-      this.#notifications.revoke(allowed);
       for (const session of [...this.#sessions.values()]) {
         if (!allowed.has(`${session.device.id}:${session.device.fingerprint}`)) this.#closeRevokedSession(session, 'pairing revoked');
       }
+      this.#notifications.revoke(allowed);
       for (const conn of [...this.#pending.values()]) {
         if (conn.phase !== 'pending' || !allowed.has(conn.entryId)) continue;
         this.#pending.delete(conn.ws);
@@ -468,8 +469,8 @@ export class KubikServer {
     this.#handshakes.delete(ws); // transfer the slot to the live session
     this.#ensurePairingPoll();
     session.start();
-    this.#refreshActivity(session);
-    this.#sendCron(session);
+    refreshSessionActivity(session, this.activity, this.#typing);
+    sendSessionCron(session, this.cron);
     this.log(`kubik: device ${deviceId} connected from ${remote} via ${conn.via}${hello.fw ? ` (fw ${hello.fw})` : ''} (key ${conn.fingerprint.slice(0, 8)})`);
     this.#publish();
     this.#drainNotifications(deviceId);

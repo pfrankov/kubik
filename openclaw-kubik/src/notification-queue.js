@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { isDeviceId } from './config.js';
+import { ensurePrivateDirectory, readPrivateFile, writePrivateFileAtomic } from './private-storage.js';
 
 export const NOTIFICATION_LIMITS = Object.freeze({ perDevice: 8, total: 128, textBytes: 4096, totalBytes: 256 * 1024, ttlMs: 24 * 60 * 60_000 });
 const MAX_FILE_BYTES = 512 * 1024;
@@ -41,20 +41,21 @@ export class NotificationError extends Error {
  * An intentional user cancellation consumes the event. */
 export class NotificationQueue {
   #entries = [];
-  constructor({ path = null, now = Date.now, limits = {} } = {}) {
+  constructor({ path = null, now = Date.now, limits = {}, log = () => {} } = {}) {
     this.path = path;
     this.now = now;
+    this.log = log;
     this.limits = notificationLimits(limits);
     if (path) this.#restore();
   }
 
   #restore() {
+    ensurePrivateDirectory(dirname(this.path), 'Notification queue');
+    const { text, tooLarge } = readPrivateFile(this.path, MAX_FILE_BYTES, 'Notification queue file');
+    if (text === null) return;
+    if (tooLarge) throw new Error('Notification queue file exceeds its limit');
     let data;
-    try {
-      if (statSync(this.path).size > MAX_FILE_BYTES) throw new Error('Notification queue file exceeds its limit');
-      data = JSON.parse(readFileSync(this.path, 'utf8'));
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    if (data === undefined) return;
+    try { data = JSON.parse(text); } catch { throw new Error('Invalid notification queue JSON'); }
     if (data?.version !== 1 || !Array.isArray(data.entries) || data.entries.length > NOTIFICATION_LIMITS.total) {
       throw new Error('Invalid notification queue file');
     }
@@ -96,25 +97,17 @@ export class NotificationQueue {
   }
 
   #commit(entries) {
+    let directorySyncError;
     if (this.path) {
       const dir = dirname(this.path);
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const temporary = `${this.path}.${randomUUID()}.tmp`;
-      let fd;
-      try {
-        fd = openSync(temporary, 'wx', 0o600);
-        writeFileSync(fd, JSON.stringify({ version: 1, entries }));
-        fsyncSync(fd);
-        closeSync(fd); fd = undefined;
-        renameSync(temporary, this.path);
-        const directory = openSync(dir, 'r');
-        try { fsyncSync(directory); } finally { closeSync(directory); }
-      } finally {
-        if (fd !== undefined) closeSync(fd);
-        try { unlinkSync(temporary); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      }
+      ensurePrivateDirectory(dir, 'Notification queue');
+      directorySyncError = writePrivateFileAtomic(this.path, JSON.stringify({ version: 1, entries }));
     }
     this.#entries = entries;
+    if (directorySyncError) {
+      try { this.log(`kubik: notification queue committed but its directory could not be synced (${directorySyncError.code ?? 'I/O error'})`); }
+      catch { /* the file rename already committed this queue state */ }
+    }
   }
 
   prune() {
