@@ -11,34 +11,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   acceptance:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24.16.0'
-          package-manager-cache: false
-      - name: Prepare ESP-IDF and browser
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flex bison gperf python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 openssl tar unzip
-          python3 -m venv "$RUNNER_TEMP/kubik-ci"
-          "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
-          echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
-          git clone --depth 1 --branch v5.5.1 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git "$RUNNER_TEMP/esp-idf"
-          "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
-          "$RUNNER_TEMP/kubik-ci/bin/uv" run --with playwright==1.63.0 playwright install chrome
-      - name: Accept source and local kit
-        shell: bash
-        run: |
-          source "$RUNNER_TEMP/esp-idf/export.sh"
-          python3 tools/accept.py
-  reference-platform:
-    name: Apple Silicon reference diagnostics
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -70,8 +42,38 @@ jobs:
           echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
           git clone --depth 1 --branch v5.5.1 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git "$RUNNER_TEMP/esp-idf"
           "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
-      - name: Accept source and local kit
+      - name: Run full strict acceptance
         shell: bash
         run: |
           source "$RUNNER_TEMP/esp-idf/export.sh"
           python3 tools/accept.py
+  linux-portability:
+    name: Linux portability, lint and firmware builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - name: Prepare ESP-IDF and browser
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flex bison gperf python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 openssl tar unzip
+          python3 -m venv "$RUNNER_TEMP/kubik-ci"
+          "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
+          echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
+          git clone --depth 1 --branch v5.5.1 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git "$RUNNER_TEMP/esp-idf"
+          "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
+          "$RUNNER_TEMP/kubik-ci/bin/uv" run --with playwright==1.63.0 playwright install chrome
+      - name: Run lint, portable host tests and both builds
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/esp-idf/export.sh"
+          python3 tools/accept.py lint
+          python3 tools/accept.py host-portable
+          python3 tools/accept.py build
