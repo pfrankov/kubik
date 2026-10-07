@@ -46,6 +46,7 @@ def require_device_voice():
 def preflight(level):
     required = ["node", "npm", "uv", "uvx", "cc", "git", "tar", "unzip", "openssl"]
     required.extend(IDF_TOOLS.get(level, ()))
+    if level in IDF_TOOLS: required.append("ninja")
     if level == "device":
         required += ["say"]
         validate_device_environment()

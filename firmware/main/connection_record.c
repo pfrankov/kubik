@@ -195,12 +195,12 @@ static esp_err_t load_legacy_wifi_strings(nvs_handle_t handle, connection_networ
     if (err == ESP_OK)
         err = get_legacy_string(handle, "pass", networks->profiles[0].password,
                                 sizeof networks->profiles[0].password, &password_present);
-    if (err == ESP_OK && ssid_present && password_present && networks->profiles[0].ssid[0]) {
+    if (err == ESP_OK && ssid_present && networks->profiles[0].ssid[0]) {
         if (networks->profiles[0].password[0] && strlen(networks->profiles[0].password) < 8)
             err = ESP_ERR_INVALID_STATE;
         else networks->count = 1;
     }
-    if (err != ESP_OK || !ssid_present || !password_present)
+    if (err != ESP_OK || !ssid_present || !networks->profiles[0].ssid[0])
         memset(&networks->profiles[0], 0, sizeof networks->profiles[0]);
     return err;
 }

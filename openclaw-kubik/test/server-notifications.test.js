@@ -249,6 +249,31 @@ test('voice provider failure with a screen delivers shown without waiting for a 
   await device.waitFor((event) => event.t === 'text');
 });
 
+test('PCM emitted before a synthesis failure still requires playback and card acknowledgements', async (t) => {
+  const engine = fakeEngine(), speak = engine.speak.bind(engine);
+  engine.speak = async (...args) => { await speak(...args); throw Error('TTS failed after emitting PCM'); };
+  const notificationPath = join(stateDir(t), 'notifications.json');
+  const { url, server } = await start(t, { engine, serverOptions: { notificationPath } });
+  const device = await connectDevice(url, { autoPlayed: false, autoShown: false });
+  t.after(() => device.close());
+  const delivery = server.notify(DEVICE, 'The complete reply is on the screen.');
+  let settled = false;
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  assert.ok(device.receivedMs(end.gen) > 0);
+  device.send({ t: 'shown', receipt: card.receipt });
+  await sleep(30);
+  assert.equal(settled, false, 'card receipt must not acknowledge unconfirmed partial audio');
+  assert.equal(contents(notificationPath).length, 1);
+  acknowledgePlayback(device, end);
+  const result = await delivery;
+  assert.equal(result.status, 'shown');
+  assert.equal(result.spokenChars, 0);
+  assert.ok(result.shownChars > 0);
+  assert.equal(contents(notificationPath).length, 0);
+});
+
 test('mixed spoken and fallback text notification waits for both final acknowledgements', async (t) => {
   const { device, delivery } = await mixedNotification(t);
   let settled = false;

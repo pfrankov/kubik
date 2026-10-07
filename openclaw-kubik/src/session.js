@@ -366,7 +366,6 @@ export class DeviceSession {
       if (this.#speechAbort === abort) this.#speechAbort = null;
     }
   }
-
   #logLatency(t, what = 'first audio') {
     t.audio = Date.now();
     this.log(`kubik: ${this.device.id} turn ${t.turnId} latency: speech-to-text ${t.transcribed - t.released} ms, `
@@ -384,22 +383,23 @@ export class DeviceSession {
   }
 
   async #finishStream(stream) {
-    let playback;
+    let playback, hasAudio = false;
     if (stream.gen != null) {
       const gen = stream.gen;
       const epoch = this.epoch;
       await this.#unlessInterrupted(new Promise((resolve) => this.pacer.mark(resolve)));
+      hasAudio = this.pacer.sentMs > 0;
       if (epoch === this.epoch && !this.#closed && !stream.cancelled) {
         this.send(out.speakEnd(gen));
         const played = this.#expectAck('played', gen, this.pacer.aheadOfRealtimeMs + PLAYED_GRACE_MS,
           Math.max(1, Math.floor(this.pacer.sentMs)));
-        if (stream.live || (stream.kind === 'notify' && stream.spokenChars > 0)) playback = await played;
+        if (stream.live || (stream.kind === 'notify' && hasAudio)) playback = await played;
       }
     } else if (stream.kind === 'reply' && stream.epoch === this.epoch) {
       this.#settleIdle();
     }
     if (stream.kind === 'notify' && stream.receipt && !stream.cancelled && stream.epoch === this.epoch &&
-        !this.#closed && (!stream.spokenChars || (playback?.acknowledged && stream.shownAck !== stream.receipt))) {
+        !this.#closed && (!hasAudio || (playback?.acknowledged && stream.shownAck !== stream.receipt))) {
       playback = stream.shownAck === stream.receipt ? { acknowledged: true } :
         await this.#expectAck('shown', stream.receipt, PLAYED_GRACE_MS);
     }
