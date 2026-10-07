@@ -21,7 +21,7 @@ export async function readAllowed(pairing) {
 }
 
 /**
- * Queues voice turns behind a fresh allow-list read, then resumes frames in order and within bounds.
+ * Queues voice turns and device controls behind a fresh allow-list read, then resumes frames in order and within bounds.
  * Returns `{ message, audio }`: the only way frames reach the session while it is connected.
  */
 export function guardSessionFrames(session, conn, { authorize, onFailure, onFrameError }) {
@@ -54,7 +54,8 @@ export function guardSessionFrames(session, conn, { authorize, onFailure, onFram
   };
   conn.ws.once('close', clear);
   return {
-    message: (value) => process({ authorize: value.t === 'ptt', bytes: Buffer.byteLength(JSON.stringify(value)), run: () => session.handleMessage(value) }),
+    message: (value) => process({ authorize: ['ptt', 'cancel', 'device_state', 'agent_options', 'agent_model'].includes(value.t),
+      bytes: Buffer.byteLength(JSON.stringify(value)), run: () => session.handleMessage(value) }),
     audio: (value) => process({ authorize: false, bytes: value.pcm.byteLength, run: () => session.handleAudio(value) }),
   };
 }

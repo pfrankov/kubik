@@ -7,6 +7,7 @@ import { attachDeviceMessages } from './server-connection.js';
 import { guardSessionFrames, readAllowed, withPairingTimeout } from './pairing-access.js';
 import { DeviceSession } from './session.js';
 import { NotificationError, NotificationQueue } from './notification-queue.js';
+import { refreshSessionActivity, sendSessionCron } from './server-status.js';
 import { sanitizeForDisplay, speakableText } from './speech.js';
 
 const HELLO_TIMEOUT_MS = 3000; // until the hello arrives, then again until the auth arrives: a slot is never held longer
@@ -75,23 +76,8 @@ export class KubikServer {
 
   /** Cron jobs changed (the `cron` source's summary, see CronWatcher): tell every device. */
   refreshCron() { for (const session of this.#sessions.values()) this.#sendCron(session, true); }
-  #sendCron(session, always = false) {  // a fresh connection starts with nothing shown
-    const c = this.cron?.summary();
-    if (c && (always || c.running || c.next >= 0)) session.send(out.cron(c.running, c.next));
-  }
-
-  #refreshActivity(session) {
-    let own = '', other = '';
-    if (this.activity) {
-      let key;
-      try { key = this.activity.sessionKeyFor(session.device.id); } catch { key = undefined; }
-      ({ own, other } = this.activity.summary(key));
-    }
-    const until = this.#typing.get(session.device.id);
-    if (until && until < Date.now()) this.#typing.delete(session.device.id);
-    else if (until && !own) { own = other || 'thinking'; other = ''; }
-    session.setActivity({ own, other });
-  }
+  #sendCron(session, always = false) { sendSessionCron(session, this.cron, always); }
+  #refreshActivity(session) { refreshSessionActivity(session, this.activity, this.#typing); }
 
   get onlineDevices() { return [...this.#sessions.keys()].sort(); }
   getSession(deviceId) { return this.#sessions.get(normalizeDeviceId(deviceId)); }
@@ -427,26 +413,39 @@ export class KubikServer {
     try { capabilitySnapshot = await engine.prepareCapabilities?.({ agentId: this.agentControl?.agentId?.(device), getVoice }); }
     catch (error) { refreshed = false; this.log(`kubik: cannot refresh agent voice capabilities for ${deviceId}: ${error?.message ?? error}`); }
     if (conn.phase === 'closed' || ws.readyState !== 1) return;
-    const previous = this.#sessions.get(deviceId);
     if (admission < (this.#committedAdmission.get(deviceId) ?? 0)) {
       conn.fail(CLOSE.REPLACED, 'replaced'); return;
     }
+    let allowed, pairingError;
+    try { allowed = await readAllowed(this.pairing); } catch (error) { pairingError = error; }
+    // The pairing read is asynchronous too: the socket may have closed or a newer candidate may have committed
+    // while it was in flight. Do not let this stale candidate publish a session or apply its cached snapshot.
+    if (conn.phase === 'closed' || ws.readyState !== 1) return;
+    if (admission < (this.#committedAdmission.get(deviceId) ?? 0)) {
+      conn.fail(CLOSE.REPLACED, 'replaced'); return;
+    }
+    if (pairingError) {
+      this.log(`kubik: cannot revalidate device ${deviceId} before session admission: ${pairingError?.message ?? pairingError}`);
+      conn.fail(CLOSE.INTERNAL, 'pairing unavailable'); return;
+    }
+    if (this.account.devices.get(deviceId)?.enabled === false) { this.#reject(conn, 'device disabled before session admission'); return; }
+    if (!allowed.has(conn.entryId)) { this.#reject(conn, 'pairing revoked before session admission'); return; }
+    const previous = this.#sessions.get(deviceId);
     if (!refreshed && this.#committedAdmission.has(deviceId)) {
       conn.fail(CLOSE.INTERNAL, 'voice capabilities unavailable'); return;
     }
+    const authorize = () => this.#authorizeSession(session);
     const session = new DeviceSession({
       ws, device, engine, log: this.log,
       lastGen: previous?.gen ?? this.#lastGen.get(deviceId) ?? 0, sessionId: `s-${admission}`, volume: this.account.volume ?? hello.volume,
-      agentControl: this.agentControl,
-      textMode: this.account.text ?? 'auto',
+      agentControl: this.agentControl, textMode: this.account.text ?? 'auto',
       onActivity: () => this.setStatus({ lastInboundAt: Date.now() }),
-      authorize: () => this.#authorizeSession(session),
+      authorize, current: () => this.#sessions.get(deviceId),
       dispatch: async (turn) => {
-        if (!turn.isCurrent?.() || !await this.#authorizeSession(session)) return;
+        if (!turn.isCurrent?.() || !await authorize()) return;
         if (session.closed || this.#sessions.get(deviceId) !== session || !turn.isCurrent?.()) return;
         return this.dispatch({ device, ...turn, speak: turn.deliver });
       },
-      current: () => this.#sessions.get(deviceId),
     });
     // The prepared engine snapshot and server session become current in one synchronous commit.
     if (refreshed && engine.prepareCapabilities) engine.applyCapabilities(capabilitySnapshot);
@@ -458,7 +457,7 @@ export class KubikServer {
     }
     conn.session = session;
     conn.phase = 'session';
-    conn.frames = guardSessionFrames(session, conn, { authorize: () => this.#authorizeSession(session),
+    conn.frames = guardSessionFrames(session, conn, { authorize,
       onFailure: (error) => {
         if (error) this.log(`kubik: pairing check failed for device ${deviceId}: ${error?.message ?? error}`);
         this.#closeRevokedSession(session, error ? 'pairing unavailable' : 'pairing busy');

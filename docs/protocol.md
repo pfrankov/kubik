@@ -331,6 +331,12 @@ The server stores only the `deviceId:fingerprint` allow entry (in OpenClaw's
 pairing store); there are no shared secrets in `openclaw.json`. A key is
 revoked by `channels.kubik.devices.<deviceId>.enabled: false` (close `4001`,
 even for an approved key), or by removing its entry from the allow list.
+Before publishing an authenticated session, the server reads the allow list again
+after preparing voice capabilities. A rejected or superseded reconnect leaves
+the current session and its voice configuration intact. Live PTT, cancellation,
+volume updates and agent controls each wait for a fresh authorization check;
+queued frames retain their order and are bounded to 64 frames / 64 KiB.
+A revoked device is closed before the requested control reaches its session.
 
 Limits: at most 16 simultaneous pre-session sockets per server and 4 per
 client address. A socket holds this slot while the server reads the pairing
