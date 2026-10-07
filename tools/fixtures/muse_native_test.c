@@ -116,8 +116,13 @@ static bool muse_ble_send(const char *json,uint32_t record){(void)json;(void)rec
 static void muse_ble_disconnect(void){}
 static esp_err_t muse_ble_start(const char *name,void (*dispatch)(const char *,bool,uint32_t)){(void)name;(void)dispatch;return ESP_OK;}
 static int httpd_req_recv(httpd_req_t *r,char *body,size_t size){
-    if(r->fail)return -1;
-    if(size>7)size=7;memcpy(body,r->body+r->offset,size);r->offset+=size;return size;
+    if (r->fail) return -1;
+    if (size > 7) {
+        size = 7;
+    }
+    memcpy(body, r->body + r->offset, size);
+    r->offset += size;
+    return (int)size;
 }
 
 /* PRODUCTION */

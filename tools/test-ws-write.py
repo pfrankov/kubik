@@ -59,18 +59,19 @@ int __real_esp_transport_write(void *t, const char *b, int n, int timeout) {
 #define esp_transport_write __wrap_esp_transport_write
 '''
 tests = r'''
-static void frame(int bytes, int opcode) {
-    char data[2048], original[2048];
-    for (int i = 0; i < bytes; i++) data[i] = i % 251;
+static void frame(size_t bytes, int opcode) {
+    char data[2048] = {0}, original[2048] = {0};
+    assert(bytes <= sizeof data);
+    for (size_t i = 0; i < bytes; i++) data[i] = i % 251;
     memcpy(original, data, bytes); writes = length = 0;
-    assert(__wrap_esp_transport_ws_send_raw((void *)1, opcode, data, bytes, 100) == bytes);
+    assert(__wrap_esp_transport_ws_send_raw((void *)1, opcode, data, (int)bytes, 100) == (int)bytes);
     int header = bytes <= 125 ? 6 : 8;
-    assert(wire[0] == opcode && length == header + bytes);
+    assert(wire[0] == opcode && length == header + (int)bytes);
     assert((wire[1] & 128) && (wire[1] & 127) == (bytes <= 125 ? bytes : 126));
-    if (header == 8) assert(((int)wire[2] << 8 | wire[3]) == bytes);
-    for (int i = 0; i < bytes; i++) assert((wire[header + i] ^ "abcd"[i % 4]) == (unsigned char)original[i]);
+    if (header == 8) assert(((int)wire[2] << 8 | wire[3]) == (int)bytes);
+    for (size_t i = 0; i < bytes; i++) assert((wire[header + i] ^ "abcd"[i % 4]) == (unsigned char)original[i]);
     assert(!memcmp(data, original, bytes));
-    assert(writes == (header + bytes + 1023) / 1024 && !atomic_load(&s_owner));
+    assert(writes == (header + (int)bytes + 1023) / 1024 && !atomic_load(&s_owner));
 }
 int main(void) {
     for (int opcode = 0x81; opcode <= 0x82; opcode++) {
