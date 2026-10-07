@@ -60,6 +60,49 @@ test('close releases a producer at its next fragment instead of draining it', as
   assert.deepEqual(errors, []);
 });
 
+test('close before reply resolves returns a lazy iterator without starting its next item', async () => {
+  let release, nextCalls = 0, returnCalls = 0, producerStarted = false;
+  const spoken = [], errors = [];
+  const adapter = defineAdapter({
+    id: 'late-stream', label: 'Late stream', connect() {},
+    async reply() {
+      await new Promise(resolve => { release = resolve; });
+      const source = (async function* () { producerStarted = true; yield 'Too late.'; })();
+      return { [Symbol.asyncIterator]() {
+        return {
+          next() { nextCalls++; return source.next(); },
+          return() { returnCalls++; return source.return(); },
+        };
+      } };
+    },
+  });
+  await adapter.connect();
+  const pending = adapter.dispatch({ isCurrent: () => true,
+    speak: async text => spoken.push(text), onAgentError: error => errors.push(error) });
+  await adapter.close();
+  release();
+  await pending;
+  assert.equal(nextCalls, 0);
+  assert.equal(returnCalls, 1, 'the acquired iterator is closed without asking it for a first item');
+  assert.equal(producerStarted, false);
+  assert.deepEqual(spoken, []);
+  assert.deepEqual(errors, []);
+});
+
+test('reply rejection after close is not reported as an agent error', async () => {
+  let rejectReply;
+  const errors = [];
+  const adapter = defineAdapter({ id: 'late-error', label: 'Late error', connect() {},
+    reply() { return new Promise((_resolve, reject) => { rejectReply = reject; }); } });
+  await adapter.connect();
+  const pending = adapter.dispatch({ isCurrent: () => true, speak: async () => {},
+    onAgentError: error => errors.push(error.message) });
+  await adapter.close();
+  rejectReply(new Error('connection closed'));
+  await pending;
+  assert.deepEqual(errors, []);
+});
+
 test('failed connect stays closed until another connect succeeds', async () => {
   let fail = true, calls = 0;
   const signals = [], spoken = [];

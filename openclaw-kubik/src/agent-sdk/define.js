@@ -26,18 +26,29 @@ function fragmentsOf(result) {
 }
 
 async function speakFragments(turn, result, open, signal) {
+  const source = fragmentsOf(result);
+  const iterator = source[Symbol.asyncIterator]?.() ?? source[Symbol.iterator]();
+  let completed = false;
   let characters = 0, fragments = 0;
-  for await (const part of fragmentsOf(result)) {
-    if (signal.aborted) break;
-    if (typeof part !== 'string') throw new Error('adapter reply fragments must be text');
-    characters += part.length;
-    // Count empty fragments too: an unbounded producer must not monopolize the host.
-    if (characters > MAX_REPLY_CHARS || ++fragments > MAX_REPLY_FRAGMENTS) {
-      throw new Error('adapter reply exceeds 8192 characters or 512 fragments');
+  try {
+    while (!signal.aborted) {
+      const { done, value: part } = await iterator.next();
+      if (signal.aborted) return;
+      if (done) { completed = true; return; }
+      if (typeof part !== 'string') throw new Error('adapter reply fragments must be text');
+      characters += part.length;
+      // Count empty fragments too: an unbounded producer must not monopolize the host.
+      if (characters > MAX_REPLY_CHARS || ++fragments > MAX_REPLY_FRAGMENTS) {
+        throw new Error('adapter reply exceeds 8192 characters or 512 fragments');
+      }
+      // Keep reading after interruption. Leaving the loop would stop the producer.
+      if (!open() || !part.trim()) continue;
+      await turn.speak(part);
     }
-    // Keep reading after interruption. Leaving the loop would stop the producer.
-    if (!open() || !part.trim()) continue;
-    await turn.speak(part);
+  } finally {
+    if (!completed && typeof iterator.return === 'function') {
+      try { await iterator.return(); } catch { /* preserve the reply or shutdown result */ }
+    }
   }
 }
 

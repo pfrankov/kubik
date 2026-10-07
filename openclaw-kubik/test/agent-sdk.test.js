@@ -53,6 +53,21 @@ test('custom native ESM adapter declares validated setup fields and only stores 
   assert.equal(typeof adapter.connect, 'function');
 });
 
+test('setup field definitions reject misspelled or mistyped validation options', () => {
+  const base = { id: 'setup-shape', label: 'Setup shape', setup: [], connect() {}, dispatch() {} };
+  const field = { key: 'count', label: 'Count', type: 'integer', required: false, min: 1, max: 5, default: 3 };
+  assert.doesNotThrow(() => validateAdapter({ ...base, setup: [field] }));
+  assert.deepEqual(normalizeSetupValues([
+    { key: 'name', label: 'Name', type: 'string', required: false, maxLength: 8, default: 'Kubik' },
+    field,
+  ]), { name: 'Kubik', count: 3 });
+  assert.throws(() => validateAdapter({ ...base, setup: [{ ...field, required: 'false' }] }), /required must be true or false/);
+  assert.throws(() => validateAdapter({ ...base, setup: [{ ...field, maxLenght: 4 }] }), /unknown property "maxLenght"/);
+  assert.throws(() => validateAdapter({ ...base, setup: [{ ...field, maxLength: 4 }] }), /unknown property "maxLength"/);
+  assert.throws(() => validateAdapter({ ...base, setup: [{ ...field, type: 'string', min: 1 }] }), /unknown property "min"/);
+  assert.throws(() => validateAdapter({ ...base, setup: [{ key: 'name', label: 'Name', type: 'string', maxLength: null }] }), /invalid maxLength/);
+});
+
 test('activity and cron event relays validate snapshots, expire them, and keep bounded state', async () => {
   const changes = { activity: 0, cron: 0 };
   const activity = createActivityRelay({ onChange: () => changes.activity++ });
