@@ -58,6 +58,20 @@ both proof of the device's private key and your local pairing approval.
    Run this as the Hermes service user, with the same `HERMES_HOME`.
    Codes expire after ten minutes. The existing socket completes pairing.
 
+Keep `HERMES_HOME/kubik` when updating or restoring Hermes: it contains the
+pinned TLS identity and device approvals. Startup restores owner-only access
+(0700 for this directory, 0600 for its state files) without changing the key
+or approvals. State files must be regular files, not symbolic links. Writes
+replace complete files atomically; a failed write preserves the previous file.
+
+As the Hermes service user, revoke a paired device by removing its exact
+`device-id:fingerprint` entry from `HERMES_HOME/kubik/approved.json`, keeping
+the remaining entries as a JSON list.
+The current connection stays open, but new recordings, agent handoffs and
+new outbound replies are denied without restarting Hermes. Playback already in
+progress may finish. A turn already accepted by Hermes is allowed to finish in
+its agent conversation.
+
 Use `kubik://`, not raw `wss://`, for this listener: Kubik pins its TLS key.
 A plain `wss://` address expects a publicly trusted certificate. Saving a new
 Server address clears the old pin; a changed key otherwise requires explicit

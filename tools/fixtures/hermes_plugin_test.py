@@ -8,7 +8,7 @@ from pathlib import Path
 import struct
 import sys
 import tempfile
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -18,88 +18,11 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
 
 ROOT = Path(__file__).resolve().parents[2]
-pkg = ModuleType('hermes_kubik')
-pkg.__path__ = [str(ROOT / 'hermes-kubik')]
-sys.modules[pkg.__name__] = pkg
-for name in ('gateway', 'gateway.config', 'gateway.platforms', 'gateway.platforms.base', 'gateway.platforms.event'):
-    sys.modules[name] = ModuleType(name)
+from hermes_test_support import (DeviceSocket, KubikAdapter, Peer, ProtocolFixture,
+                                Security, atomic_json, decode, encode)
 
 
-class Base:
-    def __init__(self, config, platform):
-        self.config, self.platform = config, platform
-
-    def build_source(self, chat_id, **kwargs):
-        return SimpleNamespace(chat_id=chat_id, **kwargs)
-
-    def _event_session_key(self, event):
-        return event.source.chat_id
-
-    async def cancel_session_processing(self, key, **kwargs):
-        pass
-
-
-sys.modules['gateway.config'].Platform = str
-sys.modules['gateway.platforms.base'].BasePlatformAdapter = Base
-sys.modules['gateway.platforms.base'].SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
-sys.modules['gateway.platforms.event'].MessageEvent = lambda **kwargs: SimpleNamespace(**kwargs)
-sys.modules['gateway.platforms.event'].MessageType = SimpleNamespace(VOICE='voice')
-from hermes_kubik.security import Security, atomic_json
-from hermes_kubik.codec import decode, encode
-from hermes_kubik.adapter import KubikAdapter, Peer
-sys.modules['tools'] = ModuleType('tools')
-sys.modules['tools.transcription_tools'] = ModuleType('tools.transcription_tools')
-
-
-class DeviceSocket:
-    """A controllable close handshake for overlapping authenticated connections."""
-    def __init__(self, release_close=None):
-        self.closed = False
-        self.release_close = release_close
-        self.prepared = asyncio.Event()
-        self.close_started = asyncio.Event()
-        self.finished = asyncio.Event()
-        self.messages = []
-
-    async def prepare(self, request):
-        self.prepared.set()
-
-    async def send_json(self, value):
-        self.messages.append(value)
-
-    async def send_bytes(self, value):
-        self.messages.append(value)
-
-    async def close(self, **kwargs):
-        self.close_started.set()
-        if self.release_close is not None:
-            await self.release_close.wait()
-        self.closed = True
-        self.finished.set()
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        await self.finished.wait()
-        raise StopAsyncIteration
-
-
-class Protocol(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        environment = patch.dict(os.environ, {'HERMES_HOME': self.temp.name})
-        environment.start()
-        self.addCleanup(environment.stop)
-        self.store = Security(self.temp.name)
-        self.store.tls()
-        self.key = ec.generate_private_key(ec.SECP256R1())
-        raw = self.key.public_key().public_bytes(serialization.Encoding.X962,
-                                                serialization.PublicFormat.UncompressedPoint)
-        self.hello = {'t': 'hello', 'v': 5, 'device': 'kubik-test', 'fw': 'test',
-                      'key': base64.b64encode(raw).decode(), 'volume': 50}
-
+class Protocol(ProtocolFixture):
     def sign(self, nonce, bind=None):
         text = '\n'.join(('kubik-auth-v5', nonce, self.hello['device'], self.hello['key'], bind or self.store.bind))
         return base64.b64encode(self.key.sign(text.encode(), ec.ECDSA(hashes.SHA256()))).decode()
@@ -182,8 +105,10 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
 
     async def test_reconnect_replaces_a_peer_before_awaiting_its_close(self):
         adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+        adapter.security = self.store
         adapter.speech_available = lambda: ({'available': True}, {'available': False})
         identity, _ = self.store.identity(self.hello)
+        atomic_json(self.store.allow_path, [identity])
         release_old = asyncio.Event()
         old, first, latest = DeviceSocket(release_old), DeviceSocket(), DeviceSocket()
         old_peer = Peer(old, identity, self.hello)
@@ -218,8 +143,10 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
     async def test_reconnecting_peer_is_hidden_until_handshake_finishes(self):
         from hermes_kubik import speech
         adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+        adapter.security = self.store
         adapter.speech_available = lambda: ({'available': True}, {'available': True})
         identity, _ = self.store.identity(self.hello)
+        atomic_json(self.store.allow_path, [identity])
         release_old = asyncio.Event()
         old, replacement = DeviceSocket(release_old), DeviceSocket()
         old_peer = Peer(old, identity, self.hello)
@@ -291,6 +218,8 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
         for change in ('interrupt', 'volume', 'disconnect'):
             with self.subTest(change=change):
                 adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+                adapter.security = self.store
+                atomic_json(self.store.allow_path, ['device'])
                 peer = Peer(DeviceSocket(), 'device', self.hello)
                 peer.ready = True
                 peer.stage = 'agent'
@@ -327,11 +256,13 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
 
     async def test_partial_playback_and_cancel_preserve_agent_run(self):
         adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+        adapter.security = self.store
         class Socket:
             closed = False
             async def send_json(self, value):
                 pass
         identity, _ = self.store.identity(self.hello)
+        atomic_json(self.store.allow_path, [identity])
         peer = Peer(Socket(), identity, self.hello)
         peer.gen, peer.sent_ms = 8, 1000
         receipt = asyncio.Event()
@@ -444,4 +375,5 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
                 decode(invalid)
 
 
-unittest.main()
+if __name__ == '__main__':
+    unittest.main()
