@@ -67,10 +67,9 @@ static void handle_emotion_json(cJSON *j) {
         post_remote(EV_SRV_EMOTION, face_emotion_from_name(emotion), cJSON_IsNumber(duration) ? duration->valueint : 0);
 }
 static void handle_speak_json(cJSON *j) {
-    cJSON *generation = cJSON_GetObjectItem(j, "gen");
+    int gen = app_voice_parse_generation(j);
     const char *kind = cJSON_GetStringValue(cJSON_GetObjectItem(j, "kind"));
-    if (!cJSON_IsNumber(generation)) return;
-    int gen = generation->valueint & 0xFF;
+    if (gen < 0) return;
     uint32_t session = link_session();
     ESP_LOGI(TAG, "speech begin gen=%d via=%s", gen, link_via());
     hp_mark("speech begin");
@@ -78,8 +77,8 @@ static void handle_speak_json(cJSON *j) {
     app_post_in_session(EV_SRV_SPEAK, gen, kind && !strcmp(kind, "notify"), session);
 }
 static void handle_speak_end_json(cJSON *j) {
-    cJSON *generation = cJSON_GetObjectItem(j, "gen");
-    if (cJSON_IsNumber(generation)) app_post_in_session(EV_SRV_SPEAK_END, generation->valueint & 0xFF, 0, link_session());
+    int gen = app_voice_parse_generation(j);
+    if (gen >= 0) app_post_in_session(EV_SRV_SPEAK_END, gen, 0, link_session());
 }
 static void handle_error_json(cJSON *j) {
     const char *error = cJSON_GetStringValue(cJSON_GetObjectItem(j, "code"));
