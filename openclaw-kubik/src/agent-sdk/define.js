@@ -25,9 +25,10 @@ function fragmentsOf(result) {
   throw new Error('adapter reply must return text or text fragments');
 }
 
-async function speakFragments(turn, result, open) {
+async function speakFragments(turn, result, open, signal) {
   let characters = 0, fragments = 0;
   for await (const part of fragmentsOf(result)) {
+    if (signal.aborted) break;
     if (typeof part !== 'string') throw new Error('adapter reply fragments must be text');
     characters += part.length;
     // Count empty fragments too: an unbounded producer must not monopolize the host.
@@ -63,10 +64,7 @@ async function connectSpec(spec, state, ctx) {
   try { return await spec.connect({ ...ctx, signal }); }
   catch (error) {
     // Only this attempt may be replaced. close() or a newer connect already owns the slot.
-    if (state.lifetime === attempt && !attempt.signal.aborted) {
-      attempt.abort();
-      state.lifetime = new AbortController();
-    }
+    if (state.lifetime === attempt) attempt.abort();
     throw error;
   }
 }
@@ -80,8 +78,7 @@ async function dispatchSpec(spec, state, turn) {
       device: turn.device, transcript: turn.transcript, turnId: turn.turnId, signal,
       isCurrent: () => turnOpen(turn.isCurrent), events: turn.events,
     });
-    if (!open()) return;
-    await speakFragments(turn, result, open);
+    await speakFragments(turn, result, open, signal);
   } catch (error) {
     if (open()) report(turn.onAgentError, error);
   }
