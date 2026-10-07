@@ -6,6 +6,8 @@
 #include "esp_err.h"
 #include "character.h"
 
+struct connection_record;
+
 #define SETTINGS_PIN_BYTES 32
 #define SETTINGS_WIFI_MAX 8
 
@@ -47,9 +49,13 @@ bool settings_take_provisioning(void);
 // replace its password; an empty password keeps an existing exact match.
 // Saving is the user's explicit choice, so it also forgets the pinned server key.
 esp_err_t settings_save_connection(const char *ssid, const char *password, const char *url);
+// Setup commits the candidate connection and Muse agent selection as one NVS record.
+esp_err_t settings_save_setup(const char *ssid, const char *password, const char *url,
+                              bool muse_selected, const char *sdk_token);
+void settings_apply_connection_record(const struct connection_record *record);
+void settings_apply_connection_pin(const struct connection_record *record);
 int settings_wifi_find(const char *ssid);
 esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES]);
-// Wi-Fi profiles, server, device key and preferences back to the out-of-box state.
-// g_settings changes only on success; after an erase failure the call can be retried.
+// Erases the app namespace. Runtime settings change only when the erase succeeds.
 esp_err_t settings_factory_reset(void);
 bool settings_server_valid(const char *url);

@@ -12,8 +12,8 @@ except ImportError as error:
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_ROOTS = ("firmware/main", "firmware/sim", "openclaw-kubik/src",
                 "openclaw-kubik/test", "openclaw-kubik/scripts", "hermes-kubik", "tools", "deploy")
-SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".h", ".inc", ".js", ".mjs", ".py", ".sh", ".html", ".css", ".swift"}
-ANALYZED_SUFFIXES = {".c", ".cc", ".cpp", ".h", ".js", ".mjs", ".py"}
+SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".h", ".hpp", ".inc", ".js", ".mjs", ".py", ".sh", ".html", ".css", ".swift"}
+ANALYZED_SUFFIXES = {".c", ".cc", ".cpp", ".h", ".hpp", ".js", ".mjs", ".py"}
 SKIP_DIRS = {"node_modules", "build", "dist", ".venv", ".tmp"}
 errors = []
 file_count = 0

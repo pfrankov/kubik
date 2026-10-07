@@ -7,5 +7,6 @@
 typedef struct { bool muse; char sdk_token[96]; } setup_agent_choice_t;
 const char *setup_validate_credentials(const char *ssid, const char *password);
 const char *setup_agent_choice(const cJSON *request, setup_agent_choice_t *choice);
-esp_err_t setup_agent_save(const setup_agent_choice_t *choice);
+esp_err_t setup_connection_save(const setup_agent_choice_t *choice,
+                               const char *ssid, const char *password, const char *url);
 cJSON *setup_read_request(httpd_req_t *request);

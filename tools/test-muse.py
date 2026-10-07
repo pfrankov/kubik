@@ -8,7 +8,18 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 MAIN = ROOT / 'firmware/main'
 PAIRING = ROOT / 'firmware/components/muse_pairing'
-CJSON = ROOT / 'firmware/managed_components/espressif__cjson/cJSON'
+MANAGED_CJSON = ROOT / 'firmware/managed_components/espressif__cjson/cJSON'
+
+
+def cjson_path():
+    if (MANAGED_CJSON / 'cJSON.h').is_file():
+        return MANAGED_CJSON
+    idf = os.environ.get('IDF_PATH')
+    if idf:
+        idf_cjson = Path(idf) / 'components/json/cJSON'
+        if (idf_cjson / 'cJSON.h').is_file():
+            return idf_cjson
+    raise SystemExit('cJSON source required (managed component or IDF_PATH/components/json/cJSON)')
 
 
 def run(command):
@@ -20,6 +31,8 @@ def run(command):
 
 
 def adapter(tmp):
+    global CJSON
+    CJSON = cjson_path()
     (tmp / 'esp_err.h').write_text('''#pragma once
     typedef int esp_err_t;
     #define ESP_OK 0
@@ -78,6 +91,8 @@ def noise(tmp):
 
 
 def main():
+    global CJSON
+    CJSON = cjson_path()
     with tempfile.TemporaryDirectory(prefix='kubik-muse-test-') as directory:
         tmp = Path(directory)
         adapter(tmp)

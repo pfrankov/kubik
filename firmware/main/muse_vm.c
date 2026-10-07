@@ -59,7 +59,7 @@ static bool copy_field(cJSON *object, const char *key, char *out, size_t cap) {
     for (const unsigned char *p = (const unsigned char *)value; *p; p++) if (*p < 32 || *p >= 127) return false;
     memcpy(out, value, strlen(value) + 1); return true;
 }
-static bool refresh(muse_credentials_t *credentials, char *auth, size_t cap) {
+static bool refresh(muse_credentials_t *credentials, uint32_t generation, char *auth, size_t cap) {
     const char *raw = strrchr(credentials->refresh_token, ':');
     snprintf(auth, cap, "Bearer hatch_refresh:%s", raw ? raw + 1 : credentials->refresh_token);
     cJSON *body = cJSON_CreateObject(); char node[32], device[48];
@@ -75,7 +75,7 @@ static bool refresh(muse_credentials_t *credentials, char *auth, size_t cap) {
     cJSON *result = cJSON_IsObject(payload) ? payload : response;
     bool ok = status == 200 && copy_field(result, "access_token", credentials->access_token, sizeof credentials->access_token) &&
         copy_field(result, "refresh_token", credentials->refresh_token, sizeof credentials->refresh_token);
-    if (ok) ok = muse_store_save(credentials) == ESP_OK;
+    if (ok) ok = muse_store_refresh_save(credentials, generation) == ESP_OK;
     muse_json_clear(response); return ok;
 }
 
@@ -97,12 +97,13 @@ esp_err_t muse_vm_lookup(muse_vm_t *out) {
     char *auth = calloc(1, MUSE_TOKEN_CAP + 32);
     if (!credentials || !auth) { free(credentials); free(auth); return ESP_ERR_NO_MEM; }
     int status = 0; cJSON *response = NULL;
-    esp_err_t err = muse_store_load(credentials);
+    uint32_t generation = 0;
+    esp_err_t err = muse_store_load_generation(credentials, &generation, NULL);
     if (err == ESP_OK && credentials->state != MUSE_PAIRED) err = ESP_ERR_INVALID_STATE;
     if (err == ESP_OK) {
         snprintf(auth, MUSE_TOKEN_CAP + 32, "Bearer %s", credentials->access_token);
         response = request("/fetch_vms", auth, NULL, &status);
-        if (status == 401 && refresh(credentials, auth, MUSE_TOKEN_CAP + 32)) {
+        if (status == 401 && refresh(credentials, generation, auth, MUSE_TOKEN_CAP + 32)) {
             muse_json_clear(response);
             snprintf(auth, MUSE_TOKEN_CAP + 32, "Bearer %s", credentials->access_token);
             response = request("/fetch_vms", auth, NULL, &status);

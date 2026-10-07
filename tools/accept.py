@@ -15,7 +15,7 @@ PLAYWRIGHT = "playwright==1.63.0"
 IDF_TOOLS = {"host": ("idf.py", "clang"), "host-portable": ("idf.py", "clang"), "build": ("idf.py",), "ci": ("idf.py", "clang")}
 HOST_TESTS = (
     "agent-menu", "tls-memory", "audio-capture", "mic-task", "mic-delivery", "audio-stream", "audio-levels", "menu-hold", "audio-wake", "wake-word", "native-voice", "guide", "ima", "link", "navigation", "pin", "power-network",
-    "event-journal", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "settings", "setup", "muse", "hermes", "speech", "state", "tess", "wifi", "radio-relay",
+    "event-journal", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "settings", "nvs", "setup", "muse", "devkey", "hermes", "speech", "state", "tess", "wifi", "radio-relay",
 )
 
 
