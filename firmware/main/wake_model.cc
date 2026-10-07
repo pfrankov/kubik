@@ -19,6 +19,10 @@
 // ResourceVariables has its own separate 1 KB allocator below.
 // Keep 692 bytes above that bound without spending another KB of scarce DMA SRAM.
 static constexpr size_t ARENA_BYTES = 23 * 1024, VARIABLES_BYTES = 1024;
+// Used only by the SDK's fft_util.c, never by I2S or Wi-Fi DMA allocations.
+extern "C" void *kubik_wake_fft_alloc(size_t bytes) {
+    return heap_caps_malloc(bytes, MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT);
+}
 static tflite::MicroMutableOpResolver<13> s_ops;
 static bool s_registered;
 static uint8_t *s_arena, *s_variables;

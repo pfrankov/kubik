@@ -34,6 +34,14 @@ idf_component_register(
 )
 target_sources(${COMPONENT_LIB} PRIVATE muse_store.c muse_ble.c muse_pair.c muse_vm.c
     muse_noise.cc muse_backend.c muse_options.c muse_control.c muse_json.c setup_request.c)
+# Only the CPU FFT workspace leases LP SRAM; keep the SDK algorithm unchanged.
+# Source properties must be set in the component's directory, not main's.
+if(KUBIK_CHARACTER STREQUAL "TESS")
+    idf_component_get_property(features_lib esphome__esp-micro-speech-features COMPONENT_LIB)
+    idf_component_get_property(features_dir esphome__esp-micro-speech-features COMPONENT_DIR)
+    set_property(SOURCE "${features_dir}/src/fft_util.c" TARGET_DIRECTORY ${features_lib}
+        APPEND PROPERTY COMPILE_DEFINITIONS malloc=kubik_wake_fft_alloc)
+endif()
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_17)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE KUBIK_CHARACTER=${CHARACTER_ID})
 

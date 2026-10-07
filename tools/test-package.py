@@ -304,11 +304,25 @@ def check_build_choice():
             assert (directory / 'character.txt').read_text().strip() == character
 
 
+def check_wake_workspace(symbols):
+    # Validate the real compiler boundary: no global allocator redirection and
+    # no silent return to DMA SRAM after a component/CMake update.
+    commands = json.loads((BUILD / 'compile_commands.json').read_text())
+    routed = [entry for entry in commands if '-Dmalloc=kubik_wake_fft_alloc' in entry['command']]
+    if CHARACTER == 'TESS':
+        assert len(routed) == 1, 'only the wake FFT allocation may be redirected'
+        assert Path(routed[0]['file']).name == 'fft_util.c'
+        assert 'kubik_wake_fft_alloc' in symbols, 'wake FFT allocator was not linked'
+    else:
+        assert not routed and 'kubik_wake_fft_alloc' not in symbols
+
+
 def check_character_symbols():
     cache = (BUILD / 'CMakeCache.txt').read_text()
     nm = re.search(r'^CMAKE_NM:FILEPATH=(.+)$', cache, re.M).group(1)
     symbols = {line.split()[0] for line in subprocess.check_output(
         [nm, '--defined-only', '--format=posix', str(BUILD / 'kubik.elf')], text=True).splitlines() if line.strip()}
+    check_wake_workspace(symbols)
     tess = {'tess_draw', 'tess_update', 'tess_sound_mix', 'tess_reset', 'app_wake_init', 'app_wake_listening'}
     plush = {'face_plush_draw', 'body_update', 'assets_pcm'}
     required, absent = (tess, plush) if CHARACTER == 'TESS' else (plush, tess)
