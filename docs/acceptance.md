@@ -29,7 +29,7 @@ python3 tools/accept.py
 [гайд и индикация зарядки](history/2026-10-02-guide-spacing-charge.md).
 
 - ESP-IDF **5.5.1**, активированный через его `export.sh`, target `esp32c6`.
-- Node.js 24.16+ в ветке 24.x либо 26.1+, npm, Python 3, C-компилятор,
+- Node.js 24.16+ в ветке 24.x либо 26.1+, npm, Python 3, C-компилятор и Clang,
   Git, uv/uvx, tar, unzip, OpenSSL, CMake/Ninja из среды ESP-IDF.
 - Chrome для браузерной проверки. Однократная установка на CI/Linux:
   `uv run --with playwright==1.63.0 playwright install chrome`.
@@ -69,7 +69,7 @@ python3 tools/accept.py
 |---|---|---|
 | [SET](scenarios/setup.md) | setup, portal DOM/Chrome, guide | Первый запуск и повтор Guide |
 | [BUY](scenarios/buyer.md) | buyer guide, kit, clean install | Единая английская страница GitHub, скачиваемое ПО, 8 страниц A6, порядок сгиба и команды установки |
-| [AGT](scenarios/agent.md) | agent-menu, agent-control, session-controls, agent-sdk, agent-adapter-example | Выбор модели и возврат настройки |
+| [AGT](scenarios/agent.md) | agent-menu, agent-control, session-controls, agent-sdk, agent-sdk-lifecycle, agent-adapter-example, agent-process-example | Выбор модели и возврат настройки |
 | [VOI](scenarios/conversation.md) / [нативные режимы](scenarios/native-voice.md) | firmware: state, audio-capture, mic-task (эпохи/закрытие), wake-word, native-voice (VAD), audio-stream, speech; JS: engines, voice-stream, native-voice, session | KEY обоих вариантов; тёмный экран: BOOT/KEY/касания/движение игнорируются, PWR/ответ будят; Hi Tessa только Tess; RX в меню/сне; codec doze; локальный голосовой mock |
 | [CHR](scenarios/characters.md) | firmware: frames, render, tess/sound/rules, audio-wake (Tess event/PCM очереди) | Каждая установленная сборка отдельно: разговор, меню, BOOT, профиль кадров |
 | [NET](scenarios/power-network.md) | settings, wifi, power-network, link, notification queue/server | Пробуждение, ACK, реальное радио и reconnect |
