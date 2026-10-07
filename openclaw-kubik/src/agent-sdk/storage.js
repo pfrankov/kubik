@@ -1,61 +1,39 @@
-import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, openSync, readSync, renameSync, rmSync, statSync,
-  unlinkSync, writeFileSync, chmodSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { closeSync, fstatSync, fsyncSync, openSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { ensurePrivateDirectory as ensurePrivateStateDirectory, readPrivateFile, writePrivateFileAtomic } from '../private-storage.js';
 
 const LOCK_TIMEOUT_MS = 5000;
 const LOCK_STALE_MS = 30_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function ensurePrivateDirectory(path) {
-  mkdirSync(path, { recursive: true, mode: 0o700 });
-  chmodSync(path, 0o700);
+  ensurePrivateStateDirectory(path, 'agent SDK state directory');
 }
 
 export function readJsonFile(path, maxBytes = 64 * 1024) {
-  let fd;
-  try {
-    fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.size > maxBytes) throw new Error('state file is invalid or too large');
-    const bytes = Buffer.alloc(maxBytes + 1);
-    let length = 0;
-    while (length < bytes.length) {
-      const count = readSync(fd, bytes, length, bytes.length - length, length);
-      if (!count) break;
-      length += count;
-    }
-    if (length > maxBytes) throw new Error('state file is too large');
-    return JSON.parse(bytes.toString('utf8', 0, length));
-  } finally {
-    if (fd !== undefined) closeSync(fd);
+  const file = readPrivateFile(path, maxBytes, 'agent SDK state file');
+  if (file.text === null) {
+    const error = new Error('ENOENT: agent SDK state file not found');
+    error.code = 'ENOENT';
+    error.path = path;
+    error.syscall = 'open';
+    throw error;
   }
+  if (file.tooLarge) throw new Error('agent SDK state file is too large');
+  try { return JSON.parse(file.text); }
+  catch { throw new Error('agent SDK state file contains invalid JSON'); }
 }
 
 export function writeJsonAtomic(path, value, maxBytes = 64 * 1024) {
   const content = `${JSON.stringify(value)}\n`;
-  if (Buffer.byteLength(content) > maxBytes) throw new Error('state file would exceed its size limit');
-  const temporary = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-  const fd = openSync(temporary, 'wx', 0o600);
-  try {
-    writeFileSync(fd, content, { encoding: 'utf8' });
-    fsyncSync(fd);
-  } catch (error) {
-    closeSync(fd);
-    rmSync(temporary, { force: true });
-    throw error;
-  }
-  closeSync(fd);
-  try {
-    renameSync(temporary, path);
-    chmodSync(path, 0o600);
+  if (Buffer.byteLength(content) > maxBytes) throw new Error('agent SDK state file would exceed its size limit');
+  const syncError = writePrivateFileAtomic(path, content);
+  if (syncError) {
     try {
-      const directory = openSync(dirname(path), 'r');
-      try { fsyncSync(directory); } finally { closeSync(directory); }
-    } catch { /* directory fsync is unavailable on some platforms */ }
-  } catch (error) {
-    rmSync(temporary, { force: true });
-    throw error;
+      process.emitWarning('agent SDK state was committed but directory sync failed', {
+        code: 'KUBIK_AGENT_STATE_DIRSYNC',
+      });
+    } catch { /* a warning handler cannot undo the rename */ }
   }
 }
 
