@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import adapter from '../src/agent-sdk/examples/local-process.js';
@@ -11,9 +11,11 @@ async function fixture(t) {
   writeFileSync(command, `#!${process.execPath}
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 const directory = ${JSON.stringify(directory)};
 const id = process.argv[3];
 writeFileSync(join(directory, id), String(process.pid));
+process.on('exit', () => writeFileSync(join(directory, id + '-exited'), 'yes'));
 if (id === 'broken-input') {
   process.stdin.destroy(); process.stdout.end('Must not succeed');
 } else {
@@ -22,6 +24,12 @@ if (id === 'broken-input') {
   process.stdin.on('data', chunk => text += chunk);
   process.stdin.on('end', () => {
     if (text === 'hold') { process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); }
+    else if (text === 'hold-tree') {
+      process.on('SIGTERM', () => {});
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'] });
+      child.unref(); writeFileSync(join(directory, id + '-grandchild'), String(child.pid));
+      setInterval(() => {}, 1000);
+    }
     else if (text === 'bytes') process.stdout.end('x'.repeat(65_537));
     else if (text === 'chars') process.stdout.end('x'.repeat(8193));
     else if (text === 'empty') process.stdout.end();
@@ -31,7 +39,13 @@ if (id === 'broken-input') {
 }
 `);
   chmodSync(command, 0o700);
-  t.after(async () => { await adapter.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(async () => {
+    await adapter.close();
+    for (const name of readdirSync(directory).filter(name => name.endsWith('-grandchild'))) {
+      try { process.kill(Number(readFileSync(join(directory, name), 'utf8')), 'SIGKILL'); } catch {}
+    }
+    rmSync(directory, { recursive: true, force: true });
+  });
   await adapter.connect({ config: { command } });
   const spoken = [], errors = [];
   const turn = (id, transcript) => adapter.dispatch({ device: { id }, transcript,
@@ -50,6 +64,13 @@ async function waitFor(predicate) {
 function processGone(directory, id) {
   const pid = Number(readFileSync(join(directory, id), 'utf8'));
   assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+}
+
+async function processExits(pid) {
+  await waitFor(() => {
+    try { process.kill(pid, 0); return false; }
+    catch (error) { return error.code === 'ESRCH'; }
+  });
 }
 
 const posix = { skip: process.platform === 'win32' };
@@ -95,15 +116,56 @@ test('process example bounds concurrency, kills on close, and reconnects cleanly
   assert.deepEqual(spoken.map(JSON.parse), [{ id: 'reconnected', text: 'hello' }]);
 });
 
+test('host close settles an exited child whose descendant still holds stdout open', posix, async t => {
+  const { turn, command, directory, spoken, errors } = await fixture(t);
+  await adapter.close();
+  writeFileSync(command, `#!${process.execPath}
+import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const directory = ${JSON.stringify(directory)};
+const id = process.argv[3];
+writeFileSync(join(directory, id), String(process.pid));
+const grandchild = spawn(process.execPath, ['-e', 'setTimeout(() => { require("node:fs").writeFileSync(process.argv[1], "yes"); process.stdout.write("descendant alive"); }, 100); setInterval(() => {}, 1000)', join(directory, id + '-holding')], { stdio: ['ignore', 'inherit', 'ignore'] });
+grandchild.unref(); writeFileSync(join(directory, id + '-grandchild'), String(grandchild.pid));
+process.stdin.resume();
+process.stdin.on('end', () => process.stdout.write('partial reply', () => process.exit(0)));
+process.on('exit', () => writeFileSync(join(directory, id + '-exited'), 'yes'));
+`);
+  chmodSync(command, 0o700);
+  await adapter.connect({ config: { command } });
+  const id = 'orphan';
+  let settled = false;
+  const pending = turn(id, 'hello').then(() => { settled = true; });
+  await waitFor(() => existsSync(join(directory, `${id}-exited`)));
+  await waitFor(() => existsSync(join(directory, `${id}-holding`)));
+  assert.equal(settled, false, 'the inherited stdout pipe keeps close pending');
+  const grandchild = Number(readFileSync(join(directory, `${id}-grandchild`), 'utf8'));
+  await adapter.close();
+  let timer;
+  try {
+    await Promise.race([pending, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('close did not settle')), 1500); })]);
+  } finally { clearTimeout(timer); }
+  assert.deepEqual(spoken, []);
+  assert.deepEqual(errors, []);
+  assert.doesNotThrow(() => process.kill(grandchild, 0), 'the example stops its direct child, not its descendant');
+  process.kill(grandchild, 'SIGKILL');
+  await processExits(grandchild);
+});
+
 test('process example enforces its deadline even when SIGTERM is ignored',
   { ...posix, timeout: 35_000 }, async t => {
     const { turn, directory, spoken, errors } = await fixture(t);
     const started = Date.now();
-    await turn('timeout', 'hold');
+    await turn('timeout', 'hold-tree');
     assert.ok(Date.now() - started >= 29_000);
     assert.deepEqual(spoken, []);
     assert.deepEqual(errors, ['Agent process failed']);
     processGone(directory, 'timeout');
+    const grandchild = Number(readFileSync(join(directory, 'timeout-grandchild'), 'utf8'));
+    assert.doesNotThrow(() => process.kill(grandchild, 0));
+    process.kill(grandchild, 'SIGKILL');
+    await processExits(grandchild);
   });
 
 test('process example probes an absolute executable before serving', async () => {
