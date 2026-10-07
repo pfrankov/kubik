@@ -37,3 +37,41 @@ jobs:
         run: |
           source "$RUNNER_TEMP/esp-idf/export.sh"
           python3 tools/accept.py
+  reference-platform:
+    name: Apple Silicon reference diagnostics
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12.10'
+          architecture: arm64
+      - name: Record reference environment
+        shell: bash
+        run: |
+          uname -a
+          sw_vers
+          cc --version
+          xcrun --show-sdk-version
+          python3 --version
+      - name: Prepare ESP-IDF (Chrome is preinstalled)
+        shell: bash
+        run: |
+          brew install cmake ninja dfu-util ccache
+          python3 -m venv "$RUNNER_TEMP/kubik-ci"
+          "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
+          echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
+          git clone --depth 1 --branch v5.5.1 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git "$RUNNER_TEMP/esp-idf"
+          "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
+      - name: Accept source and local kit
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/esp-idf/export.sh"
+          python3 tools/accept.py
