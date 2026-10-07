@@ -2,10 +2,11 @@
 // app's own sound, dropping a repeated event, the rub's escalation, the contour and register each kind of sound
 // follows, the synth's cost, and what a reset keeps.
 #include <stdio.h>
-#include <time.h>
 #include "tess_sound_names.h"
 #include "tess_sound_probe.h"
 #include "../main/tess_sound_rules.h"
+
+void check_cost(tess_sound_t *sound);
 
 static tess_sound_t s_rules;
 static int32_t s_frame[PROBE_FRAME], s_pcm[PROBE_MAX_SAMPLES];
@@ -300,36 +301,6 @@ static void check_moods(void) {
     check_mood_gaps();
 }
 
-// The cost: the busiest sound (the most voices at once) mixed a thousand times, per 20 ms buffer. The device is far
-// slower than this host, so the bound is generous; what it guards is a change that makes the inner loop heavy.
-static void check_cost(void) {
-    // Measure CPU work, excluding host scheduling pauses; device tests measure actual frame timing.
-    int32_t frame[PROBE_FRAME];
-    tess_sound_reset(&s_rules);
-    probe_rest(&s_rules);
-    double worst = 0, total = 0;
-    long buffers = 0;
-    for (int play = 0; play < 40; play++) {
-        tess_sound_seed(&s_rules, 77 + play);
-        probe_rest(&s_rules);
-        if (play % 2) tess_sound_cue(&s_rules, TC_LOVE, .5f, 0);
-        else tess_sound_event(&s_rules, SFX_SETUP_OK, -1, 0, .5f);
-        while (tess_sound_active(&s_rules)) {
-            memset(frame, 0, sizeof frame);
-            struct timespec a, b;
-            assert(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &a) == 0);
-            tess_sound_mix(&s_rules, frame, PROBE_FRAME);
-            assert(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &b) == 0);
-            double us = (b.tv_sec - a.tv_sec) * 1e6 + (b.tv_nsec - a.tv_nsec) / 1e3;
-            worst = us > worst ? us : worst;
-            total += us;
-            buffers++;
-        }
-    }
-    fprintf(stderr, "synth: %.1f us CPU per 20 ms buffer on average, %.1f us at worst (host thread)\n", total / buffers, worst);
-    assert(worst < 1000);  // 5 % of the buffer's time, on a host that is tens of times faster than the device
-}
-
 static void check_prime_variation(void) {
     const unsigned period[5] = {251, 257, 263, 269, 271};
     tess_sound_t other = {0};
@@ -487,5 +458,5 @@ void check_rules(void) {
     check_reset();
     check_feelings();
     check_moods();
-    check_cost();
+    check_cost(&s_rules);
 }

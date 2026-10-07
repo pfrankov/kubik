@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production wire/session and text-mailbox boundaries, without hardware or providers."""
+"""Production wire/session, text-mailbox, and settings boundaries, without hardware or providers."""
 from pathlib import Path
 import os
 import subprocess
@@ -14,9 +14,12 @@ def section(file, start, end):
 
 app = (MAIN / 'app.h').read_text()
 enums = app[app.index('typedef enum {'):app.index('extern face_t g_face;')]
-wire = section('app_protocol.c', 'static void post_remote(', 'static void handle_activity_json(')
+wire = section('app_protocol.c', 'static int protocol_integer(', 'static void handle_agent_options(')
+wire += section('app_protocol.c', 'static void post_remote(', 'static void handle_activity_json(')
+wire += section('app_protocol.c', 'static void handle_set_json(', 'static void dispatch_json(')
 wire += section('app_protocol.c', 'static void handle_text_json(', 'static void handle_cron_json(')
 text = section('app_events.c', 'static void handle_text_event(', 'static void handle_speak_end_event(')
+text += section('app_events.c', 'static void handle_set_event(', 'static bool remote_current(')
 text += section('app_journal.c', 'void app_journal_text(', 'static void state(')
 route = section('app_events.c', 'static bool remote_current(', 'static void handle_speak_cancel_event(')
 route += section('app_events.c', 'static bool handle_server_event(', 'static void handle_agent_capabilities(')
@@ -38,9 +41,12 @@ static face_t g_face;
 static int s_gen=-1;
 static int64_t s_last_activity;
 static app_ev_t queued;
+typedef struct {int volume,brightness;} settings_t;
+static settings_t g_settings={50,200};
+static int s_power, display_brightness;
+static unsigned settings_saves;
 static const char *const k_states[] = {"idle","listening","transcribing","thinking","speaking"};
 static uint32_t link_session(void) { return session; }
-static int protocol_volume(cJSON *j,const char *key) {(void)j;(void)key;return -1;}
 static void app_post_in_session(int type,int a,int b,uint32_t epoch) {queued=(app_ev_t){.type=type,.a=a,.b=b,.session=epoch};}
 static int64_t now_ms(void) {return 1000;}
 static void face_lock(void) {assert(!locks); locks++;}
@@ -51,8 +57,16 @@ static void talk_fire(int event) {(void)event;}
 static void audio_sfx(int sound) {(void)sound;}
 static bool audio_stream_playing(void) {return false;}
 static void face_ev(int event,int a,int b) {(void)event;(void)a;(void)b;}
+static void audio_set_volume(int volume) {(void)volume;}
+static void device_state_volume_report(bool immediate) {(void)immediate;}
+static void volume_bubble(int volume) {(void)volume;}
+static bool power_is_asleep(int power) {(void)power;return false;}
+static int power_brightness(int power,int brightness) {(void)power;return brightness;}
+static void disp_brightness_fade(int brightness,int ms) {(void)ms;display_brightness=brightness;}
+static void settings_save(void) {settings_saves++;}
 static bool link_send_json_in_session(const char *str,uint32_t epoch) {assert(str && epoch==session);receipts++;return true;}
 void app_journal_text(const char *text,bool notification);
+void app_journal_event(const app_ev_t *e) {(void)e;}
 static void handle_cron_event(const app_ev_t *e) {(void)e;applied++;}
 static void handle_welcome_event(const app_ev_t *e) {(void)e;applied++;}
 static void handle_state_event(const app_ev_t *e) {(void)e;applied++;}
@@ -62,11 +76,27 @@ static void handle_speak_event(const app_ev_t *e) {(void)e;applied++;}
 static void handle_speak_end_event(const app_ev_t *e) {(void)e;applied++;}
 static void handle_speak_cancel_event(const app_ev_t *e) {(void)e;applied++;}
 static void handle_error_event(const app_ev_t *e) {(void)e;applied++;}
-static void handle_set_event(const app_ev_t *e) {(void)e;applied++;}
 enum {TE_RESOLVE,SFX_NOTIFY};
 '''
 tests = r'''
 static void receive(const char *str) {cJSON *j=cJSON_Parse(str);assert(j);handle_text_json(j);cJSON_Delete(j);}
+static void set_values(const char *brightness,int volume) {
+ char json[128];snprintf(json,sizeof json,"{\"volume\":%d,\"brightness\":%s}",volume,brightness);
+ cJSON *j=cJSON_Parse(json);assert(j);handle_set_json(j);cJSON_Delete(j);
+ assert(queued.type==EV_SRV_SET&&queued.session==session);
+ assert(handle_server_event(&queued));
+}
+static void test_set_brightness(void) {
+ static const char *const invalid[]={"0","9","256","1.5","10.5","200.5","\"1\"","null"};
+ session=4;g_settings.volume=70;g_settings.brightness=200;display_brightness=200;
+ for(unsigned i=0;i<sizeof invalid/sizeof invalid[0];i++) {
+  set_values(invalid[i],42);
+  assert(g_settings.volume==42&&g_settings.brightness==200&&display_brightness==200);
+ }
+ set_values("10",43);assert(g_settings.volume==43&&g_settings.brightness==10&&display_brightness==10);
+ set_values("255",44);assert(g_settings.volume==44&&g_settings.brightness==255&&display_brightness==255);
+ assert(settings_saves==sizeof invalid/sizeof invalid[0]+2);
+}
 int main(void) {
  cJSON *j=cJSON_Parse("{}");handle_welcome_json(j);cJSON_Delete(j);assert(queued.session==1);
  j=cJSON_Parse("{\"s\":\"thinking\"}");handle_state_json(j);cJSON_Delete(j);
@@ -83,7 +113,8 @@ int main(void) {
  handle_text_event(&queued);assert(cards==1 && receipts==1);
  receive("{\"text\":\"Reminder\",\"kind\":\"notify\"}");handle_server_event(&queued);
  assert(cards==2 && event_journal_at(&g_face.journal,0)->kind==JOURNAL_NOTICE && !locks);
- puts("journal ingress: source session, obsolete route, replaced text revision, receipt and notification passed");
+ test_set_brightness();
+ puts("journal ingress: route, text receipt, notification, and set brightness bounds passed");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='kubik-journal-ingress-') as directory:

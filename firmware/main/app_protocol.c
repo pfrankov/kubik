@@ -29,11 +29,14 @@ static int act_index(cJSON *j, const char *key) {
         if (!strcmp(v, app_activity_names[i])) return i;
     return v && v[0] ? ACT_TOOL : ACT_NONE;  // a category from a newer server: still "busy"
 }
+static int protocol_integer(cJSON *object, const char *key, int min, int max) {
+    cJSON *number = cJSON_GetObjectItemCaseSensitive(object, key);
+    if (!cJSON_IsNumber(number) || number->valuedouble < min || number->valuedouble > max ||
+        number->valuedouble != (double)number->valueint) return -1;
+    return number->valueint;
+}
 static int protocol_volume(cJSON *object, const char *key) {
-    cJSON *volume = cJSON_GetObjectItemCaseSensitive(object, key);
-    if (!cJSON_IsNumber(volume) || volume->valuedouble < 0 || volume->valuedouble > 100 ||
-        volume->valuedouble != (double)volume->valueint) return -1;
-    return volume->valueint;
+    return protocol_integer(object, key, 0, 100);
 }
 static void handle_agent_options(cJSON *j) {
     agent_menu_reply_t *reply = calloc(1, sizeof(*reply));
@@ -67,10 +70,9 @@ static void handle_emotion_json(cJSON *j) {
         post_remote(EV_SRV_EMOTION, face_emotion_from_name(emotion), cJSON_IsNumber(duration) ? duration->valueint : 0);
 }
 static void handle_speak_json(cJSON *j) {
-    cJSON *generation = cJSON_GetObjectItem(j, "gen");
+    int gen = app_voice_parse_generation(j);
     const char *kind = cJSON_GetStringValue(cJSON_GetObjectItem(j, "kind"));
-    if (!cJSON_IsNumber(generation)) return;
-    int gen = generation->valueint & 0xFF;
+    if (gen < 0) return;
     uint32_t session = link_session();
     ESP_LOGI(TAG, "speech begin gen=%d via=%s", gen, link_via());
     hp_mark("speech begin");
@@ -78,8 +80,8 @@ static void handle_speak_json(cJSON *j) {
     app_post_in_session(EV_SRV_SPEAK, gen, kind && !strcmp(kind, "notify"), session);
 }
 static void handle_speak_end_json(cJSON *j) {
-    cJSON *generation = cJSON_GetObjectItem(j, "gen");
-    if (cJSON_IsNumber(generation)) app_post_in_session(EV_SRV_SPEAK_END, generation->valueint & 0xFF, 0, link_session());
+    int gen = app_voice_parse_generation(j);
+    if (gen >= 0) app_post_in_session(EV_SRV_SPEAK_END, gen, 0, link_session());
 }
 static void handle_error_json(cJSON *j) {
     const char *error = cJSON_GetStringValue(cJSON_GetObjectItem(j, "code"));
@@ -111,10 +113,8 @@ static void handle_cron_json(cJSON *j) {
              cJSON_IsNumber(next) ? next->valueint : -1);
 }
 static void handle_set_json(cJSON *j) {
-    cJSON *brightness = cJSON_GetObjectItem(j, "brightness");
     int setting_volume = protocol_volume(j, "volume");
-    post_remote(EV_SRV_SET, setting_volume,
-             cJSON_IsNumber(brightness) ? brightness->valueint : -1);
+    post_remote(EV_SRV_SET, setting_volume, protocol_integer(j, "brightness", 10, 255));
 }
 static void dispatch_json(cJSON *j, const char *type) {
     if (app_voice_receive(j, type)) return;

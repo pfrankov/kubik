@@ -8,7 +8,8 @@ static int16_t s_sine[SINE_SIZE + 1];
 static void initialize_sine_table(void) {
     static bool done;
     if (done) return;
-    for (int i = 0; i < SINE_SIZE; i++) s_sine[i] = (int16_t)lrintf(32767.f * sinf((float)(2 * M_PI) * i / SINE_SIZE));
+    const float turn = 2.f * 3.14159265f;
+    for (int i = 0; i < SINE_SIZE; i++) s_sine[i] = (int16_t)lrintf(32767.f * sinf(turn * i / SINE_SIZE));
     s_sine[SINE_SIZE] = s_sine[0];
     done = true;
 }

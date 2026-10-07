@@ -13,7 +13,7 @@ export const LAN_PORT = 18790;
 export const DISCOVERY_REQUEST = 'kubik-discover-v5';
 export const MAX_JSON_BYTES = 4096;
 export const MAX_AUDIO_FRAME_BYTES = 8192;
-export const SPEECH_LEAD_MS = 800; // Firmware guarantees 1100 ms, including its 400 ms prebuffer.
+export const SPEECH_LEAD_MS = 800; // Below the firmware's 900 ms ring, including its 600 ms prebuffer.
 export const MAX_SPEECH_PAYLOAD_BYTES = 4800; // 100 ms of 24 kHz s16le mono before IMA encoding
 export const SAMPLE_RATE = 24000;
 export const BYTES_PER_MS = (SAMPLE_RATE * 2) / 1000; // 48
@@ -208,7 +208,7 @@ const IMA_STEP = [7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 3
 const IMA_INDEX_ADJ = [-1, -1, -1, -1, 2, 4, 6, 8];
 
 /**
- * IMA ADPCM (4 bits/sample) for speech: a quarter of the PCM bytes, so the device ring holds 1100 ms and
+ * IMA ADPCM (4 bits/sample) for speech: a quarter of the PCM bytes, so the device ring holds 900 ms and
  * the link carries 12 KB/s. One encoder per gen; each frame starts with the state before it (int16 LE predictor,
  * u8 step index), then the nibbles, low one first. Identical to firmware/main/ima_adpcm.c.
  */

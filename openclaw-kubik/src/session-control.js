@@ -1,13 +1,23 @@
 const PAGE_SIZE = 4;
 const TIMEOUT_MS = 8000;
+const activeByOwner = new WeakMap();
 
-/** One device owns this control lane. Model changes never overlap an agent turn. */
+function operationsFor(owner) {
+  let operations = activeByOwner.get(owner);
+  if (!operations) { operations = new Map(); activeByOwner.set(owner, operations); }
+  return operations;
+}
+
+/** Serialize control work per control owner and device, including across connection replacement. */
 export class SessionControl {
-  #busy = false;
-  #changing = false;
-  get changingModel() { return this.#changing; }
+  #operations;
+  #deviceId;
+  get changingModel() { return this.#operations.get(this.#deviceId)?.changing ?? false; }
   constructor(session, control, isWorking) {
     Object.assign(this, { session, control, isWorking });
+    const owner = control && (typeof control === 'object' || typeof control === 'function') ? control : session;
+    this.#operations = operationsFor(owner);
+    this.#deviceId = session.device.id;
   }
   #respond(base, data, preserveCursor) {
     const models = data.models ?? [];
@@ -23,9 +33,9 @@ export class SessionControl {
   async handle(message) {
     const { session } = this;
     const base = { t: 'agent_options', rid: message.rid, cursor: message.cursor ?? 0, target: message.target };
-    if (this.#busy) return this.#respondError(base, { code: 'busy' });
-    this.#busy = true;
-    this.#changing = message.t === 'agent_model';
+    if (this.#operations.has(this.#deviceId)) return this.#respondError(base, { code: 'busy' });
+    const operation = { changing: message.t === 'agent_model' };
+    this.#operations.set(this.#deviceId, operation);
     let timer;
     let pending;
     try {
@@ -35,12 +45,14 @@ export class SessionControl {
         if (message.t === 'agent_model') {
           await this.control.selectModel(session.device, message.id, message.target);
           if (message.target !== 'agent') {
-            await session.engine.refreshCapabilities?.({ agentId: this.control.agentId?.(session.device) });
+            await session.engine.refreshCapabilities?.();
           }
         }
         return this.control.options(session.device, message.target);
       };
-      pending = request().finally(() => { this.#busy = this.#changing = false; });
+      pending = request().finally(() => {
+        if (this.#operations.get(this.#deviceId) === operation) this.#operations.delete(this.#deviceId);
+      });
       const data = await Promise.race([pending, new Promise((_, reject) => {
         timer = setTimeout(() => reject(Object.assign(new Error(), { code: 'timeout' })), TIMEOUT_MS);
       })]);
@@ -51,7 +63,7 @@ export class SessionControl {
       this.#respondError(base, error);
     } finally {
       clearTimeout(timer);
-      if (!pending) this.#busy = this.#changing = false;
+      if (!pending && this.#operations.get(this.#deviceId) === operation) this.#operations.delete(this.#deviceId);
     }
   }
 }

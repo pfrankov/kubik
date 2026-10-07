@@ -29,7 +29,7 @@ python3 tools/accept.py
 [гайд и индикация зарядки](history/2026-10-02-guide-spacing-charge.md).
 
 - ESP-IDF **5.5.1**, активированный через его `export.sh`, target `esp32c6`.
-- Node.js 24.16+ в ветке 24.x либо 26.1+, npm, Python 3, C-компилятор,
+- Node.js 24.16+ в ветке 24.x либо 26.1+, npm, Python 3, C-компилятор и Clang,
   Git, uv/uvx, tar, unzip, OpenSSL, CMake/Ninja из среды ESP-IDF.
 - Chrome для браузерной проверки. Однократная установка на CI/Linux:
   `uv run --with playwright==1.63.0 playwright install chrome`.
@@ -40,14 +40,23 @@ python3 tools/accept.py
 `reconfigure` перед host/build получает компонент QR на чистом checkout.
 Нельзя заново генерировать спрайты или менять эталоны кадров для прохождения тестов.
 
+Побитовые RGB-эталоны проверяются на macOS / ARM64: все 16 043 кадра воспроизведены
+на macOS 15.7.9, Apple Clang 17.0.0 (`clang-1700.0.13.5`), SDK 15.5.
+На Linux неизменные исходники дают другие хеши; настройки вычислений с плавающей
+точкой и порядок вычисления аргументов влияют на результат. Поэтому Linux-проверка
+`host-portable` отделена от полной приёмки на эталонной платформе, см. [CI](#ci).
+Обычные `host`, `ci` и отдельный `python3 tools/test-frames.py` сохраняют строгое
+сравнение всех хешей, без автоматического выбора новых эталонов.
+
 ## Уровни
 
 | Команда | Что подтверждает |
 |---|---|
 | `python3 tools/accept.py lint` | Синтаксис, ссылки, формат сценариев, лимиты файлов/сложности |
 | `python3 tools/accept.py host` | Протокол, SDK, аудио, состояния, рендер, Wi-Fi, браузерный портал |
+| `python3 tools/accept.py host-portable` | Те же host-проверки без сравнения RGB-хешей; структура потока кадров и рендер с ASan/UBSan проверяются |
 | `python3 tools/accept.py build` | Новую прошивку, размеры разделов, комплект, чистую установку OpenClaw |
-| `python3 tools/accept.py` | Все три уровня выше, каждый тест один раз |
+| `python3 tools/accept.py` | `lint`, `host` и `build`, каждый тест один раз |
 | `python3 tools/accept.py device` | Отдельную приёмку уже прошитого физического устройства через USB |
 
 `host` проверяет контракт обоих нативных режимов через установленный SDK
@@ -63,13 +72,31 @@ python3 tools/accept.py
 нативный режим отклоняется, допустимый dry-run проходит, работающая конфигурация
 не меняется. Это отдельная граница от unit-проверки объекта схемы.
 
+Проверка стоимости звука Tess измеряет каждый буфер в 480 отсчётов через
+`CLOCK_THREAD_CPUTIME_ID` и требует максимум меньше 1000 мкс. При превышении
+она печатает seed, номер проигрывания и буфера, состояние голосов и реверберации,
+а после восстановления входа и совпадения PCM пять раз повторяет его для диагностики.
+Ошибка восстановления также записывается в журнал. Исходное превышение всегда
+завершает проверку ошибкой, независимо от времени повторов. Эти замеры
+процессорного времени host не заменяют приёмку звука на физическом устройстве.
+
+Перед упаковкой проверяется свежесть выбранных C/C++-исходников и их заголовков
+во всех локальных компонентах прошивки. Зависимости берутся из `ninja -t deps`;
+используется Ninja, записанный в `CMakeCache.txt` этой сборки. Временные `.d`-файлы
+не нужны: [Ninja переносит их содержимое в свою базу и удаляет файлы](https://ninja-build.org/manual.html#ref_headers).
+Отсутствующие, повреждённые или устаревшие записи зависимостей останавливают
+упаковку и требуют пересборки. Изменение исходника, который не входит в выбранный
+вариант персонажа, само по себе не делает его сборку устаревшей.
+`test-package.py` проверяет настоящую базу Ninja на небольшой сборке C/C++,
+заголовок с пробелом в имени и свежесть обоих вариантов прошивки.
+
 ## Покрытие пользовательских сценариев
 
 | Группа | Автоматические проверки | Дополнительная проверка устройства |
 |---|---|---|
 | [SET](scenarios/setup.md) | setup, portal DOM/Chrome, guide | Первый запуск и повтор Guide |
 | [BUY](scenarios/buyer.md) | buyer guide, kit, clean install | Единая английская страница GitHub, скачиваемое ПО, 8 страниц A6, порядок сгиба и команды установки |
-| [AGT](scenarios/agent.md) | agent-menu, agent-control, session-controls, agent-sdk, agent-adapter-example | Выбор модели и возврат настройки |
+| [AGT](scenarios/agent.md) | agent-menu, agent-control, session-controls, agent-sdk, agent-sdk-lifecycle, agent-adapter-example, agent-process-example | Выбор модели и возврат настройки |
 | [VOI](scenarios/conversation.md) / [нативные режимы](scenarios/native-voice.md) | firmware: state, audio-capture, mic-task (эпохи/закрытие), wake-word, native-voice (VAD), audio-stream, speech; JS: engines, voice-stream, native-voice, session | KEY обоих вариантов; тёмный экран: BOOT/KEY/касания/движение игнорируются, PWR/ответ будят; Hi Tessa только Tess; RX в меню/сне; codec doze; локальный голосовой mock |
 | [CHR](scenarios/characters.md) | firmware: frames, render, tess/sound/rules, audio-wake (Tess event/PCM очереди) | Каждая установленная сборка отдельно: разговор, меню, BOOT, профиль кадров |
 | [NET](scenarios/power-network.md) | settings, wifi, power-network, link, notification queue/server | Пробуждение, ACK, реальное радио и reconnect |
@@ -264,9 +291,26 @@ Live/меню/сна и ручной Classic. Тест временно
 
 ## CI
 
-[Workflow](../.github/workflows/acceptance.yml) запускает ту же команду обычным
-пользователем на Ubuntu, устанавливает ESP-IDF 5.5.1 и Chrome. Он не публикует
-артефакты и не имеет секретов production. Источник установки SDK —
+[Workflow](../.github/workflows/acceptance.yml) содержит два обязательных задания:
+
+| Задание | Среда | Команды |
+|---|---|---|
+| `acceptance` | macOS 15 / ARM64 | `python3 tools/accept.py` |
+| `linux-portability` | Ubuntu 24.04 | `python3 tools/accept.py lint`, `python3 tools/accept.py host-portable`, `python3 tools/accept.py build` |
+
+Полная приёмка macOS выполняет все проверки, включая неизменные RGB-хеши.
+Linux вызывает `tools/test-frames.py --structure-only`: размер каждого кадра,
+полные длины всех последовательностей и успешное завершение симулятора проверяются;
+исключено только сравнение RGB-хешей. Протокол, SDK, прочие проверки кадров
+и рендера, ASan/UBSan, звук, браузер и чистая установка остаются обязательными.
+Оба задания собирают TESS и PLUSH, проверяют размеры, комплект и его установку.
+
+Задания работают обычным пользователем, устанавливают ESP-IDF 5.5.1 и Node 24.16.0;
+на macOS закреплён Python 3.12.10 и используется Chrome из образа runner,
+на Linux Chrome устанавливается перед проверками. Версии ОС, компилятора и SDK
+macOS записываются в журнал: метка `macos-15` обновляется и не фиксирует образ навсегда.
+Несовпадение после обновления среды требует разбора; эталоны не перезаписываются.
+Workflow не публикует артефакты и не имеет секретов production. Источник установки SDK —
 [руководство Espressif](https://docs.espressif.com/projects/esp-idf/en/v5.5.1/esp32c6/get-started/linux-macos-setup.html).
 
 Фактические результаты: [первый проход](history/2026-10-02-refactor-acceptance.md)

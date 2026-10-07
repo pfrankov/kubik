@@ -15,13 +15,14 @@ from gateway.config import Platform
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
-from .codec import decode, encode
+from .codec import decode
 from .security import Security
 
 
 class Peer:
     def __init__(self, socket, identity, hello):
         self.socket, self.identity = socket, identity
+        self.ready = False
         self.volume = hello.get('volume', 0)
         if type(self.volume) is not int or not 0 <= self.volume <= 100:
             raise ValueError('Invalid volume')
@@ -135,12 +136,16 @@ class KubikAdapter(BasePlatformAdapter):
             await socket.prepare(request)
             peer = await self.authenticate(socket)
             old = self.peers.get(peer.identity)
+            # Publish the replacement before close yields to another handshake.
+            self.peers[peer.identity] = peer
             if old:
                 await old.socket.close(code=4003)
-            self.peers[peer.identity] = peer
+            if self.peers.get(peer.identity) is not peer or socket.closed:
+                return socket
             await peer.send('welcome', session=secrets.token_hex(8), progress=True)
             stt, tts = self.speech_available()
             await peer.send('capabilities', stt=stt, tts=tts, voice_mode='classic')
+            peer.ready = self.peers.get(peer.identity) is peer and not socket.closed
             async for message in socket:
                 if message.type == WSMsgType.TEXT:
                     await self.command(peer, json.loads(message.data))
@@ -158,6 +163,7 @@ class KubikAdapter(BasePlatformAdapter):
         finally:
             self.sockets.discard(socket)
             if peer:
+                peer.ready = False
                 if self.peers.get(peer.identity) is peer:
                     del self.peers[peer.identity]
                 await self.cancel(peer)
@@ -358,17 +364,21 @@ class KubikAdapter(BasePlatformAdapter):
         # A normal gateway session can only be created by this adapter after v5 proof and local approval.
         return isinstance(user_id, str) and self.security.approved(user_id)
 
-    def _should_auto_tts_for_chat(self, chat_id):
+    def _ready_peer(self, chat_id):
         peer = self.peers.get(chat_id)
+        return peer if peer and peer.ready and not peer.socket.closed else None
+
+    def _should_auto_tts_for_chat(self, chat_id):
+        peer = self._ready_peer(chat_id)
         return bool(peer and type(peer.volume) is int and peer.volume >= 20)
 
     async def send_typing(self, chat_id, **kwargs):
-        peer = self.peers.get(chat_id)
+        peer = self._ready_peer(chat_id)
         if peer and not peer.muted:
             await peer.send('state', s='thinking')
 
     async def send(self, chat_id, content, reply_to=None, metadata=None, **kwargs):
-        peer = self.peers.get(chat_id)
+        peer = self._ready_peer(chat_id)
         if not peer:
             return SendResult(success=False, error='Kubik disconnected', retryable=True)
         if peer.muted:
@@ -396,12 +406,14 @@ class KubikAdapter(BasePlatformAdapter):
 
     async def send_voice(self, chat_id, audio_path, caption=None, **kwargs):
         from .speech import play_file
-        peer = self.peers.get(chat_id)
+        peer = self._ready_peer(chat_id)
         if not peer:
             return SendResult(success=False, error='Kubik disconnected', retryable=True)
-        if peer.muted or peer.volume < 20:
-            return SendResult(success=True, message_id='muted')
         async with peer.output_lock:
+            if self._ready_peer(chat_id) is not peer:
+                return SendResult(success=False, error='Kubik disconnected', retryable=True)
+            if peer.muted or peer.volume < 20:
+                return SendResult(success=True, message_id='muted')
             peer.output_task = asyncio.create_task(play_file(peer, audio_path))
             try:
                 return await peer.output_task

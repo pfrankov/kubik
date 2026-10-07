@@ -35,7 +35,8 @@ export class KubikServer {
   #sessions = new Map(); // deviceId -> DeviceSession
   #engines = new Map(); // deviceId -> engine (outlives reconnects)
   #lastGen = new Map();
-  #sessionSeq = 0;
+  #committedAdmission = new Map(); // deviceId -> last admission, retained with the cached engine
+  #admissionSeq = 0;
   #handshakes = new Map(); // ws -> source until admission transfers it to pairing or a session
   #pending = new Map(); // ws -> connection waiting for pairing approval (or its upsert in flight)
   #poll = null;
@@ -204,7 +205,6 @@ export class KubikServer {
       engine = this.engineFactory(this.account.voice, { log: this.log, ...this.engineOptions });
       this.#engines.set(device.id, engine);
     }
-    if (this.agentControl?.voiceSettings) engine.getVoice = () => this.agentControl.voiceSettings(device);
     return engine;
   }
 
@@ -250,8 +250,8 @@ export class KubikServer {
     const { session } = conn;
     if (!session) return;
     session.close();
-    this.#lastGen.set(session.device.id, session.gen);
     if (this.#sessions.get(session.device.id) === session) {
+      this.#lastGen.set(session.device.id, session.gen);
       this.#sessions.delete(session.device.id);
       this.log(`kubik: device ${session.device.id} disconnected`);
       this.#publish();
@@ -415,25 +415,28 @@ export class KubikServer {
   }
 
   async #startSession(conn) {
+    const admission = ++this.#admissionSeq;
     const { ws, remote, hello, deviceId } = conn;
     const configured = this.account.devices.get(deviceId);
     const device = { id: deviceId, name: configured && configured.name !== deviceId ? configured.name : hello.name || deviceId,
       enabled: true, fingerprint: conn.fingerprint, fw: hello.fw, reportedName: hello.name,
       ...(hello.volume !== undefined ? { volume: hello.volume } : {}) };
-    const previous = this.#sessions.get(deviceId);
-    if (previous) {
-      this.log(`kubik: device ${deviceId} reconnected; replacing the previous connection`);
-      this.#lastGen.set(deviceId, previous.gen);
-      previous.close();
-      previous.ws.close(CLOSE.REPLACED, 'replaced');
-    }
     const engine = this.#engineFor(device);
-    try { await engine.refreshCapabilities?.({ agentId: this.agentControl?.agentId?.(device) }); }
-    catch (error) { this.log(`kubik: cannot refresh agent voice capabilities for ${deviceId}: ${error?.message ?? error}`); }
+    const getVoice = this.agentControl?.voiceSettings ? () => this.agentControl.voiceSettings(device) : undefined;
+    let capabilitySnapshot, refreshed = true;
+    try { capabilitySnapshot = await engine.prepareCapabilities?.({ agentId: this.agentControl?.agentId?.(device), getVoice }); }
+    catch (error) { refreshed = false; this.log(`kubik: cannot refresh agent voice capabilities for ${deviceId}: ${error?.message ?? error}`); }
     if (conn.phase === 'closed' || ws.readyState !== 1) return;
+    const previous = this.#sessions.get(deviceId);
+    if (admission < (this.#committedAdmission.get(deviceId) ?? 0)) {
+      conn.fail(CLOSE.REPLACED, 'replaced'); return;
+    }
+    if (!refreshed && this.#committedAdmission.has(deviceId)) {
+      conn.fail(CLOSE.INTERNAL, 'voice capabilities unavailable'); return;
+    }
     const session = new DeviceSession({
       ws, device, engine, log: this.log,
-      lastGen: this.#lastGen.get(deviceId) ?? 0, sessionId: `s-${++this.#sessionSeq}`, volume: this.account.volume ?? hello.volume,
+      lastGen: previous?.gen ?? this.#lastGen.get(deviceId) ?? 0, sessionId: `s-${admission}`, volume: this.account.volume ?? hello.volume,
       agentControl: this.agentControl,
       textMode: this.account.text ?? 'auto',
       onActivity: () => this.setStatus({ lastInboundAt: Date.now() }),
@@ -445,6 +448,14 @@ export class KubikServer {
       },
       current: () => this.#sessions.get(deviceId),
     });
+    // The prepared engine snapshot and server session become current in one synchronous commit.
+    if (refreshed && engine.prepareCapabilities) engine.applyCapabilities(capabilitySnapshot);
+    if (previous) {
+      this.log(`kubik: device ${deviceId} reconnected; replacing the previous connection`);
+      this.#lastGen.set(deviceId, previous.gen);
+      previous.close();
+      previous.ws.close(CLOSE.REPLACED, 'replaced');
+    }
     conn.session = session;
     conn.phase = 'session';
     conn.frames = guardSessionFrames(session, conn, { authorize: () => this.#authorizeSession(session),
@@ -454,6 +465,7 @@ export class KubikServer {
       },
       onFrameError: (error) => this.#onFrameError(conn, error) });
     this.#sessions.set(deviceId, session);
+    this.#committedAdmission.set(deviceId, admission);
     this.#handshakes.delete(ws); // transfer the slot to the live session
     this.#ensurePairingPoll();
     session.start();
@@ -480,7 +492,7 @@ export class KubikServer {
     const clients = [...this.#wss?.clients ?? []];
     for (const ws of clients) ws.close(CLOSE.GOING_AWAY, 'server stopping');
     for (const engine of this.#engines.values()) { try { engine.close(); } catch { /* best effort */ } }
-    this.#engines.clear();
+    this.#engines.clear(); this.#committedAdmission.clear();
     setTimeout(() => clients.forEach((ws) => ws.terminate()), 1000).unref?.();
     await new Promise((resolve) => this.#wss ? this.#wss.close(() => resolve()) : resolve());
     this.#wss = null;

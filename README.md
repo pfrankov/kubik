@@ -80,6 +80,10 @@ python3 tools/accept.py
 
 Acceptance builds both characters and checks the renderer, protocol, setup pages and clean host installation. It does not publish or flash your device. Build outputs and local credentials are excluded from Git.
 
+Exact RGB references are validated on macOS ARM64. Linux CI runs `lint`,
+`host-portable` and `build`; the portable host suite includes the renderer's
+sanitizer and frame-stream checks. See [acceptance](docs/acceptance.md#ci) for the platform boundary.
+
 To reproduce the UI demonstration:
 
 ```sh

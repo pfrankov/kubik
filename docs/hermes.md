@@ -76,11 +76,20 @@ which provider/model you want and the location of its existing protected
 credentials. Review the resulting configuration; do not paste secret keys into
 an ordinary chat or the device's Server field.
 
-With ready STT, KEY or Hi Tessa starts a voice request. Classic input ends after
-VAD silence. With ready TTS and Speech volume at least 20, Hermes speaks its
+With ready STT, KEY starts a voice request; Tess also supports Hi Tessa.
+Voice-activated input ends after VAD silence. Manual Classic recording follows
+KEY hold/release or tap controls, with a 60-second limit; a pause does not end it.
+With ready TTS and Speech volume at least 20, Hermes speaks its
 reply; otherwise Kubik shows text. Realtime/Live and the device model pickers are
 not implemented by this Hermes platform. Change the agent and speech models in
 Hermes itself. Disconnects do not reset its device conversation.
+
+Only one authenticated connection is active per device. A reconnect replaces the
+previous socket, including overlapping reconnects. Queued speech rechecks that
+connection, cancellation and the current volume before starting playback, so an
+interrupted reply does not resume when an earlier audio fragment finishes.
+Text, voice and typing updates are sent only after `welcome` and capabilities;
+delivery requested during that handshake returns a retryable connection error.
 
 ## Extend or troubleshoot
 

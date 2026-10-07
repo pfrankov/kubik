@@ -178,6 +178,10 @@ An empty/interrupted automatic turn uses `{"t":"cancel","turn":5}` on that conne
 {"t":"pong","ts":123456}
 ```
 
+`set` accepts integer `volume` from 0 to 100 and integer `brightness` from 10 to
+255. Missing or invalid fields leave their settings unchanged; valid fields in
+the same frame still apply. Invalid numbers are never truncated or persisted.
+
 * Plush enables microphones only for KEY capture. Tess also runs a local Tessa
   detector on an awake or dimmed idle home screen when connected with STT available. Its
   user phrase is Hi Tessa; the model targets Tessa and does not enforce the Hi prefix. Detection starts
@@ -512,19 +516,22 @@ changes a frame format.
 mismatch), a disabled device, or an unsupported firmware version; the server sends `{"t":"error","code":"unauthorized"}`
 just before closing. The other codes are:
 * `4002` is a protocol error. Examples: the first frame is not `hello`, there is no `hello` or `auth` within 3 s,
-  an invalid key, a `hello` whose `v` is not 4 or whose `name`/`fw` is invalid, a frame other than `auth` after `challenge`, a frame other than `ping` while waiting for pairing,
+  an invalid key, a `hello` whose `v` is not 5 or whose `name`/`fw` is invalid, a frame other than `auth` after `challenge`, a frame other than `ping` while waiting for pairing,
   the JSON is invalid, a field is invalid, a JSON frame is over 4 KiB, an audio frame is over 8 KiB, the
   audio payload has an odd length, or the device sends `hello` twice.
 * `4003` means the connection was replaced by a newer authenticated connection of the same device.
 * `4004` (pairing timeout): not approved within 10 minutes; reconnect to keep waiting.
 * `4005` (pairing busy): too many devices are waiting for approval or too many
   unauthenticated sockets are open; retry later.
-* `1011` means the server could not reach OpenClaw's pairing store.
+* `1011` means an internal setup failure, such as an unavailable pairing store
+  or a failed voice-capability refresh. A failed refresh does not replace a live session.
 * `1001` means the server is stopping.
 
 **`gen` numbering.** `gen` runs 1..255 and wraps from 255 to 1. **`0` is never used**, so a device can
-use 0 as "no active gen". While the server process runs it keeps counting per device across reconnects,
-so a reconnect never reuses the gen of audio that may still be buffered.
+use 0 as "no active gen". While the server process runs it keeps counting per device
+across reconnects; reconnecting does not reset the counter to the previous stream's gen.
+Firmware ignores `speak`, `speak_end` and `speak_cancel` with a non-integer or
+out-of-range generation; it never truncates or wraps an invalid input number.
 
 **One `gen` per spoken reply.** The agent may deliver a reply in several blocks, and all of them are
 spoken under one `gen`. The server sends `speak` (and `state speaking` right after it) before the first
@@ -600,12 +607,16 @@ Wrong-mode targets are rejected as unsupported. Each mode retains its own model 
 A host without native voice advertises Realtime/Live as unavailable. A host without
 speech model selection returns no speech choices. Host mode config is only the default;
 a saved device mode takes precedence, without changing other devices or agent sessions.
-The device keeps the active catalog separately from its agent model and rejects mismatched targets. One control request is in flight
-per connection; model changes cannot overlap a recorded/active reply. Recording also waits for an outstanding
-model change. A timed-out operation remains bounded until its underlying request settles; the UI refreshes
-state to learn the actual result. No keys, provider credentials or session transcripts enter the catalog.
+The device keeps the active catalog separately from its agent model and rejects mismatched targets.
+The host allows one control request per device, including across reconnects;
+model changes cannot overlap a recorded/active reply. Recording also waits for
+an outstanding model change. After an 8-second UI timeout, the device remains
+busy until the underlying request settles. The timeout does not undo a write;
+the adapter must bound its own I/O, and the UI refreshes state to learn the actual
+result. Other devices remain independent. No keys, provider credentials or session
+transcripts enter the catalog.
 
-Microphone RX/ADC are enabled for PTT recording and, only in TESS firmware, eligible
+Outside an active GPT Live session, microphone RX/ADC are enabled for PTT recording and, only in TESS firmware, eligible
 local Tessa recognition. Passive wake capture is distinct from `mic_open` and the
 listening UI. There is no acoustic steering, gain-isolation hook or microphone-edge overlay. Synthesizing and
 playing replies does not enable the microphone. Live transcription, when configured, starts its provider
@@ -616,7 +627,37 @@ to the same agent session. Partial transcripts never execute agent commands or t
 
 The protocol is agent-independent. See [Agent SDK](agent-sdk.md) for adapters, setup, pairing and activity/cron snapshots. Both hosts reuse the same device authentication and speech transport.
 
-On battery, with a dark screen and no conversation/setup/work, firmware stops the Wi-Fi radio. A connection window begins after the first 20-second off interval and then every 60 seconds, lasting at most 40 seconds. Join including scan is capped at 10 seconds, discovery at 3 seconds and WSS at 22 seconds; one WSS attempt is allowed per window. The timing budget leaves 2 seconds for event delivery/wake within the minute on a healthy reachable selected or scan-visible saved network with an already synchronized clock. First-time provisioning/NTP synchronization is separate from the battery polling deadline. A stalled/unavailable network retains the queued item. A new active agent-work snapshot or actual notification wakes the screen. Cron counter snapshots update the indicator without waking or resetting the screen idle timer. User input or charger insertion restores continuous connectivity. Radio-off intervals cannot receive a push. Server notifications therefore use a durable bounded queue (8 per device, 128 total, 24-hour TTL), bound to the approved identity fingerprint. They drain on authenticated reconnect, wait behind active PTT and retain pending items if disconnected before output. An item is removed after device acknowledgement, explicit user cancellation, identity revocation or its 24-hour expiry. Spoken notifications await matching `played` confirming the full sent PCM duration; text-only notifications await `shown` for the final card preview receipt (at most 1000 UTF-8 bytes); spoken output uses the full accepted text. A disconnect or missing ACK retains the item for the next authenticated connection; ambiguous partial delivery may be repeated. `shown` confirms installation into the device UI model, not panel scanout. Firmware binds text receipts and audio generations to the connection that supplied them. Delayed END/ACK from a prior connection cannot truncate or acknowledge a replacement stream, even if the 8-bit generation repeats. Delivery latency includes the next connection window and network/API delay.
+On battery, with a dark screen and no conversation/setup/work, firmware stops the
+Wi-Fi radio. The first connection window begins after 12 seconds off; subsequent
+windows start every 60 seconds and last at most 48 seconds. Join including scan
+is capped at 20 seconds, discovery at 3 seconds and a WSS attempt at 22 seconds.
+Up to three WSS attempts may start, with backoff, while time remains in the same
+fixed window; retries do not extend it. The budget leaves 2 seconds for delivery/wake and 1 second of
+margin on a healthy reachable selected or scan-visible saved network with an
+already synchronized clock. First-time provisioning/NTP synchronization is
+separate from this deadline. An unavailable network retains the queued item.
+
+Actual text or speech wakes the screen. Neither activity nor cron snapshots wake
+a fully dark screen. New activity can restore brightness on a lit display;
+cron snapshots do not reset the idle timer. PWR wake or charger insertion restores
+continuous connectivity. Radio-off intervals cannot
+receive a push, so notifications use a durable bounded queue: 8 per device,
+128 total, 24-hour TTL, bound to the approved identity fingerprint. They drain
+on authenticated reconnect and wait behind active PTT.
+
+An item is removed after device acknowledgement, explicit user cancellation,
+identity revocation or its 24-hour expiry. Spoken notifications await matching
+`played` covering the full sent PCM duration; text notifications await `shown`
+for the final card preview, at most 1000 UTF-8 bytes. Speech uses the full accepted
+text. Mixed speech and text delivery requires both acknowledgements. A disconnect
+or missing ACK retains the item for the next authenticated connection; ambiguous
+partial delivery may be repeated. `shown` confirms installation into the device
+UI model, not panel scanout.
+
+Firmware binds text receipts and audio generations to the connection that supplied
+them. Delayed END/ACK from a prior connection cannot truncate or acknowledge a
+replacement stream, even if the 8-bit generation repeats. Delivery latency includes
+the next connection window and network/API delay.
 
 
 ### Final text-card receipt
@@ -624,10 +665,12 @@ On battery, with a dark screen and no conversation/setup/work, firmware stops th
 Server text updates carry `receipt`, a positive uint32 scoped to the authenticated
 connection. The device sends `{"t":"shown","receipt":N}` after the full card is
 installed into the face model and the screen is woken. Progressive updates have
-new receipts; only the final matching receipt completes a text-only notification.
-A stale or unrelated receipt cannot complete delivery. Audio notifications complete
-with matching `played(gen, ms)` covering the full sent PCM duration instead. No ACK means retained queue entry, one delivery attempt
-per connection; user cancellation intentionally consumes the notification.
+new receipts; only the final matching receipt confirms the text part of a notification.
+A stale or unrelated receipt cannot complete delivery. Audio requires matching
+`played(gen, ms)` covering the full sent PCM duration. If an answer contains both
+audio and a text card, both receipts are required, in either order. A missing ACK
+retains the queue entry, with one delivery attempt per connection; user cancellation
+intentionally consumes the notification.
 
 
 ### Bounded radio diagnostic (USB config only)

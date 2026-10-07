@@ -7,6 +7,25 @@ import { start, stateDir } from './server-fixture.js';
 
 const contents = (path) => JSON.parse(readFileSync(path, 'utf8')).entries;
 
+async function mixedNotification(t, notificationPath) {
+  const engine = fakeEngine(), speak = engine.speak.bind(engine);
+  let calls = 0;
+  engine.speak = async (...args) => {
+    if (++calls === 1) return speak(...args);
+    throw Error('later TTS segment failed');
+  };
+  const { url, server } = await start(t, { engine,
+    ...(notificationPath ? { serverOptions: { notificationPath } } : {}) });
+  const device = await connectDevice(url, { autoPlayed: false, autoShown: false });
+  t.after(() => device.close());
+  const delivery = server.notify(DEVICE, '[[happy]] First sentence. [[sad]] Second sentence.');
+  delivery.catch(() => {});
+  return { server, device, delivery };
+}
+
+const acknowledgePlayback = (device, event) => device.send({ t: 'played', gen: event.gen,
+  ms: Math.ceil(device.receivedMs(event.gen)) });
+
 test('sleeping device notifications persist across host restart and play in FIFO order on authenticated reconnect', async (t) => {
   const notificationPath = join(stateDir(t), 'notifications.json');
   const old = await start(t, { serverOptions: { notificationPath } });
@@ -153,6 +172,79 @@ test('voice provider failure with a screen delivers shown without waiting for a 
   assert.equal(result.spokenChars, 0);
   assert.ok(result.shownChars > 0);
   await device.waitFor((event) => event.t === 'text');
+});
+
+test('mixed spoken and fallback text notification waits for both final acknowledgements', async (t) => {
+  const { device, delivery } = await mixedNotification(t);
+  let settled = false;
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await sleep(20);
+  assert.equal(settled, false, 'played audio does not confirm the unacknowledged fallback card');
+  device.send({ t: 'shown', receipt: card.receipt });
+  const result = await delivery;
+  assert.equal(result.status, 'played');
+  assert.ok(result.spokenChars > 0 && result.shownChars > 0);
+});
+
+test('mixed notification accepts the final card ACK before playback completes', async (t) => {
+  const { device, delivery } = await mixedNotification(t);
+  let settled = false;
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  device.send({ t: 'shown', receipt: card.receipt });
+  await sleep(20);
+  assert.equal(settled, false, 'the card ACK cannot replace the playback ACK');
+  acknowledgePlayback(device, end);
+  const result = await delivery;
+  assert.equal(result.status, 'played');
+  assert.ok(result.spokenChars > 0 && result.shownChars > 0);
+});
+
+test('a successful spoken notification with a [[show]] card waits for its shown ACK', async (t) => {
+  const { url, server } = await start(t);
+  const device = await connectDevice(url, { autoPlayed: false, autoShown: false });
+  t.after(() => device.close());
+  let settled = false;
+  const delivery = server.notify(DEVICE, 'Spoken prefix. [[show]]Card text[[/show]]');
+  delivery.then(() => { settled = true; }, () => { settled = true; });
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  const card = await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await sleep(20);
+  assert.equal(settled, false, 'successful TTS does not confirm the separate screen card');
+  device.send({ t: 'shown', receipt: card.receipt });
+  const result = await delivery;
+  assert.equal(result.status, 'played');
+  assert.ok(result.spokenChars > 0 && result.shownChars > 0);
+  assert.equal(settled, true);
+});
+
+test('mixed notification stays durable when the fallback card ACK is missing', async (t) => {
+  const notificationPath = join(stateDir(t), 'notifications.json');
+  const { device, delivery } = await mixedNotification(t, notificationPath);
+  const rejected = assert.rejects(delivery, error => /acknowledgement timed out/.test(error.message) && error.attempted);
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await rejected;
+  assert.equal(contents(notificationPath).length, 1, 'a played prefix does not remove an unconfirmed fallback');
+});
+
+test('interrupting mixed delivery while waiting for the fallback ACK consumes it intentionally', async (t) => {
+  const notificationPath = join(stateDir(t), 'notifications.json');
+  const { device, delivery } = await mixedNotification(t, notificationPath);
+  const end = await device.waitFor(event => event.t === 'speak_end');
+  await device.waitFor(event => event.t === 'text');
+  acknowledgePlayback(device, end);
+  await sleep(20);
+  device.send({ t: 'cancel' });
+  const result = await delivery;
+  assert.equal(result.status, 'interrupted');
+  assert.equal(contents(notificationPath).length, 0, 'an explicit cancel consumes the notification');
 });
 
 test('connection failure before the first output retains a notification waiting behind recording', async (t) => {

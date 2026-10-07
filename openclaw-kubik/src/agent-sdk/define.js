@@ -5,7 +5,8 @@ const MAX_REPLY_FRAGMENTS = 512;
 
 // A reply returns text. The host queues it; playback continues after dispatch.
 // isCurrent() becomes false when the user interrupts speech, but that must not
-// cancel the agent. signal aborts only on close() or a new connect().
+// cancel the agent. signal aborts on close(), a new connect(), or failure of
+// the current connect().
 function report(callback, error) {
   if (typeof callback !== 'function') return;
   try { callback(error); } catch { /* reporting must not fail the turn twice */ }
@@ -25,18 +26,30 @@ function fragmentsOf(result) {
   throw new Error('adapter reply must return text or text fragments');
 }
 
-async function speakFragments(turn, result, open) {
+async function speakFragments(turn, result, open, signal) {
+  const source = fragmentsOf(result);
+  const iterator = source[Symbol.asyncIterator]?.() ?? source[Symbol.iterator]();
+  let completed = false;
   let characters = 0, fragments = 0;
-  for await (const part of fragmentsOf(result)) {
-    if (typeof part !== 'string') throw new Error('adapter reply fragments must be text');
-    characters += part.length;
-    // Count empty fragments too: an unbounded producer must not monopolize the host.
-    if (characters > MAX_REPLY_CHARS || ++fragments > MAX_REPLY_FRAGMENTS) {
-      throw new Error('adapter reply exceeds 8192 characters or 512 fragments');
+  try {
+    while (!signal.aborted) {
+      const { done, value: part } = await iterator.next();
+      if (signal.aborted) return;
+      if (done) { completed = true; return; }
+      if (typeof part !== 'string') throw new Error('adapter reply fragments must be text');
+      characters += part.length;
+      // Count empty fragments too: an unbounded producer must not monopolize the host.
+      if (characters > MAX_REPLY_CHARS || ++fragments > MAX_REPLY_FRAGMENTS) {
+        throw new Error('adapter reply exceeds 8192 characters or 512 fragments');
+      }
+      // Keep reading after interruption. Leaving the loop would stop the producer.
+      if (!open() || !part.trim()) continue;
+      await turn.speak(part);
     }
-    // Keep reading after interruption. Leaving the loop would stop the producer.
-    if (!open() || !part.trim()) continue;
-    await turn.speak(part);
+  } finally {
+    if (!completed && typeof iterator.return === 'function') {
+      try { await iterator.return(); } catch { /* preserve the reply or shutdown result */ }
+    }
   }
 }
 
@@ -62,11 +75,8 @@ async function connectSpec(spec, state, ctx) {
   const attempt = state.lifetime;
   try { return await spec.connect({ ...ctx, signal }); }
   catch (error) {
-    // Only this attempt may be replaced. close() or a newer connect already owns the slot.
-    if (state.lifetime === attempt && !attempt.signal.aborted) {
-      attempt.abort();
-      state.lifetime = new AbortController();
-    }
+    // A failed attempt closes only its own lifetime; a newer connect owns its slot.
+    if (state.lifetime === attempt) attempt.abort();
     throw error;
   }
 }
@@ -80,8 +90,7 @@ async function dispatchSpec(spec, state, turn) {
       device: turn.device, transcript: turn.transcript, turnId: turn.turnId, signal,
       isCurrent: () => turnOpen(turn.isCurrent), events: turn.events,
     });
-    if (!open()) return;
-    await speakFragments(turn, result, open);
+    await speakFragments(turn, result, open, signal);
   } catch (error) {
     if (open()) report(turn.onAgentError, error);
   }
