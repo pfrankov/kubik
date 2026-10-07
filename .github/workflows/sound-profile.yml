@@ -1,0 +1,43 @@
+name: Sound cost profile
+on:
+  push:
+    branches: [diagnostics/sound-cost-profile]
+permissions:
+  contents: read
+jobs:
+  sound-profile:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12.10'
+          architecture: arm64
+      - name: Record profile environment
+        shell: bash
+        run: |
+          uname -a
+          sw_vers
+          cc --version
+          xcrun --show-sdk-version
+          python3 --version
+      - name: Capture one bounded profile of the sound test
+        run: python3 tools/profile-tess-cost.py
+      - name: Preserve original profile evidence
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$RUNNER_TEMP/kubik-sound-profile" ]; then
+            tar -czf "$RUNNER_TEMP/kubik-sound-profile-evidence.tgz" -C "$RUNNER_TEMP" kubik-sound-profile
+          fi
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: sound-cost-profile-evidence
+          path: ${{ runner.temp }}/kubik-sound-profile-evidence.tgz
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
