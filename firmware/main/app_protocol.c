@@ -29,17 +29,14 @@ static int act_index(cJSON *j, const char *key) {
         if (!strcmp(v, app_activity_names[i])) return i;
     return v && v[0] ? ACT_TOOL : ACT_NONE;  // a category from a newer server: still "busy"
 }
-static int protocol_volume(cJSON *object, const char *key) {
-    cJSON *volume = cJSON_GetObjectItemCaseSensitive(object, key);
-    if (!cJSON_IsNumber(volume) || volume->valuedouble < 0 || volume->valuedouble > 100 ||
-        volume->valuedouble != (double)volume->valueint) return -1;
-    return volume->valueint;
+static int protocol_integer(cJSON *object, const char *key, int min, int max) {
+    cJSON *number = cJSON_GetObjectItemCaseSensitive(object, key);
+    if (!cJSON_IsNumber(number) || number->valuedouble < min || number->valuedouble > max ||
+        number->valuedouble != (double)number->valueint) return -1;
+    return number->valueint;
 }
-static int protocol_brightness(cJSON *object) {
-    cJSON *brightness = cJSON_GetObjectItemCaseSensitive(object, "brightness");
-    if (!cJSON_IsNumber(brightness) || brightness->valuedouble < 10 || brightness->valuedouble > 255 ||
-        brightness->valuedouble != (double)brightness->valueint) return -1;
-    return brightness->valueint;
+static int protocol_volume(cJSON *object, const char *key) {
+    return protocol_integer(object, key, 0, 100);
 }
 static void handle_agent_options(cJSON *j) {
     agent_menu_reply_t *reply = calloc(1, sizeof(*reply));
@@ -117,7 +114,7 @@ static void handle_cron_json(cJSON *j) {
 }
 static void handle_set_json(cJSON *j) {
     int setting_volume = protocol_volume(j, "volume");
-    post_remote(EV_SRV_SET, setting_volume, protocol_brightness(j));
+    post_remote(EV_SRV_SET, setting_volume, protocol_integer(j, "brightness", 10, 255));
 }
 static void dispatch_json(cJSON *j, const char *type) {
     if (app_voice_receive(j, type)) return;

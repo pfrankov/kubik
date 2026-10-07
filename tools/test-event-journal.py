@@ -14,7 +14,7 @@ def section(file, start, end):
 
 app = (MAIN / 'app.h').read_text()
 enums = app[app.index('typedef enum {'):app.index('extern face_t g_face;')]
-wire = section('app_protocol.c', 'static int protocol_volume(', 'static void handle_agent_options(')
+wire = section('app_protocol.c', 'static int protocol_integer(', 'static void handle_agent_options(')
 wire += section('app_protocol.c', 'static void post_remote(', 'static void handle_activity_json(')
 wire += section('app_protocol.c', 'static void handle_set_json(', 'static void dispatch_json(')
 wire += section('app_protocol.c', 'static void handle_text_json(', 'static void handle_cron_json(')
