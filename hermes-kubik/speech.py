@@ -33,7 +33,7 @@ async def pcm_file(path):
 
 async def send_pcm(peer, pcm):
     state, sent = [0, 0], 0
-    peer.gen = (peer.gen + 1) % 256
+    peer.gen = peer.gen % 255 + 1  # Protocol v5 reserves zero for "no speech".
     peer.played_ms = 0
     peer.sent_ms = max(1, len(pcm) // 48)
     done = asyncio.Event()

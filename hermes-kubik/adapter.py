@@ -15,7 +15,7 @@ from gateway.config import Platform
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
-from .codec import decode, encode
+from .codec import decode
 from .security import Security
 
 
@@ -135,9 +135,12 @@ class KubikAdapter(BasePlatformAdapter):
             await socket.prepare(request)
             peer = await self.authenticate(socket)
             old = self.peers.get(peer.identity)
+            # Publish the replacement before close yields to another handshake.
+            self.peers[peer.identity] = peer
             if old:
                 await old.socket.close(code=4003)
-            self.peers[peer.identity] = peer
+            if self.peers.get(peer.identity) is not peer or socket.closed:
+                return socket
             await peer.send('welcome', session=secrets.token_hex(8), progress=True)
             stt, tts = self.speech_available()
             await peer.send('capabilities', stt=stt, tts=tts, voice_mode='classic')
@@ -399,9 +402,11 @@ class KubikAdapter(BasePlatformAdapter):
         peer = self.peers.get(chat_id)
         if not peer:
             return SendResult(success=False, error='Kubik disconnected', retryable=True)
-        if peer.muted or peer.volume < 20:
-            return SendResult(success=True, message_id='muted')
         async with peer.output_lock:
+            if peer.socket.closed or self.peers.get(chat_id) is not peer:
+                return SendResult(success=False, error='Kubik disconnected', retryable=True)
+            if peer.muted or peer.volume < 20:
+                return SendResult(success=True, message_id='muted')
             peer.output_task = asyncio.create_task(play_file(peer, audio_path))
             try:
                 return await peer.output_task

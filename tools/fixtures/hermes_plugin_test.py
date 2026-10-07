@@ -10,6 +10,7 @@ import sys
 import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from aiohttp import ClientSession
 from cryptography.hazmat.primitives import hashes, serialization
@@ -50,10 +51,47 @@ sys.modules['tools'] = ModuleType('tools')
 sys.modules['tools.transcription_tools'] = ModuleType('tools.transcription_tools')
 
 
+class DeviceSocket:
+    """A controllable close handshake for overlapping authenticated connections."""
+    def __init__(self, release_close=None):
+        self.closed = False
+        self.release_close = release_close
+        self.prepared = asyncio.Event()
+        self.close_started = asyncio.Event()
+        self.finished = asyncio.Event()
+        self.messages = []
+
+    async def prepare(self, request):
+        self.prepared.set()
+
+    async def send_json(self, value):
+        self.messages.append(value)
+
+    async def send_bytes(self, value):
+        self.messages.append(value)
+
+    async def close(self, **kwargs):
+        self.close_started.set()
+        if self.release_close is not None:
+            await self.release_close.wait()
+        self.closed = True
+        self.finished.set()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await self.finished.wait()
+        raise StopAsyncIteration
+
+
 class Protocol(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        environment = patch.dict(os.environ, {'HERMES_HOME': self.temp.name})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.store = Security(self.temp.name)
         self.store.tls()
         self.key = ec.generate_private_key(ec.SECP256R1())
@@ -141,6 +179,77 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
         await adapter.dispatch(peer, bytes(1920))
         self.assertFalse(Path(paths[0]).exists())
 
+    async def test_reconnect_replaces_a_peer_before_awaiting_its_close(self):
+        adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+        adapter.speech_available = lambda: ({'available': True}, {'available': False})
+        identity, _ = self.store.identity(self.hello)
+        release_old = asyncio.Event()
+        old, first, latest = DeviceSocket(release_old), DeviceSocket(), DeviceSocket()
+        adapter.peers[identity] = Peer(old, identity, self.hello)
+
+        async def authenticate(socket):
+            return Peer(socket, identity, self.hello)
+
+        adapter.authenticate = authenticate
+        tasks = []
+        with patch('hermes_kubik.adapter.web.WebSocketResponse', side_effect=[first, latest]):
+            try:
+                tasks.append(asyncio.create_task(adapter.accept(None)))
+                await asyncio.wait_for(old.close_started.wait(), 1)
+                tasks.append(asyncio.create_task(adapter.accept(None)))
+                await asyncio.wait_for(latest.prepared.wait(), 1)
+                self.assertTrue(first.closed, 'the second reconnect must close its actual predecessor')
+                release_old.set()
+                await asyncio.wait_for(tasks[0], 1)
+                self.assertIs(adapter.peers[identity].socket, latest)
+                self.assertEqual(first.messages, [], 'a superseded handshake must not announce readiness')
+                self.assertEqual(latest.messages[0]['t'], 'welcome')
+            finally:
+                release_old.set()
+                await first.close()
+                await latest.close()
+                await asyncio.gather(*tasks, return_exceptions=True)
+        self.assertFalse(adapter.peers)
+        self.assertFalse(adapter.sockets)
+
+    async def test_queued_speech_rechecks_mute_and_connection_before_playback(self):
+        from hermes_kubik import speech
+        for change in ('interrupt', 'volume', 'disconnect'):
+            with self.subTest(change=change):
+                adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+                peer = Peer(DeviceSocket(), 'device', self.hello)
+                peer.stage = 'agent'
+                adapter.peers['device'] = peer
+                started, release = asyncio.Event(), asyncio.Event()
+                calls = []
+
+                async def play_file(current, path):
+                    calls.append(path)
+                    started.set()
+                    await release.wait()
+                    return SimpleNamespace(success=True)
+
+                tasks = []
+                with patch.object(speech, 'play_file', play_file):
+                    try:
+                        tasks.append(asyncio.create_task(adapter.send_voice('device', 'first.wav')))
+                        await asyncio.wait_for(started.wait(), 1)
+                        tasks.append(asyncio.create_task(adapter.send_voice('device', 'queued.wav')))
+                        await asyncio.sleep(0)  # the second send is waiting on the output lock
+                        if change == 'interrupt':
+                            await adapter.cancel_request(peer, {'gen': peer.gen})
+                        elif change == 'volume':
+                            peer.volume = 0
+                        else:
+                            await peer.socket.close()
+                        release.set()
+                        results = await asyncio.wait_for(asyncio.gather(*tasks), 1)
+                        self.assertEqual(calls, ['first.wav'])
+                        self.assertEqual(results[1].success, change != 'disconnect')
+                    finally:
+                        release.set()
+                        await asyncio.gather(*tasks, return_exceptions=True)
+
     async def test_partial_playback_and_cancel_preserve_agent_run(self):
         adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
         class Socket:
@@ -226,6 +335,27 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
                 Peer(None, 'device', {**self.hello, 'volume': volume})
         for volume in (0, 20, 100):
             self.assertEqual(Peer(None, 'device', {**self.hello, 'volume': volume}).volume, volume)
+
+    async def test_speech_generation_wraps_without_using_reserved_zero(self):
+        from hermes_kubik.speech import send_pcm
+        adapter = KubikAdapter(SimpleNamespace(extra={}, enabled=True))
+        socket = DeviceSocket()
+        peer = Peer(socket, 'device', self.hello)
+        peer.gen = 254
+        send_json = socket.send_json
+
+        async def acknowledge(value):
+            await send_json(value)
+            if value['t'] == 'speak_end':
+                await adapter.command(peer, {'t': 'played', 'gen': value['gen'], 'ms': 40})
+
+        socket.send_json = acknowledge
+        for _ in range(2):
+            self.assertTrue((await send_pcm(peer, bytes(1920))).success)
+        starts = [value['gen'] for value in socket.messages if isinstance(value, dict) and value['t'] == 'speak']
+        self.assertEqual(starts, [255, 1])
+        self.assertEqual([value[:2] for value in socket.messages if isinstance(value, bytes)],
+                         [bytes((3, 255)), bytes((3, 1))])
 
     def test_ima_shared_vector_and_bounds(self):
         vector = bytes.fromhex('0000007777ffff0000')
