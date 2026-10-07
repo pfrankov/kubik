@@ -2,7 +2,7 @@
 // Real hidden entry and isolated native previews through the device's USB control events.
 import assert from 'node:assert/strict';
 import {setTimeout as sleep} from 'node:timers/promises';
-import {assertIdleCapture} from './test-device/diagnostics.mjs';
+import {assertIdleCapture, waitForDeviceLink} from './test-device/diagnostics.mjs';
 const url=process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
 async function control(body) {
   const response=await fetch(`${url}/config`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(5000)});
@@ -13,19 +13,29 @@ const sim=(ev,extra={})=>control({cmd:'sim',ev,...extra});
 const tap=(x,y)=>sim('tap',{x,y});
 async function until(check,label) {
   for(let n=0;n<80;n++) {const state=await info();if(check(state))return state;await sleep(100);}
-  throw Error(`Timed out: ${label}`);
+  const state=await info();
+  throw Error(`Timed out: ${label}; preview=${state.lab_screen}, menu=${state.menu}, dark=${state.screen_dark}, lab=${state.screen_lab}`);
 }
 async function catalog() {
-  for(let n=0;n<5;n++) {if((await info()).lab_screen==='Screen Lab')return;await sim('boot');await sleep(150);}
-  throw Error('BOOT did not return to lab catalog');
+  // KEY has already left any nested menu preview. Sim acknowledges enqueue,
+  // so send BOOT once and observe its result before issuing another action.
+  await sim('boot');
+  await until(state=>state.lab_screen==='Screen Lab','BOOT to lab catalog');
 }
 async function enter() {
   for(let n=0;n<5;n++) {await tap(90,36);await sleep(90);}
   await sim('hold',{x:90,y:36});
   await until(state=>state.screen_lab,'hidden lab entry');
 }
+async function previewKey(index,names) {
+  await sim('ptt_down');await sim('ptt_up');
+  const next=index>=1&&index<=3?names[index+1]:index===14?'Home':
+    [11,12,13,20].includes(index)?names[index]:'Recording';
+  await until(state=>state.lab_screen===next,`KEY in ${names[index]}`);
+  const state=await info();assert.ok(!state.mic_open&&!state.auto_recording&&!state.live_active,'preview KEY cannot record');
+}
 async function main() {
-  const original=await info();assertIdleCapture(original);assert.ok(!original.screen_lab);
+  const original=await waitForDeviceLink(info);assertIdleCapture(original);assert.ok(!original.screen_lab);
   const preserved=['volume','ui_volume','brightness','ssid','url','key','guide_done'];
   try {
     if(original.menu)await sim('menu');
@@ -39,8 +49,7 @@ async function main() {
       if(index && index%3===0)await tap(356,428);
       await tap(240,144+(index%3)*88);
       await until(state=>state.lab_screen===names[index],names[index]);
-      await sim('ptt_down');await sim('ptt_up');await sleep(150);
-      const state=await info();assert.ok(!state.mic_open&&!state.auto_recording&&!state.live_active,'preview KEY cannot record');
+      await previewKey(index,names);
       await catalog();
     }
     await sim('boot');await until(state=>!state.screen_lab&&state.menu,'exit to Settings');

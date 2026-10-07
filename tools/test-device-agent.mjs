@@ -161,7 +161,9 @@ async function main() {
     await sim('boot');const end=await until(s=>!s.agent_open&&s.menu,'back to device settings');
     preserved(end,original);
     // Contrasting case: the underlying settings slider still responds to a drag.
-    await sim('drag',{x:72,y:188,first:true});await sleep(200);
+    const y=original.volume>=50?300:180;
+    await sim('drag',{x:72,y:226,first:true});
+    await sim('drag',{x:72,y});await tap(72,y);
     assert.notEqual((await info()).volume,original.volume);
     await control({cmd:'set',volume:original.volume});await sim('menu');
     preserved(await info(),original);

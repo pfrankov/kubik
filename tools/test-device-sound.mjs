@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Local USB controls only: no provider calls, microphone activation or factory reset.
 import assert from 'node:assert/strict';
+import { setDeviceScreen, waitForDeviceLink } from './test-device/diagnostics.mjs';
 import { setTimeout as pause } from 'node:timers/promises';
 const control = process.env.KUBIK_TEST_CONTROL ?? 'http://127.0.0.1:18791';
 async function command(payload) {
@@ -14,13 +15,14 @@ async function settled(test, message) {
   for (let n=0;n<30;n++) { try { const state=await info(); if(test(state)) return state; } catch {} await pause(200); }
   throw Error(message);
 }
-const original = await info();
+const original = await waitForDeviceLink(info);
 assert.equal(original.live_active, false, 'active Live conversation');
 assert.equal(original.auto_recording, false, 'active automatic recording');
 assert.equal(original.mic_open, false, 'active microphone');
 assert.equal(Number.isInteger(original.ui_volume), true, 'new firmware must expose ui_volume');
 let closed = !original.menu;
 try {
+  await setDeviceScreen(info, sim, false);
   if(original.menu) await sim('menu');
   await sim('mode', {mode:0, ms:0});
   await sim('menu'); await pause(650);
@@ -48,5 +50,7 @@ try {
   const state=await info(); if(state.menu) await sim('menu');
   await command({cmd:'set',volume:original.volume,ui_volume:original.ui_volume,brightness:original.brightness});
   if(!closed) {await sim('menu');await pause(650);}
-  const restored=await info(); assert.equal(restored.volume,original.volume); assert.equal(restored.ui_volume,original.ui_volume);
+  await setDeviceScreen(info, sim, original.screen_dark);
+  await waitForDeviceLink(info);
+  const restored=await info(); assert.equal(restored.screen_dark,original.screen_dark); assert.equal(restored.volume,original.volume); assert.equal(restored.ui_volume,original.ui_volume);
 }
