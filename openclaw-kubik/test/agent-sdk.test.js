@@ -66,6 +66,9 @@ test('setup field definitions reject misspelled or mistyped validation options',
   assert.throws(() => validateAdapter({ ...base, setup: [{ ...field, maxLength: 4 }] }), /unknown property "maxLength"/);
   assert.throws(() => validateAdapter({ ...base, setup: [{ ...field, type: 'string', min: 1 }] }), /unknown property "min"/);
   assert.throws(() => validateAdapter({ ...base, setup: [{ key: 'name', label: 'Name', type: 'string', maxLength: null }] }), /invalid maxLength/);
+  assert.throws(() => validateAdapter({ ...base, setup: [{ label: 'Name', type: 'string' }] }), /invalid key/);
+  assert.throws(() => validateAdapter({ ...base, setup: [{ ...field, key: ['count'] }] }), /invalid key/);
+  assert.throws(() => validateAdapter({ ...base, id: ['array-id'] }), /adapter id is invalid/);
 });
 
 test('activity and cron event relays validate snapshots, expire them, and keep bounded state', async () => {

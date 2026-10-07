@@ -22,7 +22,7 @@ function validateFieldProperties(field) {
 
 function validateFieldShape(field) {
   if (!field || typeof field !== 'object' || Array.isArray(field)) throw new Error('adapter has an invalid setup field');
-  if (!SETUP_KEY.test(field.key)) throw new Error('adapter setup field has an invalid key');
+  if (typeof field.key !== 'string' || !SETUP_KEY.test(field.key)) throw new Error('adapter setup field has an invalid key');
   if (typeof field.label !== 'string' || !field.label.trim() || field.label.length > 80) throw new Error('adapter setup field has an invalid label');
   if (!FIELD_TYPES.has(field.type)) throw new Error(`adapter setup field "${field.key}" has an unsupported type`);
   validateFieldProperties(field);
@@ -107,7 +107,7 @@ function validateAdapterMethods(adapter) {
 
 function validateAdapterShape(adapter) {
   if (!adapter || typeof adapter !== 'object' || Array.isArray(adapter)) throw new Error('agent adapter must be an object');
-  if (!ADAPTER_ID.test(adapter.id ?? '')) throw new Error('agent adapter id is invalid');
+  if (typeof adapter.id !== 'string' || !ADAPTER_ID.test(adapter.id)) throw new Error('agent adapter id is invalid');
   if (typeof adapter.label !== 'string' || !adapter.label.trim() || adapter.label.length > 80) throw new Error('agent adapter label is invalid');
   if (!Array.isArray(adapter.setup) || adapter.setup.length > 32) throw new Error('agent adapter setup must be an array of at most 32 fields');
   validateAdapterMethods(adapter);
