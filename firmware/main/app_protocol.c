@@ -35,6 +35,12 @@ static int protocol_volume(cJSON *object, const char *key) {
         volume->valuedouble != (double)volume->valueint) return -1;
     return volume->valueint;
 }
+static int protocol_brightness(cJSON *object) {
+    cJSON *brightness = cJSON_GetObjectItemCaseSensitive(object, "brightness");
+    if (!cJSON_IsNumber(brightness) || brightness->valuedouble < 10 || brightness->valuedouble > 255 ||
+        brightness->valuedouble != (double)brightness->valueint) return -1;
+    return brightness->valueint;
+}
 static void handle_agent_options(cJSON *j) {
     agent_menu_reply_t *reply = calloc(1, sizeof(*reply));
     if (reply) {
@@ -110,10 +116,8 @@ static void handle_cron_json(cJSON *j) {
              cJSON_IsNumber(next) ? next->valueint : -1);
 }
 static void handle_set_json(cJSON *j) {
-    cJSON *brightness = cJSON_GetObjectItem(j, "brightness");
     int setting_volume = protocol_volume(j, "volume");
-    post_remote(EV_SRV_SET, setting_volume,
-             cJSON_IsNumber(brightness) ? brightness->valueint : -1);
+    post_remote(EV_SRV_SET, setting_volume, protocol_brightness(j));
 }
 static void dispatch_json(cJSON *j, const char *type) {
     if (app_voice_receive(j, type)) return;
