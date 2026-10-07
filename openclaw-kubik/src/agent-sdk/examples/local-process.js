@@ -1,6 +1,6 @@
 // Copy this file and point command at an executable that accepts --session ID.
 // It reads a transcript on stdin and writes one UTF-8 reply to stdout; no shell.
-import { access } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -56,7 +56,10 @@ export default defineAdapter({
   setup: [{ key: 'command', label: 'Agent executable path', type: 'string', required: true }],
   async connect({ config }) {
     if (!isAbsolute(config.command)) throw new Error('Use an absolute executable path');
-    try { await access(config.command, constants.X_OK); }
+    try {
+      if (!(await stat(config.command)).isFile()) throw new Error();
+      await access(config.command, constants.X_OK);
+    }
     catch { throw new Error('Agent executable is unavailable'); }
     command = config.command;
   },

@@ -175,6 +175,7 @@ test('process example enforces its deadline even when SIGTERM is ignored',
 
 test('process example probes an absolute executable before serving', async () => {
   await assert.rejects(adapter.connect({ config: { command: 'relative-agent' } }), /absolute executable/);
+  await assert.rejects(adapter.connect({ config: { command: tmpdir() } }), /unavailable/);
   await assert.rejects(adapter.connect({ config: { command: join(tmpdir(), 'missing-kubik-agent') } }), /unavailable/);
   await adapter.close();
 });
