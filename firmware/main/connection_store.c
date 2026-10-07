@@ -244,7 +244,8 @@ static esp_err_t update_locked(connection_record_t *record, mutator_t mutate, co
                                 connection_publish_t *publish) {
     record_source_t source;
     esp_err_t err = load_existing_locked(record, &source);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) { muse_store_publish_state(NULL); return err; }
+    muse_store_publish_state(&record->muse);
     record_digest_t old_digest = {0};
     if ((err = connection_store_digest_record(record, &old_digest)) != ESP_OK) return err;
     if (source.durable && record->revision == UINT64_MAX) return ESP_ERR_INVALID_STATE;
@@ -261,7 +262,8 @@ static esp_err_t update_locked(connection_record_t *record, mutator_t mutate, co
         cleanup_legacy_keys_locked();
         // Publish only fields changed by this operation while still serialized.
         publish_record(record, *publish);
-    }
+        muse_store_publish_state(&record->muse);
+    } else if (!app_nvs_ready_locked()) muse_store_publish_state(NULL);
     return err;
 }
 
@@ -279,11 +281,12 @@ static esp_err_t update(connection_record_t *record, mutator_t mutate, const voi
 esp_err_t connection_store_load(connection_record_t *record, bool *durable) {
     if (!record || !durable) return ESP_ERR_INVALID_ARG;
     esp_err_t err = app_nvs_lock();
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) { muse_store_publish_state(NULL); return err; }
     if (!app_nvs_ready_locked()) err = ESP_ERR_INVALID_STATE;
     else {
         err = load_locked(record, durable);
     }
+    muse_store_publish_state(err == ESP_OK ? &record->muse : NULL);
     app_nvs_unlock();
     return err;
 }

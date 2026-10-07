@@ -28,6 +28,8 @@ esp_err_t muse_store_commit_pairing(const muse_credentials_t *credentials, uint3
                                     uint64_t network_revision,
                                     const char *ssid, const char *password);
 esp_err_t muse_store_begin(const char *sdk_token);
+// Internal metadata publication; never caches or exposes account tokens.
+void muse_store_publish_state(const muse_credentials_t *credentials);
 muse_state_t muse_store_state(void);
 muse_state_t muse_store_saved_state(void);
 esp_err_t muse_store_select(bool muse);

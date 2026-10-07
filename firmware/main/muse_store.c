@@ -2,6 +2,8 @@
 
 #include <ctype.h>
 #include <stdlib.h>
+#include <stdatomic.h>
+#include "app_nvs.h"
 #include <string.h>
 #include "connection_store.h"
 #include "mbedtls/platform_util.h"
@@ -100,17 +102,17 @@ esp_err_t muse_store_begin(const char *sdk_token) {
     return err;
 }
 
+static atomic_uint s_metadata;
+void muse_store_publish_state(const muse_credentials_t *credentials) {
+    unsigned metadata = credentials && muse_store_credentials_valid(credentials)
+        ? credentials->state | (credentials->enabled ? 4u : 0) : 0;
+    atomic_store(&s_metadata, metadata);
+}
 static muse_state_t stored_state(bool selected_only) {
-    connection_record_t *record = calloc(1, sizeof *record);
-    if (!record) return MUSE_OFF;
-    muse_state_t state = MUSE_OFF;
-    bool durable = false;
-    if (connection_store_load(record, &durable) == ESP_OK &&
-        record->muse.magic && muse_store_credentials_valid(&record->muse) &&
-        (!selected_only || record->muse.enabled)) state = record->muse.state;
-    muse_store_wipe(record, sizeof *record);
-    free(record);
-    return state;
+    if (app_nvs_lock() != ESP_OK) return MUSE_OFF;
+    unsigned metadata = app_nvs_ready_locked() ? atomic_load(&s_metadata) : 0;
+    app_nvs_unlock();
+    return !selected_only || (metadata & 4u) ? (muse_state_t)(metadata & 3u) : MUSE_OFF;
 }
 
 muse_state_t muse_store_state(void) { return stored_state(true); }

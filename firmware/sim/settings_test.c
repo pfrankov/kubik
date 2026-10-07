@@ -30,9 +30,11 @@ typedef struct { char key[16]; unsigned char data[6000]; size_t size; } entry_t;
 static entry_t stored[24];
 const char *fail_write, *fail_read;
 static const char *fail_erase;
-static bool fail_after_write, fail_erase_all;
+static bool fail_after_write, fail_erase_all, fail_commit;
 static bool fail_connection_allocation;
+static unsigned allocation_calls, read_calls;
 void *settings_test_calloc(size_t count, size_t size) {
+    allocation_calls++;
     if (fail_connection_allocation) return NULL;
     void *memory = malloc(count * size);
     if (memory) memset(memory, 0, count * size);
@@ -56,7 +58,7 @@ esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) {
     return ESP_OK;
 }
 void nvs_close(nvs_handle_t handle) { (void)handle; }
-esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return ESP_OK; }
+esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return fail_commit ? ESP_FAIL : ESP_OK; }
 esp_err_t nvs_flash_init(void) { return ESP_OK; }
 esp_err_t nvs_flash_deinit(void) { return ESP_OK; }
 esp_err_t nvs_flash_erase(void) { memset(stored, 0, sizeof stored); return ESP_OK; }
@@ -87,6 +89,7 @@ esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *data, s
     return fail ? ESP_FAIL : ESP_OK;
 }
 esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *data, size_t *size) {
+    read_calls++;
     if (fail_read && !strcmp(fail_read, key)) return ESP_FAIL;
     entry_t *list = records(handle);
     int index = find(list, key);
@@ -354,7 +357,40 @@ static void english_default_name(void) {
 void settings_test_connection_runtime(void);
 void settings_test_persistence(void);
 
+static void test_muse_metadata_without_allocation_or_reads(void) {
+    nvs_flash_erase(); settings_load();
+    char token[49] = "mgst_"; memset(token + 5, 'A', 43); token[48] = 0;
+    assert(muse_store_begin(token) == ESP_OK);
+    unsigned allocations = allocation_calls, reads = read_calls;
+    fail_connection_allocation = true;
+    fail_read = CONNECTION_RECORD_KEY_A;
+    for (int i = 0; i < 20; i++) {
+        assert(muse_store_state() == MUSE_PAIRING);
+        assert(muse_store_saved_state() == MUSE_PAIRING);
+    }
+    assert(allocation_calls == allocations && read_calls == reads);
+    fail_connection_allocation = false;
+    connection_record_t record; bool durable;
+    assert(connection_store_load(&record, &durable) == ESP_FAIL);
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_OFF);
+    fail_read = NULL;
+    assert(connection_store_load(&record, &durable) == ESP_OK);
+    assert(muse_store_state() == MUSE_PAIRING);
+    assert(muse_store_select(false) == ESP_OK);
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_PAIRING);
+    fail_commit = true;
+    assert(settings_factory_reset() == ESP_FAIL);
+    fail_commit = false;
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_OFF);
+    settings_load();
+    assert(muse_store_begin(token) == ESP_OK);
+    assert(settings_factory_reset() == ESP_OK);
+    assert(muse_store_state() == MUSE_OFF && muse_store_saved_state() == MUSE_OFF);
+    muse_store_wipe(&record, sizeof record);
+}
+
 int main(void) {
+    test_muse_metadata_without_allocation_or_reads();
     english_default_name();
     const char *old_url = "wss://old-host/kubik/v1", *new_url = "wss://example.com/kubik/v1";
     test_factory_reset();

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 set(KUBIK_CHARACTER "TESS" CACHE STRING "Firmware character: TESS or PLUSH")
 if(KUBIK_CHARACTER STREQUAL "PLUSH")
     set(PLUSH_CONFIG "${CMAKE_BINARY_DIR}/sdkconfig")

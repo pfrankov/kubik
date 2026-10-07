@@ -109,6 +109,7 @@ void settings_load(void) {
     snprintf(g_device_id, sizeof(g_device_id), "kubik-%02x%02x%02x", mac[3], mac[4], mac[5]);
     settings_t *s = &g_settings;
     set_defaults(s);
+    muse_store_publish_state(NULL);
 
     esp_err_t err = app_nvs_lock();
     if (err == ESP_OK) {
@@ -263,9 +264,11 @@ esp_err_t settings_factory_reset(void) {
     err = nvs_open("kubik", NVS_READWRITE, &h);
     if (err != ESP_OK) { app_nvs_unlock(); return err; }
     err = nvs_erase_all(h);
+    bool erased = err == ESP_OK;
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     if (err != ESP_OK && app_nvs_recover_locked() != ESP_OK) app_nvs_mark_unhealthy_locked();
+    if (erased) muse_store_publish_state(NULL);
     app_nvs_unlock();
     if (err == ESP_OK) set_defaults(&g_settings);
     return err;
