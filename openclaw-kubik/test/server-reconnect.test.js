@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import test from 'node:test';
 import { OpenClawEngine } from '../src/engines/openclaw.js';
 import { connectDevice, DEFAULT_DEVICE_KEY, deviceKey, FAKE_GATEWAY_BIND, fakeEngine, fakePairing } from './helpers.js';
@@ -106,8 +107,10 @@ async function failedReconnectRecovery(t, reconnectKey) {
   await first.waitFor(event => event.t === 'welcome');
   const oldResolver = engine.getVoice;
   assert.equal((await oldResolver()).fingerprint, DEFAULT_DEVICE_KEY.fingerprint);
+  // The client can close before the server has removed its session.
+  const serverClosed = once(server.getSession(DEFAULT_DEVICE_KEY.device).ws, 'close');
   first.close();
-  await first.closed;
+  await Promise.all([first.closed, serverClosed]);
   assert.equal(server.getSession(DEFAULT_DEVICE_KEY.device), undefined);
 
   const reconnectOptions = { hello: reconnectKey.hello(),
