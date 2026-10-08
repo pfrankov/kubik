@@ -5,38 +5,38 @@ directly on the home character: there is no game menu, title screen, HUD,
 start button or exit button. The games run locally on the device and do not
 need the agent to score taps or generate game content.
 
-## Start Echo
+## Play a duet
 
-On the awake, connected home screen while Tess is idle, tap the same area three
-times. Keep each tap within 45 pixels of the previous one and leave 0.16–0.65
-seconds between taps. After the third tap, pause for 1.4 seconds. Tess shows a
-rhythm as two, three or four pulses. Tap to repeat it, keeping each interval
-within 0.24 seconds of the interval Tess showed. Echo advances through its
-three finite tiers as each one is discovered. The three invitation taps are
-ordinary Tess taps until the pause ends and the game begins.
+Tap Tess and pause. She answers with a small glowing bow and a sound. Tap again
+and she joins you: each touch gets its own answer from that side, with timing
+that follows your pace. Try different places and pauses; there is no hidden
+rhythm to copy. A touch during her short answer does not penalise or restart you.
+Four, six or eight completed exchanges discover the three Duet tiers.
 
-After the last pulse, wait another 0.6 seconds for the demonstration to finish.
-Then start your answer within five seconds. Earlier taps are ignored. The intervals are 0.60 s
-at tier 1, 0.45 / 0.75 s at tier 2, and 0.45 / 0.45 / 0.90 s at tier 3.
+An isolated tap never earns a discovery. Rapid repeated taps retain the usual
+character reactions. If you ignore an invitation, Tess returns to her normal
+shape. There is no prompt to dismiss.
 
-## Start Catch
+## Play chase
 
-Draw one continuous circle around the center at panel point (240, 255). Keep the
-stroke 55–175 pixels from that center, take 0.6–4 seconds, travel at least 5.5
-radians in either direction, and finish within 65 pixels of where you started.
-Lift your finger and wait about 0.6 seconds; Tess folds into a moving point.
-After the one-second opening motion, tap that point within 44 pixels. Let at least
-0.6 seconds pass between catches, and let the target move at least 48 pixels
-from its previous position. Catch has three finite tiers, asking for three,
-four or five successful hits.
+Give Tess a short swipe in any direction and lift your finger. Her usual spin
+continues, then she gathers into a bright moving spark with a little trail.
+Touch the spark to catch her: she glows, chirps and glides towards a new place.
+Her uneven flights slow into pauses, giving you time to catch up.
 
-A miss ends Catch. Six seconds without an accepted catch also ends it. Early
-repeated taps or taps before the point has moved far enough do not count.
+A near miss brings her towards your hand, so you can try again. The hit area is
+larger than the spark; you do not have to hit its exact centre. Three, four or
+five catches in distinct positions discover the three Chase tiers. Repeated taps
+on one stationary position do not count as new catches.
+
+A hold or drag returns to normal petting or rotation. Six seconds without an
+accepted turn/catch, or twenty seconds of play, ends a round gently. Tess does
+not start games by herself while you are away.
 
 ## Growth and interruptions
 
-Each of the six game-and-tier combinations can add progress once. Echo uses the
-first three discoveries; Catch uses the next three. Tess grows from a point at
+Each of the six game-and-tier combinations can add progress once. Duet uses the
+first three discoveries; Chase uses the next three. Tess grows from a point at
 zero discoveries to a square at one or two, a cube at three to five, and a
 tesseract at six. Replaying a mastered tier does not add progress. Progress
 does not decay and has no streak, timer or repeat-grinding bonus. A full factory
@@ -44,21 +44,21 @@ reset clears it.
 
 | Discovery | Learned visual trick |
 |---|---|
-| Echo, tier 1 | Two pulses |
-| Echo, tier 2 | Three pulses and a small lift |
-| Echo, tier 3 | Four pulses and a partial fold |
-| Catch, tier 1 | A small orbit |
-| Catch, tier 2 | A figure-eight motion |
-| Catch, tier 3 | Fold to a point and open again |
+| Duet, tier 1 | Two pulses |
+| Duet, tier 2 | Three pulses and a small lift |
+| Duet, tier 3 | Four pulses and a partial fold |
+| Chase, tier 1 | A small orbit |
+| Chase, tier 2 | A figure-eight motion |
+| Chase, tier 3 | Fold to a point and open again |
 
 New installations and upgrades without saved discoveries begin at a point;
 existing network and voice settings remain. Wins are saved after the app has
 finished active capture or agent work. Let it return to idle before powering
 off; an unfinished flash write is not a confirmed durable save.
 
-A wrong answer, an idle timeout, or a held touch ends the current game without
-a game-specific failure sound, penalty or message. A pet returns to the usual
-petting response and sound. Pressing KEY, starting voice capture or Live,
+An idle timeout or a held touch ends the current game without a penalty or
+message. A miss remains playful; a pet returns to the usual petting response and
+sound. Pressing KEY, starting voice capture or Live,
 receiving text or speech, going offline, opening Setup or a menu, or turning the
 screen fully dark gives the agent and device state priority; the game ends and
 does not resume. Recording keeps its existing sphere animation. During agent

@@ -40,7 +40,8 @@ Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
 
 Tess can also grow from a point into a tesseract as you discover six one-time
-tricks in two native touch games. The games have no menu or HUD; see
+tricks by playing with her: tap for a duet, or swipe and catch her glowing spark.
+There is no game menu or HUD; see
 [Tess games and growth](docs/tess-games.md).
 
 When the screen is fully off, press **PWR** to wake it. Touch, BOOT and KEY are ignored until then; an incoming agent reply can wake it automatically. Background activity and reconnections keep the screen off. Touch restores a dimmed screen to full brightness; holding or dragging keeps it active.

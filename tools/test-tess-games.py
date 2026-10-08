@@ -28,11 +28,18 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
     fixture = (ROOT / "firmware/sim/tess_game_touch_test.c").read_text()
     app_test = temp / "touch.c"
     app_test.write_text(fixture.replace("/* PRODUCTION_GAME_TAPS */", game_taps).replace("/* PRODUCTION_TAP */", tap))
+    # Isolated state-machine/app-route tests do not run the renderer or speaker.
+    # Production feedback is exercised by tess_games_integration_test.c.
+    support = temp / "feedback.c"
+    support.write_text('#include "tess_internal.h"\n'
+                       'void tess_touch_wave(face_t *f,float x,float y){(void)f;(void)x;(void)y;}\n'
+                       'void tess_touch_resume(face_t *f,float x,float y,float age){(void)f;(void)x;(void)y;(void)age;}\n'
+                       'void tess_cue(face_t *f,tess_cue_t c,float s,float p){(void)f;(void)c;(void)s;(void)p;}\n')
     for name, source, defines in (("model", ROOT / "firmware/sim/tess_games_test.c", []),
                                    ("touch", app_test, []), ("plush-touch", app_test, ["-DKUBIK_CHARACTER=0"])):
         exe = temp / name
         subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra",
                         "-fsanitize=address,undefined", "-Ifirmware/main", *defines, str(source),
-                        "firmware/main/tess_games.c", "firmware/main/app_state.c", "-lm", "-o", str(exe)],
+                        "firmware/main/tess_games.c", str(support), "firmware/main/app_state.c", "-lm", "-o", str(exe)],
                        cwd=ROOT, check=True)
         subprocess.run([str(exe)], cwd=ROOT, check=True)

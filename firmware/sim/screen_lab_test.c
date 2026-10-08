@@ -186,7 +186,8 @@ static void collision_audio(void) {
         lab.face.tess_play.cue_n = 1;
         lab.face.tess_play.cue[0].cue = TC_TOUCH;
         tess_cue_t cue; float strength, position;
-        assert(!screen_lab_take_cue(&lab, &cue, &strength, &position));
+        assert(screen_lab_take_cue(&lab, &cue, &strength, &position) == (screen >= LAB_GROW_POINT));
+        assert(!screen_lab_cue_allowed(&lab, TC_SAD));
     }
     screen_lab_select(&lab, LAB_OFFLINE);
     lab.face.dark = true; lab.face.tess_play.cue_n = 1; lab.face.tess_play.cue[0].cue = TC_IMPACT;
@@ -196,13 +197,19 @@ static void collision_audio(void) {
 static void growth_previews_accept_natural_taps(void) {
     for (int screen = LAB_GROW_POINT; screen <= LAB_GROW_TESSERACT; screen++) {
         screen_lab_select(&lab, screen);
-        for (int n = 0; n < 3; n++) {
-            tap(240, 255);
-            for (int i = 0; i < 9; i++) screen_lab_update(&lab, 1.f / 30);
-        }
-        for (int i = 0; i < 45; i++) screen_lab_update(&lab, 1.f / 30);
+        tap(240,255);
+        for(int i=0;i<21;i++) screen_lab_update(&lab,1.f/30);
+        tap(180,220);
+        for(int i=0;i<21;i++) screen_lab_update(&lab,1.f/30);
         assert(tess_games_active(&lab.face) && lab.face.tess_games.game == TESS_GAME_ECHO);
     }
+}
+static void assert_game_feedback(tess_game_t game) {
+    if (game == TESS_GAME_CATCH)
+        for(int frame=0;frame<18;frame++) screen_lab_update(&lab,1.f/30);
+    tess_cue_t cue; float strength, position;
+    assert(screen_lab_take_cue(&lab, &cue, &strength, &position));
+    assert(cue==TC_TOUCH || cue==TC_SWING || cue==TC_EXCITE);
 }
 static void game_previews(void) {
     static const int forms[] = {LAB_GROW_POINT, LAB_GROW_SQUARE, LAB_GROW_CUBE, LAB_GROW_TESSERACT};
@@ -238,8 +245,8 @@ static void game_previews(void) {
         assert(lab.face.tess_games.tier == i % 3);
         assert(!screen_lab_controls(&lab));
         if (games[i] == TESS_GAME_ECHO) {
-            // A pattern tap is ignored; once the sequence reaches its input
-            // phase, the existing raw Lab tap route advances the game step.
+            // A tap during the opening answer is acknowledged without scoring.
+            // Once Tess waits, the raw Lab tap route advances the exchange.
             unsigned step = lab.face.tess_games.step;
             tap(240, 255);
             assert(lab.face.tess_games.step == step);
@@ -253,8 +260,7 @@ static void game_previews(void) {
         screen_lab_update(&lab, 1.f / 30);
         assert_native_scene();
         assert(scene.n + scene.dots_n > 0 && scene.dots_n <= R_MAX_DOTS);
-        tess_cue_t cue; float strength, position;
-        assert(!screen_lab_take_cue(&lab, &cue, &strength, &position));
+        assert_game_feedback(games[i]);
 
         // Lab KEY is a deterministic escape/replay affordance. It can start
         // the same fixture after its natural timeout without adding a HUD.

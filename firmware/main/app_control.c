@@ -143,6 +143,7 @@ static void touch_tap(const app_ev_t *e) {
     face_lock();
     bool playing = tess_games_active(&g_face);
     face_event(&g_face, FEV_TAP, e->a, e->b);
+    playing = playing || tess_games_active(&g_face);
     face_unlock();
     if (playing) return;
     audio_sfx((esp_random() & 3) == 0 ? SFX_GIGGLE : SFX_TAP);

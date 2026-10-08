@@ -25,7 +25,7 @@ static bool playing;
 static bool audio_stream_playing(void) { return playing; }
 static int quiet_calls, sound_calls;
 static void audio_sfx_quiet(void) { assert(locks == 1); quiet_calls++; }
-static void audio_tess_cue(tess_cue_t cue, float strength, float position) { assert(locks == 1 && cue == TC_IMPACT); sound_calls++; }
+static void audio_tess_cue(tess_cue_t cue, float strength, float position) { assert(locks == 1 && (cue == TC_IMPACT || cue == TC_SWING)); sound_calls++; }
 static int64_t s_menu_touch_ms;
 #define SS_IDLE 0
 static int s_talk;
@@ -87,8 +87,14 @@ int main(void) {
  screen_lab_select(s_lab,LAB_OFFLINE);
  app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == 1);
  app_lab_play_cue(TC_TOUCH,.5f,0); assert(sound_calls == 1);
+ screen_lab_select(s_lab,LAB_ECHO_0);
+ app_lab_play_cue(TC_SWING,.5f,0); assert(sound_calls == 2);
+ app_lab_play_cue(TC_SAD,.5f,0); assert(sound_calls == 2);
+ s_lab->face.dark=true; app_lab_play_cue(TC_SWING,.5f,0); assert(sound_calls == 2);
+ s_lab->face.dark=false;
  screen_lab_select(s_lab,LAB_SPEAK);
- app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == 1);
+ app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == 2);
+ app_lab_play_cue(TC_SWING,.5f,0); assert(sound_calls == 2);
  screen_lab_select(s_lab,-1);
  assert(app_lab_event(&(app_ev_t){.type=EV_BOOT_SHORT}));
  assert(!app_lab_active() && s_menu && !s_lab && !g_face.rub_in.down);

@@ -432,6 +432,7 @@ void tess_update(face_t *f, float dt) {
     }
     bool playing = tess_games_active(f);
     if (!playing) tess_feel_update(f, dt);
+    else tess_touch_waves_step(f, dt);
     update_modes(f, dt);
     f->tess_assemble = fminf(1, f->tess_assemble + dt / 1.2f);
     update_jolts(f, dt);

@@ -162,16 +162,22 @@ void screen_lab_update(screen_lab_t *lab, float dt) {
     f->spk_level = f->mode == MODE_SPEAKING ? level : 0;
     face_update(f, dt);
     f->rub_in.path = 0; f->rub_in.turns = 0;
-    if (lab->selected != LAB_OFFLINE) {
+    if (lab->selected != LAB_OFFLINE && lab->selected < LAB_GROW_POINT) {
         tess_cue_t cue; float strength, position;
         while (face_take_cue(f, &cue, &strength, &position)) {}
     }
 }
 
-// Only the offline collision preview may request real sound; synthetic voice
-// states and character gestures never produce playback or microphone capture.
+// Preview only local character feedback, never provider speech or capture.
+bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue) {
+    if (lab->face.dark) return false;
+    if (lab->selected == LAB_OFFLINE) return cue == TC_IMPACT;
+    if (lab->selected < LAB_GROW_POINT || lab->selected >= LAB_COUNT) return false;
+    return cue == TC_TOUCH || cue == TC_FLING || cue == TC_SWING || cue == TC_EXCITE ||
+        cue == TC_DODGE || cue == TC_JOY;
+}
 bool screen_lab_take_cue(screen_lab_t *lab, tess_cue_t *cue, float *strength, float *position) {
     while (face_take_cue(&lab->face, cue, strength, position))
-        if (lab->selected == LAB_OFFLINE && !lab->face.dark && *cue == TC_IMPACT) return true;
+        if (screen_lab_cue_allowed(lab, *cue)) return true;
     return false;
 }

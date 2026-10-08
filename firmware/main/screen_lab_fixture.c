@@ -9,7 +9,7 @@ static const char *const names[LAB_COUNT] = {
     "Agent", "Voice modes", "Models", "Guide", "Recording", "Thinking", "Speaking",
     "GPT Live", "Text reply", "Offline points", "Error", "Background work", "Reminder", "Agent events", "Event log",
     "Growth: point", "Growth: square", "Growth: cube", "Growth: tesseract",
-    "Echo: tier 1", "Echo: tier 2", "Echo: tier 3", "Catch: tier 1", "Catch: tier 2", "Catch: tier 3"
+    "Duet: tier 1", "Duet: tier 2", "Duet: tier 3", "Chase: tier 1", "Chase: tier 2", "Chase: tier 3"
 };
 const char *screen_lab_name(int screen) { return screen >= 0 && screen < LAB_COUNT ? names[screen] : "Screen Lab"; }
 bool screen_lab_unlock_tap(screen_lab_unlock_t *s, int x, int y, int64_t now) {

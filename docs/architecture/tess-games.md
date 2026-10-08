@@ -2,44 +2,41 @@
 
 ## Runtime contract
 
-`tess_games.c` owns a bounded per-face state machine with two games, three tiers
-each, and six durable discovery bits. There is no game screen or dedicated
-button route. Ordinary taps invite Echo: three taps within 45 panel pixels and
-0.16–0.65 seconds apart create a pending start, then a 1.4-second quiet pause
-starts the next unlearned Echo tier. A continuous closed circle invites Catch.
-It is sampled from the cursor coordinates available on update frames around
-(240, 255), with radius 55–175 px, 0.6–4 seconds, at least 5.5 radians of sweep,
-and a final point less than 65 px from the start. Either direction is valid.
-One sampled angular step may be as large as 1.6 radians, tolerating a skipped
-render interval without interpolating or queueing a synthetic cursor path; a
-reversal over 0.12 radians invalidates the circle. Catch starts after the
-remaining quiet pause (about 0.6 seconds after release).
+`tess_games.c` owns two bounded per-face games, three tiers each, and six durable
+discovery bits. There is no game screen or dedicated button route. One ordinary
+tap followed by 0.55 seconds of quiet produces an invitation wave, bow and local
+cue. The next tap within six seconds joins Duet; this accepting tap and active
+game taps are local, without agent pokes. Rapid taps before the invitation keep
+ordinary character reactions, including the existing six-tap scatter.
 
-Echo presents 2, 3 or 4 pulses and accepts the matching intervals within
-±0.24 seconds. Catch follows the rendered cloud center, not a separately
-estimated or flattened target. It accepts taps within 44 px, at least 0.6
-seconds apart, after the target has moved at least 48 px; the tiers require 3,
-4 or 5 hits. Echo accepts answers starting 0.6 seconds after its last sample
-pulse, with a 5-second first-answer timeout; Catch is 6 seconds. Every round
-has a 20-second total limit, and a successful round celebrates for at most
-3 seconds before returning to ordinary Tess.
+Duet answers the player's touch location and pace. A WAIT tap schedules a reply
+0.24–0.48 seconds later, derived from the preceding interval. The wave, gold tint
+and bow accompany the reply. Taps during that brief SHOW phase are ignored;
+there is no exact rhythm test. Four, six or eight exchanges open bits 0–2.
+The final exchange earns its bit when Tess answers, not before the reply.
 
-Each game and tier maps to one bit: Echo bits 0–2, Catch bits 3–5. The bit is
-set only on a successful, previously unearned tier. Population count selects
-form: 0 is a point, 1–2 a square, 3–5 a cube, and 6 a tesseract. This is a finite
-progression with no streak, decay or repeat reward. A discovered trick may play
-after 40 seconds of quiet idle and yields immediately to normal touch. Games
-are invited by deliberate touch only; no background event forces a new game.
+An ordinary short swipe (at least 72 px in 0.08–0.6 seconds) invites Chase after
+0.55 seconds from release. Raw pointer samples feed the existing two-axis
+rotation/inertia before entry. A game drag of 18 px or hold of 0.65 seconds yields
+its original coordinates and age to ordinary touch. That release cannot start
+another game. Long petting gestures do not invite Chase.
 
-Eligibility is checked at both app and face level. Games require the Tess build,
-an available connected session, an awake visible home face in idle mode, and no
-active capture, Live turn, agent work, speech, text card, menu or Setup. Priority
-input/state changes leave the game; the state machine never resumes it.
-Wrong answers and timeouts end silently, with no penalty or failure sound. A
-pet exits into the existing pet response and pet sound. Game taps while a game
-is active are consumed locally and do not become agent tap pokes; the three
-invitation taps remain ordinary taps until the game starts. Recording retains
-the existing sphere; thinking and speech temporarily target the full tesseract.
+Chase folds the same body into a bright 13 px core and visits seven irregular
+waypoints, with variable flights and pauses. A six-position trail samples the
+actual projected centre at no more than 18 Hz. Taps within 68 px of that centre
+count, at least 0.45 seconds apart and after 48 px of displacement since the
+last catch. Three, four or five catches open bits 3–5. A miss does not count;
+Tess responds and moves towards the hand for another attempt.
+
+Both games allow six seconds without an accepted exchange and twenty seconds
+per round. Celebration returns to normal after three seconds. Progress is a
+finite set of unique wins: repeating a tier never changes its bit. The original
+six-bit mask and growth milestones remain; no saved settings need migration.
+
+A hold, pet, shake, KEY/voice/Live, agent text/speech, menu/Setup, offline or dark
+state ends play without resumption. Recording keeps its existing sphere;
+thinking and speech temporarily target the full tesseract. Model, cues and trail
+use fixed arrays; no per-frame allocation, flash or network operations.
 
 The app keeps its existing limit of eight ordinary events followed by ten
 reserved events per batch. Only taps captured while the face still identifies
@@ -109,7 +106,7 @@ point arrays; updates use elapsed time capped at 100 ms.
 Progress counts **unique wins**, not total play time, streaks or an open-ended
 score. This provides six visible milestones, survives reboots, prevents
 grinding from manufacturing growth and cannot decay when the device is unused.
-The Echo and Catch bit ranges keep the six discoveries independently verifiable.
+The Duet and Chase bit ranges keep the six discoveries independently verifiable.
 
 For geometry, axis scaling reuses Tess's 4D vertex set and renderer while
 preserving the topology as each dimension opens. A separate shape renderer
@@ -117,8 +114,8 @@ would introduce competing point layouts; flattening the existing tesseract in
 2D would lose the staged square-to-cube-to-tesseract structure. Axis growth
 keeps one source of points and one adult path.
 
-Games start only after an intentional Echo tap sequence or circle. Randomly
-starting a game while the user is idle would interrupt ordinary character use.
+Games grow from a normal touch or swipe, with an observable invitation rather
+than a secret gesture puzzle. Unattended timers never start a game.
 
 For queued game taps, draining the whole reserved inbox first would reorder
 ordinary KEY-down and reserved KEY-up. A shared global event order would change
@@ -140,27 +137,26 @@ regressions are covered by `python3 tools/test-render.py`,
 `python3 tools/test-state.py`, and `python3 tools/test-settings.py`; all run in
 `python3 tools/accept.py host`. `python3 tools/accept.py build` builds both TESS
 and PLUSH firmware. Run both levels for a code change. Device acceptance runs
-`node tools/test-device-tess-games.mjs`: native touch sampling, both circle
-directions, all six temporary Lab tiers, mistakes, hold and timeout. Its optional
-`--learn` earns missing real discoveries and checks their durability after reboot;
-it leaves the earned progress on the device and never resets user settings.
+`node tools/test-device-tess-games.mjs`: native touch sampling, four swipe
+directions, all six temporary Lab tiers, varied pacing, miss feedback, hold/drag
+handoff and timeout. Its optional `--learn` earns missing real discoveries and
+checks durability after reboot; it never resets user settings.
 
-USB `sim:pointer` supplies one validated controller sample (`down`, integer `x/y`
-in 0–479), expiring after 350 ms. It enters the same input task and gesture/rub
-handlers as the touch controller; it does not set game state or award victories.
-`sim:game-state` copies the current real/Lab game under the face mutex and reports
-the saved mask and rendered target. These diagnostics are USB-only and contain no
-credentials. They verify execution on the physical ESP32, but do not establish
-the capacitive sensor's finger sensitivity or subjective panel appearance.
+USB `sim:pointer` supplies one validated controller sample (integer x/y 0–479),
+expiring after 350 ms. It enters the same input task and gesture/rub handlers as
+the touch controller; it cannot set game state or award victories. USB
+`sim:game-state` reports a mutex-protected snapshot and saved mask, without
+credentials. These verify execution on the ESP32, not finger sensitivity,
+subjective audio or panel appearance.
 
-On a physical TESS device, verify the actual touch route: make three close taps
-at 0.3 seconds apart, wait 1.4 seconds and repeat Echo's shown intervals; repeat
-until 2/3/4-pulse tiers are each completed. Draw Catch in both directions at the
-specified center/radius/duration, then catch the moving cloud center 3/4/5 times
-with the stated spacing. Check the four growth forms, and verify earned form
-after a normal reboot. On a test unit, update from a firmware/NVS state with no
-`tess_progress` key and confirm the point form appears while network and user
-settings remain. Check wrong input, idle timeout, hold/pet exit, and KEY, voice,
-text/speech, offline, Setup, menu and dark-screen preemption; none resumes an
-interrupted game or awards a bit. These physical steps supplement host tests;
-they are not implied by native rendering or build results.
+Screen Lab's growth/game fixtures can play only the local TOUCH, FLING, SWING,
+EXCITE, DODGE and JOY cues; offline remains IMPACT-only. Synthetic agent/voice
+screens cannot play provider speech or start capture. The same permission
+predicate is rechecked under the face lock immediately before physical playback.
+
+For physical acceptance, tap once and observe the invitation, then play at
+varied tempos and positions. Swipe horizontally and vertically; check the
+usual inertia before folding, target visibility, pauses, catches and misses.
+Hold or drag in play and confirm ordinary pet/rotation returns. Check KEY,
+reply, offline, menu and dark preemption, then restore user settings. No acoustic
+wake-word or paid provider run is required for this change.

@@ -1,10 +1,10 @@
-#include "tess.h"
+#include "tess_internal.h"
 #include "face_math.h"
 #include <math.h>
 #include <string.h>
 
 #define PI 3.14159265f
-#define TAP_PAUSE 1.4f
+#define INVITE_DELAY .55f
 #define ROUND_LIMIT 20.f
 #define TRICK_INTERVAL 40.f
 
@@ -42,7 +42,9 @@ static void leave(tess_games_t *g) {
     g->game = TESS_GAME_NONE;
     g->phase = TESS_GAME_REST;
     g->pending = g->taps = g->step = g->trick = 0;
-    g->finger_down = g->circle_valid = false;
+    g->finger_down = g->invited = false;
+    g->trail_n = 0;
+    g->trail_at = 0;
     g->hit_valid = false;
     g->pulse = 0;
     g->trick_wait = TRICK_INTERVAL;
@@ -70,6 +72,10 @@ bool tess_games_start(face_t *f, tess_game_t game, unsigned tier) {
     g->age = g->clock = 0;
     g->last_tap = 99;
     g->hit_valid = false;
+    g->reply_delay = .45f;
+    g->tap_x = 240; g->tap_y = 255;
+    g->feedback_age = 1;
+    g->waypoint = (uint8_t)(tier * 2);
     // The invitation's old follow-through must not replay after the game.
     memset(f->tess_play.after_what, 0xff, sizeof f->tess_play.after_what);
     f->tess_play.cue_n = f->tess_play.invites = 0;
@@ -82,46 +88,84 @@ bool tess_games_start(face_t *f, tess_game_t game, unsigned tier) {
     return true;
 }
 
-static const float echo_at[3][4] = {{0, .60f, 0, 0}, {0, .45f, 1.20f, 0}, {0, .45f, .90f, 1.80f}};
-static void won(tess_games_t *g) {
+// A reply follows the player's timing and position, rather than asking them
+// to discover and memorise an invisible metronome.
+static void answer(face_t *f, tess_cue_t cue, float strength) {
+    tess_games_t *g = &f->tess_games;
+    g->pulse = 1;
+    tess_touch_wave(f, g->tap_x, g->tap_y);
+    tess_cue(f, cue, strength, clampf((g->tap_x - 240) / 240, -1, 1));
+}
+static void won(face_t *f) {
+    tess_games_t *g = &f->tess_games;
     g->progress |= (uint8_t)(1u << skill(g));
     g->phase = TESS_GAME_CELEBRATE;
     g->clock = 0;
-    g->pulse = 1;
     g->trick = (uint8_t)(skill(g) + 1);
     g->trick_age = 0;
+    answer(f, TC_JOY, .65f);
 }
-static void echo_tap(tess_games_t *g) {
-    if (g->phase != TESS_GAME_WAIT) return;
-    if (g->step) {
-        float interval = echo_at[g->tier][g->step] - echo_at[g->tier][g->step - 1];
-        if (fabsf(g->last_tap - interval) > .24f) { leave(g); return; }
-    }
+static void echo_tap(tess_games_t *g, float x, float y) {
+    if (g->phase != TESS_GAME_WAIT || g->last_tap < .35f) return;
     g->step++;
-    g->last_tap = 0;
-    g->pulse = 1;
-    if (g->step == g->tier + 2) won(g);
-    else g->deadline = echo_at[g->tier][g->step] - echo_at[g->tier][g->step - 1] + .4f;
+    g->tap_x = x; g->tap_y = y;
+    g->reply_delay = clampf(g->last_tap * .35f, .24f, .48f);
+    g->last_tap = g->clock = 0;
+    g->phase = TESS_GAME_SHOW;
 }
-static void catch_tap(tess_games_t *g, float x, float y) {
-    if (g->phase != TESS_GAME_WAIT || !g->hit_valid) return;
-    if (g->last_tap < .6f) return;
+static void next_destination(tess_games_t *g) {
+    // Unequal flights and pauses: it escapes, slows down, and waits to be caught.
+    static const float places[7][2] = {{1.25f,-.7f},{-.65f,.9f},{-1.3f,-.45f},
+        {.6f,.7f},{.05f,-1.f},{1.1f,.35f},{-.9f,.25f}};
+    g->waypoint = (uint8_t)((g->waypoint + 3 + g->tier) % 7);
+    memcpy(g->destination, places[g->waypoint], sizeof g->destination);
+    g->flight = 1.4f + .18f * (g->waypoint % 3) - .15f * g->tier;
+}
+static void catch_tap(face_t *f, float x, float y) {
+    tess_games_t *g = &f->tess_games;
+    if (g->phase != TESS_GAME_WAIT || !g->hit_valid || g->last_tap < .45f) return;
+    g->tap_x = x; g->tap_y = y;
+    if (hypotf(x - g->hit[0], y - g->hit[1]) > 68.f) {
+        // A miss is still a conversation: lean towards the hand and offer a
+        // closer catch. No discovery, no invisible restart, no punishment.
+        g->destination[0] = clampf((x - 240) / 100, -1.25f, 1.25f);
+        g->destination[1] = clampf((y - 255) / 100, -.9f, .9f);
+        g->flight = 1.8f;
+        g->deadline = 6;
+        g->last_tap = 0;
+        answer(f, TC_DODGE, .35f);
+        return;
+    }
     if (g->step && hypotf(g->hit[0] - g->last_hit[0], g->hit[1] - g->last_hit[1]) < 48.f) return;
-    if (hypotf(x - g->hit[0], y - g->hit[1]) > 44.f) { leave(g); return; }
     memcpy(g->last_hit, g->hit, sizeof g->hit);
     g->step++;
     g->last_tap = 0;
-    g->pulse = 1;
     g->deadline = 6;
-    if (g->step == g->tier + 3) won(g);
+    if (g->step == g->tier + 3) won(f);
+    else { answer(f, TC_EXCITE, .3f + .1f * g->step); next_destination(g); }
 }
-static void tap_trigger(tess_games_t *g, float x, float y) {
-    bool close = hypotf(x - g->tap_x, y - g->tap_y) <= 45.f;
-    bool rhythm = g->last_tap >= .16f && g->last_tap <= .65f;
-    g->taps = close && rhythm ? (uint8_t)(g->taps < 6 ? g->taps + 1 : 6) : 1;
+static void tap_trigger(face_t *f, float x, float y) {
+    tess_games_t *g = &f->tess_games;
+    if (g->invited && g->last_tap >= INVITE_DELAY && g->last_tap < 6.f) {
+        tess_games_start(f, TESS_GAME_ECHO, next_tier(g, TESS_GAME_ECHO));
+        g->phase = TESS_GAME_WAIT;
+        echo_tap(g, x, y);
+        return;
+    }
+    bool rapid = g->last_tap < INVITE_DELAY;
+    g->taps = rapid ? (uint8_t)(g->taps < 6 ? g->taps + 1 : 6) : 1;
     g->tap_x = x; g->tap_y = y;
     g->last_tap = 0;
-    g->pending = g->taps == 3 ? TESS_GAME_ECHO : TESS_GAME_NONE;
+    g->invited = false;
+    g->pending = g->taps == 1 ? TESS_GAME_ECHO : TESS_GAME_NONE;
+}
+static void acknowledge(face_t *f, float x, float y) {
+    tess_games_t *g = &f->tess_games;
+    if (g->feedback_age < .18f) return;
+    g->feedback_age = 0;
+    g->pulse = fmaxf(g->pulse, .25f);
+    tess_cue(f, TC_TOUCH, .12f, (x - 240) / 240);
+    (void)y;
 }
 static bool panel_position(float x, float y) {
     return x >= 0 && x < 480 && y >= 0 && y < 480;
@@ -137,59 +181,57 @@ bool tess_games_event(face_t *f, face_event_t event, float x, float y) {
     if (!allowed) return false;
     if (event != FEV_TAP) {
         if (g->game || event != FEV_PET) leave(g);
-        else { g->pending = g->taps = g->trick = 0; g->trick_wait = TRICK_INTERVAL; }
+        else { g->pending = g->taps = g->trick = 0; g->invited = false; g->trick_wait = TRICK_INTERVAL; }
         return false;  // a hold/stroke exits into ordinary petting, shake still scatters
     }
     if (g->phase == TESS_GAME_CELEBRATE) { leave(g); return false; }
     if (g->game) {
-        if (g->game == TESS_GAME_ECHO) echo_tap(g);
-        else catch_tap(g, x, y);
+        acknowledge(f, x, y);
+        if (g->game == TESS_GAME_ECHO) echo_tap(g, x, y);
+        else catch_tap(f, x, y);
         return true;  // game taps never become agent pokes or tap-series agitation
     }
     g->trick = 0;
     g->trick_wait = TRICK_INTERVAL;
-    tap_trigger(g, x, y);
-    return false;  // keep the immediate, familiar response to the trigger's taps
+    tap_trigger(f, x, y);
+    return g->game != TESS_GAME_NONE;  // the first tap is ordinary; accepting the invitation is local
 }
 
-static void circle_sample(tess_games_t *g, float x, float y) {
-    float radius = hypotf(x - 240, y - 255), angle = atan2f(y - 255, x - 240);
-    float delta = remainderf(angle - g->circle_angle, 2 * PI);
-    g->circle_angle = angle;
-    // A short rendering stall can skip several 50Hz touch samples. Keep a
-    // directed quarter-turn of slack; larger jumps still invalidate the path.
-    if (radius < 55 || radius > 175 || fabsf(delta) > 1.6f) { g->circle_valid = false; return; }
-    if (g->circle_sweep * delta < 0 && fabsf(delta) > .12f) { g->circle_valid = false; return; }
-    g->circle_sweep += delta;
-}
-static bool closed_circle(const tess_games_t *g, const rub_input_t *in) {
-    return g->circle_valid && g->finger_age >= .6f && g->finger_age <= 4.f &&
-        fabsf(g->circle_sweep) >= 5.5f && hypotf(in->x - g->finger_x, in->y - g->finger_y) < 65;
-}
 static void begin_pointer(tess_games_t *g, const rub_input_t *in) {
-    g->finger_age = g->circle_sweep = 0;
+    g->finger_age = 0;
     g->finger_x = in->x; g->finger_y = in->y;
-    g->circle_angle = atan2f(in->y - 255, in->x - 240);
-    float radius = hypotf(in->x - 240, in->y - 255);
-    g->circle_valid = radius >= 55 && radius <= 175;
+    g->finger_cancelled = false;
+}
+static void release_invitation(tess_games_t *g, const rub_input_t *in) {
+    float distance = hypotf(in->x - g->finger_x, in->y - g->finger_y);
+    if (g->finger_age < .08f || g->finger_age >= .6f || distance < 72.f) return;
+    g->pending = TESS_GAME_CATCH;
+    g->last_tap = 0;
+    g->invited = false;
+}
+static void moving_pointer(face_t *f, float dt, const rub_input_t *in) {
+    tess_games_t *g = &f->tess_games;
+    g->finger_age += dt;
+    float distance = hypotf(in->x - g->finger_x, in->y - g->finger_y);
+    if (g->finger_age < .65f && distance < 18.f) return;
+    if (!g->game) { g->pending = 0; g->invited = false; return; }
+    float x = g->finger_x, y = g->finger_y, age = g->finger_age;
+    leave(g);
+    g->finger_x = x; g->finger_y = y; g->finger_age = age;
+    g->finger_cancelled = true;
+    tess_touch_resume(f, x, y, age);
 }
 static void pointer(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     const rub_input_t *in = &f->rub_in;
     if (in->down && !g->game) { g->trick = 0; g->trick_wait = TRICK_INTERVAL; }
-    if (in->down && !g->finger_down) {
-        begin_pointer(g, in);
-    } else if (in->down) {
-        g->finger_age += dt;
-        if (g->circle_valid) circle_sample(g, in->x, in->y);
-        if (g->game && g->finger_age >= .65f) leave(g);
-    } else if (g->finger_down && !g->game) {
-        if (closed_circle(g, in)) { g->pending = TESS_GAME_CATCH; g->last_tap = .8f; }
-    }
+    if (in->down && !g->finger_down) begin_pointer(g, in);
+    else if (in->down) moving_pointer(f, dt, in);
+    else if (g->finger_down && !g->game && !g->finger_cancelled) release_invitation(g, in);
     g->finger_down = in->down;
 }
-
-static void advance_round(tess_games_t *g, float dt) {
+static void advance_round(face_t *f, float dt) {
+    tess_games_t *g = &f->tess_games;
     g->age += dt;
     g->clock += dt;
     if (g->age >= ROUND_LIMIT) { leave(g); return; }
@@ -202,15 +244,14 @@ static void advance_round(tess_games_t *g, float dt) {
         if (g->deadline <= 0) leave(g);
         return;
     }
+    if (g->clock < g->reply_delay) return;
     if (g->game == TESS_GAME_ECHO) {
-        unsigned beats = g->tier + 2;
-        if (g->step < beats && g->clock >= .6f + echo_at[g->tier][g->step]) { g->step++; g->pulse = 1; }
-        if (g->clock < .6f + echo_at[g->tier][beats - 1] + .6f) return;
-    } else if (g->clock < 1.f) return;
+        if (g->step >= 4 + 2 * g->tier) { won(f); return; }
+        answer(f, g->step % 2 ? TC_EXCITE : TC_SWING, .35f + .07f * g->tier);
+    } else { next_destination(g); answer(f, TC_SWING, .25f); }
     g->phase = TESS_GAME_WAIT;
-    g->step = 0;
     g->clock = 0;
-    g->deadline = g->game == TESS_GAME_ECHO ? 5.f : 6.f;
+    g->deadline = 6;
 }
 static float approach(float value, float target, float step) {
     return value + clampf(target - value, -step, step);
@@ -246,32 +287,47 @@ static void trick_pose(tess_games_t *g, float dt, float *fold, float goal[2]) {
         goal[1] = .35f * sinf(t * (g->trick == 5 ? 4 : 2) * PI / 3) * envelope;
     }
 }
+static void game_pose(tess_games_t *g, float dt, float *wanted, float *fold, float goal[2]) {
+    if (g->game == TESS_GAME_CATCH && g->phase != TESS_GAME_CELEBRATE) {
+        *fold = 1;
+        g->flight -= dt;
+        if (g->flight <= 0 && g->phase == TESS_GAME_WAIT) next_destination(g);
+        memcpy(goal, g->destination, sizeof g->destination);
+    } else if (g->game == TESS_GAME_ECHO || g->invited) {
+        // Each answer travels from the touched side, opens, and bows back.
+        *wanted = fmaxf(*wanted, 1.f);
+        goal[0] = clampf((g->tap_x - 240) / 240, -1, 1) * (.55f + .1f * g->tier) * g->pulse;
+        goal[1] = (clampf((g->tap_y - 255) / 240, -1, 1) * .4f - .3f - .08f * g->tier) * g->pulse;
+        *fold = (g->step % 2 ? .15f : .4f) * (1 + .25f * g->tier) * g->pulse;
+    }
+}
 static void animate(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     bool conversation = f->live_active || f->mode == MODE_THINKING || f->mode == MODE_SPEAKING;
     float wanted = conversation ? 3 : grown_form(g->progress);
-    g->form = approach(g->form, wanted, dt * 1.2f);
     float fold = 0, goal[2] = {0, 0};
-    if (g->game == TESS_GAME_CATCH && g->phase != TESS_GAME_CELEBRATE) {
-        float angle = g->age * (.45f + .18f * g->tier) + g->step * 1.7f;
-        fold = 1;
-        goal[0] = 1.2f * cosf(angle); goal[1] = .9f * sinf(angle);
-    }
+    game_pose(g, dt, &wanted, &fold, goal);
+    g->form = approach(g->form, wanted, dt * 1.2f);
     if (g->trick) trick_pose(g, dt, &fold, goal);
     g->fold = approach(g->fold, fold, dt * 2.5f);
     for (int k = 0; k < 2; k++) {
-        g->offset[k] += (goal[k] - g->offset[k]) * fminf(1, dt * 5.f);
+        g->offset[k] += (goal[k] - g->offset[k]) * fminf(1, dt * (g->game == TESS_GAME_CATCH ? 3.5f : 5.f));
         if (fabsf(g->offset[k]) < .0001f && goal[k] == 0) g->offset[k] = 0;
     }
 }
 static void advance_activity(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     pointer(f, dt);
-    if (g->pending && !g->finger_down && g->last_tap >= TAP_PAUSE) {
-        unsigned game = g->pending;
-        tess_games_start(f, (tess_game_t)game, next_tier(g, game));
+    if (g->pending && !g->finger_down && g->last_tap >= INVITE_DELAY) {
+        if (g->pending == TESS_GAME_CATCH) tess_games_start(f, TESS_GAME_CATCH, next_tier(g, TESS_GAME_CATCH));
+        else {
+            g->pending = 0;
+            g->invited = true;
+            answer(f, TC_SWING, .3f);
+        }
     }
-    if (g->game) advance_round(g, dt);
+    if (g->invited && g->last_tap >= 6.f) g->invited = false;
+    if (g->game) advance_round(f, dt);
     else if (!g->pending && quiet(f)) {
         g->trick_wait -= dt;
         if (g->trick_wait <= 0 && !g->trick) choose_trick(g);
@@ -285,6 +341,7 @@ void tess_games_update(face_t *f, float dt) {
     if (!allowed) leave(g);
     if (!visible(f)) return;  // preemption above still runs when rendering is paused
     g->last_tap = fminf(99, g->last_tap + dt);
+    g->feedback_age = fminf(1, g->feedback_age + dt);
     g->pulse = fmaxf(0, g->pulse - dt * 4.f);
     if (allowed) advance_activity(f, dt);
     animate(f, dt);

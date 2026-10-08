@@ -37,6 +37,7 @@ void screen_lab_draw(screen_lab_t *lab, scene_t *scene);
 bool screen_lab_controls(const screen_lab_t *lab);
 int screen_lab_control_y(const screen_lab_t *lab);
 
+bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue);
 bool screen_lab_take_cue(screen_lab_t *lab, tess_cue_t *cue, float *strength, float *position);
 
 void screen_lab_demo_event(screen_lab_t *lab);

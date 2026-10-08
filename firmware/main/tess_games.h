@@ -12,8 +12,11 @@ typedef struct {
     uint32_t round;              // keeps deferred input out of a replacement round
     uint8_t progress, game, phase, tier, step, taps, pending;
     float age, clock, deadline, last_tap, tap_x, tap_y;
-    bool finger_down, circle_valid;
-    float finger_age, finger_x, finger_y, circle_angle, circle_sweep;
+    bool finger_down, finger_cancelled, invited;
+    float finger_age, finger_x, finger_y, reply_delay, feedback_age;
+    float destination[2], flight;
+    uint8_t waypoint, trail_n;
+    float trail[6][2], trail_at;
     float form, fold, pulse, offset[2];
     float hit[2];                // rendered cloud center, panel pixels
     float last_hit[2];

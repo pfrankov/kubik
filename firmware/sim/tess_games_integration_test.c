@@ -17,17 +17,18 @@ static void fresh(unsigned progress) {
 }
 static void tap(float x, float y) { face_event(&face, FEV_TAP, x, y); }
 static void enter_echo(void) {
-    tap(240,255); run(.3f); tap(240,255); run(.3f); tap(240,255); run(1.5f);
+    tap(240,255); run(.7f); tap(180,220); run(.7f);
     assert(tess_games_active(&face));
 }
-static void native_events_and_no_extra_sound(void) {
+static void native_events_and_visible_audible_answers(void) {
     fresh(0); enter_echo();
     face.tess_play.cue_n = 0;
     for (int i=0;i<180 && face.tess_games.phase!=TESS_GAME_WAIT;i++) frame();
     assert(face.tess_games.phase==TESS_GAME_WAIT);
-    tap(240,255); run(.6f); tap(240,255);
+    for(int i=0;i<3;i++) { tap(i%2?300:180,220); run(.7f); }
     assert(face.tess_games.progress==1);
-    assert(face.tess_taps==0 && face.tess_play.cue_n==0);
+    assert(face.tess_taps==0 && face.tess_play.cue_n>0);
+    assert(tess_ripple_active(&face) && face.tess_games.pulse>0);
     run(4);
     assert(face.tess_games.form==1 && !tess_games_active(&face));
 }
@@ -78,10 +79,45 @@ static void catch_hit_follows_the_rendered_cloud(void) {
     }
     assert(face.tess_games.progress==15);
 }
+static void rapid_taps_keep_the_existing_scatter(void) {
+    fresh(63);
+    for(int i=0;i<6;i++) { tap(240,255); run(.25f); }
+    assert(!tess_games_active(&face) && !face.tess_games.invited);
+    assert(face.tess_hold[TR_SCATTER]>0 && face.emotion==EMO_DIZZY);
+}
+static void waves_expire_and_trails_restart(void) {
+    fresh(63); assert(tess_games_start(&face,TESS_GAME_ECHO,0)); run(.6f);
+    assert(tess_ripple_active(&face)); run(1);
+    assert(tess_games_active(&face) && !tess_ripple_active(&face));
+    for(int round=0;round<2;round++) {
+        assert(tess_games_start(&face,TESS_GAME_CATCH,0)); run(1.2f);
+        assert(face.tess_games.trail_n==6 && face.tess_games.trail_at>1);
+        tess_games_set_available(&face,false); assert(!face.tess_games.trail_n);
+        tess_games_set_available(&face,true);
+        assert(tess_games_start(&face,TESS_GAME_CATCH,0)); run(.2f);
+        assert(face.tess_games.trail_n>=2 && face.tess_games.trail_at<.3f);
+    }
+}
+static void a_game_drag_retains_ordinary_rotation_and_inertia(void) {
+    fresh(63); assert(tess_games_start(&face,TESS_GAME_ECHO,0)); run(.6f);
+    face.rub_in=(rub_input_t){.down=true,.x=240,.y=255}; frame();
+    float before=face.tess_mood.drag_angle[1];
+    for(int i=1;i<=4;i++) { face.rub_in.y=255+i*30; frame(); }
+    assert(!tess_games_active(&face));
+    assert(tess_ripple_active(&face) && face.tess_play.cue_n>0);
+    assert(face.tess_touch_x==240 && face.tess_touch_y==255);
+    assert(fabsf(face.tess_mood.drag_angle[1]-before)>.5f);
+    face.rub_in.down=false; frame();
+    assert(fabsf(face.tess_mood.drag_speed[1])>1);
+    run(1); assert(!tess_games_active(&face));
+}
 int main(void) {
-    native_events_and_no_extra_sound();
+    native_events_and_visible_audible_answers();
     invalid_taps_never_poison_native_touch_state();
     priority_interrupts_before_hidden_simulation();
     catch_hit_follows_the_rendered_cloud();
-    puts("native Tess integration: events, rendered hits, progress, silent play and priority exits ok");
+    rapid_taps_keep_the_existing_scatter();
+    waves_expire_and_trails_restart();
+    a_game_drag_retains_ordinary_rotation_and_inertia();
+    puts("native Tess integration: events, rendered hits, progress, audible play and priority exits ok");
 }

@@ -48,12 +48,12 @@ def preview_frames(page, screens):
         for index, name in enumerate(screens):
             page.select_option("#screen", str(index))
             samples = []
-            for count in (7, 28, 15):  # 0.23, 1.17, 1.67 s: include the Echo tier rhythms
+            for count in (7, 28, 15):  # 0.23, 1.17, 1.67 s: sample invitation and waiting poses
                 advance_frames(page, count)
                 assert page.locator("#state").inner_text().startswith(name + " ·"), name
                 samples.append(page.locator("canvas").screenshot())
             frames[name] = tuple(samples)
-            if name.startswith(("Echo:", "Catch:")):
+            if name.startswith(("Duet:", "Chase:")):
                 page.get_by_role("button", name="KEY", exact=True).click()
                 advance_frames(page, 7)
                 assert page.locator("canvas").screenshot() == samples[0], f"KEY must replay {name}"
@@ -67,7 +67,7 @@ def preview_frames(page, screens):
     distinct = {name: sequence for name, sequence in frames.items() if name != "Growth: tesseract"}
     assert len(set(distinct.values())) == len(distinct), "Preview sequences must not be duplicate placeholders"
     for name, sequence in frames.items():
-        if name.startswith(("Echo:", "Catch:")):
+        if name.startswith(("Duet:", "Chase:")):
             assert len(set(sequence)) > 1, f"Game preview must animate: {name}"
 
 

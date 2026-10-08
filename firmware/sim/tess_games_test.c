@@ -18,25 +18,20 @@ static void advance(float seconds) {
 }
 static void tap(float x, float y) { tess_games_event(&face, FEV_TAP, x, y); }
 static void invite_echo(void) {
-    tap(240, 255); advance(.35f);
-    tap(245, 255); advance(.35f);
-    tap(240, 260); advance(1.5f);
+    tap(240, 255); advance(.7f); tap(180, 220); advance(.7f);
 }
-static void three_taps_then_pause_invite(void) {
+static void ordinary_touch_invites_but_never_awards(void) {
+    fresh(0); tap(240,255);
+    advance(.7f);
+    assert(!tess_games_active(&face) && face.tess_games.invited && face.tess_games.pulse>0);
+    tap(180,220);
+    assert(tess_games_active(&face) && face.tess_games.step==1);
+    assert(face.tess_games.progress==0 && !face.menu.open && !face.card_n);
+    fresh(0); tap(240,255); advance(7);
+    assert(!tess_games_active(&face) && !face.tess_games.invited && !face.tess_games.progress);
     fresh(0);
-    tap(240,255); advance(.35f); tap(240,255); advance(.35f); tap(240,255);
-    assert(!tess_games_active(&face));
-    advance(1.5f);
-    assert(tess_games_active(&face) && face.tess_games.game == TESS_GAME_ECHO);
-    assert(face.tess_games.progress == 0 && face.menu.open == false && face.card_n == 0);
-}
-static void ordinary_taps_are_not_games(void) {
-    fresh(0); tap(240,255); advance(2); assert(!tess_games_active(&face));
-    fresh(0);
-    for (int i=0;i<6;i++) { tap(240,255); advance(.35f); }
-    advance(2); assert(!tess_games_active(&face));
-    fresh(0); tap(100,255); advance(.35f); tap(300,255); advance(.35f); tap(100,255);
-    advance(2); assert(!tess_games_active(&face));
+    for(int i=0;i<6;i++) { tap(240,255); advance(.25f); }
+    advance(2); assert(!tess_games_active(&face) && !face.tess_games.invited);
 }
 static void invalid_taps_do_not_start_or_leak_from_games(void) {
     const float invalid[][2]={{10000,10000},{-1,255},{480,255},{240,-1},{240,480},{NAN,255},{240,INFINITY}};
@@ -58,10 +53,25 @@ static void leave_without_a_button(void) {
     assert(!tess_games_active(&face) && face.tess_games.progress == 0);
 }
 static void ordinary_pet_cancels_a_pending_invitation(void) {
-    fresh(0);
-    tap(240,255); advance(.35f); tap(240,255); advance(.35f); tap(240,255);
+    fresh(0); tap(240,255);
+    assert(face.tess_games.pending);
     tess_games_event(&face,FEV_PET,240,255); advance(2);
-    assert(!tess_games_active(&face) && face.tess_games.progress==0);
+    assert(!tess_games_active(&face) && !face.tess_games.invited && face.tess_games.progress==0);
+    fresh(0); tap(240,255); advance(.7f); assert(face.tess_games.invited);
+    tess_games_event(&face,FEV_PET,240,255); tap(240,255);
+    assert(!tess_games_active(&face) && !face.tess_games.invited);
+
+}
+static void raw_drag_and_hold_cancel_an_idle_invitation(void) {
+    for(int hold=0;hold<2;hold++) {
+        fresh(0); tap(240,255); advance(.7f); assert(face.tess_games.invited);
+        face.rub_in=(rub_input_t){.down=true,.x=240,.y=255}; advance(.1f);
+        if(!hold) face.rub_in.y+=30;
+        advance(hold?.7f:.1f);
+        assert(!face.tess_games.invited && !face.tess_games.pending);
+        face.rub_in.down=false; advance(.1f); tap(240,255);
+        assert(!tess_games_active(&face));
+    }
 }
 static void touching_interrupts_a_learned_trick(void) {
     fresh(1); advance(40.1f);
@@ -70,38 +80,25 @@ static void touching_interrupts_a_learned_trick(void) {
     advance(.1f);
     assert(face.tess_games.trick==0);
 }
-static void circle_trigger_requires_a_closed_deliberate_path(void) {
-    for (int direction=-1;direction<=1;direction+=2) {
+static void swipe_invites_in_all_directions_and_hold_does_not(void) {
+    const int directions[4][2]={{1,0},{-1,0},{0,1},{0,-1}};
+    for(unsigned k=0;k<4;k++) {
         fresh(0);
-        for (int i=0;i<=120;i++) {
-            float a=direction*i*(6.2831853f/120);
-            face.rub_in=(rub_input_t){.down=true,.x=240+110*cosf(a),.y=255+110*sinf(a)};
+        for(int i=0;i<=20;i++) {
+            face.rub_in=(rub_input_t){.down=true,.x=240+i*5*directions[k][0],.y=255+i*5*directions[k][1]};
             tess_games_update(&face,.01f);
-            if (i==65) tess_games_event(&face,FEV_PET,face.rub_in.x,face.rub_in.y);
         }
-        face.rub_in.down=false; advance(.8f);
+        face.rub_in.down=false; advance(.7f);
         assert(tess_games_active(&face) && face.tess_games.game==TESS_GAME_CATCH);
     }
-    fresh(0);
-    for (int i=0;i<80;i++) {
-        face.rub_in=(rub_input_t){.down=true,.x=140+i*2,.y=255};
-        tess_games_update(&face,.01f);
-    }
-    face.rub_in.down=false; advance(2);
-    assert(!tess_games_active(&face));
-}
-static void a_circle_survives_a_short_render_gap(void) {
-    for (int direction=-1;direction<=1;direction+=2) {
-        fresh(0);
-        for (int i=0;i<=40;i++) {
-            float a=direction*i*(6.2831853f/40);
-            face.rub_in=(rub_input_t){.down=true,.x=240+110*cosf(a),.y=255+110*sinf(a)};
-            if (i>10 && i<17) continue; // raw input continues during a 140ms display stall
-            tess_games_update(&face,i==17?.14f:.02f);
-        }
-        face.rub_in.down=false; advance(.8f);
-        assert(tess_games_active(&face) && face.tess_games.game==TESS_GAME_CATCH);
-    }
+    fresh(0); face.rub_in=(rub_input_t){.down=true,.x=240,.y=255}; advance(1);
+    face.rub_in.down=false; advance(2); assert(!tess_games_active(&face));
+    fresh(0); assert(tess_games_start(&face,TESS_GAME_ECHO,0));
+    face.rub_in=(rub_input_t){.down=true,.x=240,.y=255}; advance(.1f);
+    face.rub_in.x=270; advance(.1f);
+    assert(!tess_games_active(&face) && face.tess_games.finger_cancelled);
+    face.rub_in.x=350; face.rub_in.down=false; advance(1);
+    assert(!tess_games_active(&face)); // a drag exiting play must not immediately start Chase
 }
 static void enter_answer_phase(unsigned game,unsigned tier) {
     assert(tess_games_start(&face,(tess_game_t)game,tier));
@@ -109,10 +106,11 @@ static void enter_answer_phase(unsigned game,unsigned tier) {
     assert(face.tess_games.phase==TESS_GAME_WAIT);
 }
 static void finish_echo(unsigned tier) {
-    static const float gaps[3][3]={{.6f,0,0},{.45f,.75f,0},{.45f,.45f,.9f}};
     enter_answer_phase(TESS_GAME_ECHO,tier);
-    tap(240,255);
-    for (unsigned i=0;i<=tier;i++) { advance(gaps[tier][i]); tap(240,255); }
+    for(unsigned i=0;i<4+2*tier;i++) {
+        tap(i%2?180:300, i%3?220:300);
+        advance(.65f + .17f*(i%3)); // player pace varies, no exact rhythm to guess
+    }
     assert(face.tess_games.phase==TESS_GAME_CELEBRATE);
     advance(3.1f);
 }
@@ -139,7 +137,7 @@ static void discoveries_are_finite_and_restore_growth(void) {
 static void wrong_or_repeated_input_never_grants_a_discovery(void) {
     fresh(0); enter_answer_phase(TESS_GAME_ECHO,0);
     tap(240,255); advance(.1f); tap(240,255);
-    assert(!tess_games_active(&face) && !face.tess_games.progress);
+    assert(tess_games_active(&face) && !face.tess_games.progress && face.tess_games.step==1);
     fresh(0); enter_answer_phase(TESS_GAME_CATCH,0);
     face.tess_games.hit_valid=true; face.tess_games.hit[0]=240; face.tess_games.hit[1]=255;
     tap(240,255);
@@ -148,7 +146,16 @@ static void wrong_or_repeated_input_never_grants_a_discovery(void) {
     advance(5); assert(!tess_games_active(&face) && !face.tess_games.progress);
     fresh(0); enter_answer_phase(TESS_GAME_CATCH,0);
     face.tess_games.hit_valid=true; face.tess_games.hit[0]=240; face.tess_games.hit[1]=255;
-    tap(400,255); assert(!tess_games_active(&face) && !face.tess_games.progress);
+    tap(400,255); assert(tess_games_active(&face) && !face.tess_games.progress && !face.tess_games.step);
+    assert(face.tess_games.pulse==1 && face.tess_games.destination[0]>0);
+}
+static void misses_extend_a_round_but_never_its_total_budget(void) {
+    fresh(0); enter_answer_phase(TESS_GAME_CATCH,0); advance(5.8f);
+    face.tess_games.hit_valid=true; face.tess_games.hit[0]=240; face.tess_games.hit[1]=255;
+    tap(400,255); advance(.5f);
+    assert(tess_games_active(&face) && face.tess_games.deadline>5 && !face.tess_games.progress);
+    for(int i=0;i<40 && tess_games_active(&face);i++) { advance(.6f); tap(10,10); }
+    assert(!tess_games_active(&face) && !face.tess_games.progress);
 }
 static void every_priority_context_cancels_without_resume(void) {
     const face_mode_t modes[]={MODE_BOOT,MODE_LISTENING,MODE_THINKING,MODE_SPEAKING,MODE_SLEEP,MODE_SETUP,MODE_OFFLINE};
@@ -165,16 +172,16 @@ static void every_priority_context_cancels_without_resume(void) {
     fresh(0); face.character=CHARACTER_PLUSH; invite_echo(); assert(!tess_games_active(&face));
 }
 int main(void) {
-    three_taps_then_pause_invite();
-    ordinary_taps_are_not_games();
+    ordinary_touch_invites_but_never_awards();
     invalid_taps_do_not_start_or_leak_from_games();
     leave_without_a_button();
     ordinary_pet_cancels_a_pending_invitation();
+    raw_drag_and_hold_cancel_an_idle_invitation();
     touching_interrupts_a_learned_trick();
-    circle_trigger_requires_a_closed_deliberate_path();
-    a_circle_survives_a_short_render_gap();
+    swipe_invites_in_all_directions_and_hold_does_not();
     discoveries_are_finite_and_restore_growth();
     wrong_or_repeated_input_never_grants_a_discovery();
+    misses_extend_a_round_but_never_its_total_budget();
     every_priority_context_cancels_without_resume();
-    puts("native Tess games: triggers, six discoveries, restore, mistakes, tricks and preemption ok");
+    puts("native Tess games: invitations, varied duet, forgiving chase, six discoveries and preemption ok");
 }

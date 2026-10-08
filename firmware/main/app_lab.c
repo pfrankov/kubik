@@ -124,7 +124,7 @@ void app_lab_play_cue(tess_cue_t cue, float strength, float position) {
     // Revalidate under the same lock as close: a copied frame cannot restart
     // preview sound after exit. The SFX mixer never takes the face lock.
     face_lock();
-    if (s_lab && s_lab->selected == LAB_OFFLINE && !s_lab->face.dark && cue == TC_IMPACT)
+    if (s_lab && screen_lab_cue_allowed(s_lab, cue))
         audio_tess_cue(cue, strength, position);
     face_unlock();
 }

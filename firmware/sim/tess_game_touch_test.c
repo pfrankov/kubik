@@ -58,8 +58,8 @@ static void game_taps_stay_local(void) {
     const app_ev_t event={.a=240,.b=255,.type=EV_TAP};
     ready(true); touch_tap(&event);
     assert(g_face.tess_games.step==1 && taps==1 && !sounds && !pokes);
-    touch_tap(&event); // a wrong rhythm exits silently, without an agent poke
-    assert(!g_face.tess_games.game && !g_face.tess_games.progress && !sounds && !pokes);
+    touch_tap(&event); // a tap during the answer is ignored, without an agent poke
+    assert(g_face.tess_games.game && g_face.tess_games.step==1 && !g_face.tess_games.progress && !sounds && !pokes);
     ready(false); touch_tap(&event); assert(taps==1 && sounds==1 && pokes==1);
 }
 static void voice_card_and_link_keep_priority(void) {
@@ -74,8 +74,11 @@ static void voice_card_and_link_keep_priority(void) {
 }
 static game_tap_t capture_final_tap(void) {
     const app_ev_t event={.a=240,.b=255,.type=EV_TAP};
-    ready(true); touch_tap(&event);
-    for(int i=0;i<30;i++) tess_games_update(&g_face,.02f);
+    ready(true);
+    for(int step=0;step<3;step++) {
+        touch_tap(&event);
+        for(int i=0;i<35;i++) tess_games_update(&g_face,.02f);
+    }
     game_tap_t tap;
     assert(capture_game_tap(&event,&tap));
     wakes=0;
@@ -84,7 +87,9 @@ static game_tap_t capture_final_tap(void) {
 static void deferred_taps_are_game_only(void) {
     game_tap_t tap=capture_final_tap();
     apply_game_tap(&tap);
-    assert(g_face.tess_games.progress==1 && wakes==1 && !sounds && !pokes);
+    assert(wakes==1 && !sounds && !pokes);
+    for(int i=0;i<30;i++) tess_games_update(&g_face,.02f);
+    assert(g_face.tess_games.progress==1);
 
     tap=capture_final_tap(); g_face.card_n=1; card=true;
     preempt_game(); g_face.card_n=0; card=false; // even if the card is cleared later in this batch

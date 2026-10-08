@@ -40,7 +40,7 @@
 // A press sets a wave going: a front that runs out through the points, pushing each away from the finger and a little
 // towards the viewer as it passes. The points follow their targets on springs, so they overshoot and settle.
 // The oldest of a few waves makes way for a new one.
-static void ripple_start(face_t *f, float x, float y) {
+void tess_touch_wave(face_t *f, float x, float y) {
     tess_ripple_t *slot = f->tess_ripple;
     for (int k = 1; k < TESS_RIPPLES; k++) if (f->tess_ripple[k].age > slot->age) slot = &f->tess_ripple[k];
     *slot = (tess_ripple_t){(x - 240) / TESS_PX_PER_UNIT, (y - 255) / TESS_PX_PER_UNIT, 0};
@@ -90,9 +90,25 @@ static void land(face_t *f, float x, float y) {
         tess_cue(f, TC_DODGE, 1.f, (x - 240) / 240);
         return;
     }
-    ripple_start(f, x, y);
+    tess_touch_wave(f, x, y);
     tess_kick(f, KICK_DIP, 1.f);
     tess_cue(f, TC_TOUCH, 1.f - clampf(hypotf(x - 240, y - 255) / 240, 0, 1), (x - 240) / 240);
+}
+
+// A game yields the complete gesture to ordinary touch, including its origin.
+void tess_touch_resume(face_t *f, float x, float y, float age) {
+    tess_touch_wave(f, x, y);
+    tess_feel_event(f, ME_TOUCH, .5f, (x - 240) / 240);
+    tess_cue(f, TC_TOUCH, .12f, (x - 240) / 240);
+    f->tess_touch_x = x; f->tess_touch_y = y; f->tess_touch_t = 0;
+    f->tess_energy = 1;
+    tess_play_t *p = &f->tess_play;
+    p->down = true;
+    p->down_t = age;
+    p->stroke = 0;
+    p->finger[0] = x; p->finger[1] = y;
+    p->speed[0] = p->speed[1] = 0;
+    p->petted = age >= PET_HOLD_S;
 }
 
 // The finger is at (x, y): how far and how fast it moved, whether that is petting, and what it does to the cube.
@@ -171,6 +187,10 @@ static void steer_look(face_t *f, float dt) {
 
 #define JOY_AFTER_STAGE_S .5f  // s from a high rub stage to the gladness that follows it
 
+void tess_touch_waves_step(face_t *f, float dt) {
+    for (int k = 0; k < TESS_RIPPLES; k++) f->tess_ripple[k].age = fminf(99.f, f->tess_ripple[k].age + dt);
+}
+
 void tess_touch_update(face_t *f, float dt) {
     tess_play_t *p = &f->tess_play;
     const rub_input_t *in = &f->rub_in;
@@ -179,7 +199,7 @@ void tess_touch_update(face_t *f, float dt) {
         else if (in->down) drag(f, dt, in->x, in->y);
         else if (p->down) lift(f);
     }
-    for (int k = 0; k < TESS_RIPPLES; k++) f->tess_ripple[k].age = fminf(99.f, f->tess_ripple[k].age + dt);
+    tess_touch_waves_step(f, dt);
     if (f->rub.rose) {  // (the reward, the heart, has its own sound: tess_emotion)
         tess_cue(f, TC_RUB, f->rub.stage / 4.f, 0);
         if (f->rub.stage >= RUB_BLUSH) tess_after(f, JOY_AFTER_STAGE_S, AFTER_JOY_CUE, 0);

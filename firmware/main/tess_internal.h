@@ -89,3 +89,7 @@ void tess_fall_step(face_t *face, float dt);
 float tess_twinkle_level(const face_t *face, int slot);  // offline shimmer: how lit each of the twinkling points is, 0..1
 void tess_view_matrix(const face_t *face, float matrix[3][3]);
 void tess_transform_point(const float matrix[3][3], const float source[3], float target[3], bool transpose);
+
+void tess_touch_wave(face_t *face, float x, float y);
+void tess_touch_resume(face_t *face, float x, float y, float age);
+void tess_touch_waves_step(face_t *face, float dt);

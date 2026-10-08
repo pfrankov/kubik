@@ -60,6 +60,10 @@ static float reply_tint(const face_t *f) {
     return roundf(f->tess_mode[TM_SPEAK] * (.08f + .20f * f->tess_audio) * 24.f) / 24.f;
 }
 
+static float game_tint(const face_t *f) {
+    return f->tess_games.ready ? roundf(clampf(f->tess_games.pulse, 0, 1) * 8) / 8 : 0;
+}
+
 static uint32_t tess_color(const face_t *f, float d) {
     const float *r = f->tess_reaction, *mw = f->tess_mode;
     uint32_t c = tess_mood_color(f, tess_depth_ramp(d), d);
@@ -71,6 +75,8 @@ static uint32_t tess_color(const face_t *f, float d) {
     if (r[TR_HEART] > .01f) c = rgb_mix(c, ramp(0x2E0B28, 0xA3316F, 0xFF8AC4, d), r[TR_HEART]);
     float reply = reply_tint(f);
     if (reply > 0) c = rgb_mix(c, ramp(0x120825, 0x2BA69A, 0xFFE2A0, d), reply);
+    float play = game_tint(f);
+    if (play > 0) c = rgb_mix(c, ramp(0x170D04, 0x987524, 0xFFCE78, d), play * .65f);
     // No connection: noir. Black and white, over any mood, at full contrast: dark grey specks far, pure white near.
     float noir = tess_noir(f);
     if (noir > .01f) c = rgb_mix(c, ramp(0x202020, 0xA6A6A6, 0xFFFFFF, d), noir);
@@ -240,9 +246,30 @@ static int cloud_order(const face_t *f, const dot_t dots[TESS_N], uint8_t order[
 }
 
 static void pulse_game_dots(const face_t *f, dot_t dots[TESS_N]) {
-    if (!f->tess_games.ready || f->tess_fallen || !isfinite(f->tess_games.pulse) || f->tess_games.pulse <= 0) return;
-    int scale_q8 = 256 + (int)(clampf(f->tess_games.pulse, 0.f, 1.f) * .8f * 256.f + .5f);
-    for (int i = 0; i < TESS_N; i++) dots[i].radius = (dots[i].radius * scale_q8 + 128) >> 8;
+    const tess_games_t *g = &f->tess_games;
+    if (!g->ready || f->tess_fallen) return;
+    int scale_q8 = 256 + (int)(clampf(g->pulse, 0, 1) * .8f * 256.f + .5f);
+    for (int i = 0; i < TESS_N; i++) {
+        dots[i].radius = (dots[i].radius * scale_q8 + 128) >> 8;
+    }
+}
+
+// Six fading positions use the projected body, not a second independently
+// animated object. Sample at 18Hz; duplicate draws cannot grow the trail.
+static void draw_game_trail(face_t *f, scene_t *s) {
+    tess_games_t *g = &f->tess_games;
+    if (g->game != TESS_GAME_CATCH || g->phase == TESS_GAME_CELEBRATE || !g->hit_valid) return;
+    if (g->age - g->trail_at >= .055f) {
+        for (int i = 5; i > 0; i--) memcpy(g->trail[i], g->trail[i - 1], sizeof g->trail[i]);
+        memcpy(g->trail[0], g->hit, sizeof g->hit);
+        if (g->trail_n < 6) g->trail_n++;
+        g->trail_at = g->age;
+    }
+    for (int i = g->trail_n - 1; i >= 1; i--) {
+        float opacity = (6 - i) / 6.f * smooth01(g->fold);
+        sc_glow_dot(s, g->trail[i][0], g->trail[i][1], 2 + opacity * 3,
+                    rgb_scale(0x59DCC4, opacity * .65f), (uint8_t)(opacity * 100));
+    }
 }
 
 static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
@@ -255,7 +282,7 @@ static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
     const float *reaction = f->tess_reaction, *mode = f->tess_mode;
     float color_key[] = {reaction[TR_SAD], reaction[TR_ANGRY], reaction[TR_JOY],
                          reaction[TR_SHY], reaction[TR_HEART], tess_noir(f), mode[TM_SLEEP], tess_warmth(f),
-                         f->feel.mix[1], f->feel.mix[2], f->feel.mix[3], f->feel.mix[4], f->feel.mix[5], f->feel.mix[6], f->feel.mix[7], reply_tint(f)};
+                         f->feel.mix[1], f->feel.mix[2], f->feel.mix[3], f->feel.mix[4], f->feel.mix[5], f->feel.mix[6], f->feel.mix[7], reply_tint(f), game_tint(f)};
     static float previous_key[sizeof color_key / sizeof color_key[0]];
     static uint32_t shade[TESS_SHADES];
     static bool palette_valid;
@@ -326,6 +353,13 @@ void tess_draw(face_t *f, scene_t *s) {
     tess_project_dots(f, dots);
     pulse_game_dots(f, dots);
     if (f->tess_fallen) shade_fallen(f, dots);
+    draw_game_trail(f, s);
     draw_cloud(f, s, dots);
+    if (f->tess_games.game == TESS_GAME_CATCH && f->tess_games.phase != TESS_GAME_CELEBRATE &&
+        f->tess_games.hit_valid && f->tess_games.fold > .8f) {
+        float pip = smooth01((f->tess_games.fold - .8f) * 5.f);
+        sc_glow_dot(s, f->tess_games.hit[0], f->tess_games.hit[1], 13 * pip,
+                    rgb_mix(0x59DCC4, 0xFFCE78, game_tint(f)), 200);
+    }
     draw_recording(f, s);
 }

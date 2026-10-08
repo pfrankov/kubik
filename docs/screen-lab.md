@@ -27,7 +27,7 @@ without interaction closes the lab and frees its fixture memory.
   entire unmodified screen.
 - Home and Offline points: native gestures, inertia and orientation.
 - Growth: point, square, cube and tesseract: Tess-only views of each earned form.
-  Echo and Catch have separate previews for all three difficulty tiers. These are
+  Duet and Chase have separate previews for all three difficulty tiers. These are
   catalog-only developer fixtures: they do not add a game menu, gameplay HUD or
   exit control to the ordinary character screen. Their game input still uses the
   native tap route. KEY restarts the same game and tier, including after timeout.
@@ -98,3 +98,6 @@ overlay. See [event history and limits](events.md). Screen Lab keeps its sample
 journal separate from the real device's history and saved preferences. The Settings
 preview simulates the same hidden gesture; the Event log preset opens its sample
 journal directly.
+
+Growth and game previews also play their local touch/reply/catch sounds. Synthetic
+agent voice previews remain silent and never start the microphone.
