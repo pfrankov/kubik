@@ -290,11 +290,13 @@ void face_update(face_t *f, float dt) {
     update_mode_timers(f, dt);
     update_short_timers(f, dt);
     update_corner_indicators(f, dt);
+    tess_games_update(f, dt);
 
     // Hidden or unselected characters do no simulation, sprite lookup or mapping. On a dark panel the
     // character holds still and carries on from the same state when it lights up (dt is capped above).
     if (f->menu.k >= 0.45f || f->mode == MODE_SETUP || f->dark) { f->jolt_dvx = f->jolt_dvy = 0; return; }
-    if (face_character(f) != CHARACTER_TESS || (f->mode != MODE_OFFLINE && !f->tess_fallen)) face_rub_update(f, dt);
+    if (tess_games_active(f)) { f->rub_in.path = f->rub_in.turns = 0; }
+    else if (face_character(f) != CHARACTER_TESS || (f->mode != MODE_OFFLINE && !f->tess_fallen)) face_rub_update(f, dt);
     if (face_character(f) == CHARACTER_TESS) {
         tess_update(f, dt);
         return;

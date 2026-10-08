@@ -9,6 +9,12 @@
 
 static screen_lab_t *s_lab;
 static atomic_bool s_active;
+void app_lab_game_snapshot(tess_games_t *games, bool *preview) {
+    face_lock();
+    *preview = s_lab != NULL;
+    *games = s_lab ? s_lab->face.tess_games : g_face.tess_games;
+    face_unlock();
+}
 bool app_lab_active(void) { return atomic_load(&s_active); }
 const char *app_lab_screen(void) {
     face_lock();

@@ -22,6 +22,7 @@
 #include "wifi.h"
 #include "setup.h"
 #include "tls_mem.h"
+#include "tess.h"
 
 static const char *TAG = "main";
 atomic_bool g_mode_report;
@@ -314,6 +315,11 @@ static void display_task(void *arg) {
     }
 }
 
+static void initialize_home_face(void) {
+    face_init(&g_face);
+    if (KUBIK_CHARACTER == CHARACTER_TESS) tess_games_restore(&g_face, g_settings.tess_progress);
+}
+
 void app_main(void) {
     tls_mem_init();  // before anything uses mbedTLS
     // The no-sleep lock is held before light sleep is enabled: USB must never see a sleep window at boot.
@@ -333,7 +339,7 @@ void app_main(void) {
     if (KUBIK_CHARACTER == CHARACTER_PLUSH) {
         assets_sprites(true);
     }
-    face_init(&g_face);
+    initialize_home_face();
     g_face.rng ^= (uint32_t)esp_timer_get_time();  // its idle moves differ from boot to boot (the simulator keeps the fixed seed)
     display_set_brightness(g_settings.brightness);
     ESP_ERROR_CHECK(xTaskCreate(display_task, "display", 7168, NULL, 8, &s_display_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);

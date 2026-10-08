@@ -26,6 +26,16 @@ without interaction closes the lab and frees its fixture memory.
   Hold the screen for 0.8 seconds to hide/show preview controls and inspect the
   entire unmodified screen.
 - Home and Offline points: native gestures, inertia and orientation.
+- Growth: point, square, cube and tesseract: Tess-only views of each earned form.
+  Echo and Catch have separate previews for all three difficulty tiers. These are
+  catalog-only developer fixtures: they do not add a game menu, gameplay HUD or
+  exit control to the ordinary character screen. Their game input still uses the
+  native tap route. KEY restarts the same game and tier, including after timeout.
+  In a Plush build these Tess-only entries show an explanatory card and cannot
+  start a game. The Tess Home fixture keeps the existing fully grown renderer;
+  the form fixtures restore point, square, cube and tesseract
+  progress masks of 0, 1, 7 and 63 respectively. All four forms allow natural
+  gesture discovery without changing durable progress.
 - Text reply and Error: real card and bubble layouts.
 - Background work and Reminder: rotating clock and countdown, without creating jobs.
 - Agent events: Next or KEY advances a local sequence through connection, thinking,
@@ -36,7 +46,9 @@ without interaction closes the lab and frees its fixture memory.
   changes only this preview.
 
 Offline points on the device plays real collision sounds through the saved
-Interface volume. Other previews are silent; generated voice levels show visual
+Interface volume. The points remain a physically simulated pile that responds
+to tilt and gravity; this preview omits the fully formed character, not the
+particle physics. Other previews are silent; generated voice levels show visual
 reactions, not microphone capture or speech playback. The browser has no audio
 playback. QR payloads use `Kubik-DEMO` / `example.invalid` and cannot configure
 the real device.

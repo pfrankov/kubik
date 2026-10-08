@@ -39,6 +39,10 @@ Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
 
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
 
+Tess can also grow from a point into a tesseract as you discover six one-time
+tricks in two native touch games. The games have no menu or HUD; see
+[Tess games and growth](docs/tess-games.md).
+
 When the screen is fully off, press **PWR** to wake it. Touch, BOOT and KEY are ignored until then; an incoming agent reply can wake it automatically. Background activity and reconnections keep the screen off. Touch restores a dimmed screen to full brightness; holding or dragging keeps it active.
 
 Settings provides speech volume, brightness, **Agent**, **Guide** and **Status**. Status shows the current Wi-Fi address, gateway, DNS, MAC, DHCP name and agent endpoint on three swipeable pages. Hold the volume slider for 0.8 seconds to open **Sound**, with separate **Speech** and **Interface** sliders. Press BOOT to return. Both levels are saved independently. Tess synthesizes its short, syllabic reactions locally, with recognizable motifs, expressive endings and prime-length variation cycles. Emotions have distinct arrangements: warm overlapping pads, airy echoes or crossing voices. Menus, sliders, buttons and touch reactions share the same syllabic voice; simple actions stay brief. Replay the guide any time without resetting your connections. The hidden **Events** journal (five taps on the battery indicator in Settings) shows recent agent events: swipe to browse, tap for details, or enable a translucent overlay to follow events while Tess reacts. [Screen Lab](docs/screen-lab.md) previews situations without calling an agent.

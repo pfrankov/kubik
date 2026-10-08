@@ -10,6 +10,7 @@
 #include "../main/connection_store.h"
 
 extern bool app_nvs_test_lock_is_held(void);
+void settings_test_tess_progress_storage(void);
 static pthread_mutex_t apply_race_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t apply_race_cond = PTHREAD_COND_INITIALIZER;
 static bool block_first_apply, first_apply_entered, release_first_apply;
@@ -28,11 +29,15 @@ void settings_test_apply_hook(const connection_record_t *record) {
 
 typedef struct { char key[16]; unsigned char data[6000]; size_t size; } entry_t;
 static entry_t stored[24];
+static entry_t progress_before;
+static bool progress_before_present, progress_write_pending;
 const char *fail_write, *fail_read;
 static const char *fail_erase;
-static bool fail_after_write, fail_erase_all, fail_commit;
+static bool fail_after_write, fail_erase_all;
+bool fail_commit;
 static bool fail_connection_allocation;
-static unsigned allocation_calls, read_calls;
+static unsigned allocation_calls;
+unsigned read_calls, write_calls, commit_calls, progress_write_calls;
 void *settings_test_calloc(size_t count, size_t size) {
     allocation_calls++;
     if (fail_connection_allocation) return NULL;
@@ -45,7 +50,8 @@ static int find(entry_t *list, const char *key) {
     for (int i = 0; i < 24; i++) if (!strcmp(list[i].key, key)) return i;
     return -1;
 }
-static bool has(const char *key) { return find(stored, key) >= 0; }
+bool settings_test_has(const char *key) { return find(stored, key) >= 0; }
+#define has settings_test_has
 static bool empty_store(void) {
     for (int i = 0; i < 24; i++) if (stored[i].key[0]) return false;
     return true;
@@ -58,10 +64,25 @@ esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) {
     return ESP_OK;
 }
 void nvs_close(nvs_handle_t handle) { (void)handle; }
-esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return fail_commit ? ESP_FAIL : ESP_OK; }
+esp_err_t nvs_commit(nvs_handle_t handle) {
+    (void)handle; commit_calls++;
+    if (!fail_commit) { progress_write_pending = false; return ESP_OK; }
+    if (progress_write_pending) {
+        int index = find(stored, "tess_progress");
+        if (index >= 0) {
+            if (progress_before_present) stored[index] = progress_before;
+            else memset(&stored[index], 0, sizeof stored[index]);
+        }
+        progress_write_pending = false;
+    }
+    return ESP_FAIL;
+}
 esp_err_t nvs_flash_init(void) { return ESP_OK; }
 esp_err_t nvs_flash_deinit(void) { return ESP_OK; }
-esp_err_t nvs_flash_erase(void) { memset(stored, 0, sizeof stored); return ESP_OK; }
+esp_err_t nvs_flash_erase(void) {
+    memset(stored, 0, sizeof stored); progress_write_pending = false; progress_before_present = false;
+    memset(&progress_before, 0, sizeof progress_before); return ESP_OK;
+}
 esp_err_t nvs_erase_all(nvs_handle_t handle) {
     if (fail_erase_all) return ESP_FAIL;
     memset(records(handle), 0, sizeof stored);
@@ -77,10 +98,18 @@ esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key) {
     return ESP_OK;
 }
 esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *data, size_t size) {
+    write_calls++;
+    if (!strcmp(key, "tess_progress")) progress_write_calls++;
     bool fail = fail_write && !strcmp(fail_write, key);
     if (fail && !fail_after_write) return ESP_FAIL;
     entry_t *list = records(handle);
     int index = find(list, key);
+    if (!strcmp(key, "tess_progress") && !progress_write_pending) {
+        progress_before_present = index >= 0;
+        if (progress_before_present) progress_before = list[index];
+        else memset(&progress_before, 0, sizeof progress_before);
+        progress_write_pending = true;
+    }
     if (index < 0) for (index = 0; index < 24 && list[index].key[0]; index++);
     assert(index < 24 && size <= sizeof list[index].data);
     strcpy(list[index].key, key);
@@ -305,7 +334,7 @@ static void test_factory_reset(void) {
     assert(!g_settings.wifi_ssid[0] && !g_settings.wifi_pass[0] && !g_settings.server_url[0] && !g_settings.server_pinned);
     assert(g_settings.volume == 70 && g_settings.brightness == 200 &&
            !g_settings.greeted && !g_settings.guide_done && !g_settings.event_overlay && !strcmp(g_settings.name, "Kubik"));
-    const char *gone[] = {CONNECTION_RECORD_KEY_A, CONNECTION_RECORD_KEY_B, "networks", "connection", "pin", "devkey", "name", "character", "volume", "bright", "greeted", "guide_done", "event_overlay", "setup", "vengine"};
+    const char *gone[] = {CONNECTION_RECORD_KEY_A, CONNECTION_RECORD_KEY_B, "networks", "connection", "pin", "devkey", "name", "character", "volume", "bright", "greeted", "guide_done", "event_overlay", "tess_progress", "setup", "vengine"};
     for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) assert(!has(gone[i]));
     assert(!has("devkey"));  // factory reset also clears the device identity key
     settings_load();
@@ -340,6 +369,7 @@ static void test_split_volume(void) {
     nvs_set_i32(1, "volume", 999); nvs_set_i32(1, "ui_volume", -1); settings_load();
     assert(g_settings.volume == 70 && g_settings.ui_volume == 70);
 }
+
 static void english_default_name(void) {
     assert(nvs_set_str(1, "name", "Кубик") == ESP_OK);
     settings_load(); assert(!strcmp(g_settings.name, "Kubik"));
@@ -395,6 +425,7 @@ int main(void) {
     const char *old_url = "wss://old-host/kubik/v1", *new_url = "wss://example.com/kubik/v1";
     test_factory_reset();
     test_guide_storage();
+    settings_test_tess_progress_storage();
     nvs_set_i32(1, "character", 0); // Retired preferences do not select a firmware character.
     settings_load();
     settings_t loaded = g_settings;
@@ -458,5 +489,5 @@ int main(void) {
     settings_test_persistence();
     settings_test_connection_runtime();
     puts("settings: A/B record selection, migration read failures, revision guards, serialized in-memory apply, "
-         "exact-SSID upsert, preferences, factory reset, URL validation and pin clearing passed");
+         "exact-SSID upsert, preferences, Tess milestones, factory reset, URL validation and pin clearing passed");
 }

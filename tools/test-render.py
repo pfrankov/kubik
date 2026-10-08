@@ -7,7 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 RENDER = ['render', 'render_dots', 'render_glass', 'render_output', 'render_pipeline', 'render_raster', 'render_scene', 'render_text', 'sprite', 'font', 'font_data']
-FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_update', 'face_setup', 'face_menu', 'face_plush', 'face_rub', 'tess_geometry', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
+FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_update', 'face_setup', 'face_menu', 'face_plush', 'face_rub', 'tess_geometry', 'tess_growth', 'tess_games', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
 
 def face_sources(extra=(), omit=()):
     # Tests that include a .c for a private reference omit that translation unit.
@@ -28,6 +28,8 @@ TESTS = {
     'tess_rigid': face_sources(extra=[], omit=[]),
     'tess_feel': face_sources(extra=[], omit=['tess_draw']),
     'tess_scatter': face_sources(extra=[], omit=[]),
+    'tess_games_integration': face_sources(extra=[], omit=[]),
+    'tess_growth': face_sources(extra=[], omit=[]),
     'tess_play': face_sources(extra=[], omit=[]),
     'tess_tremble': face_sources(extra=[], omit=[]),
     'tess_ripple': face_sources(extra=[], omit=[]),

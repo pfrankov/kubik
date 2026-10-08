@@ -12,6 +12,7 @@
 #include "wifi.h"
 #include "tls_mem.h"
 #include "muse_pair.h"
+#include "tess.h"
 
 static const char *TAG = "app";
 
@@ -114,6 +115,9 @@ static void touch_tap(const app_ev_t *e) {
         return;
     }
     wake(false);
+    face_lock();
+    tess_games_set_available(&g_face, app_games_available());
+    face_unlock();
     if (app_voice_live_active()) { app_voice_live_stop(true); return; }
     if (s_talk == TALK_LATCHED) {
         finish_turn(TE_TAP);
@@ -136,7 +140,11 @@ static void touch_tap(const app_ev_t *e) {
         bubble(BUB_STOP, STR_STOPPED, 1.8f);
         return;
     }
-    face_ev(FEV_TAP, e->a, e->b);
+    face_lock();
+    bool playing = tess_games_active(&g_face);
+    face_event(&g_face, FEV_TAP, e->a, e->b);
+    face_unlock();
+    if (playing) return;
     audio_sfx((esp_random() & 3) == 0 ? SFX_GIGGLE : SFX_TAP);
     if (s_online) link_poke(POKE_TAP);
 }
@@ -191,7 +199,14 @@ void app_touch_event(const app_ev_t *e) {
 esp_err_t factory_reset(void) {
     esp_err_t err = settings_factory_reset();
     ESP_LOGW(TAG, "factory reset: %s", esp_err_to_name(err));
-    if (err == ESP_OK) app_post(EV_BOOT_LONG, 1, 0);  // the restart path of "reboot"
+    if (err == ESP_OK) {
+        // Reboot is queued. The app's next flush must not restore erased wins.
+        face_lock();
+        tess_games_restore(&g_face, 0);
+        tess_games_set_available(&g_face, false);
+        face_unlock();
+        app_post(EV_BOOT_LONG, 1, 0);  // the restart path of "reboot"
+    }
     return err;
 }
 

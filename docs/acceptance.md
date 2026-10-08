@@ -13,6 +13,11 @@ python3 tools/accept.py
 Команда останавливается на первой ошибке. Обязательный путь нельзя пропустить
 и считать проверенным. Сеть нужна для установки фиксированных зависимостей. Каждый уровень сам устанавливает нужные Node-зависимости из lock-файлов.
 
+На холодную сборку ESP-IDF каждого персонажа отводится до 20 минут;
+проверка версии IDF и списка установленных голосов ограничена 30 секундами,
+остальные команды — 10 минутами. Задание CI на macOS ограничено
+60 минутами, на Linux — 45 минутами. Превышение срока завершает приёмку ошибкой.
+
 ## Порядок работы
 
 Группируйте связанные правки в законченный блок. Пока блок не готов,
@@ -136,6 +141,7 @@ CPU-часов после него. На macOS используется `mach_ab
 | [AGT](scenarios/agent.md) | agent-menu, agent-control, session-controls, agent-sdk, agent-sdk-lifecycle, agent-adapter-example, agent-process-example | Выбор модели и возврат настройки |
 | [VOI](scenarios/conversation.md) / [нативные режимы](scenarios/native-voice.md) | firmware: state, audio-capture, mic-task (эпохи/закрытие), wake-word, native-voice (VAD), audio-stream, speech; JS: engines, voice-stream, native-voice, session | KEY обоих вариантов; тёмный экран: BOOT/KEY/касания/движение игнорируются, PWR/ответ будят; Hi Tessa только Tess; RX в меню/сне; codec doze; локальный голосовой mock |
 | [CHR](scenarios/characters.md) | firmware: frames, render, tess/sound/rules, audio-wake (Tess event/PCM очереди) | Каждая установленная сборка отдельно: разговор, меню, BOOT, профиль кадров |
+| [TGM](scenarios/tess-games.md) | `tess-games`, `render`, `state`, `settings`; Echo/Catch model and tap-route tests, growth geometry, bootstrap priority and NVS persistence | `test-device-tess-games.mjs`: координаты через обработчик касаний ESP32, обе окружности, шесть уровней Lab, неверный ввод, тайм-аут, удержание; `--learn`: настоящие победы и перезапуск. Отдельно: приоритет KEY/голоса/ответа/offline/setup/menu/dark и чувствительность сенсора пальцем |
 | [NET](scenarios/power-network.md) | settings, wifi, power-network, link, notification queue/server | Пробуждение, ACK, реальное радио и reconnect |
 | [MNT](scenarios/maintenance.md) | package, kit, install, hidden-reset | Полный сброс только на выделенном стенде |
 
@@ -438,6 +444,9 @@ NVS и геометрия входят в существующие settings/rend
 `python3 tools/emulator.py` запускает интерактивный просмотр настоящих экранов.
 `test-screen-lab.py` проверяет общий контроллер с ASan/UBSan для обоих персонажей;
 `test-emulator-browser.py` проверяет каждый экран, взаимодействия и локальные границы HTTP.
+Для игр сравниваются последовательности кадров с фиксированным числом шагов,
+чтобы различать ритмы без игрового HUD. Полный рост совпадает с прежним Home;
+уникальность остальных превью и исходных 22 экранов проверяется отдельно.
 Оба входят в обычную приёмку, которая не требует подключённого Кубика.
 `test-device-screen-lab.mjs` проверяет вход, каталог, KEY и выходы на устройстве
 без обращения к голосовым провайдерам. Приёмка `device` остаётся отдельной проверкой физических свойств.

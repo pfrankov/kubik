@@ -30,18 +30,53 @@ def choose(page, index, name):
     page.wait_for_function("name => document.querySelector('#state').textContent.startsWith(name + ' ·')", arg=name)
 
 
+def advance_frames(page, count):
+    page.evaluate("""async count => {
+      running = true;
+      for (let i = 0; i < count; i++) { await frame(); clearTimeout(frameTimer); }
+      running = false;
+    }""", count)
+
+
+def preview_frames(page, screens):
+    # Native animation advances one fixed step per frame request. Stop the UI
+    # timer while sampling so runner speed cannot pick a different game phase.
+    page.evaluate("running = false; clearTimeout(frameTimer)")
+    page.wait_for_function("!inFlight")
+    frames = {}
+    try:
+        for index, name in enumerate(screens):
+            page.select_option("#screen", str(index))
+            samples = []
+            for count in (7, 28, 15):  # 0.23, 1.17, 1.67 s: include the Echo tier rhythms
+                advance_frames(page, count)
+                assert page.locator("#state").inner_text().startswith(name + " ·"), name
+                samples.append(page.locator("canvas").screenshot())
+            frames[name] = tuple(samples)
+            if name.startswith(("Echo:", "Catch:")):
+                page.get_by_role("button", name="KEY", exact=True).click()
+                advance_frames(page, 7)
+                assert page.locator("canvas").screenshot() == samples[0], f"KEY must replay {name}"
+    finally:
+        page.evaluate("running = true; frame()")
+    legacy = [frames[name][0] for name in screens[:22]]
+    assert len(set(legacy)) == 22, "Existing screens must not be duplicate placeholders"
+    # Full growth must retain the old adult renderer. The game tiers instead
+    # differ through their native movement/rhythm, without a title or game HUD.
+    assert frames["Home"] == frames["Growth: tesseract"], "Full growth must preserve Home"
+    distinct = {name: sequence for name, sequence in frames.items() if name != "Growth: tesseract"}
+    assert len(set(distinct.values())) == len(distinct), "Preview sequences must not be duplicate placeholders"
+    for name, sequence in frames.items():
+        if name.startswith(("Echo:", "Catch:")):
+            assert len(set(sequence)) > 1, f"Game preview must animate: {name}"
+
+
 def exercise(page, screens):
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.wait_for_function("document.querySelector('#screen').options.length > 1")
     assert len(page.locator("#screen option").all()) == len(screens) + 1
-    frames = {}
-    for index, name in enumerate(screens):
-        choose(page, index, name)
-        page.wait_for_timeout(200)
-        image = page.locator("canvas").screenshot()
-        frames[image] = name
-    assert len(frames) == len(screens), "Screens must not be duplicate placeholders"
+    preview_frames(page, screens)
     choose(page, screens.index("Settings"), "Settings")
     click(page, 356, 336)
     state = read_state(page)

@@ -128,6 +128,8 @@ void app_handle(const app_ev_t *e);
 void app_post_in_session(app_ev_type_t type, int a, int b, uint32_t session);
 void app_tick(void);
 int app_tick_ms(void);
+bool app_games_available(void);
+bool app_games_flush_safe(void);
 void app_protocol_handlers(link_handlers_t *handlers);
 
 extern const char *const app_activity_names[ACT_COUNT];

@@ -2,7 +2,7 @@
 #include "viewpoint.h"
 #include "input.h"
 #include "input_hold.h"
-
+#include "input_probe.h"
 #include <math.h>
 #include <stdlib.h>
 
@@ -252,7 +252,7 @@ static void refresh_touch_activity(input_state_t *s, int64_t now_ms) {
 static void update_touch(input_state_t *s, int64_t now_ms) {
     if (s->tick % s->sample_every != 0) return;
     int x, y;
-    bool has_touch = touch_read(&x, &y);
+    bool has_touch = input_probe_read(&x, &y);
     if (has_touch) {
         s->missed_samples = 0;
         s->busy_until_ms = now_ms + BURST_MS;
