@@ -258,6 +258,15 @@ esp_err_t settings_save_tess_progress(uint8_t progress) {
     return err;
 }
 
+esp_err_t settings_read_tess_progress(uint8_t *progress) {
+    if (!progress) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = app_nvs_lock();
+    if (err != ESP_OK) return err;
+    *progress = g_settings.tess_progress;
+    app_nvs_unlock();
+    return ESP_OK;
+}
+
 bool settings_take_provisioning(void) {
     if (app_nvs_lock() != ESP_OK) return false;
     if (!app_nvs_ready_locked()) { app_nvs_unlock(); return false; }
@@ -319,8 +328,7 @@ esp_err_t settings_factory_reset(void) {
     nvs_close(h);
     if (err != ESP_OK && app_nvs_recover_locked() != ESP_OK) app_nvs_mark_unhealthy_locked();
     if (erased) muse_store_publish_state(NULL);
-    if (err == ESP_OK) s_tess_progress_reset = true;
+    if (err == ESP_OK) { s_tess_progress_reset = true; set_defaults(&g_settings); }
     app_nvs_unlock();
-    if (err == ESP_OK) set_defaults(&g_settings);
     return err;
 }

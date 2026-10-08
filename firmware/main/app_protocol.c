@@ -1,6 +1,7 @@
 #include "app_lab.h"
 #include "app_status.h"
 #include "app_journal.h"
+#include "app_game_probe.h"
 #include "app_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -195,7 +196,6 @@ static void config_set(cJSON *j, char *reply, size_t cap) {
     snprintf(reply, cap, "{\"ok\":true,\"rebooting\":%s}", connection_change ? "true" : "false");
     if (connection_change) app_post(EV_BOOT_LONG, 1, 0);
 }
-
 // Hooks that last for a `ms` given (or their default): the view turns about a changing axis (as in `sim rotate`),
 // a finger rubs the character (as in `sim rub vigorous`), or the Wi-Fi session stops (routing test; nothing is saved).
 static bool sim_timed_hook(cJSON *j, const char *event) {
@@ -259,6 +259,7 @@ static bool sim_hook(cJSON *j, const char *event) {
     return true;
 }
 static void config_sim(cJSON *j, char *reply, size_t cap) {
+    if (app_game_probe(j, reply, cap)) return;
     static const struct {
         const char *name;
         app_ev_type_t ev;
@@ -488,7 +489,6 @@ static void on_config(const char *json, size_t len, char *reply, size_t cap) {
     else dispatch_config(j, command, reply, cap);
     cJSON_Delete(j);
 }
-
 void app_protocol_handlers(link_handlers_t *handlers) {
     *handlers = (link_handlers_t){
         .on_json = on_json,

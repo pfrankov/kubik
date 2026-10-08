@@ -8,6 +8,19 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
     temp = Path(directory)
+    # Production touch sampling wrapper: a crashed USB client cannot hold a finger down.
+    (temp / "freertos").mkdir()
+    (temp / "freertos/FreeRTOS.h").write_text("#include <pthread.h>\ntypedef pthread_mutex_t portMUX_TYPE;\n#define portMUX_INITIALIZER_UNLOCKED PTHREAD_MUTEX_INITIALIZER\n#define portENTER_CRITICAL(p) ((void)pthread_mutex_lock(p))\n#define portEXIT_CRITICAL(p) ((void)pthread_mutex_unlock(p))\n")
+    (temp / "board.h").write_text("#include <stdbool.h>\nbool touch_read(int *, int *);\n")
+    (temp / "esp_timer.h").write_text("#include <stdint.h>\nint64_t esp_timer_get_time(void);\n")
+    # Quoted includes resolve next to the source first; copy this wrapper alone, not hardware headers.
+    (temp / "input_probe.c").write_text((ROOT / "firmware/main/input_probe.c").read_text())
+    probe = temp / "probe"
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-pthread", "-I" + str(temp), "-Ifirmware/main",
+                    "firmware/sim/input_probe_test.c", str(temp / "input_probe.c"), "-o", str(probe)], cwd=ROOT, check=True)
+    subprocess.run([str(probe)], check=True)
+    assert "bool has_touch = input_probe_read(&x, &y);" in (ROOT / "firmware/main/input.c").read_text()
     control = (ROOT / "firmware/main/app_control.c").read_text()
     tap = control[control.index("static void touch_tap("):control.index("static void touch_pet(")]
     app = (ROOT / "firmware/main/app.c").read_text()

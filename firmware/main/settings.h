@@ -49,6 +49,7 @@ esp_err_t settings_complete_guide(void);
 // Merge earned game milestones into their dedicated NVS key. The value is a
 // cumulative snapshot; stale subsets never clear discoveries already saved.
 esp_err_t settings_save_tess_progress(uint8_t progress);
+esp_err_t settings_read_tess_progress(uint8_t *progress);
 bool settings_take_provisioning(void);
 // Saved networks and endpoint are one durable record. Exact SSID upserts
 // replace its password; an empty password keeps an existing exact match.

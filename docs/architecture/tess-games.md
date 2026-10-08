@@ -139,8 +139,19 @@ with ASan/UBSan. The renderer, runtime eligibility/bootstrap, and NVS storage
 regressions are covered by `python3 tools/test-render.py`,
 `python3 tools/test-state.py`, and `python3 tools/test-settings.py`; all run in
 `python3 tools/accept.py host`. `python3 tools/accept.py build` builds both TESS
-and PLUSH firmware. Run both levels for a code change; `device` acceptance does
-not currently automate game play.
+and PLUSH firmware. Run both levels for a code change. Device acceptance runs
+`node tools/test-device-tess-games.mjs`: native touch sampling, both circle
+directions, all six temporary Lab tiers, mistakes, hold and timeout. Its optional
+`--learn` earns missing real discoveries and checks their durability after reboot;
+it leaves the earned progress on the device and never resets user settings.
+
+USB `sim:pointer` supplies one validated controller sample (`down`, integer `x/y`
+in 0–479), expiring after 350 ms. It enters the same input task and gesture/rub
+handlers as the touch controller; it does not set game state or award victories.
+`sim:game-state` copies the current real/Lab game under the face mutex and reports
+the saved mask and rendered target. These diagnostics are USB-only and contain no
+credentials. They verify execution on the physical ESP32, but do not establish
+the capacitive sensor's finger sensitivity or subjective panel appearance.
 
 On a physical TESS device, verify the actual touch route: make three close taps
 at 0.3 seconds apart, wait 1.4 seconds and repeat Echo's shown intervals; repeat

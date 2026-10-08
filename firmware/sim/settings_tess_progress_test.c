@@ -42,6 +42,8 @@ static void reset_between_snapshot_and_save(void) {
     assert(pthread_join(writer, NULL) == 0);
     assert(stale_result == ESP_ERR_INVALID_STATE);
     assert(write_calls == writes && !settings_test_has("tess_progress") && g_settings.tess_progress == 0);
+    uint8_t saved = 255;
+    assert(settings_read_tess_progress(&saved) == ESP_OK && saved == 0);
 }
 
 static void test_progress_merge_and_noop(void) {
@@ -123,8 +125,13 @@ void settings_test_tess_progress_storage(void) {
     settings_load();
     assert(g_settings.tess_progress == 0 && !settings_test_has("tess_progress"));
     assert(!strcmp(g_settings.name, "Existing") && g_settings.volume == 42);
+    assert(settings_read_tess_progress(NULL) == ESP_ERR_INVALID_ARG);
     test_progress_merge_and_noop();
     test_progress_rejects_and_recovers();
     test_progress_independent_reset();
     test_corrupt_progress_is_recoverable();
+    uint8_t saved = 255;
+    unsigned reads = read_calls, writes = write_calls;
+    assert(settings_read_tess_progress(&saved) == ESP_OK && saved == 1);
+    assert(reads == read_calls && writes == write_calls); // cached snapshot, no flash I/O
 }

@@ -56,6 +56,12 @@ static void priority_interrupts_before_hidden_simulation(void) {
     face.menu.open=false; run(1);
     enter_echo(); face_card(&face,"An incoming agent reply"); frame();
     assert(!face.tess_games.game && face.card_n>0);
+    fresh(0); enter_echo(); run(2);
+    tap(240,255);
+    face_event(&face, FEV_NOTIFY, 0, 0); // even a notification without visible text preempts the game
+    assert(!face.tess_games.game && !face.tess_games.progress);
+    run(.6f); tap(240,255);
+    assert(!face.tess_games.progress);
 }
 static void catch_hit_follows_the_rendered_cloud(void) {
     fresh(7);

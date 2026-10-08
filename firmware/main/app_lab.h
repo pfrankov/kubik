@@ -9,6 +9,7 @@ bool app_lab_event(const app_ev_t *event);
 bool app_lab_frame(scene_t *scene, float dt, bool powered);
 
 const char *app_lab_screen(void);
+void app_lab_game_snapshot(tess_games_t *games, bool *preview);
 
 // Called under g_face_mtx; returns only real offline collision cues.
 bool app_lab_take_cue(tess_cue_t *cue, float *strength, float *position);
