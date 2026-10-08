@@ -9,7 +9,7 @@ import { importAdapter, normalizeHostConfig, normalizeSetupValues, readHostConfi
   writeHostConfig, VOICE_SETUP_FIELDS } from './index.js';
 import { createAgentHost } from './host.js';
 import { deviceServerAddresses } from '../lan.js';
-import { createFilePairingStore } from './pairing-store.js';
+import { createFilePairingStore, PAIRING_TTL_MS } from './pairing-store.js';
 
 const DEFAULT_STATE_DIR = join(homedir(), '.config', 'kubik-agent-host');
 const DEFAULT_LAN_PORT = 18790;
@@ -191,11 +191,21 @@ async function serve(stateDir, env = process.env) {
   });
 }
 
+function pairingTimeLeft(createdAt, listedAt) {
+  const seconds = Math.ceil(Math.max(0, PAIRING_TTL_MS - (listedAt - createdAt)) / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${minutes}m ${seconds % 60}s`;
+}
+
 async function pairingList(stateDir) {
   const pairing = await createFilePairingStore(stateDir).ready();
+  const listedAt = Date.now();
   const state = await pairing.list();
   if (!state.pending.length && !state.approved.length) { stdout.write('No pending or approved devices.\n'); return; }
-  for (const item of state.pending) stdout.write(`Pending: ${item.entry} (${item.name || 'unnamed'}), code ${item.code}\n`);
+  for (const item of state.pending) {
+    stdout.write(`Pending: ${item.entry} (${item.name || 'unnamed'}), code ${item.code}, expires in ${pairingTimeLeft(item.createdAt, listedAt)}\n`);
+  }
   for (const item of state.approved) stdout.write(`Approved: ${item}\n`);
 }
 
