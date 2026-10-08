@@ -38,7 +38,7 @@ def validate_device_environment():
 
 
 def require_device_voice():
-    voices = subprocess.check_output(["say", "-v", "?"], text=True)
+    voices = subprocess.check_output(["say", "-v", "?"], text=True, timeout=30)
     if not any(line.startswith("Milena ") and "ru_RU" in line for line in voices.splitlines()):
         raise RuntimeError("Install the Russian Milena voice before device acceptance")
 
@@ -56,7 +56,7 @@ def preflight(level):
     if level in {"host", "host-portable", "ci"} and hasattr(os, "geteuid") and os.geteuid() == 0:
         raise RuntimeError("Run acceptance as a regular user: root skips the private-key permission test")
     if level in {"host", "host-portable", "build", "ci"}:
-        version = subprocess.check_output(["idf.py", "--version"], text=True)
+        version = subprocess.check_output(["idf.py", "--version"], text=True, timeout=30)
         if "v5.5.1" not in version: raise RuntimeError("Activate ESP-IDF v5.5.1 before acceptance")
         # Fetches the QR component used by native host harnesses on a clean checkout.
         run(["idf.py", "-C", "firmware", "-DKUBIK_CHARACTER=TESS", "reconfigure"])
@@ -93,7 +93,7 @@ def host(portable=False):
 
 def build():
     for character, directory in (("TESS", "build"), ("PLUSH", "build-plush")):
-        run(["idf.py", "-C", "firmware", "-B", str(ROOT / "firmware" / directory), f"-DKUBIK_CHARACTER={character}", "build"])
+        run(["idf.py", "-C", "firmware", "-B", str(ROOT / "firmware" / directory), f"-DKUBIK_CHARACTER={character}", "build"], timeout=1200)
         run([sys.executable, "tools/test-package.py", "--character", character])
         run([sys.executable, "tools/test-kit.py", "--character", character])
     run(["node", "tools/test-install.mjs", "--kit", "dist/kubik-kit-tess.zip", "--openclaw", "2026.9.7"])
