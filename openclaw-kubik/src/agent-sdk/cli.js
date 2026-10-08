@@ -192,7 +192,8 @@ async function serve(stateDir, env = process.env) {
 }
 
 function pairingTimeLeft(createdAt, listedAt) {
-  const seconds = Math.ceil(Math.max(0, PAIRING_TTL_MS - (listedAt - createdAt)) / 1000);
+  const remaining = Math.min(PAIRING_TTL_MS, Math.max(0, PAIRING_TTL_MS - (listedAt - createdAt)));
+  const seconds = Math.ceil(remaining / 1000);
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   return `${hours}h ${minutes}m ${seconds % 60}s`;

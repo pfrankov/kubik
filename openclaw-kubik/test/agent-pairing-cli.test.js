@@ -89,3 +89,17 @@ test('pair-list uses one time snapshot for all pending rows', async (t) => {
     `Pending: ${entry('first')} (first), code ABCDEFG2, expires in 24h 0m 0s\n` +
     `Pending: ${entry('second')} (second), code ABCDEFG3, expires in 24h 0m 0s\n`);
 });
+
+test('pair-list caps a request newer than the view clock at its 24-hour lifetime', async (t) => {
+  const stateDir = directory(t);
+  let now = 1_000_001_001;
+  t.mock.method(Date, 'now', () => now);
+  const pairing = await createFilePairingStore(stateDir, { randomCode: () => 'ABCDEFG2' }).ready();
+  await pairing.upsert(entry('new'));
+  const saved = readFileSync(pairing.path, 'utf8');
+  // A concurrent insertion or clock adjustment can make createdAt later than listedAt.
+  now -= 1001;
+  assert.equal(await pairList(t, stateDir),
+    `Pending: ${entry('new')} (new), code ABCDEFG2, expires in 24h 0m 0s\n`);
+  assert.equal(readFileSync(pairing.path, 'utf8'), saved);
+});
