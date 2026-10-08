@@ -49,3 +49,46 @@ test('process error is not proof of process exit; failed kills cannot pass clean
   await assert.rejects(mock.stop(), /forced mock exit/);
   assert.equal(kills, 2);
 });
+
+for (const phase of ['startup', 'close']) {
+  test(`mock observes recorded ${phase} when the next poll resumes past its deadline`, async (t) => {
+    let now = 0;
+    t.mock.method(Date, 'now', () => now);
+    const item = fixture(); const create = item.opts.spawnChild; const signals = [];
+    item.opts.spawnChild = (...args) => {
+      const child = create(...args); const kill = child.kill;
+      child.kill = (signal) => {
+        signals.push(signal);
+        const sent = kill(signal);
+        if (phase === 'close') queueMicrotask(() => { now += item.opts.closeMs + 1; });
+        return sent;
+      };
+      // The fixture records the event first; the polling continuation then runs late.
+      if (phase === 'startup') queueMicrotask(() => { now += item.opts.startupMs + 1; });
+      return child;
+    };
+    const mock = await startMock(item.opts);
+    assert.equal(item.route(), 'usb'); await mock.stop();
+    assert.equal(item.route(), 'wifi');
+    assert.deepEqual(signals, ['SIGTERM']);
+  });
+}
+
+test('mock does not start another route request after the restoration deadline', async (t) => {
+  let now = 0, restoring = false, reads = 0;
+  t.mock.method(Date, 'now', () => now);
+  const item = fixture({ restoreRoute: false });
+  const sim = item.opts.sim; const device = item.opts.device;
+  item.opts.sim = async (...args) => {
+    if (args[1].ms === 1) restoring = true;
+    return sim(...args);
+  };
+  item.opts.device = async (...args) => {
+    if (restoring) { reads++; queueMicrotask(() => { now += item.opts.restoreMs + 1; }); }
+    return device(...args);
+  };
+  const mock = await startMock(item.opts);
+  await assert.rejects(mock.stop(), /original route/);
+  assert.equal(reads, 1);
+  assert.equal(item.killed(), true);
+});

@@ -2,20 +2,22 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-async function until(check, label, timeoutMs, intervalMs) {
+async function until(check, label, timeoutMs, intervalMs, { observeAtTimeout = false } = {}) {
   const deadline = Date.now() + timeoutMs;
   do {
     if (await check()) return;
     await sleep(intervalMs);
   } while (Date.now() < deadline);
+  // Recheck recorded local events after a delayed poll, without starting more I/O.
+  if (observeAtTimeout && await check()) return;
   throw Error(`Timed out: ${label}`);
 }
 
 async function closeChild(child, closed, timeoutMs, intervalMs) {
   if (closed()) return;
   child.kill('SIGTERM');
-  try { await until(closed, 'mock process exit', timeoutMs, intervalMs); }
-  catch { child.kill('SIGKILL'); await until(closed, 'forced mock exit', timeoutMs, intervalMs); }
+  try { await until(closed, 'mock process exit', timeoutMs, intervalMs, { observeAtTimeout: true }); }
+  catch { child.kill('SIGKILL'); await until(closed, 'forced mock exit', timeoutMs, intervalMs, { observeAtTimeout: true }); }
 }
 
 export async function startMock({ device, sim, port, holdMs, spawnChild = spawn,
@@ -43,7 +45,7 @@ export async function startMock({ device, sim, port, holdMs, spawnChild = spawn,
       if (failed) throw failed;
       if (closed) throw Error('Mock exited before startup');
       return /parrot on/.test(output);
-    }, 'mock startup', startupMs, intervalMs);
+    }, 'mock startup', startupMs, intervalMs, { observeAtTimeout: true });
     paused = true; // even a lost config reply may have applied the pause
     await sim('wifi', { ms: holdMs });
     await until(async () => {

@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { createFilePairingStore, PAIRING_FILE } from '../src/agent-sdk/pairing-store.js';
+import { createFilePairingStore, MAX_PENDING_PAIRINGS, PAIRING_FILE, PAIRING_TTL_MS } from '../src/agent-sdk/pairing-store.js';
 import { HOST_CONFIG_FILE, readHostConfig, writeHostConfig } from '../src/agent-sdk/config.js';
 
 const config = (port) => ({
@@ -20,6 +20,87 @@ function stateDirectory(t) {
   t.after(() => rmSync(path, { recursive: true, force: true }));
   return path;
 }
+
+function countPairingWrites(t, path) {
+  const rename = fs.renameSync;
+  let writes = 0;
+  const tracked = t.mock.method(fs, 'renameSync', (from, to) => {
+    const result = rename(from, to);
+    if (to === path) writes++;
+    return result;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { tracked.mock.restore(); syncBuiltinESMExports(); });
+  return () => writes;
+}
+
+test('pairing retries reuse saved state while a separate approval is immediately visible', async (t) => {
+  const stateDir = stateDirectory(t);
+  const pairing = await createFilePairingStore(stateDir, { randomCode: () => 'ABCDEFG2' }).ready();
+  const entry = 'kubik-retry:0123456789abcdef0123456789abcdef';
+  const writes = countPairingWrites(t, pairing.path);
+  const request = await pairing.upsert(entry, { name: 'Desk', fw: '0.6.2' });
+  assert.deepEqual(request, { code: 'ABCDEFG2', created: true });
+  assert.equal(writes(), 1, 'a new request must be persisted');
+  const saved = readFileSync(pairing.path, 'utf8');
+
+  assert.deepEqual(await pairing.upsert(entry), { code: request.code, created: false });
+  assert.equal(writes(), 1, 'an unchanged retry must not replace the pairing file');
+  assert.equal(readFileSync(pairing.path, 'utf8'), saved);
+
+  const approver = await createFilePairingStore(stateDir).ready();
+  await approver.approve(request.code);
+  assert.equal(writes(), 2, 'approval must be persisted');
+  assert.deepEqual(await pairing.allowed(), [entry]);
+  assert.deepEqual(await pairing.upsert(entry), { code: '', created: false });
+  assert.equal(writes(), 2, 'an approved request must not rewrite the file');
+});
+
+test('a full unchanged pairing queue rejects a request without rewriting saved state', async (t) => {
+  const stateDir = stateDirectory(t);
+  const now = 100_000;
+  const pairing = await createFilePairingStore(stateDir, { now: () => now }).ready();
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const pending = Array.from({ length: MAX_PENDING_PAIRINGS }, (_, index) => ({
+    entry: `device-${index}:0123456789abcdef0123456789abcdef`,
+    code: `AAAAAA${alphabet[Math.floor(index / 32)]}${alphabet[index % 32]}`,
+    createdAt: now, name: `Device ${index}`, fw: '0.6.2',
+  }));
+  writeFileSync(pairing.path, JSON.stringify({ version: 1, approved: [], pending }));
+  const saved = readFileSync(pairing.path, 'utf8');
+  const writes = countPairingWrites(t, pairing.path);
+
+  assert.deepEqual(await pairing.upsert('extra-device:0123456789abcdef0123456789abcdef'), { code: '', created: false });
+  assert.equal(writes(), 0, 'queue capacity alone must not cause a disk write');
+  assert.equal(readFileSync(pairing.path, 'utf8'), saved);
+  assert.deepEqual((await pairing.list()).pending, pending);
+});
+
+test('a repeated pairing request still persists expiry without renewing its code or lifetime', async (t) => {
+  const stateDir = stateDirectory(t);
+  let now = 100_000;
+  const codes = ['ABCDEFG2', 'ABCDEFG3'];
+  const pairing = await createFilePairingStore(stateDir, { now: () => now, randomCode: () => codes.shift() }).ready();
+  const expired = 'kubik-old:0123456789abcdef0123456789abcdef';
+  const retained = 'kubik-current:0123456789abcdef0123456789abcdef';
+  await pairing.upsert(expired);
+  now += 1000;
+  const request = await pairing.upsert(retained);
+  const retainedAt = now;
+  now += PAIRING_TTL_MS;
+  const writes = countPairingWrites(t, pairing.path);
+
+  assert.deepEqual(await pairing.upsert(retained), { code: request.code, created: false });
+  assert.equal(writes(), 1, 'expiry must persist even when the requested code already exists');
+  const stored = JSON.parse(readFileSync(pairing.path, 'utf8'));
+  assert.deepEqual(stored.pending.map(({ entry, code, createdAt }) => ({ entry, code, createdAt })), [
+    { entry: retained, code: request.code, createdAt: retainedAt },
+  ]);
+  const restarted = await createFilePairingStore(stateDir, { now: () => now }).ready();
+  assert.deepEqual((await restarted.list()).pending, stored.pending);
+  await assert.rejects(restarted.approve('ABCDEFG2'), /no unexpired pairing request/);
+  assert.equal(writes(), 1, 'failed approval must not write the file');
+});
 
 test('public config and pairing reads repair private modes without changing saved state', async (t) => {
   const stateDir = stateDirectory(t);

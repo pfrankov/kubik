@@ -91,9 +91,11 @@ export function createFilePairingStore(stateDir, { now = Date.now, randomCode = 
   async function mutate(update) {
     return withFileLock(path, async () => {
       const state = readState(path);
+      const previous = JSON.stringify(state);
       const result = await update(state);
       const next = validateState(state);
-      writeJsonAtomic(path, next, MAX_FILE_BYTES);
+      // Retries keep their code; persist only a changed request, approval or expiry.
+      if (JSON.stringify(next) !== previous) writeJsonAtomic(path, next, MAX_FILE_BYTES);
       return result;
     });
   }
