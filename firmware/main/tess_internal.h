@@ -24,8 +24,10 @@ void tess_project_dots(face_t *face, tess_projected_t dots[TESS_N]);
 
 float tess_sin(float radians);
 void tess_vertices4d(const face_t *face, float vertices[16][4]);  // the tesseract after its 4D turns, before any projection
+void tess_growth_vertices(const face_t *face, float vertices[16][4]);  // the game’s point/square/cube lift; adult path is exact
 typedef struct { float c[3], s[3]; bool nod; } tess_turn4d_t;      // the x-w, z-w and y-w turns as cosines and sines
 void tess_turn4d_prepare(const face_t *face, tess_turn4d_t *turn);
+void tess_turn4d_prepare_scaled(const face_t *face, float fourth, tess_turn4d_t *turn);  // grows 4D turns with the fourth axis
 void tess_turn4d_apply(const tess_turn4d_t *turn, float vector[4]);
 void tess_camera_turns(const face_t *face, float turn[6]);
 void tess_camera_apply(const float turn[6], float vector[3]);

@@ -146,6 +146,7 @@ static void tess_tap(face_t *f, float x, float y) {
 
 // Touch, gestures and system events. The mood they imply is recorded quietly (not replayed as a reaction).
 void tess_event(face_t *f, face_event_t ev, float x, float y) {
+    if (tess_games_event(f, ev, x, y)) return;
     if (fallen(f)) return;
     f->tess_energy = 1;
     f->tess_pulse = 1;
@@ -367,6 +368,7 @@ static bool tess_is_form(const face_t *f) {
 
 // (Trembling dots and the waves of a press are the springs' business.)
 static bool holds_to_its_places(const face_t *f) {
+    if (f->tess_games.ready && (f->tess_games.game || f->tess_games.trick || f->tess_games.fold > 0)) return false;
     return tess_is_form(f) && f->tess_mode[TM_OFFLINE] < .001f && tess_tremble(f) <= TESS_TREMBLE_FROM && !tess_ripple_active(f);
 }
 
@@ -428,20 +430,25 @@ void tess_update(face_t *f, float dt) {
         update_points(f, dt);
         return;
     }
-    tess_feel_update(f, dt);
+    bool playing = tess_games_active(f);
+    if (!playing) tess_feel_update(f, dt);
     update_modes(f, dt);
     f->tess_assemble = fminf(1, f->tess_assemble + dt / 1.2f);
     update_jolts(f, dt);
     update_4d_turn(f, dt);
-    tess_mood_update(f, dt);
-    tess_rub_step(f, dt);
+    if (!playing) {
+        tess_mood_update(f, dt);
+        tess_rub_step(f, dt);
+    }
     update_activity(f, dt);
     // Its own small life: where it looks, fidgets, drifts during sleep, and schedules delayed reactions.
     update_life_timers(f, dt);
-    tess_touch_update(f, dt);
-    tess_play_update(f, dt);
-    update_fidgets(f, dt);
-    update_gaze(f, dt);
+    if (!playing) {
+        tess_touch_update(f, dt);
+        tess_play_update(f, dt);
+        update_fidgets(f, dt);
+        update_gaze(f, dt);
+    }
     update_reactions(f, dt);
     update_points(f, dt);
 }

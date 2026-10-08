@@ -1,5 +1,6 @@
 #include "../main/screen_lab.h"
 #include "../main/face_agent.h"
+#include "../main/tess.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -9,6 +10,14 @@ static screen_lab_t lab;
 static scene_t scene, native;
 static void tap(int x, int y) { screen_lab_event(&lab, LAB_TAP, x, y); }
 static void boot(void) { screen_lab_event(&lab, LAB_BOOT, 0, 0); }
+static void assert_native_scene(void) {
+    screen_lab_draw(&lab, &scene);
+    face_draw(&lab.face, &native);
+    assert(scene.n == native.n && scene.dots_n == native.dots_n && scene.text_n == native.text_n);
+    assert(!memcmp(scene.p, native.p, scene.n * sizeof scene.p[0]));
+    assert(!memcmp(scene.dots, native.dots, scene.dots_n * sizeof scene.dots[0]));
+    assert(!memcmp(scene.text, native.text, scene.text_n));
+}
 static void entry(void) {
     screen_lab_unlock_t state = {0};
     assert(!screen_lab_entry(false, 52, 36));
@@ -24,6 +33,7 @@ static void entry(void) {
     assert(!state.ready);
 }
 static void catalog(void) {
+    assert(LAB_HOME == 0 && LAB_EVENT_LOG == 21 && LAB_GROW_POINT == 22 && LAB_COUNT == 32);
     screen_lab_select(&lab, -1);
     tap(350, 428); assert(lab.page == 1);
     tap(240, 144); assert(lab.selected == LAB_SETUP_QR);
@@ -31,6 +41,10 @@ static void catalog(void) {
     tap(100, 428); assert(lab.page == 0);
     tap(240, 320); assert(lab.selected == LAB_WIFI_QR);
     screen_lab_event(&lab, LAB_KEY, 0, 0); assert(lab.selected == LAB_SETUP_QR);
+    screen_lab_select(&lab, -1); lab.page = 0;
+    for (int page = 0; page < 10; page++) tap(350, 428);
+    assert(lab.page == 10);
+    tap(240, 192); assert(lab.selected == LAB_CATCH_2);
 }
 static void qr(void) {
     for (int panel = LAB_WIFI_QR; panel <= LAB_SETUP_QR; panel++) {
@@ -179,10 +193,98 @@ static void collision_audio(void) {
     tess_cue_t cue; float strength, position;
     assert(!screen_lab_take_cue(&lab, &cue, &strength, &position));
 }
+static void growth_previews_accept_natural_taps(void) {
+    for (int screen = LAB_GROW_POINT; screen <= LAB_GROW_TESSERACT; screen++) {
+        screen_lab_select(&lab, screen);
+        for (int n = 0; n < 3; n++) {
+            tap(240, 255);
+            for (int i = 0; i < 9; i++) screen_lab_update(&lab, 1.f / 30);
+        }
+        for (int i = 0; i < 45; i++) screen_lab_update(&lab, 1.f / 30);
+        assert(tess_games_active(&lab.face) && lab.face.tess_games.game == TESS_GAME_ECHO);
+    }
+}
+static void game_previews(void) {
+    static const int forms[] = {LAB_GROW_POINT, LAB_GROW_SQUARE, LAB_GROW_CUBE, LAB_GROW_TESSERACT};
+    static const uint8_t progress[] = {0, 1, 7, 63};
+    for (unsigned i = 0; i < sizeof forms / sizeof forms[0]; i++) {
+        screen_lab_select(&lab, forms[i]);
+        assert(lab.character == CHARACTER_TESS);
+        assert(lab.face.tess_games.progress == progress[i]);
+        assert(!tess_games_active(&lab.face));
+        assert(lab.face.tess_games.available);
+        assert(!screen_lab_controls(&lab));
+        screen_lab_update(&lab, 1.f / 30);
+        assert_native_scene();
+        assert(scene.n + scene.dots_n > 0 && scene.dots_n <= R_MAX_DOTS);
+        tess_cue_t cue; float strength, position;
+        assert(!screen_lab_take_cue(&lab, &cue, &strength, &position));
+    }
+
+    static const int game_screens[] = {
+        LAB_ECHO_0, LAB_ECHO_1, LAB_ECHO_2,
+        LAB_CATCH_0, LAB_CATCH_1, LAB_CATCH_2,
+    };
+    static const tess_game_t games[] = {
+        TESS_GAME_ECHO, TESS_GAME_ECHO, TESS_GAME_ECHO,
+        TESS_GAME_CATCH, TESS_GAME_CATCH, TESS_GAME_CATCH,
+    };
+    for (unsigned i = 0; i < sizeof game_screens / sizeof game_screens[0]; i++) {
+        screen_lab_select(&lab, game_screens[i]);
+        assert(lab.character == CHARACTER_TESS);
+        assert(lab.face.tess_games.progress == TESS_PROGRESS_MASK);
+        assert(tess_games_active(&lab.face));
+        assert(lab.face.tess_games.game == games[i]);
+        assert(lab.face.tess_games.tier == i % 3);
+        assert(!screen_lab_controls(&lab));
+        if (games[i] == TESS_GAME_ECHO) {
+            // A pattern tap is ignored; once the sequence reaches its input
+            // phase, the existing raw Lab tap route advances the game step.
+            unsigned step = lab.face.tess_games.step;
+            tap(240, 255);
+            assert(lab.face.tess_games.step == step);
+            for (int frame = 0; frame < 50 && lab.face.tess_games.phase != TESS_GAME_WAIT; frame++)
+                screen_lab_update(&lab, .1f);
+            assert(lab.face.tess_games.phase == TESS_GAME_WAIT);
+            step = lab.face.tess_games.step;
+            tap(240, 255);
+            assert(lab.face.tess_games.step == step + 1);
+        }
+        screen_lab_update(&lab, 1.f / 30);
+        assert_native_scene();
+        assert(scene.n + scene.dots_n > 0 && scene.dots_n <= R_MAX_DOTS);
+        tess_cue_t cue; float strength, position;
+        assert(!screen_lab_take_cue(&lab, &cue, &strength, &position));
+
+        // Lab KEY is a deterministic escape/replay affordance. It can start
+        // the same fixture after its natural timeout without adding a HUD.
+        for (int frame = 0; frame < 250 && tess_games_active(&lab.face); frame++)
+            screen_lab_update(&lab, .1f);
+        assert(!tess_games_active(&lab.face));
+
+        // KEY deterministically restarts the selected debug tier; no extra HUD control is needed.
+        screen_lab_event(&lab, LAB_KEY, 0, 0);
+        assert(lab.selected == game_screens[i]);
+        assert(tess_games_active(&lab.face));
+        assert(lab.face.tess_games.game == games[i]);
+        assert(lab.face.tess_games.tier == i % 3);
+    }
+
+    // These fixtures are developer-only, but must remain inert in a Plush build.
+    screen_lab_init(&lab, CHARACTER_PLUSH);
+    for (int screen = LAB_GROW_POINT; screen <= LAB_CATCH_2; screen++) {
+        screen_lab_select(&lab, screen);
+        assert(!tess_games_active(&lab.face));
+        assert(lab.face.card_n > 0);
+    }
+}
 int main(void) {
     entry(); collision_audio();
     for (int character = 0; character < 2; character++) {
         screens(character); catalog(); qr(); settings(); voice(); motion(); events();
     }
+    screen_lab_init(&lab, CHARACTER_TESS);
+    growth_previews_accept_natural_taps();
+    game_previews();
     puts("Screen Lab: hidden entry, native QR, menus, guide, voice, gestures and bounded scenes passed");
 }

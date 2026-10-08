@@ -20,6 +20,7 @@
 #include "ui_text.h"
 #include "wifi.h"
 #include "tls_mem.h"
+#include "tess.h"
 
 static const char *TAG = "app";
 static power_network_t s_power_network;
@@ -341,6 +342,16 @@ static bool speech_pose_active(void) {
 static bool waiting_for_reply(void) {
     return s_talk == TALK_AWAITING || s_srv == SS_TRANSCRIBING || s_srv == SS_THINKING || s_gen >= 0 || s_act_own;
 }
+
+bool app_games_available(void) {
+    return KUBIK_CHARACTER == CHARACTER_TESS && s_online && power_is_active(s_power) && !s_setup && !s_pair_code[0] && !s_menu &&
+        !app_lab_active() && app_games_flush_safe();
+}
+
+bool app_games_flush_safe(void) {
+    return !audio_mic_is_open() && !talk_is_listening(s_talk) && !app_voice_live_active() && !waiting_for_reply() && !speech_pose_active();
+}
+
 static bool show_offline(int64_t t) {
     return !s_online && (s_ever_online ? s_outage : t - s_boot_ms > 20000);
 }
@@ -425,6 +436,7 @@ static void update_sleep_emotion(face_t *f, face_mode_t mode, int64_t t) {
 }
 
 void app_face_inputs(face_t *f) {
+    tess_games_set_available(f, app_games_available());
     int64_t t = now_ms();
     if (f->mode == MODE_BOOT) return;
     f->journal.overlay = g_settings.event_overlay;

@@ -11,6 +11,9 @@
 #include "nvs.h"
 
 static const char *TAG = "settings";
+// Protected by app_nvs: a completed factory reset rejects stale game snapshots
+// until startup loads settings again. USB reset and app flush run in different tasks.
+static bool s_tess_progress_reset;
 
 settings_t g_settings;
 char g_device_id[20];
@@ -114,6 +117,7 @@ void settings_load(void) {
     esp_err_t err = app_nvs_lock();
     if (err == ESP_OK) {
         err = app_nvs_init_locked();
+        s_tess_progress_reset = false;
         app_nvs_unlock();
     }
     if (err != ESP_OK) {
@@ -149,6 +153,9 @@ void settings_load(void) {
         s->greeted = get_int(h, "greeted", 0);
         s->event_overlay = get_int(h, "event_overlay", 0) == 1;
         s->guide_done = get_int(h, "guide_done", 0) == 1;
+        uint8_t tess_progress = 0;
+        if (nvs_get_u8(h, "tess_progress", &tess_progress) == ESP_OK &&
+            !(tess_progress & (uint8_t)~TESS_PROGRESS_MASK)) s->tess_progress = tess_progress;
         nvs_close(h);
         }
     }
@@ -205,6 +212,49 @@ esp_err_t settings_complete_guide(void) {
     if (err != ESP_OK && app_nvs_recover_locked() != ESP_OK) app_nvs_mark_unhealthy_locked();
     app_nvs_unlock();
     if (err == ESP_OK) g_settings.guide_done = true;
+    return err;
+}
+
+static void recover_tess_progress_error(esp_err_t err) {
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE && app_nvs_recover_locked() != ESP_OK)
+        app_nvs_mark_unhealthy_locked();
+}
+
+static esp_err_t save_tess_progress_locked(uint8_t progress, uint8_t *saved) {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("kubik", NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+
+    uint8_t stored = 0;
+    err = nvs_get_u8(h, "tess_progress", &stored);
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    if (err == ESP_OK && (stored & (uint8_t)~TESS_PROGRESS_MASK)) stored = 0;
+    uint8_t merged = (uint8_t)(stored | progress);
+    bool changed = err == ESP_OK && merged != stored;
+    if (changed) err = nvs_set_u8(h, "tess_progress", merged);
+    if (err == ESP_OK && changed) err = nvs_commit(h);
+    nvs_close(h);
+    recover_tess_progress_error(err);
+    if (err == ESP_OK) *saved = merged;
+    return err;
+}
+
+esp_err_t settings_save_tess_progress(uint8_t progress) {
+    if (progress & (uint8_t)~TESS_PROGRESS_MASK) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = app_nvs_lock();
+    if (err != ESP_OK) return err;
+    if (s_tess_progress_reset) {
+        app_nvs_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!(progress & (uint8_t)~g_settings.tess_progress)) {
+        app_nvs_unlock();
+        return ESP_OK;
+    }
+    uint8_t saved = g_settings.tess_progress;
+    err = app_nvs_ready_locked() ? save_tess_progress_locked(progress, &saved) : ESP_ERR_INVALID_STATE;
+    if (err == ESP_OK) g_settings.tess_progress = saved;
+    app_nvs_unlock();
     return err;
 }
 
@@ -269,6 +319,7 @@ esp_err_t settings_factory_reset(void) {
     nvs_close(h);
     if (err != ESP_OK && app_nvs_recover_locked() != ESP_OK) app_nvs_mark_unhealthy_locked();
     if (erased) muse_store_publish_state(NULL);
+    if (err == ESP_OK) s_tess_progress_reset = true;
     app_nvs_unlock();
     if (err == ESP_OK) set_defaults(&g_settings);
     return err;

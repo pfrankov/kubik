@@ -10,6 +10,7 @@
 #include "agent_menu.h"
 #include "tess_cue.h"
 #include "tess_feel.h"
+#include "tess_games.h"
 #include "event_journal.h"
 #include "device_status.h"
 
@@ -238,6 +239,7 @@ typedef struct {
     float tess_rigid;                                 // 0..1 how settled the cloud is as the rigid tesseract (tess_motion.c)
     tess_mood_t tess_mood;                            // idle moves, and how the cube leans into what is going on
     tess_play_t tess_play;                            // its play: what a finger does to it, and what it does alone
+    tess_games_t tess_games;                          // bounded native games and restored discoveries
     mood_machine_t mood;                              // Tess's mood: what lasts of what happened to it (mood.c)
     tess_style_t style;                               // ... and what it asks of the body now (tess_feel.c)
     tess_feel_t feel;                                 // ... the events waiting for it, and the word it is about to say

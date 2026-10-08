@@ -10,6 +10,7 @@
 - [Realtime и GPT-Live](native-voice.md)
 - [Muse напрямую с телефона](muse.md)
 - [Персонажи и реакции](characters.md)
+- [Игры и рост Tess](tess-games.md)
 - [Сеть, питание и уведомления](power-network.md)
 - [Обновление, безопасность и сброс](maintenance.md)
 - [Скрытый просмотр экранов и эмулятор](debug.md)

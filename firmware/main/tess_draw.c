@@ -192,17 +192,62 @@ static void draw_fallen(const face_t *f, scene_t *s, dot_t dots[TESS_N], const u
     }
 }
 
-static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
-    uint8_t order[TESS_N];
-    order[0] = 0;
-    for (int i = 1; i < TESS_N; i++) {
+static bool same_dot(const dot_t *a, const dot_t *b) {
+    return a->x == b->x && a->y == b->y && a->radius == b->radius && a->key == b->key && a->lit == b->lit;
+}
+
+static uint32_t dot_hash(const dot_t *dot) {
+    return (uint32_t)dot->x * 73856093u ^ (uint32_t)dot->y * 19349663u ^
+           (uint32_t)dot->radius * 83492791u ^ (uint32_t)dot->key * 2654435761u ^ (uint32_t)dot->lit;
+}
+
+static int deduplicate_order(const dot_t dots[TESS_N], uint8_t order[TESS_N]) {
+    uint8_t slot[256] = {0};  // 112 entries, at most 44% full
+    int count = 0;
+    for (int i = 0; i < TESS_N; i++) {
+        unsigned bucket = dot_hash(&dots[i]) & 255u;
+        while (slot[bucket] && !same_dot(&dots[slot[bucket] - 1], &dots[i])) bucket = (bucket + 1u) & 255u;
+        if (!slot[bucket]) { slot[bucket] = (uint8_t)(i + 1); order[count++] = (uint8_t)i; }
+    }
+    return count;
+}
+
+static void sort_order(const dot_t dots[TESS_N], uint8_t order[TESS_N], int count) {
+    for (int i = 1; i < count; i++) {
         int j = i;
-        while (j && dots[order[j - 1]].key > dots[i].key) {
+        uint8_t index = order[i];
+        while (j && dots[order[j - 1]].key > dots[index].key) {
             order[j] = order[j - 1];
             j--;
         }
-        order[j] = i;
+        order[j] = index;
     }
+}
+
+// Adult and fallen clouds retain the original 112-dot painter. Growing or
+// folding forms keep only the first exact visual duplicate.
+static int cloud_order(const face_t *f, const dot_t dots[TESS_N], uint8_t order[TESS_N]) {
+    bool growth = f->tess_games.ready && isfinite(f->tess_games.form) && isfinite(f->tess_games.fold) &&
+                  (f->tess_games.form < 3.f || f->tess_games.fold > 0.f);
+    int count;
+    if (growth && !f->tess_fallen) count = deduplicate_order(dots, order);
+    else {
+        for (int i = 0; i < TESS_N; i++) order[i] = (uint8_t)i;
+        count = TESS_N;
+    }
+    sort_order(dots, order, count);
+    return count;
+}
+
+static void pulse_game_dots(const face_t *f, dot_t dots[TESS_N]) {
+    if (!f->tess_games.ready || f->tess_fallen || !isfinite(f->tess_games.pulse) || f->tess_games.pulse <= 0) return;
+    int scale_q8 = 256 + (int)(clampf(f->tess_games.pulse, 0.f, 1.f) * .8f * 256.f + .5f);
+    for (int i = 0; i < TESS_N; i++) dots[i].radius = (dots[i].radius * scale_q8 + 128) >> 8;
+}
+
+static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
+    uint8_t order[TESS_N];
+    int count = cloud_order(f, dots, order);
     if (f->tess_fallen) {
         draw_fallen(f, s, dots, order);
         return;
@@ -221,7 +266,7 @@ static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
     }
     // Blown apart, the points are bare specks: a halo round each of 112 moving points is most of what the panel would repaint.
     int glow_q8 = (int)fminf(255.f, 230 * fmaxf(0, 1 - 2 * reaction[TR_SCATTER]) * f->style.halo);
-    for (int i = 0; i < TESS_N; i++) {
+    for (int i = 0; i < count; i++) {
         const dot_t *dot = &dots[order[i]];
         int q = dot->key * TESS_SHADES >> 16;
         // The halo grows with nearness too: far points are bare specks, near ones glow.
@@ -265,11 +310,21 @@ void tess_project_dots(face_t *f, tess_projected_t dots[TESS_N]) {
     float depth_range = 1.7f + .6f * form - heart * .7f, depth_gain = 1 / (2 * depth_range);
     project_points(f, points, m, camera, wgain, dust, depth_range, depth_gain, dots);
     fit_conversation(f, dots);
+    if (!f->tess_games.ready || f->tess_fallen) {
+        f->tess_games.hit_valid = false;
+    } else {
+        int64_t x = 0, y = 0;
+        for (int i = 0; i < TESS_N; i++) { x += dots[i].x; y += dots[i].y; }
+        f->tess_games.hit[0] = (float)(x / TESS_N) * (1.f / 8.f);
+        f->tess_games.hit[1] = (float)(y / TESS_N) * (1.f / 8.f);
+        f->tess_games.hit_valid = true;
+    }
 }
 
 void tess_draw(face_t *f, scene_t *s) {
     dot_t dots[TESS_N];
     tess_project_dots(f, dots);
+    pulse_game_dots(f, dots);
     if (f->tess_fallen) shade_fallen(f, dots);
     draw_cloud(f, s, dots);
     draw_recording(f, s);

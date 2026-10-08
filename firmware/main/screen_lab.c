@@ -8,6 +8,7 @@ bool screen_lab_controls(const screen_lab_t *lab) {
     return (lab->selected >= LAB_RECORD && lab->selected <= LAB_LIVE) || lab->selected == LAB_EVENTS;
 }
 int screen_lab_control_y(const screen_lab_t *lab) { return (lab->selected == LAB_LIVE || lab->selected == LAB_EVENTS) ? 92 : 428; }
+static bool tess_debug_preview(int screen) { return screen >= LAB_GROW_POINT && screen <= LAB_CATCH_2; }
 static void select_model(screen_lab_t *lab, face_agent_hit_t hit) {
     agent_menu_t *m = &lab->face.agent;
         unsigned index = hit - AGENT_HIT_MODEL_0;
@@ -110,12 +111,14 @@ static void tap(screen_lab_t *lab, int x, int y) {
         else if (x < 320) next_preview(lab);
         else screen_lab_select(lab, -1);
     } else if (lab->face.menu.open) menu_tap(lab, x, y);
-    else if (!face_card_tap(&lab->face) && lab->selected == LAB_HOME) face_event(&lab->face, FEV_TAP, x, y);
+    else if (!face_card_tap(&lab->face) && (lab->selected == LAB_HOME || tess_debug_preview(lab->selected)))
+        face_event(&lab->face, FEV_TAP, x, y);
 }
 static void key(screen_lab_t *lab) {
     if (lab->selected == LAB_EVENTS) screen_lab_demo_event(lab);
     else if (lab->selected >= LAB_CONNECT && lab->selected < LAB_PAIR) screen_lab_select(lab, lab->selected + 1);
     else if (lab->selected == LAB_LIVE) screen_lab_select(lab, LAB_HOME);
+    else if (tess_debug_preview(lab->selected)) screen_lab_select(lab, lab->selected);
     else if (screen_lab_controls(lab)) lab->signal = !lab->signal;
     else screen_lab_select(lab, LAB_RECORD);
 }

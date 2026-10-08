@@ -1,4 +1,5 @@
 #include "app_internal.h"
+#include "app_lab.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -12,6 +13,7 @@
 #include "esp_timer.h"
 #include "freertos/task.h"
 #include "input.h"
+#include "tess.h"
 #include "ui_text.h"
 #include "wifi.h"
 
@@ -28,6 +30,7 @@ QueueHandle_t s_q;
 static portMUX_TYPE s_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
 static app_mailbox_t s_mailbox;
 static TaskHandle_t s_app_task;
+static int64_t s_tess_flush_retry_at;
 
 static int mailbox_slot(app_ev_type_t type) {
     switch (type) {
@@ -59,6 +62,19 @@ void app_post_in_session(app_ev_type_t type, int a, int b, uint32_t session) {
 }
 
 void app_post(app_ev_type_t type, int a, int b) { app_post_in_session(type, a, b, 0); }
+
+static void flush_tess_progress(void) {
+    if (KUBIK_CHARACTER != CHARACTER_TESS) return;
+    if (!app_games_flush_safe()) return;
+    face_lock();
+    uint8_t progress = g_face.tess_games.progress;
+    face_unlock();
+    if (progress == g_settings.tess_progress) return;
+    int64_t t = now_ms();
+    if (t < s_tess_flush_retry_at) return;
+    esp_err_t err = settings_save_tess_progress(progress);
+    s_tess_flush_retry_at = err == ESP_OK ? 0 : t + 10000;
+}
 
 static bool take_critical_event(app_ev_t *event) {
     portENTER_CRITICAL(&s_mailbox_mux);
@@ -368,12 +384,59 @@ static void power_task(void *arg) {
     }
 }
 
+typedef struct { int32_t x, y; uint32_t round; } game_tap_t;
+
+static bool capture_game_tap(const app_ev_t *event, game_tap_t *tap) {
+    if (KUBIK_CHARACTER != CHARACTER_TESS || event->type != EV_TAP || app_lab_active()) return false;
+    face_lock();
+    bool playing = tess_games_active(&g_face);
+    if (playing) *tap = (game_tap_t){event->a, event->b, g_face.tess_games.round};
+    face_unlock();
+    return playing;
+}
+
+static void preempt_game(void) {
+    face_lock();
+    if (!app_games_available() || (g_face.tess_games.game && !tess_games_active(&g_face)))
+        tess_games_set_available(&g_face, false);
+    face_unlock();
+}
+
+static void apply_game_tap(const game_tap_t *tap) {
+    bool applied = false;
+    face_lock();
+    if (g_face.tess_games.round == tap->round) {
+        tess_games_set_available(&g_face, app_games_available());
+        if (tess_games_active(&g_face)) {
+            audio_tess_gesture(tap->x, tap->y);
+            g_face.idle_t = 0;
+            tess_games_event(&g_face, FEV_TAP, tap->x, tap->y);
+            applied = true;
+        }
+    }
+    face_unlock();
+    if (applied) { s_last_touch_or_key = now_ms(); wake(false); }
+}
+
 static void app_task(void *arg) {
     app_ev_t e;
     while (1) {
-        // Bounded ordinary batch, then the reserved inbox: touches cannot starve delivery or KEY release.
-        for (int n = 0; n < 8 && xQueueReceive(s_q, &e, 0); n++) app_handle(&e);
-        for (int n = 0; n < APP_MAILBOX_SLOTS && take_critical_event(&e); n++) app_handle(&e);
+        // Keep normal event order; only game taps wait for this batch's preemption events.
+        game_tap_t game_taps[8];
+        unsigned game_count = 0;
+        for (int n = 0; n < 8 && xQueueReceive(s_q, &e, 0); n++) {
+            if (capture_game_tap(&e, &game_taps[game_count])) game_count++;
+            else {
+                app_handle(&e);
+                if (game_count) preempt_game();
+            }
+        }
+        for (int n = 0; n < APP_MAILBOX_SLOTS && take_critical_event(&e); n++) {
+            app_handle(&e);
+            if (game_count) preempt_game();
+        }
+        for (unsigned n = 0; n < game_count; n++) apply_game_tap(&game_taps[n]);
+        flush_tess_progress();
         app_tick();
         app_wake_tick();
         if (!uxQueueMessagesWaiting(s_q)) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(app_tick_ms()));

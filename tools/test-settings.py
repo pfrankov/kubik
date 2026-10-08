@@ -14,6 +14,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-settings-") as tmp:
         "-pthread", "-DAPP_NVS_TEST_LOCK", "-DAPP_NVS_TEST_HOOKS",
         "-Dcalloc=settings_test_calloc",
         "-Ifirmware/sim/settings_stubs", "firmware/sim/settings_test.c",
+        "firmware/sim/settings_tess_progress_test.c",
         "firmware/sim/settings_connection_test.c",
         "firmware/sim/settings_persistence_test.c",
         "firmware/main/settings.c", "firmware/main/connection_record.c",

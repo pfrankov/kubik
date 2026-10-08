@@ -136,6 +136,7 @@ CPU-часов после него. На macOS используется `mach_ab
 | [AGT](scenarios/agent.md) | agent-menu, agent-control, session-controls, agent-sdk, agent-sdk-lifecycle, agent-adapter-example, agent-process-example | Выбор модели и возврат настройки |
 | [VOI](scenarios/conversation.md) / [нативные режимы](scenarios/native-voice.md) | firmware: state, audio-capture, mic-task (эпохи/закрытие), wake-word, native-voice (VAD), audio-stream, speech; JS: engines, voice-stream, native-voice, session | KEY обоих вариантов; тёмный экран: BOOT/KEY/касания/движение игнорируются, PWR/ответ будят; Hi Tessa только Tess; RX в меню/сне; codec doze; локальный голосовой mock |
 | [CHR](scenarios/characters.md) | firmware: frames, render, tess/sound/rules, audio-wake (Tess event/PCM очереди) | Каждая установленная сборка отдельно: разговор, меню, BOOT, профиль кадров |
+| [TGM](scenarios/tess-games.md) | `tess-games`, `render`, `state`, `settings`; Echo/Catch model and tap-route tests, growth geometry, bootstrap priority and NVS persistence | На физической TESS: точные Echo/Catch жесты, уровни 2/3/4 и 3/4/5, формы после 0–6 побед, перезапуск, приоритет KEY/голоса/ответа/offline/setup/menu/dark, неверный ввод и выход поглаживанием |
 | [NET](scenarios/power-network.md) | settings, wifi, power-network, link, notification queue/server | Пробуждение, ACK, реальное радио и reconnect |
 | [MNT](scenarios/maintenance.md) | package, kit, install, hidden-reset | Полный сброс только на выделенном стенде |
 
@@ -438,6 +439,9 @@ NVS и геометрия входят в существующие settings/rend
 `python3 tools/emulator.py` запускает интерактивный просмотр настоящих экранов.
 `test-screen-lab.py` проверяет общий контроллер с ASan/UBSan для обоих персонажей;
 `test-emulator-browser.py` проверяет каждый экран, взаимодействия и локальные границы HTTP.
+Для игр сравниваются последовательности кадров с фиксированным числом шагов,
+чтобы различать ритмы без игрового HUD. Полный рост совпадает с прежним Home;
+уникальность остальных превью и исходных 22 экранов проверяется отдельно.
 Оба входят в обычную приёмку, которая не требует подключённого Кубика.
 `test-device-screen-lab.mjs` проверяет вход, каталог, KEY и выходы на устройстве
 без обращения к голосовым провайдерам. Приёмка `device` остаётся отдельной проверкой физических свойств.

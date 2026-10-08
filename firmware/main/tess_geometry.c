@@ -45,14 +45,27 @@ static void unit_turn(float angle, float *c, float *s) {
 // every one of them is a multiple of a quarter turn, the tesseract mapped onto itself: the inner cube is centred in the
 // outer one. Only a turn in progress shows it off-centre. Tess's peeks (tess_gaze.c) and idle turns (tess_mood.c) add
 // whole quarters to the x-w, z-w and y-w planes.
-void tess_turn4d_prepare(const face_t *f, tess_turn4d_t *t) {
+void tess_turn4d_prepare_scaled(const face_t *f, float fourth, tess_turn4d_t *t) {
+    if (fourth <= 0.f) {
+        t->c[0] = t->c[1] = t->c[2] = 1.f;
+        t->s[0] = t->s[1] = t->s[2] = 0.f;
+        t->nod = false;
+        return;
+    }
     const tess_mood_t *m = &f->tess_mood;
     float a = f->tess_xw + .5f * m->drag_angle[0] + .35f * f->tess_mode[TM_THINK] + m->w_turn[0] + f->style.xw * (1 - f->tess_mode[TM_THINK]), b = f->tess_zw + m->w_turn[1], yw = m->yw - .5f * m->drag_angle[1] + m->w_turn[2];
+    if (fourth != 1.f) {
+        a = isfinite(a) ? a * fourth : 0.f;
+        b = isfinite(b) ? b * fourth : 0.f;
+        yw = isfinite(yw) ? yw * fourth : 0.f;
+    }
     t->c[0] = cosf(a); t->s[0] = sinf(a);
     t->c[1] = cosf(b); t->s[1] = sinf(b);
     t->nod = fabsf(yw) > 1e-4f;
     t->c[2] = t->nod ? cosf(yw) : 1; t->s[2] = t->nod ? sinf(yw) : 0;
 }
+
+void tess_turn4d_prepare(const face_t *f, tess_turn4d_t *t) { tess_turn4d_prepare_scaled(f, 1.f, t); }
 
 void tess_turn4d_apply(const tess_turn4d_t *t, float v[4]) {
     float x = v[0], y = v[1], z = v[2], w = v[3], u;
@@ -103,7 +116,7 @@ void tess_camera_apply(const float turn[6], float v[3]) {
 // depth of each along the 4th axis.
 static void tess_form(const face_t *f, float points[TESS_N][3], float wd[TESS_N]) {
     float v[16][3], vw[16], q[16][4], turn[6];
-    tess_vertices4d(f, q);
+    tess_growth_vertices(f, q);
     tess_camera_turns(f, turn);
     const float near_w = f->style.wdist, reach = 2.6f * (near_w / 3.4f);  // (the distance the 4th axis is seen from; the size at w = 0 stays)
     for (int i = 0; i < 16; i++) {
@@ -184,6 +197,13 @@ static rigid_t rigid_pose(const face_t *f, float time, float size_k) {
     return b;
 }
 
+static void apply_game_offset(const face_t *f, rigid_t *body) {
+    if (!f->tess_games.ready) return;
+    float dx = f->tess_games.offset[0], dy = f->tess_games.offset[1];
+    if (isfinite(dx) && dx != 0) body->dx += clampf(dx, -1.25f, 1.25f);
+    if (isfinite(dy) && dy != 0) body->dy += clampf(dy, -1.25f, 1.25f);
+}
+
 // A loved Tess swells a little with a heartbeat of its own (a whole-body size, two soft beats a turn of the clock).
 static float mood_pulse(const face_t *f, float time) {
     if (f->style.pulse <= 0) return 1.f;
@@ -229,6 +249,7 @@ void tess_point_targets(face_t *f, float out[TESS_N][3], int parity) {
         .hc = hc, .hs = hs, .beat = beat,
     };
     rigid_t body = rigid_pose(f, time, size * breathe * mood_pulse(f, time));
+    apply_game_offset(f, &body);
     if (burst < TESS_BURST_S) tess_scatter_frame(f, burst);
     for (int i = parity < 0 ? 0 : parity; i < TESS_N; i += parity < 0 ? 1 : 2) {
         const float *target = tess_targets[f->tess_shape_of[i]], *home = points[f->tess_form_of[i]];

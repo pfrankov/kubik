@@ -30,7 +30,7 @@ async function enter() {
 async function previewKey(index,names) {
   await sim('ptt_down');await sim('ptt_up');
   const next=index>=1&&index<=3?names[index+1]:index===14?'Home':
-    [11,12,13,20].includes(index)?names[index]:'Recording';
+    [11,12,13,20].includes(index)?names[index]:index>=22?names[index]:'Recording';
   await until(state=>state.lab_screen===next,`KEY in ${names[index]}`);
   const state=await info();assert.ok(!state.mic_open&&!state.auto_recording&&!state.live_active,'preview KEY cannot record');
 }
@@ -44,7 +44,7 @@ async function main() {
     await sleep(600);
     await sim('hold',{x:90,y:36});assert.ok(!(await info()).screen_lab,'hold alone must not unlock');
     await enter();
-    const names=['Home','Connecting','Wi-Fi QR','Setup QR','Pairing','Settings','Sound','Agent','Voice modes','Models','Guide','Recording','Thinking','Speaking','GPT Live','Text reply','Offline points','Error','Background work','Reminder','Agent events','Event log'];
+    const names=['Home','Connecting','Wi-Fi QR','Setup QR','Pairing','Settings','Sound','Agent','Voice modes','Models','Guide','Recording','Thinking','Speaking','GPT Live','Text reply','Offline points','Error','Background work','Reminder','Agent events','Event log','Growth: point','Growth: square','Growth: cube','Growth: tesseract','Echo: tier 1','Echo: tier 2','Echo: tier 3','Catch: tier 1','Catch: tier 2','Catch: tier 3'];
     for(let index=0;index<names.length;index++) {
       if(index && index%3===0)await tap(356,428);
       await tap(240,144+(index%3)*88);
@@ -61,7 +61,7 @@ async function main() {
     for(const field of preserved)assert.equal(after[field],original[field],`${field} changed`);
     assert.equal(after.heap_failures,original.heap_failures);
     assert.ok(after.online&&after.via===original.via,'connection preserved');
-    console.log('device Screen Lab: hidden entry, 22 native previews, KEY capture gate, BOOT/PWR exits and unchanged settings passed');
+    console.log('device Screen Lab: hidden entry, 32 native previews, KEY replay/capture gate, BOOT/PWR exits and unchanged settings passed');
   } finally {
     const state=await info();
     if(state.screen_lab)await sim('menu');
