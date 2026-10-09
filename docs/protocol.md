@@ -497,7 +497,7 @@ Sending `{"enabled":true}` starts a fresh USB authentication probe.
 | `{"cmd":"reset"}` | factory reset: `{"ok":true}` and a restart into first-run setup; saved Wi-Fi networks, server, LAN pin, name, volume, brightness, guide completion and device key are erased; new pairing is required; the compiled character is unchanged; `{"ok":false,"error":"…"}` if NVS refuses (run it again) |
 | `{"cmd":"sim","ev":"ptt_down"}` | test hook: injects `ptt_down`, `ptt_up`, `tap` (`x`,`y`), `pet`, `shake`, `pickup`, `boot`, `pwr`, `setup`, `menu`, `mode` (`mode`, `ms`), `pair` (`code`), `stats` (сразу печатает статистику кадров) |
 | `{"cmd":"sim","ev":"pointer","down":true,"x":340,"y":255}` | USB test sample through the normal controller/gesture path; integer coordinates 0–479 and a boolean `down` are required. Refresh within 350 ms; otherwise the physical sensor resumes. `down:false` releases the finger |
-| `{"cmd":"sim","ev":"game-state"}` | Locked snapshots of real/Lab game and durable progress: `preview`, `progress`, `saved`, `game` (0 none, 1 Echo, 2 Catch), `phase` (0 rest, 1 show, 2 wait, 3 celebrate), zero-based `tier`, `step`, `round`, `available`, `hit_valid`, panel `hit_x/y`, `clock`, `pending`, `form`, `fold`. Read-only; no game or victory setter |
+| `{"cmd":"sim","ev":"game-state"}` | Locked snapshots of real/Lab game and durable progress: `preview`, `progress`, `saved`, `game` (0 none, 1 Duet, 2 Chase), `phase` (0 rest, 1 show, 2 wait, 3 celebrate), zero-based `tier`, `step`, `round`, `available`, `hit_valid`, panel `hit_x/y`, `clock`, `pending`, `form`, `fold`. Read-only; no game or victory setter |
 
 The saved home Wi-Fi password is write-only: `info` never returns it.
 
