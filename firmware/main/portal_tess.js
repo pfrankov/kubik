@@ -85,7 +85,10 @@
     timer = setTimeout(() => { timer = 0; frame = requestAnimationFrame(tick); },
       Math.max(0, interval - (performance.now() - last)));
   }
-  function tick(now) {
+  function tick() {
+    // RAF timestamps refer to the beginning of a display frame and may be stale
+    // when its callbacks are delayed. Pace actual work by the current clock.
+    const now = performance.now();
     frame = 0;
     if (!running()) return;
     const dt = Math.min((now - last) / 1000, .1);

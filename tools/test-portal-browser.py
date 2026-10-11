@@ -218,7 +218,7 @@ def tess_motion(page, value):
 
 
 def instrument_tess(page):
-    page.add_init_script("""window.tessProbe = {frames: 0, animatedFrames: 0, callbacks: 0, costs: []};
+    page.add_init_script("""window.tessProbe = {frames: 0, animatedFrames: 0, callbacks: 0, costs: [], rafOffsetMs: 0};
       const media = window.matchMedia;
       window.matchMedia = query => {
         const result = media.call(window, query);
@@ -247,7 +247,7 @@ def instrument_tess(page):
       window.requestAnimationFrame = callback => raf.call(window, time => {
         tessProbe.callbacks++;
         const started = performance.now(); tessProbe.inFrame = true;
-        try { callback(time); }
+        try { callback(time - tessProbe.rafOffsetMs); }
         finally {
           tessProbe.inFrame = false;
           tessProbe.costs.push(performance.now() - started);
@@ -275,17 +275,22 @@ def check_tess(page, output):
     assert counts == later, f'Reduced-motion Tess must stop: {counts} -> {later}'
     assert a == page.locator('#tess').evaluate('(c) => c.toDataURL()')
     tess_motion(page, 'no-preference')
-    counts = page.evaluate('[tessProbe.frames, tessProbe.callbacks, performance.now()]')
-    page.wait_for_timeout(1000)
-    later = page.evaluate('[tessProbe.frames, tessProbe.callbacks, performance.now()]')
-    # Browser/RPC scheduling can lengthen the Python wait: measure the real interval.
-    seconds = (later[2] - counts[2]) / 1000
-    assert seconds > 0, f'Invalid browser interval: {seconds}'
-    paints, callbacks = later[0] - counts[0], later[1] - counts[1]
-    rates = f'{paints} paints, {callbacks} callbacks / {seconds:.3f}s = {paints/seconds:.2f} fps, {callbacks/seconds:.2f} callbacks/s'
-    assert 8 <= paints / seconds <= 25, f'Bound painting near 24 fps: {rates}'
-    assert callbacks / seconds <= 25, f'Do not wake at display refresh rate: {rates}'
-    print(f'Tess browser interval: {rates}')
+    for offset in (0, 150):
+        # Delayed RAF timestamps must not turn the bounded animation into a
+        # callback on every display refresh; pixel/stop assertions stay native.
+        page.evaluate('(offset) => { tessProbe.rafOffsetMs = offset; }', offset)
+        counts = page.evaluate('[tessProbe.frames, tessProbe.callbacks, performance.now()]')
+        page.wait_for_timeout(1000)
+        later = page.evaluate('[tessProbe.frames, tessProbe.callbacks, performance.now()]')
+        # Browser/RPC scheduling can lengthen the Python wait: measure the real interval.
+        seconds = (later[2] - counts[2]) / 1000
+        assert seconds > 0, f'Invalid browser interval: {seconds}'
+        paints, callbacks = later[0] - counts[0], later[1] - counts[1]
+        rates = f'{paints} paints, {callbacks} callbacks / {seconds:.3f}s = {paints/seconds:.2f} fps, {callbacks/seconds:.2f} callbacks/s'
+        assert 8 <= paints / seconds <= 25, f'Bound painting near 24 fps: {rates}'
+        assert callbacks / seconds <= 25, f'Do not wake at display refresh rate: {rates}'
+        print(f'Tess browser interval: {rates}')
+    page.evaluate('tessProbe.rafOffsetMs = 0')
     assert a != page.locator('#tess').evaluate('(c) => c.toDataURL()')
     page.locator('#tess').screenshot(path=str(output / 'tess-4d-a.png'))
     page.wait_for_timeout(2400)
