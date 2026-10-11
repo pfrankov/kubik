@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - name: Check and publish the immutable package
+      - name: Publish the accepted immutable package
         if: steps.gate.outputs.ready == 'true'
         working-directory: openclaw-kubik
         env:
@@ -60,8 +60,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          npm ci
-          npm run check
+          # Acceptance already checked this exact commit, including tool dependencies.
           current=$(gh api "repos/$REPOSITORY/commits/main" --jq .sha)
           if [ "$current" != "$TESTED_SHA" ]; then
             echo 'Superseded during checks; nothing to publish.'

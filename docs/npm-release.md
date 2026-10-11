@@ -8,6 +8,8 @@ README states the compatible firmware and OpenClaw versions.
 `.github/workflows/publish-npm.yml` runs after successful Acceptance on `main`.
 It publishes the exact tested commit only while that commit remains main HEAD.
 Manual dispatch also requires successful Acceptance for that same commit.
+Acceptance owns the complete checks and their tool dependencies; the publication
+job validates and packs that accepted source without repeating the test suite.
 A superseded commit is skipped. An already published version is accepted only
 when the packed tarball integrity matches; changed contents require a version bump.
 Network errors and mismatched contents fail the workflow.

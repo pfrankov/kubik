@@ -131,9 +131,11 @@ Emotion tags such as `[[happy]]`, `[[sad]]` and `[[proud]]` animate Tess alongsi
 
 The package also exports `openclaw-kubik/agent-sdk` and the `kubik-agent-host` CLI for custom ESM adapters. Hermes has a separate native Gateway platform. The device setup wizard currently offers OpenClaw only. Read the [adapter SDK guide](https://github.com/pfrankov/kubik/blob/main/docs/agent-sdk.md) for extension contracts and a runnable example.
 
-Tests and development scripts are in the source repository, not the installed npm package:
+Tests and development scripts are in the source repository, not the installed npm package.
+From the repository root, install the shared test tools before running the channel checks:
 
 ```sh
+npm ci --prefix tools
 cd openclaw-kubik
 npm ci
 npm run check
