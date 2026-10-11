@@ -187,8 +187,27 @@ def check_recovery(page):
     print('portal recovery: per-network passwords, lost response, visible failure and no duplicate write passed')
 
 
+def tess_motion(page, value):
+    # A media emulation acknowledgement precedes the browser's change dispatch.
+    # Observe the same query after the app's listener, which cancels and paints once.
+    page.evaluate("""() => {
+      tessProbe.mediaChanged = false;
+      tessProbe.motion.addEventListener('change', () => { tessProbe.mediaChanged = true; }, {once: true});
+    }""")
+    page.emulate_media(reduced_motion=value)
+    page.wait_for_function('tessProbe.mediaChanged', polling=50, timeout=5000)
+    assert page.evaluate('tessProbe.motion.matches') == (value == 'reduce')
+    page.wait_for_timeout(100)
+
+
 def check_tess(page, output):
     page.add_init_script("""window.tessProbe = {frames: 0, callbacks: 0, costs: []};
+      const media = window.matchMedia;
+      window.matchMedia = query => {
+        const result = media.call(window, query);
+        if (query === '(prefers-reduced-motion: reduce)') tessProbe.motion = result;
+        return result;
+      };
       const clear = CanvasRenderingContext2D.prototype.clearRect;
       CanvasRenderingContext2D.prototype.clearRect = function(...args) {
         if (this.canvas.id === 'tess') tessProbe.frames++;
@@ -202,15 +221,14 @@ def check_tess(page, output):
       });""")
     mount(page)
     page.wait_for_function('tessProbe.frames > 1')
-    page.emulate_media(reduced_motion='reduce')
-    page.wait_for_timeout(100)
+    tess_motion(page, 'reduce')
     a = page.locator('#tess').evaluate('(c) => c.toDataURL()')
     counts = page.evaluate('[tessProbe.frames, tessProbe.callbacks]')
     page.wait_for_timeout(250)
-    assert counts == page.evaluate('[tessProbe.frames, tessProbe.callbacks]')
+    later = page.evaluate('[tessProbe.frames, tessProbe.callbacks]')
+    assert counts == later, f'Reduced-motion Tess must stop: {counts} -> {later}'
     assert a == page.locator('#tess').evaluate('(c) => c.toDataURL()')
-    page.emulate_media(reduced_motion='no-preference')
-    page.wait_for_timeout(100)
+    tess_motion(page, 'no-preference')
     counts = page.evaluate('[tessProbe.frames, tessProbe.callbacks, performance.now()]')
     page.wait_for_timeout(1000)
     later = page.evaluate('[tessProbe.frames, tessProbe.callbacks, performance.now()]')
