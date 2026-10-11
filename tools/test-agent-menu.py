@@ -17,7 +17,7 @@ def build_test(build, name, test, sources, extra=()):
         "-O1", "-g", "-Wall", "-Wextra",
         "-Wno-unused-parameter", "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
         "-Ifirmware/main", f"-I{CJSON}", *extra,
-        test, *sources, "-o", str(exe),
+        test, *sources, "-lm", "-o", str(exe),
     ], cwd=ROOT, check=True)
     subprocess.run([str(exe)], cwd=ROOT, check=True)
 
@@ -28,14 +28,14 @@ with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
         "firmware/main/render.c", "firmware/main/render_dots.c", "firmware/main/render_glass.c",
         "firmware/main/render_output.c", "firmware/main/render_pipeline.c", "firmware/main/render_raster.c",
         "firmware/main/render_scene.c", "firmware/main/render_text.c", "firmware/main/font.c",
-        "firmware/main/font_data.c", "-lm",
+        "firmware/main/font_data.c",
     ], extra=("-Ifirmware/sim/present_stubs",))
     build_test(tmp, "scroll", "firmware/sim/agent_scroll_test.c", [
         "firmware/main/agent_menu.c", "firmware/main/face_agent.c", "firmware/main/ui_kit.c",
         "firmware/main/render.c", "firmware/main/render_dots.c", "firmware/main/render_glass.c",
         "firmware/main/render_output.c", "firmware/main/render_pipeline.c", "firmware/main/render_raster.c",
         "firmware/main/render_scene.c", "firmware/main/render_text.c", "firmware/main/font.c",
-        "firmware/main/font_data.c", "-lm",
+        "firmware/main/font_data.c",
     ], extra=("-Ifirmware/sim/present_stubs",))
     build_test(tmp, "protocol", "firmware/sim/agent_protocol_test.c", [
         "firmware/main/agent_protocol.c", "firmware/main/agent_menu.c", str(CJSON / "cJSON.c"),
