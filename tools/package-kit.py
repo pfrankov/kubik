@@ -44,7 +44,7 @@ def rewrite_acceptance_links(document, revision):
             source_path = "docs/" + path
         elif path == "screen-lab.md":
             source_path = "docs/screen-lab.md"
-        elif path in {"../firmware/dependencies.lock", "../.github/workflows/acceptance.yml"}:
+        elif path == "../firmware/dependencies.lock" or path.startswith("../.github/"):
             source_path = path[3:]
         else:
             return match.group(0)
