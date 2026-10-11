@@ -325,12 +325,12 @@ static void agent_capabilities_snapshot(bool *known, bool *stt, bool *tts) {
     *tts = g_face.agent.tts_available;
     face_unlock();
 }
-static void add_agent_view(cJSON *info) {
+static void add_agent_view(status_json_t *info) {
     static const char *const views[] = {"overview", "models", "guide", "voice_modes", "classic"};
     static const char *const modes[] = {"classic", "realtime", "live"};
-    cJSON_AddStringToObject(info, "voice_mode", modes[app_voice_mode()]);
-    cJSON_AddBoolToObject(info, "live_active", app_voice_live_active());
-    cJSON_AddBoolToObject(info, "live_ready", app_voice_live_ready());
+    status_json_string(info, "voice_mode", modes[app_voice_mode()]);
+    status_json_bool(info, "live_active", app_voice_live_active());
+    status_json_bool(info, "live_ready", app_voice_live_ready());
     face_lock();
     unsigned view = (unsigned)g_face.agent.view;
     unsigned loaded = g_face.agent.count, listed = agent_menu_listed(&g_face.agent);
@@ -338,16 +338,16 @@ static void add_agent_view(cJSON *info) {
     unsigned guide_step = g_face.agent.guide_step;
     bool card_open = g_face.card_n > 0;
     face_unlock();
-    cJSON_AddStringToObject(info, "agent_view", view < sizeof views / sizeof views[0] ? views[view] : "overview");
-    cJSON_AddNumberToObject(info, "guide_step", guide_step);
-    cJSON_AddBoolToObject(info, "card_open", card_open);
-    cJSON_AddBoolToObject(info, "pair_visible", s_pair_code[0] && !s_pair_hidden && !s_setup);
-    cJSON_AddBoolToObject(info, "guide_done", g_settings.guide_done);
+    status_json_string(info, "agent_view", view < sizeof views / sizeof views[0] ? views[view] : "overview");
+    status_json_integer(info, "guide_step", guide_step);
+    status_json_bool(info, "card_open", card_open);
+    status_json_bool(info, "pair_visible", s_pair_code[0] && !s_pair_hidden && !s_setup);
+    status_json_bool(info, "guide_done", g_settings.guide_done);
     app_journal_info(info);
     app_status_info(info);
-    cJSON_AddNumberToObject(info, "agent_loaded", loaded);
-    cJSON_AddNumberToObject(info, "agent_listed", listed);
-    cJSON_AddNumberToObject(info, "agent_scroll", scroll);
+    status_json_integer(info, "agent_loaded", loaded);
+    status_json_integer(info, "agent_listed", listed);
+    status_json_integer(info, "agent_scroll", scroll);
 }
 // The listed model ids and the voice model alone: with the full status they would not fit the reply.
 static void config_info(char *reply, size_t cap) {
@@ -362,82 +362,81 @@ static void config_info(char *reply, size_t cap) {
     agent_status_snapshot(agent_status, sizeof agent_status, agent_model, sizeof agent_model,
                           &agent_open, &agent_cursor, &agent_total);
     agent_capabilities_snapshot(&stt_known, &stt_available, &tts_available);
-    cJSON *info = cJSON_CreateObject();
-    if (info) {
-        cJSON_AddBoolToObject(info, "ok", true);
-        cJSON_AddStringToObject(info, "device", g_device_id);
-        cJSON_AddStringToObject(info, "fw", KUBIK_FW_VERSION);
-        cJSON_AddNumberToObject(info, "uptime_ms", (double)(esp_timer_get_time() / 1000));
-        cJSON_AddStringToObject(info, "ssid", g_settings.wifi_ssid);
-        cJSON_AddStringToObject(info, "url", g_settings.server_url);
-        cJSON_AddStringToObject(info, "key", devkey_public());
-        if (setup_active()) {
-            setup_labels_t labels;
-            setup_labels(&labels);
-            cJSON_AddStringToObject(info, "setup_ap", labels.ap_ssid);
-            cJSON_AddStringToObject(info, "setup_pass", labels.ap_pass);
-        }
-        cJSON_AddNumberToObject(info, "volume", g_settings.volume);
-        cJSON_AddNumberToObject(info, "ui_volume", g_settings.ui_volume);
-        cJSON_AddBoolToObject(info, "sound_menu", g_face.menu.sound);
-        cJSON_AddNumberToObject(info, "brightness", g_settings.brightness);
-        cJSON_AddStringToObject(info, "character", character_name(KUBIK_CHARACTER));
-        cJSON_AddStringToObject(info, "via", link_via());
-        cJSON_AddBoolToObject(info, "online", s_online);
-        cJSON_AddBoolToObject(info, "menu", s_menu);
-        cJSON_AddBoolToObject(info, "screen_lab", app_lab_active());
-        cJSON_AddStringToObject(info, "lab_screen", app_lab_screen());
-        cJSON_AddBoolToObject(info, "agent_open", agent_open);
-        cJSON_AddNumberToObject(info, "agent_page", agent_cursor);
-        cJSON_AddNumberToObject(info, "agent_total", agent_total);
-        cJSON_AddStringToObject(info, "agent_status", agent_status);
-        cJSON_AddStringToObject(info, "agent_model", agent_model);
-        add_agent_view(info);
-        cJSON_AddBoolToObject(info, "stt_known", stt_known);
-        cJSON_AddBoolToObject(info, "stt_available", stt_available);
-        cJSON_AddBoolToObject(info, "tts_available", tts_available);
-        cJSON_AddBoolToObject(info, "audio_dozing", mic.dozing);
-        cJSON_AddBoolToObject(info, "wake_listening", app_wake_listening());
-        cJSON_AddBoolToObject(info, "auto_recording", app_wake_recording());
-        cJSON_AddNumberToObject(info, "wake_inference_max_us", app_wake_max_us());
-        cJSON_AddNumberToObject(info, "wake_probability", app_wake_probability());
-        cJSON_AddNumberToObject(info, "wake_peak_probability", app_wake_peak_probability());
-        cJSON_AddNumberToObject(info, "wake_inference_average_us", app_wake_average_us());
-        cJSON_AddBoolToObject(info, "mic_open", mic.open);
-        cJSON_AddBoolToObject(info, "mic_enabled", mic.enabled);
-        cJSON_AddBoolToObject(info, "mic_rx_enabled", mic.rx_enabled);
-        cJSON_AddNumberToObject(info, "mic_reads", mic.reads);
-        cJSON_AddNumberToObject(info, "mic_idle_reads", mic.idle_reads);
-        cJSON_AddBoolToObject(info, "screen_dark", power_is_dark(s_power));
-        cJSON_AddBoolToObject(info, "screen_dimmed", s_power == PWR_DIMMED);
-        cJSON_AddNumberToObject(info, "cpu_mhz", esp_clk_cpu_freq() / 1000000);
-        esp_pm_config_t clocks; ESP_ERROR_CHECK(esp_pm_get_configuration(&clocks));
-        cJSON_AddNumberToObject(info, "cpu_min_mhz", clocks.min_freq_mhz);
-        cJSON_AddBoolToObject(info, "screen_sleeping", power_is_asleep(s_power));
-        cJSON_AddNumberToObject(info, "idle_ms", (double)(now_ms() - s_last_activity));
-        cJSON_AddBoolToObject(info, "sfx_playing", audio_sfx_playing());
-        cJSON_AddNumberToObject(info, "battery_mv", power.battery_mv);
-        cJSON_AddNumberToObject(info, "battery_pct", power.battery_pct);
-        cJSON_AddBoolToObject(info, "charging", power.charging);
-        cJSON_AddBoolToObject(info, "usb_power", power.usb_power);
-        cJSON_AddBoolToObject(info, "power_known", power.power_known);
-        cJSON_AddBoolToObject(info, "wifi_connected", wifi_sta_connected());
-        cJSON_AddBoolToObject(info, "server_pinned", g_settings.server_pinned);
-        cJSON_AddBoolToObject(info, "wifi_radio_started", wifi_radio_started());
-        cJSON_AddNumberToObject(info, "network_phase", app_network_phase());
-        cJSON_AddNumberToObject(info, "network_transitions", app_network_transitions());
-        cJSON_AddBoolToObject(info, "network_diagnostic", now_ms() < s_debug_network_until);
-        cJSON_AddBoolToObject(info, "cpu_light_sleep", power_light_sleep_enabled());
-        cJSON_AddNumberToObject(info, "heap", esp_get_free_heap_size());
-        cJSON_AddNumberToObject(info, "heap_min", esp_get_minimum_free_heap_size());
-        cJSON_AddNumberToObject(info, "heap_failures", hp_allocation_failures());
-        muse_state_t muse = muse_store_state();
-        cJSON_AddStringToObject(info, "native_agent", muse == MUSE_OFF ? "" : "Muse");
-        cJSON_AddBoolToObject(info, "muse_pairing", muse == MUSE_PAIRING);
+    status_json_t object;
+    status_json_t *info = &object;
+    status_json_begin(info, reply, cap);
+    status_json_bool(info, "ok", true);
+    status_json_string(info, "device", g_device_id);
+    status_json_string(info, "fw", KUBIK_FW_VERSION);
+    status_json_integer(info, "uptime_ms", esp_timer_get_time() / 1000);
+    status_json_string(info, "ssid", g_settings.wifi_ssid);
+    status_json_string(info, "url", g_settings.server_url);
+    status_json_string(info, "key", devkey_public());
+    if (setup_active()) {
+        setup_labels_t labels;
+        setup_labels(&labels);
+        status_json_string(info, "setup_ap", labels.ap_ssid);
+        status_json_string(info, "setup_pass", labels.ap_pass);
     }
-    if (!info || !cJSON_PrintPreallocated(info, reply, (int)cap, false))
+    status_json_integer(info, "volume", g_settings.volume);
+    status_json_integer(info, "ui_volume", g_settings.ui_volume);
+    status_json_bool(info, "sound_menu", g_face.menu.sound);
+    status_json_integer(info, "brightness", g_settings.brightness);
+    status_json_string(info, "character", character_name(KUBIK_CHARACTER));
+    status_json_string(info, "via", link_via());
+    status_json_bool(info, "online", s_online);
+    status_json_bool(info, "menu", s_menu);
+    status_json_bool(info, "screen_lab", app_lab_active());
+    status_json_string(info, "lab_screen", app_lab_screen());
+    status_json_bool(info, "agent_open", agent_open);
+    status_json_integer(info, "agent_page", agent_cursor);
+    status_json_integer(info, "agent_total", agent_total);
+    status_json_string(info, "agent_status", agent_status);
+    status_json_string(info, "agent_model", agent_model);
+    add_agent_view(info);
+    status_json_bool(info, "stt_known", stt_known);
+    status_json_bool(info, "stt_available", stt_available);
+    status_json_bool(info, "tts_available", tts_available);
+    status_json_bool(info, "audio_dozing", mic.dozing);
+    status_json_bool(info, "wake_listening", app_wake_listening());
+    status_json_bool(info, "auto_recording", app_wake_recording());
+    status_json_integer(info, "wake_inference_max_us", app_wake_max_us());
+    status_json_integer(info, "wake_probability", app_wake_probability());
+    status_json_integer(info, "wake_peak_probability", app_wake_peak_probability());
+    status_json_integer(info, "wake_inference_average_us", app_wake_average_us());
+    status_json_bool(info, "mic_open", mic.open);
+    status_json_bool(info, "mic_enabled", mic.enabled);
+    status_json_bool(info, "mic_rx_enabled", mic.rx_enabled);
+    status_json_integer(info, "mic_reads", mic.reads);
+    status_json_integer(info, "mic_idle_reads", mic.idle_reads);
+    status_json_bool(info, "screen_dark", power_is_dark(s_power));
+    status_json_bool(info, "screen_dimmed", s_power == PWR_DIMMED);
+    status_json_integer(info, "cpu_mhz", esp_clk_cpu_freq() / 1000000);
+    esp_pm_config_t clocks; ESP_ERROR_CHECK(esp_pm_get_configuration(&clocks));
+    status_json_integer(info, "cpu_min_mhz", clocks.min_freq_mhz);
+    status_json_bool(info, "screen_sleeping", power_is_asleep(s_power));
+    status_json_integer(info, "idle_ms", now_ms() - s_last_activity);
+    status_json_bool(info, "sfx_playing", audio_sfx_playing());
+    status_json_integer(info, "battery_mv", power.battery_mv);
+    status_json_integer(info, "battery_pct", power.battery_pct);
+    status_json_bool(info, "charging", power.charging);
+    status_json_bool(info, "usb_power", power.usb_power);
+    status_json_bool(info, "power_known", power.power_known);
+    status_json_bool(info, "wifi_connected", wifi_sta_connected());
+    status_json_bool(info, "server_pinned", g_settings.server_pinned);
+    status_json_bool(info, "wifi_radio_started", wifi_radio_started());
+    status_json_integer(info, "network_phase", app_network_phase());
+    status_json_integer(info, "network_transitions", app_network_transitions());
+    status_json_bool(info, "network_diagnostic", now_ms() < s_debug_network_until);
+    status_json_bool(info, "cpu_light_sleep", power_light_sleep_enabled());
+    status_json_integer(info, "heap", esp_get_free_heap_size());
+    status_json_integer(info, "heap_min", esp_get_minimum_free_heap_size());
+    status_json_integer(info, "heap_failures", hp_allocation_failures());
+    muse_state_t muse = muse_store_state();
+    status_json_string(info, "native_agent", muse == MUSE_OFF ? "" : "Muse");
+    status_json_bool(info, "muse_pairing", muse == MUSE_PAIRING);
+    if (!status_json_end(info))
         snprintf(reply, cap, "{\"ok\":false,\"error\":\"status unavailable\"}");
-    cJSON_Delete(info);
 }
 static void config_muse(cJSON *j, char *reply, size_t cap) {
     const char *token = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(j, "sdk_token"));

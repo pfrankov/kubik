@@ -37,16 +37,16 @@ void app_status_open(void) {
     device_status_t status = {.open = true}; snapshot(&status);
     face_lock(); g_face.status = status; face_unlock();
 }
-void app_status_info(cJSON *info) {
+void app_status_info(status_json_t *info) {
     device_status_t status = {0}; snapshot(&status);
-    cJSON_AddStringToObject(info, "device_name", status.name);
-    cJSON_AddStringToObject(info, "wifi_ip", status.ip);
-    cJSON_AddStringToObject(info, "wifi_gateway", status.gateway);
-    cJSON_AddStringToObject(info, "wifi_dns", status.dns);
-    cJSON_AddStringToObject(info, "wifi_mac", status.mac);
-    cJSON_AddStringToObject(info, "dhcp_hostname", status.hostname);
+    status_json_string(info, "device_name", status.name);
+    status_json_string(info, "wifi_ip", status.ip);
+    status_json_string(info, "wifi_gateway", status.gateway);
+    status_json_string(info, "wifi_dns", status.dns);
+    status_json_string(info, "wifi_mac", status.mac);
+    status_json_string(info, "dhcp_hostname", status.hostname);
     face_lock();
-    cJSON_AddBoolToObject(info, "status_open", g_face.status.open);
-    cJSON_AddNumberToObject(info, "status_page", g_face.status.page);
+    status_json_bool(info, "status_open", g_face.status.open);
+    status_json_integer(info, "status_page", g_face.status.page);
     face_unlock();
 }
