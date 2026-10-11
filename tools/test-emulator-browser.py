@@ -195,7 +195,11 @@ def main():
     executable = emulator.build()
     worker = emulator.Worker(executable)
     print(f"emulator: native build/start {time.monotonic() - started:.1f}s", flush=True)
-    server = emulator.HTTPServer(("127.0.0.1", 0), emulator.Handler)
+    started = time.monotonic()
+    with patch("socket.getfqdn", side_effect=AssertionError("Loopback startup must not resolve DNS")):
+        server = emulator.LocalHTTPServer(("127.0.0.1", 0), emulator.Handler)
+    assert server.server_name == "127.0.0.1" and server.server_port > 0
+    print(f"emulator: HTTP bind/start {time.monotonic() - started:.3f}s", flush=True)
     server.worker = worker
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

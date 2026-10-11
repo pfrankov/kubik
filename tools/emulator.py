@@ -11,6 +11,7 @@ import select
 import signal
 import struct
 import subprocess
+from socketserver import TCPServer
 import threading
 import time
 import zlib
@@ -106,6 +107,14 @@ class Worker:
         with self.lock: self.send(command + " " + " ".join(map(str, args)))
 
 
+class LocalHTTPServer(HTTPServer):
+    def server_bind(self):
+        # Only numeric loopback addresses are used; reverse DNS is unnecessary
+        # and can stall HTTPServer construction on macOS runners.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args): pass
 
@@ -168,7 +177,7 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     args = parser.parse_args()
     worker = Worker(build())
-    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    server = LocalHTTPServer(("127.0.0.1", args.port), Handler)
     server.worker = worker
     signal.signal(signal.SIGTERM, interrupt_server)
     print(f"Kubik emulator: http://127.0.0.1:{server.server_port}/", flush=True)
