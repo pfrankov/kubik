@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import re
 import select
 import signal
 import struct
@@ -65,11 +66,12 @@ class Worker:
         self.process.stdin.write((command + "\n").encode())
         self.process.stdin.flush()
 
-    def frame(self):
+    def frame(self, steps=1):
+        if type(steps) is not int or not 1 <= steps <= 60: raise ValueError("Invalid frame steps")
         with self.lock:
             delay = 1 / 30 - (time.monotonic() - self.last_frame)
             if delay > 0: time.sleep(delay)
-            self.send("frame")
+            self.send(f"frame {steps}")
             state, rgb = self.read_frame()
             self.last_frame = time.monotonic()
             return state, png(rgb)
@@ -126,21 +128,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/catalog":
             self.reply(200, json.dumps(self.server.worker.screens).encode(), "application/json"); return
         if path == "/frame":
-            try:
-                state, image = self.server.worker.frame()
-                self.send_response(200)
-                self.send_header("Content-Type", "image/png")
-                self.send_header("Content-Length", str(len(image)))
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Kubik-State", json.dumps(state))
-                self.end_headers(); self.wfile.write(image)
-            except (BrokenPipeError, ConnectionResetError): pass
-            except (RuntimeError, ValueError): self.reply(503, b"Native renderer failed", "text/plain")
-            return
+            self.reply_frame(); return
         files = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
         if path not in files: self.reply(404, b"Not found", "text/plain"); return
         name, kind = files[path]
         self.reply(200, (WEB / name).read_bytes(), kind)
+
+    def reply_frame(self):
+        match = re.fullmatch(r"/frame(?:\?steps=([1-9][0-9]?))?", self.path)
+        if not match or int(match[1] or 1) > 60:
+            self.reply(400, b"Invalid frame steps", "text/plain"); return
+        try:
+            state, image = self.server.worker.frame(int(match[1] or 1))
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(image)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Kubik-State", json.dumps(state))
+            self.end_headers(); self.wfile.write(image)
+        except (BrokenPipeError, ConnectionResetError): pass
+        except (RuntimeError, ValueError): self.reply(503, b"Native renderer failed", "text/plain")
 
     def do_POST(self):
         if not self.local(): self.reply(403, b"Local access only", "text/plain"); return

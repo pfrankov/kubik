@@ -30,14 +30,14 @@ document.querySelectorAll('[data-key]').forEach(button => {
   button.onpointerup = () => { clearTimeout(timer); if (!held) send('event',[Number(button.dataset.key),0,0]); };
   button.onpointercancel = () => clearTimeout(timer);
 });
-async function frame() {
+async function frame(steps = 1) {
   if (!running || document.hidden || inFlight) return;
   inFlight = true;
   flushMove();
   const began = performance.now();
   try {
     await queue;
-    const response = await fetch('/frame',{signal:AbortSignal.timeout(5000)});
+    const response = await fetch(`/frame?steps=${steps}`,{signal:AbortSignal.timeout(5000)});
     if (!response.ok) throw new Error('Native renderer unavailable');
     const state = JSON.parse(response.headers.get('X-Kubik-State'));
     const image = await createImageBitmap(await response.blob()); context.drawImage(image,0,0); image.close();
