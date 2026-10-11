@@ -46,8 +46,20 @@ TESTS = {
     'stroke_fast': RENDER,
 }
 
+
+def compile_object(build, source, flags, objects):
+    # Reuse only inside this invocation, with identical source and compiler flags.
+    key = (source, tuple(flags))
+    if key not in objects:
+        target = str(Path(build) / f"unit-{len(objects)}.o")
+        subprocess.run([*flags, "-c", source, "-o", target], cwd=ROOT, check=True)
+        objects[key] = target
+    return objects[key]
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="kubik-render-") as build:
+        objects = {}
         runs = [(name, sources, []) for name, sources in TESTS.items()]
         # Force the lossless store's split path too: an independent capacity boundary.
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=12288", "-DPRESENT_SPLIT=1"]))
@@ -56,12 +68,14 @@ def main():
             if "face" in sources:
                 sources = [*sources, "agent_menu", "face_agent", "ui_text"]
             exe = str(Path(build) / (name + "".join(defines)))
-            subprocess.run([
+            flags = [
                 os.environ.get("CC", "cc"), "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-O1", "-g", "-Wall", "-Wextra",
                 "-Wno-unused-parameter", *defines, "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                "-Ifirmware/sim/present_stubs", f"firmware/sim/{name}_test.c",
-                *[f"firmware/main/{s}.c" for s in sources], "-lm", "-o", exe,
-            ], cwd=ROOT, check=True)
+                "-Ifirmware/sim/present_stubs",
+            ]
+            units = [f"firmware/sim/{name}_test.c", *[f"firmware/main/{s}.c" for s in sources]]
+            compiled = [compile_object(build, source, flags, objects) for source in units]
+            subprocess.run([*flags, *compiled, "-lm", "-o", exe], cwd=ROOT, check=True)
             args = ["firmware/assets/sprites.bin"] if name == "canvas" else []
             subprocess.run([exe, *args], cwd=ROOT, check=True)
 

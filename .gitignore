@@ -53,3 +53,5 @@ htmlcov/
 .claude/first-run
 .claude/assistant-daemon-state.json
 **/.claude/settings.local.json
+# CI download and compiler caches are not repository inputs.
+.ci-cache/

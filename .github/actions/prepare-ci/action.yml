@@ -1,0 +1,114 @@
+name: Prepare Kubik CI
+description: Pinned runtimes, download caches and optional ESP-IDF toolchain
+inputs:
+  lane:
+    description: lint, agent, native or build
+    required: true
+outputs:
+  download-key:
+    value: ${{ steps.keys.outputs.download }}
+    description: Dependency download cache key
+  compiler-key:
+    value: ${{ steps.compiler.outputs.key }}
+    description: Exact-run compiler cache key
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: '24.16.0'
+        package-manager-cache: false
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.12.10'
+        architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+    - id: keys
+      shell: bash
+      env:
+        CACHE_PREFIX: kubik-v1-${{ runner.os }}-${{ runner.arch }}
+        LANE: ${{ inputs.lane }}
+        DEPENDENCIES: ${{ hashFiles('**/package-lock.json', 'tools/accept.py', '.github/actions/prepare-ci/action.yml') }}
+      run: |
+        echo "download=$CACHE_PREFIX-$LANE-downloads-$DEPENDENCIES" >> "$GITHUB_OUTPUT"
+    - name: Restore dependency downloads
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: |
+          .ci-cache/uv
+          .ci-cache/pip
+          .ci-cache/npm/_cacache
+        key: ${{ steps.keys.outputs.download }}
+    - name: Install uv
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/kubik-ci"
+        "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
+        echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
+    - name: Record environment
+      shell: bash
+      run: |
+        uname -a
+        cc --version
+        python3 --version
+        node --version
+        if [ "$RUNNER_OS" = macOS ]; then
+          sw_vers
+          xcrun --show-sdk-version
+        fi
+    - name: Check out pinned ESP-IDF
+      if: inputs.lane == 'native' || inputs.lane == 'build'
+      id: idf
+      shell: bash
+      env:
+        CACHE_PREFIX: kubik-v1-${{ runner.os }}-${{ runner.arch }}
+      run: |
+        git clone --depth 1 --branch v5.5.1 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git "$RUNNER_TEMP/esp-idf"
+        identity=$(python3 -c 'import hashlib,os,pathlib; print(hashlib.sha256(pathlib.Path(os.environ["RUNNER_TEMP"], "esp-idf/tools/tools.json").read_bytes()).hexdigest()[:16])')
+        echo "key=$CACHE_PREFIX-idf5.5.1-esp32c6-$identity-tools" >> "$GITHUB_OUTPUT"
+    - name: Restore ESP-IDF tools
+      if: inputs.lane == 'native' || inputs.lane == 'build'
+      id: sdk
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: ~/.espressif/tools
+        key: ${{ steps.idf.outputs.key }}
+    - name: Prepare ESP-IDF
+      if: inputs.lane == 'native' || inputs.lane == 'build'
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = macOS ]; then
+          brew install cmake ninja ccache
+        else
+          sudo apt-get update
+          sudo apt-get install -y flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev libusb-1.0-0
+        fi
+        "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
+    - name: Save prepared ESP-IDF tools
+      if: success() && (inputs.lane == 'native' || inputs.lane == 'build') && steps.sdk.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      uses: actions/cache/save@v6.1.0
+      with:
+        path: ~/.espressif/tools
+        key: ${{ steps.idf.outputs.key }}
+    - name: Identify compiler cache
+      if: inputs.lane == 'build'
+      id: compiler
+      shell: bash
+      env:
+        CACHE_PREFIX: kubik-v1-${{ runner.os }}-${{ runner.arch }}
+        SHA: ${{ github.sha }}
+      run: |
+        identity=$(python3 -c 'import hashlib,os,pathlib,subprocess; print(hashlib.sha256(pathlib.Path(os.environ["RUNNER_TEMP"], "esp-idf/tools/tools.json").read_bytes() + subprocess.check_output(["ccache", "--version"])).hexdigest()[:16])')
+        prefix="$CACHE_PREFIX-idf5.5.1-ccache-$identity-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=$prefix$SHA" >> "$GITHUB_OUTPUT"
+    - name: Restore compiler cache
+      if: inputs.lane == 'build'
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: .ci-cache/ccache
+        key: ${{ steps.compiler.outputs.key }}
+        restore-keys: ${{ steps.compiler.outputs.prefix }}
+    - name: Install Chrome for browser checks
+      if: runner.os == 'Linux' && (inputs.lane == 'agent' || inputs.lane == 'native')
+      shell: bash
+      run: '"$RUNNER_TEMP/kubik-ci/bin/uv" run --with playwright==1.63.0 playwright install chrome'
