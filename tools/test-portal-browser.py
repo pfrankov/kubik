@@ -219,6 +219,7 @@ def check_tess(page, output):
         const started = performance.now(); callback(time);
         tessProbe.costs.push(performance.now() - started);
       });""")
+    page.emulate_media(reduced_motion='no-preference')
     mount(page)
     page.wait_for_function('tessProbe.frames > 1')
     tess_motion(page, 'reduce')
@@ -304,7 +305,9 @@ def main():
             for width, height in [(390, 844), (320, 568), (1024, 768)]:
                 page = browser.new_page(); check_page(page, width, height, output); page.close()
             page = browser.new_page(); check_recovery(page); page.close()
-            page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3); check_tess(page, output); page.close()
+            # Start reduced to verify that the test establishes its own initial mode.
+            page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3, reduced_motion='reduce')
+            check_tess(page, output); page.close()
             page = browser.new_page(); check_usb(page, output); page.close()
             browser.close()
 
