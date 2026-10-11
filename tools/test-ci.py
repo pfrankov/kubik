@@ -7,6 +7,11 @@ import subprocess
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+prepare = yaml.load((ROOT / '.github/actions/prepare-ci/action.yml').read_text(), Loader=yaml.BaseLoader)
+steps = prepare['runs']['steps']
+sdk_install = next(i for i, step in enumerate(steps) if '/esp-idf/install.sh' in step.get('run', ''))
+path_exports = [i for i, step in enumerate(steps) if 'GITHUB_PATH' in step.get('run', '')]
+assert path_exports and all(i > sdk_install for i in path_exports), 'SDK install must not use the uv virtualenv Python'
 workflow = yaml.load((ROOT / '.github/workflows/acceptance.yml').read_text(), Loader=yaml.BaseLoader)
 checks = workflow['jobs']['checks']
 assert checks['needs'] == 'lint'

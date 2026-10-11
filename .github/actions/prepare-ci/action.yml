@@ -43,7 +43,6 @@ runs:
       run: |
         python3 -m venv "$RUNNER_TEMP/kubik-ci"
         "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
-        echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
     - name: Record environment
       shell: bash
       run: |
@@ -112,3 +111,6 @@ runs:
       if: runner.os == 'Linux' && (inputs.lane == 'agent' || inputs.lane == 'native')
       shell: bash
       run: '"$RUNNER_TEMP/kubik-ci/bin/uv" run --with playwright==1.63.0 playwright install chrome'
+    - name: Add uv to PATH after SDK installation
+      shell: bash
+      run: echo "$RUNNER_TEMP/kubik-ci/bin" >> "$GITHUB_PATH"
