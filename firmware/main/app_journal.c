@@ -71,15 +71,15 @@ void app_journal_event(const app_ev_t *e) {
     }
 }
 
-void app_journal_info(cJSON *info) {
+void app_journal_info(status_json_t *info) {
     face_lock();
     const event_journal_t *j = &g_face.journal;
-    cJSON_AddBoolToObject(info, "menu_ready", g_face.menu.open && g_face.menu.k >= 1.f);
-    cJSON_AddBoolToObject(info, "event_overlay", j->overlay);
-    cJSON_AddBoolToObject(info, "events_open", j->open);
-    cJSON_AddBoolToObject(info, "events_detail", j->detail);
-    cJSON_AddBoolToObject(info, "events_expired", j->detail_expired);
-    cJSON_AddNumberToObject(info, "events_count", j->count);
-    cJSON_AddNumberToObject(info, "events_offset", j->offset);
+    status_json_bool(info, "menu_ready", g_face.menu.open && g_face.menu.k >= 1.f);
+    status_json_bool(info, "event_overlay", j->overlay);
+    status_json_bool(info, "events_open", j->open);
+    status_json_bool(info, "events_detail", j->detail);
+    status_json_bool(info, "events_expired", j->detail_expired);
+    status_json_integer(info, "events_count", j->count);
+    status_json_integer(info, "events_offset", j->offset);
     face_unlock();
 }

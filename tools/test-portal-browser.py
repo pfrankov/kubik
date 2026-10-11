@@ -188,33 +188,51 @@ def check_recovery(page):
 
 
 def tess_motion(page, value):
-    # A media emulation acknowledgement precedes the browser's change dispatch.
-    # Observe the same query after the app's listener, which cancels and paints once.
     expected = value == 'reduce'
     before = page.evaluate('[tessProbe.motion.matches, tessProbe.frames, tessProbe.callbacks]')
     assert before[0] != expected, f'Media transition must start in the opposite mode: {before}'
-    print(f'Tess media transition to {value}: initial matches/frames/callbacks {before}', flush=True)
-    page.evaluate("""expected => {
-      tessProbe.mediaChanged = false;
-      const changed = event => {
-        if (event.matches !== expected) return;
-        tessProbe.mediaChanged = true;
-        tessProbe.motion.removeEventListener('change', changed);
-      };
-      tessProbe.motion.addEventListener('change', changed);
-    }""", expected)
+    # Blink can update matches from the app's running() getter before dispatching
+    # change, suppressing that event. Check actual quiescence, not event delivery.
+    page.evaluate("""() => {
+      tessProbe.motionHandled = null;
+      tessProbe.transitionFrames = tessProbe.animatedFrames;
+      tessProbe.transitionCounts = [tessProbe.frames, tessProbe.callbacks];
+      tessProbe.stableSince = performance.now();
+    }""")
     page.emulate_media(reduced_motion=value)
-    page.wait_for_function('tessProbe.mediaChanged', polling=50, timeout=5000)
+    condition = """() => {
+      const counts = [tessProbe.frames, tessProbe.callbacks];
+      if (counts.some((count, index) => count !== tessProbe.transitionCounts[index])) {
+        tessProbe.transitionCounts = counts;
+        tessProbe.stableSince = performance.now();
+      }
+      return performance.now() - tessProbe.stableSince >= 300;
+    }""" if expected else 'tessProbe.motionHandled === false && tessProbe.animatedFrames > tessProbe.transitionFrames'
+    try:
+        page.wait_for_function(condition, polling=50, timeout=5000)
+    except Exception as error:
+        state = page.evaluate('[tessProbe.motion.matches, tessProbe.motionHandled, tessProbe.frames, tessProbe.callbacks]')
+        raise AssertionError(f'Tess media transition to {value} failed: {state}') from error
     assert page.evaluate('tessProbe.motion.matches') == expected
     page.wait_for_timeout(100)
 
 
-def check_tess(page, output):
+def instrument_tess(page):
     page.add_init_script("""window.tessProbe = {frames: 0, animatedFrames: 0, callbacks: 0, costs: []};
       const media = window.matchMedia;
       window.matchMedia = query => {
         const result = media.call(window, query);
-        if (query === '(prefers-reduced-motion: reduce)') tessProbe.motion = result;
+        if (query === '(prefers-reduced-motion: reduce)') {
+          tessProbe.motion = result;
+          const listen = result.addEventListener;
+          result.addEventListener = function(type, handler, ...options) {
+            const observed = type === 'change' && handler.name === 'resume' ? event => {
+              handler(event);
+              tessProbe.motionHandled = event.matches;
+            } : handler;
+            return listen.call(this, type, observed, ...options);
+          };
+        }
         return result;
       };
       const clear = CanvasRenderingContext2D.prototype.clearRect;
@@ -235,7 +253,10 @@ def check_tess(page, output):
           tessProbe.costs.push(performance.now() - started);
         }
       });""")
-    page.emulate_media(reduced_motion='no-preference')
+
+
+def check_tess(page, output):
+    instrument_tess(page)
     mount(page)
     # Resize/visibility draw even in reduced mode; real RAF ticks establish motion.
     probe = '[tessProbe.motion.matches, tessProbe.frames, tessProbe.animatedFrames, tessProbe.callbacks]'
@@ -274,6 +295,21 @@ def check_tess(page, output):
     check_tess_pauses(page)
     costs = sorted(page.evaluate('tessProbe.costs'))
     print(f'Tess: 4D motion, <=24 fps, DPR cap, paused offscreen/hidden/reduced; callback p95 {costs[int(len(costs)*.95)]:.2f} ms')
+
+
+def check_tess_initial_reduced(page):
+    instrument_tess(page)
+    mount(page)
+    assert page.evaluate('tessProbe.motion.matches'), 'Reduced motion must apply at load'
+    page.wait_for_function('tessProbe.frames >= 2', polling=50, timeout=5000)
+    page.wait_for_timeout(100)
+    counts = page.evaluate('[tessProbe.frames, tessProbe.animatedFrames, tessProbe.callbacks]')
+    assert counts[1:] == [0, 0], f'Reduced-at-load Tess must never animate: {counts}'
+    pixels = page.locator('#tess').evaluate('(c) => c.toDataURL()')
+    page.wait_for_timeout(250)
+    assert counts == page.evaluate('[tessProbe.frames, tessProbe.animatedFrames, tessProbe.callbacks]')
+    assert pixels == page.locator('#tess').evaluate('(c) => c.toDataURL()')
+    print('Tess: reduced motion at load stays static without RAF callbacks')
 
 
 def check_tess_pauses(page):
@@ -329,9 +365,10 @@ def main():
             for width, height in [(390, 844), (320, 568), (1024, 768)]:
                 page = browser.new_page(); check_page(page, width, height, output); page.close()
             page = browser.new_page(); check_recovery(page); page.close()
-            # Start reduced to verify that the test establishes its own initial mode.
-            page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3, reduced_motion='reduce')
+            page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3, reduced_motion='no-preference')
             check_tess(page, output); page.close()
+            page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3, reduced_motion='reduce')
+            check_tess_initial_reduced(page); page.close()
             page = browser.new_page(); check_usb(page, output); page.close()
             browser.close()
 
