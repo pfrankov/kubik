@@ -3,12 +3,60 @@
 import importlib.util
 from pathlib import Path
 import threading
+import time
+from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("kubik_emulator", ROOT / "tools/emulator.py")
 emulator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(emulator)
+
+
+def native_frame(worker, steps):
+    worker.send(f"frame {steps}")
+    return worker.read_frame()
+
+
+def check_batches(worker, executable):
+    # The reference emits every frame; the batch must still update AND render
+    # each intermediate step, with byte-identical RGB and state at every sample.
+    started = time.monotonic()
+    reference = emulator.Worker(executable)
+    samples = 0
+    try:
+        assert worker.screens == reference.screens
+        for character in (0, 1):
+            for index, name in enumerate(worker.screens):
+                for process in (reference, worker):
+                    process.event({"command": "character", "args": [character]})
+                    process.event({"command": "select", "args": [index]})
+                for steps in (7, 28, 15, 60):
+                    for _ in range(steps):
+                        expected = native_frame(reference, 1)
+                    actual = native_frame(worker, steps)
+                    assert actual == expected, (character, name, steps)
+                    samples += 1
+                if name.startswith("Play:"):
+                    for process in (reference, worker):
+                        process.event({"command": "event", "args": [2, 0, 0]})
+                    for _ in range(7):
+                        expected = native_frame(reference, 1)
+                    assert native_frame(worker, 7) == expected, (character, name, "KEY")
+                    samples += 1
+        for steps in (0, 61, -1, 1.5, True):
+            try:
+                worker.frame(steps)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Invalid step count accepted: {steps}")
+        assert native_frame(worker, 1) == native_frame(reference, 1), "Invalid steps changed native state"
+    finally:
+        reference.close()
+    worker.event({"command": "character", "args": [1]})
+    print(f"emulator: {samples} exact stepped/batched RGB and state comparisons, both characters, "
+          f"{time.monotonic() - started:.1f}s", flush=True)
 
 
 def read_state(page):
@@ -33,7 +81,7 @@ def choose(page, index, name):
 def advance_frames(page, count):
     page.evaluate("""async count => {
       running = true;
-      for (let i = 0; i < count; i++) { await frame(); clearTimeout(frameTimer); }
+      await frame(count); clearTimeout(frameTimer);
       running = false;
     }""", count)
 
@@ -76,7 +124,10 @@ def exercise(page, screens):
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.wait_for_function("document.querySelector('#screen').options.length > 1")
     assert len(page.locator("#screen option").all()) == len(screens) + 1
+    started = time.monotonic()
     preview_frames(page, screens)
+    print(f"emulator: preview sequences {time.monotonic() - started:.1f}s", flush=True)
+    started = time.monotonic()
     choose(page, screens.index("Settings"), "Settings")
     click(page, 127, 428)
     state = read_state(page)
@@ -136,16 +187,25 @@ def exercise(page, screens):
     page.wait_for_timeout(100)
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     assert not errors and not page.locator("#error").inner_text(), errors
+    print(f"emulator: gestures and menus {time.monotonic() - started:.1f}s", flush=True)
 
 
 def main():
-    worker = emulator.Worker(emulator.build())
-    server = emulator.HTTPServer(("127.0.0.1", 0), emulator.Handler)
+    started = time.monotonic()
+    executable = emulator.build()
+    worker = emulator.Worker(executable)
+    print(f"emulator: native build/start {time.monotonic() - started:.1f}s", flush=True)
+    started = time.monotonic()
+    with patch("socket.getfqdn", side_effect=AssertionError("Loopback startup must not resolve DNS")):
+        server = emulator.LocalHTTPServer(("127.0.0.1", 0), emulator.Handler)
+    assert server.server_name == "127.0.0.1" and server.server_port > 0
+    print(f"emulator: HTTP bind/start {time.monotonic() - started:.3f}s", flush=True)
     server.worker = worker
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     url = f"http://127.0.0.1:{server.server_port}"
     try:
+        check_batches(worker, executable)
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=True)
             page = browser.new_page(viewport={"width":1100,"height":850})
@@ -155,6 +215,15 @@ def main():
             assert page.request.post(url + "/event", data='[]').status == 400
             assert page.request.post(url + "/event", data='{"command":"select","args":[0]}', headers={"Origin":"https://example.com"}).status == 403
             assert page.request.get(url + "/../README.md").status == 404
+            page.evaluate("running = false; clearTimeout(frameTimer)")
+            page.wait_for_function("!inFlight")
+            with patch.object(worker, "frame", wraps=worker.frame) as frames:
+                for query in ("steps=0", "steps=61", "steps=-1", "steps=1.5", "steps=", "steps=1&steps=2", "other=1"):
+                    assert page.request.get(url + "/frame?" + query).status == 400
+                assert page.request.get(url + "/frame?steps=7", headers={"Origin":"https://example.com"}).status == 403
+                assert not frames.called, "Rejected HTTP requests advanced native state"
+            with patch.object(worker, "frame", side_effect=ValueError("Corrupt native header")):
+                assert page.request.get(url + "/frame?steps=7").status == 503
             browser.close()
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=2); worker.close()

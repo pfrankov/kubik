@@ -14,15 +14,20 @@ static void apply_tilt(void) {
     lab.face.view_q[0] = cosf(hypotf(x, y));
     lab.face.view_q[1] = sinf(x); lab.face.view_q[2] = sinf(y); lab.face.view_q[3] = 0;
 }
-static void frame(void) {
+static void frame(int steps) {
+    for (int step = 0; step < steps; step++) {
         apply_tilt();
         screen_lab_update(&lab, 1.f / R_FPS);
         tess_cue_t cue; float strength, position;
         while (screen_lab_take_cue(&lab, &cue, &strength, &position)) {}
         screen_lab_draw(&lab, &scene);
         sim_render_scene(&scene);
-        printf("{\"screen\":%d,\"name\":\"%s\",\"signal\":%s,\"volume\":%d,\"interface\":%d,\"view\":%d,\"journal_open\":%s,\"journal_detail\":%s,\"journal_overlay\":%s,\"journal_offset\":%u,\"journal_count\":%u,\"status_open\":%s,\"status_page\":%u}\n", lab.selected, screen_lab_name(lab.selected), lab.signal ? "true" : "false", lab.volume, lab.ui_volume, lab.face.agent.view, lab.face.journal.open ? "true" : "false", lab.face.journal.detail ? "true" : "false", lab.face.journal.overlay ? "true" : "false", lab.face.journal.offset, lab.face.journal.count, lab.face.status.open ? "true" : "false", lab.face.status.page);
-        sim_emit_frame(); fflush(stdout);
+    }
+    printf("{\"screen\":%d,\"name\":\"%s\",\"signal\":%s,\"volume\":%d,\"interface\":%d,\"view\":%d,\"journal_open\":%s,\"journal_detail\":%s,\"journal_overlay\":%s,\"journal_offset\":%u,\"journal_count\":%u,\"status_open\":%s,\"status_page\":%u}\n", lab.selected, screen_lab_name(lab.selected), lab.signal ? "true" : "false", lab.volume, lab.ui_volume, lab.face.agent.view, lab.face.journal.open ? "true" : "false", lab.face.journal.detail ? "true" : "false", lab.face.journal.overlay ? "true" : "false", lab.face.journal.offset, lab.face.journal.count, lab.face.status.open ? "true" : "false", lab.face.status.page);
+    sim_emit_frame(); fflush(stdout);
+}
+static void frame_command(int fields, int steps) {
+    if (fields == 2 && steps >= 1 && steps <= 60) frame(steps);
 }
 static bool valid_event(int event) { return event >= LAB_TAP && event <= LAB_HOLD; }
 static void event(int kind, int x, int y) {
@@ -33,7 +38,8 @@ static void event(int kind, int x, int y) {
 }
 static void command(const char *line) {
     char name[24]; int a = 0, b = 0, c = 0;
-    if (sscanf(line, "%23s %d %d %d", name, &a, &b, &c) < 1) return;
+    int fields = sscanf(line, "%23s %d %d %d", name, &a, &b, &c);
+    if (fields < 1) return;
     if (!strcmp(name, "catalog")) {
         fputs("[", stdout);
         for (int i = 0; i < LAB_COUNT; i++) printf("%s\"%s\"", i ? "," : "", screen_lab_name(i));
@@ -43,9 +49,7 @@ static void command(const char *line) {
     else if (!strcmp(name, "pointer")) screen_lab_pointer(&lab, a != 0, b, c);
     else if (!strcmp(name, "tilt")) { tilt_x = a; tilt_y = b; }
     else if (!strcmp(name, "character")) { screen_lab_init(&lab, a == CHARACTER_PLUSH ? CHARACTER_PLUSH : CHARACTER_TESS); }
-    else if (!strcmp(name, "frame")) {
-        frame();
-    }
+    else if (!strcmp(name, "frame")) frame_command(fields, a);
 }
 int main(void) {
     sim_load_assets();
