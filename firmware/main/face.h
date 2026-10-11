@@ -314,7 +314,7 @@ typedef struct {
     // Setup card (MODE_SETUP), shown instead of the body: a title, the QR as
     // large as fits (or a "connecting" sign) and one detail line under it.
     const uint8_t *qr;
-    int qr_n, qr_step;  // step 1 = join Kubik's Wi-Fi, 2 = open the setup page, 3 = connecting
+    int qr_n, qr_step;  // step 1 = join Kubik's Wi-Fi, 2 = open the setup page, 3 = connecting, 4 = joined, 5 = failed
     float qr_t;         // seconds since the card content changed
     char setup_text[2][72];  // title, detail (UTF-8)
     char pair_code[12];      // pairing card (MODE_SETUP) while set

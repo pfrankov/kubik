@@ -82,14 +82,14 @@ static void settings(face_t *f, const screen_lab_t *lab) {
     f->menu.txt[MT_POWER] = str(STR_POWER_OFF); f->menu.txt[MT_RESET] = str(STR_RESET);
 }
 static void setup(screen_lab_t *lab, int screen) {
-    int n = 0, step = screen == LAB_SETUP_QR ? 2 : 1;
-    const char *title = "Connecting", *detail = "Preview only";
+    int n = 0, step = screen == LAB_SETUP_QR ? 2 : screen == LAB_CONNECT ? 3 : 1;
+    const char *title = "3 \u00B7 Connecting\u2026", *detail = "Preview only";
     if (screen == LAB_WIFI_QR) {
         n = qr_make("WIFI:T:WPA;S:Kubik-DEMO;P:preview-only;;", lab->qr);
         title = "Join Kubik Wi-Fi"; detail = "Kubik-DEMO";
     } else if (screen == LAB_SETUP_QR) {
         n = qr_make("https://example.invalid/kubik-preview", lab->qr);
-        title = "Scan again for setup";
+        title = "2 \u00B7 Scan again for setup";
     }
     face_set_mode(&lab->face, MODE_SETUP);
     face_set_setup(&lab->face, n ? lab->qr : NULL, n, step, title, detail);

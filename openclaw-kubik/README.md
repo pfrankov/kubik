@@ -32,7 +32,7 @@ Each device has a separate agent session (`kubik:<deviceId>`). Choosing an agent
 
 ## Server address
 
-`openclaw channels status --probe` shows the Kubik listener, for example `lan 192.168.1.5:18790 spki:…; route /kubik/v1`.
+`openclaw channels status --probe` shows the Kubik listener, for example `lan kubik://192.168.1.5:18790 spki:…; route /kubik/v1`; copy the `kubik://…` address into Server address on Kubik's setup page.
 
 | Location | Address on Kubik |
 | --- | --- |

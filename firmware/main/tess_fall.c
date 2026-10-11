@@ -30,6 +30,19 @@
 #define FALL_REST ((int64_t)(.004f * FALL_SCALE * FALL_SCALE))  // squared speed a touching point stops below
 
 
+// A point (or a square or a cube, whose corners share their dots) falls as one column: coincident dots never push
+// each other apart. A still-growing Tess therefore bursts sideways as she lets go: each dot gets its own direction on a
+// sunflower round the centre and a push outwards, stronger across the screen than along it (no position jump).
+static void burst_sideways(face_t *f) {
+    if (!f->tess_games.ready || f->tess_games.form >= 3.f) return;
+    for (int i = 0; i < TESS_N; i++) {
+        float angle = i * 2.39996f, radius = sqrtf((i + .5f) / TESS_N);  // golden angle: an even spread
+        float c = cosf(angle), s = sinf(angle);
+        f->tess_velocity[i][0] += c * (1.5f + 2.5f * radius);
+        f->tess_velocity[i][1] += s * (.5f + .8f * radius);
+    }
+}
+
 void tess_fall_turn(face_t *f, bool fall) {
     float m[3][3];
     tess_view_matrix(f, m);
@@ -48,6 +61,7 @@ void tess_fall_turn(face_t *f, bool fall) {
             f->tess_position[i][2] = 0;
         }
         f->tess_mode[TM_OFFLINE] = 1;
+        burst_sideways(f);
     }
     f->tess_rigid = 0;
     f->tess_fallen = fall;

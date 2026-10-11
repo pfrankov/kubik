@@ -367,9 +367,9 @@ int main(void) {
     wifi_radio_resume(false); wifi_start_sta(); assert(starts==starts_before_stop+1);
     on_event(NULL,WIFI_EVENT,WIFI_EVENT_STA_START,NULL); assert(!strcmp(connect_ssid,"saved-network"));
 
-    // Setup access point: RFC 8910 portal URI, AP+STA, client counting.
+    // Setup access point: no RFC 8910 portal URI (it must name an RFC 8908 API, not a page), AP+STA, client counting.
     wifi_ap_start("Kubik-abcdef","setup-pass");
-    assert(ap_netifs==1 && !strcmp(portal_uri,"http://192.168.4.1/") && mode==WIFI_MODE_APSTA);
+    assert(ap_netifs==1 && !portal_uri[0] && mode==WIFI_MODE_APSTA);
     assert(!strcmp(ap_ssid,"Kubik-abcdef") && ap_cfg.ap.ssid_len==12 && ap_cfg.ap.authmode==WIFI_AUTH_WPA2_PSK);
     assert(wifi_ap_clients()==0);
     on_event(NULL,WIFI_EVENT,WIFI_EVENT_AP_STACONNECTED,NULL); on_event(NULL,WIFI_EVENT,WIFI_EVENT_AP_STACONNECTED,NULL);

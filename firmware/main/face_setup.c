@@ -33,33 +33,64 @@ void face_set_setup(face_t *f, const uint8_t *mods, int n, int step, const char 
 // and accent; it does not add another row or reduce the camera target.
 #define SETUP_TITLE_Y 37.f
 #define SETUP_CHIP_Y 440.f
-#define SETUP_CARD_TOP 64.f
-#define SETUP_CARD_BOTTOM 414.f
+#define SETUP_CARD_TOP 54.f
+#define SETUP_CARD_BOTTOM 426.f
+#define QR_INK 0xE6ECEAu  // nearly white on the black screen: no bright card to throw off a phone camera's exposure
+
+// Connecting: a ring with Tess's point running round it, a long trail behind (Plush: a turning arc).
+static void draw_connecting(face_t *f, scene_t *s, float cx, float cy, float a, uint32_t accent) {
+    const float R = 104;
+    float spin = f->t * 3.4f;
+    sc_ring(s, cx, cy, R, 3, UI_SURFACE, a);
+    if (face_character(f) == CHARACTER_TESS) {
+        for (int k = 12; k >= 1; k--) {
+            float fade = (13 - k) / 13.f * a, ang = spin - k * .12f;
+            sc_glow_dot(s, cx + R * cosf(ang), cy + R * sinf(ang), 3 + fade * 4, rgb_scale(accent, fade * .9f), (uint8_t)(fade * 150));
+        }
+        float tw = .5f + .5f * sinf(f->t * 9);
+        sc_glow_dot(s, cx + R * cosf(spin), cy + R * sinf(spin), 7 + 2 * tw, rgb_mix(accent, UI_GOLD, tw * .5f), (uint8_t)(a * 255));
+    } else {
+        sc_arc(s, cx, cy, R, .7f, 6, spin - PI / 2, accent, a);
+    }
+    draw_wifi(s, cx, cy + 14, accent, a, f->t * 3);
+}
+
+// Tess celebrates a joined network with a ring of sparks that fly out from the disc and fade.
+static void draw_sparks(face_t *f, scene_t *s, float cx, float cy) {
+    float t = clampf((f->qr_t - .2f) / 1.2f, 0, 1), out = 1 - (1 - t) * (1 - t) * (1 - t);
+    if (f->qr_t < .2f || t >= 1) return;  // they leave the disc as it pops, and are gone once faded
+    for (int i = 0; i < 10; i++) {
+        float angle = i * (2 * PI / 10) + .3f, r = 105 + 100 * out * (.8f + .2f * (i & 1)), fade = 1 - t;
+        sc_glow_dot(s, cx + r * cosf(angle), cy + r * sinf(angle), 2 + 3 * fade, rgb_mix(UI_ACCENT, UI_GOLD, (i & 1) * .8f + .2f),
+                    (uint8_t)(220 * fade));
+    }
+}
+
+// Result: a disc with the check (joined) or the alert (failed); it pops in.
+static void draw_result(face_t *f, scene_t *s, float cx, float cy, float a, uint32_t accent) {
+    float k = clampf(f->qr_t / .5f, 0, 1), pop = face_character(f) == CHARACTER_TESS ? .5f + .5f * (1 - (1 - k) * (1 - k) * (1 + 2.2f * k)) : 1.f;
+    sc_circle(s, cx, cy, 84 * pop, accent, a);
+    sc_icon(s, f->qr_step == 4 ? ICON_CHECK : ICON_CIRCLE_ALERT, cx, cy, 100 * pop, UI_INK, a);
+    if (f->qr_step == 4 && face_character(f) == CHARACTER_TESS) draw_sparks(f, s, cx, cy);
+}
 
 void draw_setup_card(face_t *f, scene_t *s) {
     int n = f->qr_n;
     int avail = (int)((SETUP_CARD_BOTTOM - SETUP_CARD_TOP) / R_SCALE);
-    int module = n > 0 ? avail / (n + 4) : 0;
-    if (module > 7) module = 7;
+    int module = n > 0 ? avail / (n + 2) : 0;  // a module of black margin each side; the screen is the rest of the quiet zone
+    if (module > 8) module = 8;
     if (n > 0 && module < 2) module = 2;
-    float half = n > 0 ? (n + 4) * module * (float)R_SCALE * 0.5f : 120.f;
     float cx = CX, cy = (SETUP_CARD_TOP + SETUP_CARD_BOTTOM) * 0.5f;
-    float k = clampf(f->qr_t / 0.25f, 0, 1);
+    float k = clampf(f->qr_t / 0.3f, 0, 1);
     float a = k * k * (3.f - 2.f * k);
-    float sc = 0.95f + 0.05f * a;
-    uint32_t accent = f->qr_step == 2 ? UI_GOLD : UI_ACCENT;
+    uint32_t accent = f->qr_step == 2 ? UI_GOLD : f->qr_step == 5 ? UI_ERROR : UI_ACCENT;
     sc_label(s, TXT_HEADING, f->setup_text[0], cx, SETUP_TITLE_Y, 0, accent, a);
-    sc_rbox(s, cx, cy, half * sc + 5, half * sc + 5, 22, 0, accent, a);
-    sc_rbox(s, cx, cy, half * sc, half * sc, 16, 0, 0xFFFFFF, a);
-    if (n > 0) {
-        sc_qr(s, f->qr, n, module, cx, cy, UI_INK, a);
+    if (n > 0) {  // the code is drawn light on black: a phone reads it inverted
+        sc_qr(s, f->qr, n, module, cx, cy, QR_INK, a);
+    } else if (f->qr_step >= 4) {
+        draw_result(f, s, cx, cy, a, accent);
     } else {
-        draw_wifi(s, cx, cy + 22, UI_INK, a, f->t * 3);
-        for (int i = 0; i < 3; i++) {
-            float ph = fmodf(f->t * 1.6f - i * 0.25f, 1.f);
-            float up = ph < 0.35f ? sinf(ph / 0.35f * PI) : 0;
-            sc_circle(s, cx + (i - 1) * 22.f, cy + 70 - up * 8, 6, UI_SURFACE, a);
-        }
+        draw_connecting(f, s, cx, cy, a, accent);
     }
     if (f->setup_text[1][0]) {
         float w = label_width(TXT_CHIP, f->setup_text[1]);

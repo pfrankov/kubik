@@ -316,19 +316,33 @@ void app_tick(void) {
     tick_sleep(t);
 }
 
+static void setup_result_face(face_t *f, const setup_labels_t *labels) {
+    static const char *const why[] = {"Couldn't connect", "Wrong password", "Network not found", "Couldn't connect", "Couldn't save settings"};
+    char detail[72];
+    if (s_setup_phase == SETUP_DONE) {
+        snprintf(detail, sizeof detail, "\u201C%.32s\u201D", labels->trying);
+        face_set_setup(f, NULL, 0, 4, "Joined", detail);
+    } else {
+        face_set_setup(f, NULL, 0, 5, why[labels->error < 5 ? labels->error : 0], "Try again on your phone");
+    }
+    memset(detail, 0, sizeof detail);
+}
+
 static void setup_face(face_t *f) {
     static setup_labels_t labels;  // UI task only
     char detail[72];
     int n = 0, step = 0;
     const uint8_t *qr = setup_qr(&n, &step);
     setup_labels(&labels);
-    if (s_setup_phase == SETUP_TRYING) {
+    if (s_setup_phase == SETUP_DONE || s_setup_phase == SETUP_FAILED) {
+        setup_result_face(f, &labels);
+    } else if (s_setup_phase == SETUP_TRYING) {
         snprintf(detail, sizeof detail, "\u201C%.32s\u201D", labels.trying);
-        face_set_setup(f, NULL, 0, 3, "Connecting\u2026", detail);
+        face_set_setup(f, NULL, 0, 3, "3 \u00B7 Connecting\u2026", detail);
     } else if (step == 2) {
-        face_set_setup(f, qr, n, 2, "Scan again for setup", "192.168.4.1");
+        face_set_setup(f, qr, n, 2, "2 \u00B7 Scan again for setup", "192.168.4.1");
     } else {
-        const char *title = s_setup_reason == SETUP_LOST ? "Scan to reconnect" : "Scan to join Wi-Fi";
+        const char *title = s_setup_reason == SETUP_LOST ? "1 \u00B7 Scan to reconnect" : "1 \u00B7 Scan to join Wi-Fi";
         snprintf(detail, sizeof detail, "%s  \u00B7  password %s", labels.ap_ssid, labels.ap_pass);
         face_set_setup(f, qr, n, 1, title, detail);
     }
@@ -379,7 +393,7 @@ static face_mode_t select_face_mode(face_t *f, int64_t t, bool *debug) {
     } else if (s_setup) {
         face_set_pairing(f, NULL);
         setup_face(f);
-        mode = s_setup_phase == SETUP_DONE || s_setup_phase == SETUP_FAILED ? MODE_IDLE : MODE_SETUP;
+        mode = MODE_SETUP;
     } else {
         face_set_pairing(f, NULL);
         mode = awake_face_mode(t);

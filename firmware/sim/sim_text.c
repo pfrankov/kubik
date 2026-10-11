@@ -90,8 +90,8 @@ void sim_text(void) {
     bubbles();
     menu(false);
     menu(true);
-    setup("Scan to join Wi-Fi", "Kubik-4F2A  \xC2\xB7  password kubik4f2a", "WIFI:T:WPA;S:Kubik-4F2A;P:kubik4f2a;;", 1);
-    setup("Scan again for setup", "192.168.4.1", "http://192.168.4.1/", 2);
-    setup("Connecting\xE2\x80\xA6", "\xE2\x80\x9CHome network\xE2\x80\x9D", NULL, 3);
+    setup("1 \xC2\xB7 Scan to join Wi-Fi", "Kubik-4F2A  \xC2\xB7  password kubik4f2a", "WIFI:T:WPA;S:Kubik-4F2A;P:kubik4f2a;;", 1);
+    setup("2 \xC2\xB7 Scan again for setup", "192.168.4.1", "http://192.168.4.1/", 2);
+    setup("3 \xC2\xB7 Connecting\xE2\x80\xA6", "\xE2\x80\x9CHome network\xE2\x80\x9D", NULL, 3);
     cards();
 }

@@ -36,7 +36,7 @@ Mint conversation lines on the laptop screen; compact horizontal composition.
 
 Brief: preserve the isometric Kubik reference, its three circular top buttons
 and bold three-colour style. Show the actual setup-screen arrangement from the
-native renderer reference: large central QR matrix on white, heading above it,
+native renderer reference: large central QR matrix, nearly white on the black screen with no frame or white card, heading above it,
 short network name or address below. No phone or empty scan brackets.
 
 Первый экран: `SCAN TO JOIN WI-FI`, пример сети `KUBIK-4F2A`.

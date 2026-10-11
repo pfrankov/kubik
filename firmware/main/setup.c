@@ -1,4 +1,5 @@
 #include "setup.h"
+#include "setup_dns.h"
 #include "setup_request.h"
 #include "muse_store.h"
 #include "muse_json.h"
@@ -38,7 +39,6 @@ extern const char portal_css_end[] asm("_binary_portal_css_end");
 
 static SemaphoreHandle_t s_mtx;
 static httpd_handle_t s_http;
-static TaskHandle_t s_dns_task;
 static volatile bool s_running;
 static bool s_closing;
 static setup_reason_t s_why;
@@ -55,7 +55,8 @@ typedef struct {
 static setup_mem_t *s_mem;
 static int s_qr_n[2];
 static int s_nnets;
-static bool s_scan_wanted;
+static bool s_scan_wanted, s_scan_asked;
+static volatile uint8_t s_events;
 
 // Candidate submitted by the page, applied by setup_poll on the app task.
 static struct {
@@ -76,45 +77,6 @@ static void set_phase(setup_phase_t p) {
     if (s_phase != p) ESP_LOGI(TAG, "phase %d -> %d", s_phase, p);
     s_phase = p;
     s_phase_ms = now_ms();
-}
-
-// ------------------------------------------------------------------ DNS: every name is Kubik
-static void dns_task(void *arg) {
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    struct sockaddr_in addr = {.sin_family = AF_INET, .sin_port = htons(53)};
-    const uint8_t ip[4] = AP_IP_BYTES;
-    memcpy(&addr.sin_addr.s_addr, ip, 4);  // only the setup network, never the home LAN
-    struct timeval tv = {.tv_sec = 0, .tv_usec = 400000};
-    if (sock < 0 || bind(sock, (struct sockaddr *)&addr, sizeof addr) != 0) {
-        ESP_LOGE(TAG, "dns socket failed");
-    } else {
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-        uint8_t buf[300];
-        while (s_running) {
-            struct sockaddr_in from;
-            socklen_t fl = sizeof from;
-            int n = recvfrom(sock, buf, sizeof buf - 16, 0, (struct sockaddr *)&from, &fl);
-            if (n < 12 || (buf[2] & 0x80)) continue;  // not a query
-            // Walk the single question to find its type.
-            int p = 12;
-            while (p < n && buf[p]) p += buf[p] + 1;
-            if (p + 5 > n) continue;
-            int qtype = (buf[p + 1] << 8) | buf[p + 2];
-            int end = p + 5;
-            buf[2] = 0x81; buf[3] = 0x80;  // response, recursion available, no error
-            buf[6] = 0; buf[7] = 0; buf[8] = buf[9] = buf[10] = buf[11] = 0;
-            if (qtype == 1) {  // A: this device
-                buf[7] = 1;
-                const uint8_t ans[16] = {0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 30, 0, 4, ip[0], ip[1], ip[2], ip[3]};
-                memcpy(buf + end, ans, sizeof ans);
-                end += sizeof ans;
-            }
-            sendto(sock, buf, end, 0, (struct sockaddr *)&from, fl);
-        }
-    }
-    if (sock >= 0) close(sock);
-    s_dns_task = NULL;
-    vTaskDelete(NULL);
 }
 
 // ------------------------------------------------------------------ HTTP
@@ -147,8 +109,33 @@ static esp_err_t send_json(httpd_req_t *r, cJSON *j) {
     return err;
 }
 
+// A phone's connectivity probe (Apple, Android, Windows, Firefox) is answered as if the internet were there, so no
+// captive sheet appears: on an iPhone, closing that sheet leaves the network. False when the path is not a probe.
+static bool probe_answer(httpd_req_t *r) {
+    static const struct { const char *path, *status, *type, *body; } probes[] = {
+        {"/hotspot-detect.html", "200 OK", "text/html", "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"},
+        {"/library/test/success.html", "200 OK", "text/html", "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"},
+        {"/generate_204", "204 No Content", "text/plain", ""},
+        {"/gen_204", "204 No Content", "text/plain", ""},
+        {"/connecttest.txt", "200 OK", "text/plain", "Microsoft Connect Test"},
+        {"/ncsi.txt", "200 OK", "text/plain", "Microsoft NCSI"},
+        {"/success.txt", "200 OK", "text/plain", "success\n"},
+    };
+    size_t n = strcspn(r->uri, "?");
+    for (size_t i = 0; i < sizeof probes / sizeof probes[0]; i++) {
+        if (strlen(probes[i].path) != n || strncmp(r->uri, probes[i].path, n)) continue;
+        httpd_resp_set_status(r, probes[i].status);
+        httpd_resp_set_type(r, probes[i].type);
+        httpd_resp_set_hdr(r, "Cache-Control", "no-store");
+        httpd_resp_sendstr(r, probes[i].body);
+        return true;
+    }
+    return false;
+}
+
 static esp_err_t redirect(httpd_req_t *r, httpd_err_code_t code) {
-    // Captive-portal probes (Apple, Android, Windows) land here: send them to the page.
+    if (probe_answer(r)) return ESP_OK;  // a connectivity probe: the phone stays on this network
+    // Any other address typed on the setup network opens the page.
     httpd_resp_set_status(r, "302 Found");
     httpd_resp_set_hdr(r, "Location", PAGE_URL);
     httpd_resp_set_hdr(r, "Cache-Control", "no-store");
@@ -163,7 +150,15 @@ static esp_err_t asset_get(httpd_req_t *r, const char *type, const char *start, 
     return httpd_resp_send(r, start, end - start);
 }
 
+static void note_event(uint8_t event) {
+    lock();
+    s_events |= event;
+    unlock();
+}
+
 static esp_err_t page_get(httpd_req_t *r) {
+    if (!from_setup_net(r)) return httpd_resp_send_err(r, HTTPD_403_FORBIDDEN, NULL);
+    note_event(SETUP_EV_PAGE);
     return asset_get(r, "text/html; charset=utf-8", portal_html_start, portal_html_end, true);
 }
 
@@ -215,7 +210,7 @@ static esp_err_t state_get(httpd_req_t *r) {
 static esp_err_t scan_post(httpd_req_t *r) {
     if (!from_setup_net(r)) return httpd_resp_send_err(r, HTTPD_403_FORBIDDEN, NULL);
     lock();
-    s_scan_wanted = true;
+    s_scan_wanted = s_scan_asked = true;
     unlock();
     return send_json(r, cJSON_CreateTrue());
 }
@@ -269,6 +264,7 @@ static esp_err_t connect_post(httpd_req_t *r) {
     const char *error = queue_connect(request);
     muse_json_clear(request);
     if (error) return fail(r, error);
+    note_event(SETUP_EV_SEND);
     cJSON *ok = cJSON_CreateObject();
     cJSON_AddBoolToObject(ok, "ok", true);
     return send_json(r, ok);
@@ -315,6 +311,8 @@ static void scan_now(void) {
     memcpy(s_mem->nets, s_mem->scan, sizeof s_mem->nets);
     s_nnets = n;
     s_scan_wanted = false;
+    if (s_scan_asked) s_events |= SETUP_EV_SCAN;  // the phone asked: answer with a sound, the first scan is silent
+    s_scan_asked = false;
     unlock();
     ESP_LOGI(TAG, "scan: %d networks", n);
 }
@@ -340,10 +338,12 @@ void setup_start(setup_reason_t why) {
     make_qrs();
     s_running = true;
     s_scan_wanted = true;
+    s_scan_asked = false;
+    s_events = 0;
     set_phase(SETUP_JOIN);
     wifi_ap_start(s_ap_ssid, s_ap_pass);
     http_start();
-    xTaskCreate(dns_task, "dns", 3072, NULL, 3, &s_dns_task);
+    setup_dns_start();
     ESP_LOGI(TAG, "started (reason %d), network %s", why, s_ap_ssid);
 }
 
@@ -354,6 +354,7 @@ void setup_stop(void) {
     bool finish_trial = s_phase == SETUP_TRYING || s_phase == SETUP_DONE;
     unlock();
     s_running = false;
+    setup_dns_stop();
     if (s_http) httpd_stop(s_http);
     s_http = NULL;
     wifi_ap_stop();
@@ -387,7 +388,9 @@ void setup_labels(setup_labels_t *out) {
     lock();
     memcpy(out->ap_ssid, s_ap_ssid, sizeof out->ap_ssid);
     memcpy(out->ap_pass, s_ap_pass, sizeof out->ap_pass);
-    if (s_phase == SETUP_TRYING) memcpy(out->trying, s_try.ssid, sizeof out->trying);
+    if (s_phase == SETUP_TRYING || s_phase == SETUP_DONE || s_phase == SETUP_FAILED)
+        memcpy(out->trying, s_try.ssid, sizeof out->trying);
+    out->error = (uint8_t)s_error;
     unlock();
 }
 
@@ -398,6 +401,15 @@ const uint8_t *setup_qr(int *n, int *step) {
     *n = s_qr_n[i];
     *step = i + 1;
     return mem->qr[i];
+}
+
+uint8_t setup_take_events(void) {
+    if (!s_mtx) return 0;
+    lock();
+    uint8_t events = s_events;
+    s_events = 0;
+    unlock();
+    return events;
 }
 
 static setup_error_t classify(uint8_t reason) {

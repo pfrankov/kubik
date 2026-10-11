@@ -16,7 +16,7 @@ IDF_TOOLS = {level: ("idf.py", "clang") for level in ("host", "host-portable", "
 IDF_TOOLS["build"] = ("idf.py",)
 HOST_TESTS = (
     "agent-menu", "tls-memory", "audio-capture", "mic-task", "mic-delivery", "audio-stream", "audio-levels", "menu-hold", "audio-wake", "wake-word", "native-voice", "guide", "ima", "link", "navigation", "pin", "power-network",
-    "event-journal", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "settings", "nvs", "setup", "muse", "devkey", "hermes", "speech", "state", "status-json", "tess", "tess-games", "wifi", "radio-relay",
+    "event-journal", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "settings", "nvs", "setup", "setup-dns", "muse", "devkey", "hermes", "speech", "state", "status-json", "tess", "tess-games", "wifi", "radio-relay",
 )
 
 

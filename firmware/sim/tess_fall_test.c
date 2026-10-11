@@ -216,7 +216,23 @@ static void continuous_transitions(void) {
     puts("fall transitions: every point's projected centre continuous in both directions; no rigid snap");
 }
 
+// A point (all 112 dots on one spot) must not fall as a single column: it bursts sideways, then piles up.
+static void a_point_scatters_sideways(void) {
+    face_t f; face_init(&f); face_set_character(&f, CHARACTER_TESS);
+    face_set_mode(&f, MODE_IDLE);
+    f.tess_games.ready = true; f.tess_games.form = 0; f.tess_games.fold = 0;
+    for (int n = 0; n < 120; n++) face_update(&f, DT);
+    f.grav_x = 0; f.grav_y = 1;
+    face_set_mode(&f, MODE_OFFLINE);
+    run(&f, 1);
+    float lo = 1e9f, hi = -1e9f;
+    for (int i = 0; i < TESS_N; i++) { float x, y; panel_px(&f, i, &x, &y); lo = fminf(lo, x); hi = fmaxf(hi, x); }
+    printf("point falls: %.0f px wide after 1 s\n", hi - lo);
+    assert(f.tess_fallen && hi - lo > 100);
+}
+
 int main(void) {
+    a_point_scatters_sideways();
     continuous_transitions();
     falls_where_gravity_points();
     moves_like_things_do();

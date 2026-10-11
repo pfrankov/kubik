@@ -154,7 +154,7 @@ CPU-часов после него. На macOS используется `mach_ab
 
 | Группа | Автоматические проверки | Дополнительная проверка устройства |
 |---|---|---|
-| [SET](scenarios/setup.md) | setup, portal DOM/Chrome, guide | Первый запуск и повтор Guide |
+| [SET](scenarios/setup.md) | setup, setup-dns (единственный DNS-сокет, закрытие/переоткрытие и ошибки создания), portal DOM/Chrome, guide | Первый запуск и повтор Guide |
 | [BUY](scenarios/buyer.md) | buyer guide, kit, clean install | Единая английская страница GitHub, скачиваемое ПО, 8 страниц A6, порядок сгиба и команды установки |
 | [AGT](scenarios/agent.md) | agent-menu, agent-control, session-controls, agent-sdk, agent-sdk-lifecycle, agent-adapter-example, agent-process-example | Выбор модели и возврат настройки |
 | [VOI](scenarios/conversation.md) / [нативные режимы](scenarios/native-voice.md) | firmware: state, audio-capture, mic-task (эпохи/закрытие), wake-word, native-voice (VAD), audio-stream, speech; JS: engines, voice-stream, native-voice, session | KEY обоих вариантов; тёмный экран: BOOT/KEY/касания/движение игнорируются, PWR/ответ будят; Hi Tessa только Tess; RX в меню/сне; codec doze; локальный голосовой mock |

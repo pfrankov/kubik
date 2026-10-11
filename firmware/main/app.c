@@ -322,22 +322,15 @@ static bool setup_ready(void) {
     if (!link_wifi_stopped()) return false;
     setup_start(s_setup_reason); return setup_active();
 }
-void setup_step(void) {
-    if (!setup_ready()) return;
-    setup_phase_t p = setup_poll(), old = s_setup_phase;
-    if (p == old) {
-        if (p == SETUP_TRYING && now_ms() - s_setup_wait_ms > 1800) {
-            s_setup_wait_ms = now_ms();
-            audio_sfx(SFX_SETUP_WAIT);
-        }
-        if (p == SETUP_DONE && now_ms() - s_setup_done_ms > 4000) {
-            ESP_LOGI(TAG, "setup complete, restarting");
-            esp_restart();
-        }
-        return;
-    }
-    s_setup_phase = p;
-    wake(false);
+// What the phone does on the setup page, answered in sound: it opens, refreshes the network list, sends the form.
+static void setup_phone_sounds(void) {
+    uint8_t events = setup_take_events();
+    if (events & SETUP_EV_PAGE) audio_sfx(SFX_PAGE);
+    if (events & SETUP_EV_SCAN) audio_sfx_level(SFX_GLINT, 6);
+    if (events & SETUP_EV_SEND) audio_sfx(SFX_LISTEN_STOP);
+}
+
+static void setup_phase_changed(setup_phase_t p, setup_phase_t old) {
     switch (p) {
     case SETUP_OFF:  // the lost network came back by itself
         setup_leave();
@@ -350,6 +343,10 @@ void setup_step(void) {
             s_setup_greeted_phone = true;
             audio_sfx(SFX_SETUP_PHONE);
         }
+        break;
+    case SETUP_JOIN:  // the phone left, or a failed try has been shown long enough
+        s_setup_greeted_phone = false;
+        if (old == SETUP_OPEN) audio_sfx(SFX_DISCONNECT);
         break;
     case SETUP_TRYING:
         s_setup_wait_ms = now_ms();
@@ -364,9 +361,27 @@ void setup_step(void) {
         audio_sfx(SFX_SETUP_FAIL);
         face_emo(EMO_SAD, 5.f);
         break;
-    default:
-        break;
     }
+}
+
+void setup_step(void) {
+    if (!setup_ready()) return;
+    setup_phase_t p = setup_poll(), old = s_setup_phase;
+    setup_phone_sounds();
+    if (p == old) {
+        if (p == SETUP_TRYING && now_ms() - s_setup_wait_ms > 1800) {
+            s_setup_wait_ms = now_ms();
+            audio_sfx(SFX_SETUP_WAIT);
+        }
+        if (p == SETUP_DONE && now_ms() - s_setup_done_ms > 4000) {
+            ESP_LOGI(TAG, "setup complete, restarting");
+            esp_restart();
+        }
+        return;
+    }
+    s_setup_phase = p;
+    wake(false);
+    setup_phase_changed(p, old);
 }
 
 // ------------------------------------------------------------------ events

@@ -105,7 +105,12 @@ static int xTaskCreate(void (*fn)(void *), const char *name, unsigned stack,
     return 0;
 }
 
-typedef struct { int content_len; } httpd_req_t;
+static const char portal_html_start[] = "mock compressed page";
+static const char *portal_html_end = portal_html_start + sizeof portal_html_start - 1;
+static void setup_dns_start(void) {}
+static void setup_dns_stop(void) {}
+
+typedef struct { int content_len; const char *uri; } httpd_req_t;
 struct cJSON { int unused; };
 typedef struct {
     bool (*uri_match_fn)(const char *, const char *);
@@ -149,8 +154,9 @@ static esp_err_t httpd_resp_set_hdr(httpd_req_t *r, const char *k, const char *v
     if (!strcmp(k, "Cache-Control")) sent_cache = v;
     return ESP_OK;
 }
-static esp_err_t httpd_resp_set_status(httpd_req_t *r, const char *s) { (void)r; (void)s; return ESP_OK; }
-static esp_err_t httpd_resp_sendstr(httpd_req_t *r, const char *s) { (void)r; (void)s; return ESP_OK; }
+static const char *sent_status_line, *sent_text;
+static esp_err_t httpd_resp_set_status(httpd_req_t *r, const char *s) { (void)r; sent_status_line = s; return ESP_OK; }
+static esp_err_t httpd_resp_sendstr(httpd_req_t *r, const char *s) { (void)r; sent_text = s; return ESP_OK; }
 static esp_err_t httpd_resp_send(httpd_req_t *r, const char *s, ssize_t n) { (void)r; sent_body = s; sent_length = n; return ESP_OK; }
 static int httpd_req_recv(httpd_req_t *r, char *p, size_t n) { (void)r; (void)p; (void)n; return -1; }
 
@@ -293,6 +299,33 @@ int main(void) {
     assert(!queue_connection("home-net", "correct-pass", "", &host_choice) && s_req.pending && !s_req.url[0]);
     s_req.pending = false;
     assert(!strcmp(queue_connection("home-net", "correct-pass", "https://x", &host_choice), "server_format"));
+    // Connectivity probes are told the network works, so an iPhone shows no captive sheet (closing it leaves the
+    // network); any other path still opens the page.
+    httpd_req_t probe = {.uri = "/hotspot-detect.html"};
+    assert(redirect(&probe, HTTPD_404_NOT_FOUND) == ESP_OK && !strcmp(sent_status_line, "200 OK") && strstr(sent_text, "<TITLE>Success</TITLE>"));
+    probe.uri = "/generate_204?x=1";
+    assert(redirect(&probe, HTTPD_404_NOT_FOUND) == ESP_OK && !strcmp(sent_status_line, "204 No Content"));
+    probe.uri = "/hotspot-detect.html.bak";
+    assert(redirect(&probe, HTTPD_404_NOT_FOUND) == ESP_OK && !strcmp(sent_status_line, "302 Found"));
+    // Rejected home-LAN requests cannot produce interface sounds.
+    s_events = 0; request_on_ap = false;
+    assert(page_get(&probe) == ESP_FAIL && sent_status == HTTPD_403_FORBIDDEN);
+    assert(setup_take_events() == 0);
+    request_on_ap = true;
+    assert(page_get(&probe) == ESP_OK);
+    assert(setup_take_events() == SETUP_EV_PAGE && setup_take_events() == 0);
+    // What the phone does is reported once, for the app task to answer with a sound; a phone that leaves re-arms the greeting.
+    static setup_mem_t sound_mem;
+    s_mem = &sound_mem;
+    assert(setup_take_events() == 0);
+    s_scan_wanted = true; scan_now();  // the first scan, which nobody asked for, is silent
+    assert(setup_take_events() == 0);
+    s_scan_wanted = s_scan_asked = true;  // what POST /api/scan sets
+    scan_now();
+    assert(setup_take_events() == SETUP_EV_SCAN && setup_take_events() == 0);
+    s_phase = SETUP_OPEN; ap_clients = 0;
+    assert(setup_poll() == SETUP_JOIN);
+    s_mem = NULL;
     // A joined network is not committed until NVS succeeds. Failure must exit
     // trial mode and restore the previous profile; success must keep the new link.
     s_phase = SETUP_TRYING; station_connected = true; save_result = ESP_FAIL;
@@ -346,7 +379,7 @@ def main():
     source_text += "\n" + request_source[request_source.index("const char *setup_validate_credentials("):request_source.index("cJSON *setup_read_request(")]
     production = "\n".join(
         line for line in source_text.splitlines()
-        if not line.startswith("#include")
+        if not line.startswith("#include") and not line.startswith("extern const char portal_html")
     )
     with tempfile.TemporaryDirectory(prefix="kubik-setup-") as tmp:
         cfile = Path(tmp) / "setup-test.c"

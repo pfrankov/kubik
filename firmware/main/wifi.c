@@ -376,11 +376,6 @@ void wifi_ap_start(const char *ssid, const char *password) {
     if (!s_ap) {
         s_ap = esp_netif_create_default_wifi_ap();
         ESP_ERROR_CHECK(s_ap ? ESP_OK : ESP_ERR_NO_MEM);
-        // RFC 8910: phones that support it open the setup page without probing.
-        static const char uri[] = "http://192.168.4.1/";
-        esp_netif_dhcps_stop(s_ap);
-        esp_netif_dhcps_option(s_ap, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, (void *)uri, sizeof(uri) - 1);
-        esp_netif_dhcps_start(s_ap);
     }
     wifi_config_t ap = {0};
     strncpy((char *)ap.ap.ssid, ssid, sizeof(ap.ap.ssid));

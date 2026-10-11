@@ -67,7 +67,7 @@ def normalize_pdf(path):
         for page in pdf:
             page.set_mediabox(fitz.Rect(0, 0, 105 * 72 / 25.4, 148 * 72 / 25.4))
         pdf.set_metadata({'title': 'Kubik · Getting started', 'author': 'Kubik',
-                          'subject': 'English A6 guide · Tess · software 0.6.2'})
+                          'subject': 'English A6 guide · Tess · software 0.6.3'})
         data = pdf.tobytes(garbage=4, deflate=True, no_new_id=True)
     path.write_bytes(data)
 

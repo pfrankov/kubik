@@ -21,6 +21,7 @@ static void handle_boot_short(void) {
         audio_sfx(SFX_MENU_CLOSE);
     } else if (s_pair_code[0] && !s_pair_hidden) {
         s_pair_hidden = true;
+        audio_sfx(SFX_DISMISS);
     } else if (s_menu) {
         menu_back();
     } else {

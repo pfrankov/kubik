@@ -26,9 +26,9 @@ static void configure_menu(face_t *f, int ev) {
     }
 }
 static void configure_setup(face_t *f, int ev, const uint8_t *qr_join, int n_join, const uint8_t *qr_page, int n_page) {
-    if (ev == -2) face_set_setup(f, qr_join, n_join, 1, "Scan to join Wi-Fi", "KUBIK-C634  \u00B7  password 48210937");
-    if (ev == -3) face_set_setup(f, qr_page, n_page, 2, "Scan again for setup", "192.168.4.1");
-    if (ev == -4) face_set_setup(f, NULL, 0, 3, "Connecting\u2026", "\u201CPavel Home 5G\u201D");
+    if (ev == -2) face_set_setup(f, qr_join, n_join, 1, "1 \u00B7 Scan to join Wi-Fi", "KUBIK-C634  \u00B7  password 48210937");
+    if (ev == -3) face_set_setup(f, qr_page, n_page, 2, "2 \u00B7 Scan again for setup", "192.168.4.1");
+    if (ev == -4) face_set_setup(f, NULL, 0, 3, "3 \u00B7 Connecting\u2026", "\u201CPavel Home 5G\u201D");
     if (ev == -5) face_set_pairing(f, "7KQ2XM9P");
 }
 static void configure_cards(face_t *f, int ev, const char *const bub_text[BUB_COUNT]) {

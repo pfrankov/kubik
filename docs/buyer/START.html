@@ -5,7 +5,7 @@
 <header><div><p class="brand">KUBIK · SETUP</p><h1>Set up Kubik.</h1><p>Connect Tess to your own agent.</p></div>
 <img src="assets/hello-tess.png" alt="Tess on an isometric Kubik with three physical buttons."></header>
 <p>Your Kubik is already flashed. You need USB-C power, a phone and a <strong>2.4 GHz Wi-Fi</strong> password. You also need a computer or server running OpenClaw.</p>
-<p class="note">GitHub setup page: <a href="https://OWNER.github.io/kubik/" data-setup-url>https://OWNER.github.io/kubik/</a> <span class="draft">Temporary address — replace before release.</span></p>
+<p class="note">GitHub setup page: <a href="https://github.com/pfrankov/kubik" data-setup-url>https://github.com/pfrankov/kubik</a> <span>Download the kit and open START.html for the offline guide.</span></p>
 <nav aria-label="Setup sections"><a href="#buttons">Buttons</a><a href="#agent">1. Prepare your agent</a><a href="#wifi">2. Connect Wi-Fi</a><a href="#pair">3. Approve Kubik</a><a href="#talk">4. Talk to Tess</a><a href="#help">Help</a></nav>
 
 <section id="buttons"><h2>Know the buttons.</h2><svg class="controls" viewBox="0 0 1254 1254" role="img" aria-label="Kubik in three dimensions. Buttons from left to right: BOOT, PWR, KEY.">
@@ -163,7 +163,7 @@ openclaw channels status --probe</pre>
 <section id="wifi"><h2>2. Connect Kubik to Wi-Fi.</h2>
 <p><strong>Muse:</strong> choose Muse in the agent step and enter your personal SDK key; a server address is not needed. After saving, continue in the Muse app.</p>
 
-<ol><li>Connect USB-C power. Press <kbd>PWR</kbd> briefly to wake the screen; if Kubik is powered off, hold it for about two seconds. An unconfigured device shows <strong>Scan to join Wi-Fi</strong>. Otherwise, hold <kbd>BOOT</kbd> for Settings → <strong>Wi-Fi</strong>.</li>
+<ol><li>Connect USB-C power. Press <kbd>PWR</kbd> briefly to wake the screen; if Kubik is powered off, hold it for about two seconds. An unconfigured device shows <strong>Scan to join Wi-Fi</strong>. Otherwise, hold <kbd>BOOT</kbd> for Settings → <strong>Status → Network → Wi-Fi</strong>.</li>
 <li>Scan the first code with your phone and join <strong>KUBIK-XXXX</strong>. Stay on this network if the phone reports “no internet”.</li>
 <li>Wait for the gold title <strong>Scan again for setup</strong>. Scan the new code to open the setup page. You can also open <code>http://192.168.4.1/</code> while joined to KUBIK-XXXX.</li>
 <li>Select your <strong>2.4 GHz</strong> Wi-Fi, enter its password, then tap <strong>Continue to agent</strong>.</li>
@@ -212,5 +212,5 @@ openclaw channels status --probe</pre>
 <details><summary>Add Wi-Fi, check charging or update firmware</summary><p>Settings → Status → Network → Wi-Fi adds a network. Up to eight networks are remembered; saving the exact same name updates that profile. The home-screen bolt means active charging. In Settings it also means confirmed USB power, including a full battery.</p><p>Firmware updates use USB, not Wi-Fi. Install the application and assets from one matching character archive. The firmware download on GitHub contains the flashing instructions; ordinary updates preserve Wi-Fi and pairing. Never erase settings as a routine update step.</p></details>
 <details><summary>Ownership transfer or complete reset</summary><p>For a tour replay, use Guide instead. A complete reset erases Wi-Fi, server trust, pairing identity and personal settings.</p><p>In Settings, tap the battery percentage five times within four seconds. Tap the revealed Reset, then tap it again within three seconds. Kubik restarts into setup and needs approval again. Revoke its old entry on the agent before giving the device to another person.</p></details>
 <p>Still stuck? Contact the seller through your order. Include the step, the on-screen message, your operating system and software version. Keep passwords and keys private.</p></section>
-<p class="note">Kubik software 0.6.2 · English buyer guide. Setup guide hosted on GitHub. Downloads and official documentation need internet; downloaded copies use local assets. Product and third-party licences are in the release’s LICENSE, NOTICE and licenses folder.</p>
+<p class="note">Kubik software 0.6.3 · English buyer guide. Setup guide hosted on GitHub. Downloads and official documentation need internet; downloaded copies use local assets. Product and third-party licences are in the release’s LICENSE, NOTICE and licenses folder.</p>
 </main></body></html>

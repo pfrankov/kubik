@@ -21,7 +21,7 @@ mocks = r'''
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-enum { PIN_BOOT, EV_BOOT_SHORT, EV_BOOT_LONG, EV_TOUCH_DOWN, SFX_MENU_CLOSE };
+enum { PIN_BOOT, EV_BOOT_SHORT, EV_BOOT_LONG, EV_TOUCH_DOWN, SFX_MENU_CLOSE, SFX_DISMISS };
 typedef struct { bool boot, boot_long_sent; int boot_count; int64_t boot_started_ms, touch_activity_ms; } input_state_t;
 static bool down, s_menu, s_setup, s_pair_hidden;
 static char s_pair_code[17];
@@ -37,7 +37,7 @@ static void app_post(int event, int a, int b) {
 static bool power_is_dark(int state) { return state == 1; }
 static void wake(bool sound) { assert(!sound); s_power = 0; wakes++; }
 static void setup_leave(void) { closes++; s_setup = false; }
-static void audio_sfx(int sound) { assert(sound == SFX_MENU_CLOSE); }
+static void audio_sfx(int sound) { assert(sound == SFX_MENU_CLOSE || sound == SFX_DISMISS); }
 static void menu_back(void) { backs++; }
 static void face_lock(void) {}
 static void face_unlock(void) {}

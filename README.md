@@ -10,6 +10,21 @@ Kubik is a small Wi-Fi voice companion built on the Waveshare ESP32-C6-Touch-AMO
 
 Connect **OpenClaw** with the Kubik channel plugin; connect **Hermes** with its [native gateway platform](docs/hermes.md). Custom agents can use the [adapter SDK](docs/agent-sdk.md). Provider credentials stay on the agent host.
 
+## Download and update
+
+Download **kubik-kit-tess.zip** from the [latest release](https://github.com/pfrankov/kubik/releases/latest). Tess is the default; choose the Plush kit only for that character. Each kit includes the firmware, setup guide, installer and component license notices.
+
+To update, extract the kit, then extract its firmware ZIP into a separate folder. Close any program using Kubik’s USB port, connect Kubik by USB-C and run these commands in the firmware folder (macOS/Linux):
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install esptool==4.12.0
+.venv/bin/python flash-device.py --check
+.venv/bin/python flash-device.py
+```
+
+On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\python.exe` instead. The installer checks image hashes before writing and preserves saved Wi-Fi networks, pairing and settings. For a new device, continue with the steps below; for an existing device, let it reconnect. Firmware **0.6.3** ships with **openclaw-kubik 0.6.4**; update the channel from npm with the installation command below.
+
 ## Get connected
 
 You need a flashed Kubik, a phone and a 2.4 GHz Wi-Fi network. For **Muse**, follow the [phone-only setup](#muse-without-a-host). For **OpenClaw or Hermes**, keep your agent running on a reachable computer or server and configure its speech providers, then follow these steps:

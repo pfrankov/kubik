@@ -26,15 +26,16 @@
 <div class="connection">Wi-Fi: <strong id="chosenNetwork"></strong><button class="link" type="button" id="back">Change</button></div>
 <h2 id="agentTitle" tabindex="-1">Connect your agent</h2><p class="hint">OpenClaw needs the Kubik plugin installed on its server before you connect.</p>
 <div class="agent-options" id="agents"><button type="button" data-agent="OpenClaw" aria-pressed="true">OpenClaw <span>Kubik channel</span></button><button type="button" hidden data-agent="Hermes" aria-pressed="false">Hermes <span>Direct Wi-Fi</span></button><button type="button" hidden data-agent="Muse" aria-pressed="false">Muse <span>Direct Wi-Fi</span></button><button type="button" hidden data-agent="Custom" aria-pressed="false">Another agent <span>Your adapter</span></button></div>
-<p class="hint" id="agentHint">Install the Kubik plugin from npm on your OpenClaw computer first. The computer setup guide also helps you find the server address.</p>
+<p class="hint" id="agentHint">Install the Kubik plugin from npm on your OpenClaw computer first. It also prints the address Kubik needs when OpenClaw is not on this Wi-Fi.</p>
 <div id="pluginSetup"><p class="hint">Open on your computer: <a href="https://github.com/pfrankov/kubik#get-connected" target="_blank" rel="noopener noreferrer">github.com/pfrankov/kubik</a></p><p class="hint">On that computer, install and enable the channel:</p><pre>openclaw plugins install openclaw-kubik
-openclaw channels add --channel kubik --enable</pre></div>
+openclaw channels add --channel kubik --enable
+openclaw channels status --probe</pre><p class="hint">The last command prints the Kubik address (kubik://…) for the Server address field below.</p></div>
 <div id="openclawApproval"><p class="hint">When Kubik shows a pairing code, run the approval command on its screen on your OpenClaw computer.</p></div>
 <div id="museDetails" hidden><label for="sdkToken">Muse SDK key</label><input id="sdkToken" type="password" maxlength="48" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="sdkHint" placeholder="mgst_…">
 <p class="hint" id="sdkHint">Create your personal key at <a href="https://gadgets.muse.ai/settings/sdk-tokens" target="_blank" rel="noopener noreferrer">Muse Gadgets</a>. After Wi-Fi connects, pair in the Muse app on your phone. No computer or server needed. Replies appear as text.</p></div>
-<details id="serverDetails"><summary>Server address <span class="hint">· optional</span></summary>
+<details id="serverDetails"><summary>Server address <span class="hint">· blank on the same Wi-Fi</span></summary>
 <label for="url">Agent server address</label><input id="url" maxlength="127" inputmode="url" aria-describedby="urlHint" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="kubik://your-computer">
-<p class="hint" id="urlHint">On the same trusted network, leave blank to find OpenClaw. For a remote server, use the Kubik address from the computer setup guide. Do not use localhost.</p></details>
+<p class="hint" id="urlHint">On the same trusted network, leave blank to find OpenClaw. Otherwise run openclaw channels status --probe on the OpenClaw computer and copy the kubik://… address from its “lan” line. Do not use localhost.</p></details>
 </section>
 <div class="actions" id="actions"><div><button class="go" id="go" type="submit">Continue to agent</button><p class="err" id="err" role="alert"></p></div></div>
 </form>
@@ -241,7 +242,7 @@ function selectAgent(agent) {
   getElement('museDetails').hidden = !muse;
   getElement('sdkToken').placeholder = setupState.muse_saved ? 'Keep saved account (optional)' : 'mgst_…';
   const hints = {
-    OpenClaw: 'Install the Kubik plugin from npm on your OpenClaw computer first. The computer setup guide also helps you find the server address.',
+    OpenClaw: 'Install the Kubik plugin from npm on your OpenClaw computer first. It also prints the address Kubik needs when OpenClaw is not on this Wi-Fi.',
     Hermes: 'Install the Kubik platform inside your Hermes Gateway using the GitHub guide. Configure speech in Hermes. Enter kubik://HOST:18793 below; no companion host is needed.',
     Custom: 'Use the Agent SDK to create your adapter. Run the Kubik host on your agent computer, then connect here.',
     Muse: 'Connect Wi-Fi here, then finish in the Muse app: Settings → Devices → Developer mode → Add device. Bluetooth is used only for pairing.'

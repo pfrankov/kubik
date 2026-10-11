@@ -1,21 +1,21 @@
 {
   "inputs": {
-    "docs/buyer/START.html": "d19df9392c447454f542dbae9575661a3171d25cf34a25e6bd4ba0157cea03a7",
+    "docs/buyer/START.html": "2375ecbec714f03a9f89eb4a0c07006c8e8fe5214433de6b5ffd16352c1c7a70",
     "docs/buyer/assets/first-conversation.png": "48668b0e94f61f6e8f0136d5ded895f3c75269c220868713c2227541dcdae13e",
     "docs/buyer/assets/hello-tess.png": "4e5c546627c831b7e4aebf2c2e3bf237ee4372bef733e5b005b42f89f9192a9d",
     "docs/buyer/assets/prepare-agent.png": "f7ebfdf99fafd0b15f00250c8aecc9d715ff6bc2472df76928645e2c6574c50d",
     "docs/buyer/assets/scan-setup-next.png": "435369cbf59cd8d62becb2b3374d0a00684416b5bd5e5ff732b8f130ceeb4553",
     "docs/buyer/assets/scan-setup.png": "9b1545801fae2660ef3cfad44240d1c2ddbd2a18653122aa63e85133c89067ec",
     "docs/buyer/booklet.css": "f6f3673f709e1eb91fef6ace92b8da057082d21e15d5cc03e8fc2cd5bd129e5a",
-    "docs/buyer/booklet.html": "9f3996bc8c44955bfbff7b0dabe193ecf43290205d7479c12b572186be77b3e3",
+    "docs/buyer/booklet.html": "5b74da2bf7cdbcea43551ad0d804e07136656c15e65f055a8d74fa52f42902d3",
     "docs/buyer/start.css": "f2c1a4a4db73ae5f00bca30efc99d2e05941cb4e5cccfc03fe722d09b3c01d7d",
     "docs/buyer/start.js": "bf9922e2d512d306549e3fb3cf73335ba56aafb07d09c126312157584a42c6f4",
-    "tools/build-buyer-guide.py": "4f004ed5217ac9843c965bd27a75d96cd0b62b483c1b3b3ea0623a8b689dfaa5",
+    "tools/build-buyer-guide.py": "5f4e104d69916ffd5e667c183968c2acaa39f433a924b55307e708615ebb4996",
     "tools/font/sources/PT_Sans-Web-Bold.ttf": "3128bd5ecf01816e59a23d54c57a7a6b14615b07db53ff277c77376010265b05",
     "tools/font/sources/PT_Sans-Web-Regular.ttf": "9cc831490532009bae2b3ce0d39c62adfc889060beb421593bfd9d2396d0f10a"
   },
   "outputs": {
-    "kubik-getting-started-A6.pdf": "765071494dd599e1cd6cda237c709a35e9c7e975593a377ea787dc4aa9367788",
-    "kubik-booklet-A5-duplex.pdf": "489be52b808012f38de8b8951ecb12b9c578ba9581e079f29361a19b726a9eb7"
+    "kubik-getting-started-A6.pdf": "4f65ce51cf95ee817e48008a613598e52a65e7ca191737f37450f3496cbd5a2b",
+    "kubik-booklet-A5-duplex.pdf": "8ae3a313249773d47ff6b11f8edb505481affff1cf6660985220146086f2507b"
   }
 }

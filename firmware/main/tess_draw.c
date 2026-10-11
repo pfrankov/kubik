@@ -314,6 +314,56 @@ static void note_play_target(face_t *f, const dot_t dots[TESS_N]) {
     f->tess_games.hit_valid = true;
 }
 
+// How much of her is still a point: the shimmer and the trail follow it.
+static float point_share(const face_t *f) {
+    const tess_games_t *g = &f->tess_games;
+    if (!g->ready || f->tess_fallen) return 0;
+    return fmaxf(1 - clampf(g->form, 0, 1), smooth01(g->fold));
+}
+
+static void centroid(const dot_t dots[TESS_N], float c[2]) {
+    int64_t x = 0, y = 0;
+    for (int i = 0; i < TESS_N; i++) { x += dots[i].x; y += dots[i].y; }
+    c[0] = (float)(x / TESS_N) * (1.f / 8.f); c[1] = (float)(y / TESS_N) * (1.f / 8.f);
+}
+
+// The point itself shimmers: it swells and brightens in slow pulses (the dots are the same ones that roll with the
+// tilt and answer touch), so there is no second light over it.
+static void shimmer_point(const face_t *f, dot_t dots[TESS_N]) {
+    float p = point_share(f);
+    if (!(p > .01f)) return;
+    float pulse = fmaxf(0, tess_sin(f->t * 3.1f)) * p;
+    int scale_q8 = 256 + (int)(pulse * .25f * 256.f);
+    for (int i = 0; i < TESS_N; i++) {
+        dots[i].radius = (dots[i].radius * scale_q8 + 128) >> 8;
+        dots[i].key += (int)((65535 - dots[i].key) * pulse * .8f);
+    }
+}
+
+// The trail follows where the cloud's centre really is, sampled at 18 Hz; a point at rest lets it drain.
+static void sample_point_trail(face_t *f, const float centre[2]) {
+    tess_games_t *g = &f->tess_games;
+    if (f->t - g->trail_at < .055f && f->t >= g->trail_at) return;
+    bool moved = !g->trail_n || hypotf(centre[0] - g->trail[0][0], centre[1] - g->trail[0][1]) > 1.5f;
+    memmove(g->trail[1], g->trail[0], sizeof g->trail[0] * 5);
+    memcpy(g->trail[0], centre, sizeof g->trail[0]);
+    if (moved && g->trail_n < 6) g->trail_n++;
+    else if (!moved && g->trail_n) g->trail_n--;
+    g->trail_at = f->t;
+}
+
+static void draw_point_trail(face_t *f, scene_t *s, const dot_t dots[TESS_N]) {
+    tess_games_t *g = &f->tess_games;
+    float p = point_share(f);
+    if (!(p > .01f)) { g->trail_n = 0; return; }
+    float c[2]; centroid(dots, c);
+    sample_point_trail(f, c);
+    for (int i = g->trail_n - 1; i >= 1; i--) {
+        float fade = (6 - i) / 6.f * p;
+        sc_glow_dot(s, g->trail[i][0], g->trail[i][1], 2 + fade * 3, rgb_scale(0x59DCC4, fade * .65f), (uint8_t)(fade * 100));
+    }
+}
+
 void tess_project_dots(face_t *f, tess_projected_t dots[TESS_N]) {
     float initial[TESS_N][3], m[3][3];
     const float (*points)[3] = f->tess_position;
@@ -342,7 +392,9 @@ void tess_draw(face_t *f, scene_t *s) {
     dot_t dots[TESS_N];
     tess_project_dots(f, dots);
     pulse_game_dots(f, dots);
+    shimmer_point(f, dots);
     if (f->tess_fallen) shade_fallen(f, dots);
+    draw_point_trail(f, s, dots);
     draw_cloud(f, s, dots);
     draw_recording(f, s);
 }

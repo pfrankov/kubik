@@ -89,16 +89,16 @@ static void words_fit(void) {
     assert(label_width(TXT_HEADING, chip) <= 440);
 }
 
-// A setup decoration must never steal the QR's previously available space.
+// A setup decoration must never steal the QR's room: the code is never smaller than it was with its card.
 static void setup_qr_room(void) {
     static const int sizes[] = {21, 25, 29, 33, 37, 41};
-    static const int modules[] = {7, 6, 5, 4, 4, 3};
+    static const int modules[] = {8, 6, 6, 5, 4, 4};  // the light code on black keeps one module of margin, no card
     static uint8_t qr[41 * 41];
     static scene_t scene;
     for (int step = 1; step <= 2; step++) {
         for (unsigned i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
             face_t f; face_init(&f); face_set_mode(&f, MODE_SETUP);
-            face_set_setup(&f, qr, sizes[i], step, step == 1 ? "Scan to join Wi-Fi" : "Scan again for setup", "192.168.4.1");
+            face_set_setup(&f, qr, sizes[i], step, step == 1 ? "1 \u00B7 Scan to join Wi-Fi" : "2 \u00B7 Scan again for setup", "192.168.4.1");
             f.qr_t = 1; face_draw(&f, &scene);
             int codes = 0, lines = 0;
             for (int j = 0; j < scene.n; j++) {
@@ -108,7 +108,7 @@ static void setup_qr_room(void) {
                 codes++;
                 assert(p->b == modules[i]);
                 assert(p->bx1 - p->bx0 + 1 == sizes[i] * modules[i] * R_SCALE);
-                assert(p->by0 >= 64 && p->by1 < 414);
+                assert(p->by0 >= 54 && p->by1 < 426);
             }
             assert(codes == 1 && lines == 2); // existing heading + detail only
         }

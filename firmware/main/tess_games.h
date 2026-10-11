@@ -57,4 +57,6 @@ typedef struct {
     float form, fold, pulse, offset[2];
     float hit[2];                // her centre on the panel
     bool hit_valid;
+    uint8_t trail_n;             // the point's fading positions, newest first, sampled at 18 Hz
+    float trail[6][2], trail_at;
 } tess_games_t;

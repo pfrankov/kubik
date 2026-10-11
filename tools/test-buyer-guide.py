@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Buyer handoff: one setup page, draft GitHub addresses, responsive copy and saved A6 print."""
+"""Buyer handoff: one setup page, published GitHub addresses, responsive copy and saved A6 print."""
 import importlib.util
 import os
 from pathlib import Path
@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'docs/buyer'
-SETUP_URL = 'https://OWNER.github.io/kubik/'
+SETUP_URL = 'https://github.com/pfrankov/kubik'
 
 
 def check_print():
@@ -22,7 +22,9 @@ def check_print():
     module.check_pdf(SOURCE / module.OUTPUTS[1], module.PAGE_COUNT // 2, 210, 148)
     module.check_imposition()
     booklet = (SOURCE / 'booklet.html').read_text()
-    assert SETUP_URL in booklet and 'Temporary address' in booklet
+    assert SETUP_URL in booklet and 'Temporary address' not in booklet and 'OWNER' not in booklet
+    assert 'Settings → Status → Network → Wi-Fi' in booklet
+    assert 'Settings → Wi-Fi' not in booklet
     assert booklet.index('Know the buttons.') < booklet.index('Press <kbd>PWR</kbd>')
     assert 'Talk to Tess.' in booklet and '“Hi Tessa”' in booklet
     commands = re.findall(r'<pre[^>]*>(.*?)</pre>', booklet, re.S)
@@ -73,7 +75,9 @@ def check_browser(browser, output, width):
     assert page.locator('html').get_attribute('lang') == 'en'
     assert page.locator('[data-setup-url]').get_attribute('href') == SETUP_URL
     assert 'openclaw plugins install openclaw-kubik --force --accept-capabilities' in page.locator('pre[data-copy]').all_inner_texts()
-    assert 'Temporary address' in page.locator('.draft').inner_text()
+    assert 'Temporary address' not in page.locator('body').inner_text()
+    assert 'OWNER' not in page.locator('body').inner_text()
+    assert 'Settings → Status → Network → Wi-Fi' in page.locator('body').inner_text()
     assert page.locator('img').evaluate_all('imgs => imgs.every(i => i.complete && i.naturalWidth > 0)')
     for link in page.locator('nav a').all():
         link.click()
@@ -102,7 +106,7 @@ def main():
             for width in (320, 390, 1024):
                 check_browser(browser, output, width)
             browser.close()
-    print('buyer guide: single setup page, explicit GitHub placeholders, recipe navigation, copy/select and 8-page A6 print passed')
+    print('buyer guide: single setup page, published GitHub addresses, recipe navigation, copy/select and 8-page A6 print passed')
 
 
 if __name__ == '__main__':
