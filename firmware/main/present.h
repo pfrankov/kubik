@@ -10,7 +10,7 @@
 #include "frame_store.h"
 #include "render.h"
 
-#define OUTPUT_ROWS 12  // fewer DMA submissions; three buffers use 34.5 KiB total
+#define OUTPUT_ROWS 10  // three DMA buffers use 28.1 KiB, leaving headroom for Wi-Fi + wake
 #define PLAN_WINDOWS (RENDER_BAND_WINDOWS + 4)  // the windows of a band: its changed stripes, the edge band's ring
 
 typedef struct {
