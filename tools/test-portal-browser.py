@@ -190,18 +190,27 @@ def check_recovery(page):
 def tess_motion(page, value):
     # A media emulation acknowledgement precedes the browser's change dispatch.
     # Observe the same query after the app's listener, which cancels and paints once.
-    page.evaluate("""() => {
+    expected = value == 'reduce'
+    before = page.evaluate('[tessProbe.motion.matches, tessProbe.frames, tessProbe.callbacks]')
+    assert before[0] != expected, f'Media transition must start in the opposite mode: {before}'
+    print(f'Tess media transition to {value}: initial matches/frames/callbacks {before}', flush=True)
+    page.evaluate("""expected => {
       tessProbe.mediaChanged = false;
-      tessProbe.motion.addEventListener('change', () => { tessProbe.mediaChanged = true; }, {once: true});
-    }""")
+      const changed = event => {
+        if (event.matches !== expected) return;
+        tessProbe.mediaChanged = true;
+        tessProbe.motion.removeEventListener('change', changed);
+      };
+      tessProbe.motion.addEventListener('change', changed);
+    }""", expected)
     page.emulate_media(reduced_motion=value)
     page.wait_for_function('tessProbe.mediaChanged', polling=50, timeout=5000)
-    assert page.evaluate('tessProbe.motion.matches') == (value == 'reduce')
+    assert page.evaluate('tessProbe.motion.matches') == expected
     page.wait_for_timeout(100)
 
 
 def check_tess(page, output):
-    page.add_init_script("""window.tessProbe = {frames: 0, callbacks: 0, costs: []};
+    page.add_init_script("""window.tessProbe = {frames: 0, animatedFrames: 0, callbacks: 0, costs: []};
       const media = window.matchMedia;
       window.matchMedia = query => {
         const result = media.call(window, query);
@@ -210,18 +219,33 @@ def check_tess(page, output):
       };
       const clear = CanvasRenderingContext2D.prototype.clearRect;
       CanvasRenderingContext2D.prototype.clearRect = function(...args) {
-        if (this.canvas.id === 'tess') tessProbe.frames++;
+        if (this.canvas.id === 'tess') {
+          tessProbe.frames++;
+          if (tessProbe.inFrame) tessProbe.animatedFrames++;
+        }
         return clear.apply(this, args);
       };
       const raf = window.requestAnimationFrame;
       window.requestAnimationFrame = callback => raf.call(window, time => {
         tessProbe.callbacks++;
-        const started = performance.now(); callback(time);
-        tessProbe.costs.push(performance.now() - started);
+        const started = performance.now(); tessProbe.inFrame = true;
+        try { callback(time); }
+        finally {
+          tessProbe.inFrame = false;
+          tessProbe.costs.push(performance.now() - started);
+        }
       });""")
     page.emulate_media(reduced_motion='no-preference')
     mount(page)
-    page.wait_for_function('tessProbe.frames > 1')
+    # Resize/visibility draw even in reduced mode; real RAF ticks establish motion.
+    probe = '[tessProbe.motion.matches, tessProbe.frames, tessProbe.animatedFrames, tessProbe.callbacks]'
+    initial = page.evaluate(probe)
+    assert not initial[0], f'Tess must start without reduced motion: {initial}'
+    print(f'Tess startup matches/frames/animated frames/callbacks: {initial}', flush=True)
+    try:
+        page.wait_for_function('tessProbe.animatedFrames > 1', polling=50, timeout=5000)
+    except Exception as error:
+        raise AssertionError(f'Tess animation did not start: {page.evaluate(probe)}') from error
     tess_motion(page, 'reduce')
     a = page.locator('#tess').evaluate('(c) => c.toDataURL()')
     counts = page.evaluate('[tessProbe.frames, tessProbe.callbacks]')
