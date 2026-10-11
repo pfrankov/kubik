@@ -34,8 +34,9 @@ typedef enum {
     EV_SRV_ACTIVITY, // what OpenClaw is busy with: a = own, b = other (activity_t)
     EV_SRV_CRON,     // cron jobs: a = running, b = seconds to the next one-shot job (-1 = none)
     EV_SWIPE_UP,     // closes it
-    EV_DRAG,         // menu open: finger at a = x | first << 16, b = y (panel px)
+    EV_DRAG,         // menu open: finger at a = x | first << 16 | release << 17, b = y (panel px)
     EV_MENU_HOLD,    // stationary finger held in Settings: a=x, b=y
+    EV_TOUCH_UP,     // end of contact, after the final gesture event
     EV_TOUCH_DOWN,   // a finger landed (a dimmed screen brightens at once, before the tap completes)
     EV_VOICE_WAKE,   // a = capture epoch; reserved delivery, Tess only
     EV_VOICE_END,    // a = auto turn, b = empty/timeout; reserved delivery

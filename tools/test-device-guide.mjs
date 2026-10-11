@@ -30,7 +30,7 @@ function preserved(s,original) {
 async function replay() {
   let s=await info();if(s.screen_dark){await sim('pwr');await sleep(200)}
   s=await info();if(s.menu){await sim('menu');await sleep(200)}
-  await sim('menu');await sleep(550);await tap(356,226);
+  await sim('menu');await sleep(550);await tap(356,308);
   return until(s=>s.agent_open&&s.agent_view==='guide'&&s.guide_step===0,'replayed guide');
 }
 const bridgeLog=process.env.KUBIK_BRIDGE_LOG ?? '/tmp/kubik-bridge.log';
@@ -62,7 +62,7 @@ async function profileGuide(original) {
   s=await info();if(s.menu){await sim('menu');await sleep(550)}
   await frameWindow('Settings opening',()=>sim('menu'));
   await frameWindow('Settings steady');
-  await frameWindow('Guide opening',()=>tap(356,226));
+  await frameWindow('Guide opening',()=>tap(356,308));
   assert.equal((await info()).agent_view,'guide');
   await frameWindow('Guide next transition',()=>tap(240,428));
   await frameWindow('Guide steady');

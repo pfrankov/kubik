@@ -224,9 +224,10 @@ Live, открытие меню и сон также закрывают его. 
 на звуки интерфейса и персонажа. Ноль заглушает только выбранную группу.
 Оба значения сохраняются при закрытии Settings и переживают перезапуск.
 Interface имеет обычный максимум без дополнительного усиления; Speech независим.
-После обновления Interface наследует прежнюю громкость. Полный сброс задаёт 70
+После обновления Interface наследует прежнюю громкость. Первый запуск и полный сброс задают 100
 для обеих групп. Порог голосового ответа 20 относится только к Speech.
-Речь больше не ослабляется общей шкалой кодека; её отдельное усиление ограничивает пики.
+Speech на 100% воспроизводит исходный уровень без дополнительного усиления;
+громкие пики плавно ограничиваются. Общая шкала кодека не ослабляет речь.
 
 ## Muse
 
@@ -239,7 +240,7 @@ SDK key вводится только в мастере на телефоне; �
 
 In Settings, tap the battery indicator five times within four seconds to reveal
 **Events**. Closing Settings hides it again. The journal shows the last 16 events processed by the device since
-restart. Swipe up/down or use Older/Newer; tap an entry to read its message excerpt
+restart. Swipe up/down or use the left/right arrows (newer/older); tap an entry to read its message excerpt
 and reaction description. BOOT returns one level. **Overlay on home** saves an
 optional translucent event panel over the character. It does not change agent or
 voice settings. This is a local event history, not a full server trace. See

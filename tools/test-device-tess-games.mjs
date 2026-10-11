@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // Runs on the installed ESP32 through its native touch sampler. No provider calls.
-// Default: temporary Screen Lab progress. --learn earns missing real discoveries.
+// Plays every behaviour of Tess on the home screen and in isolated Screen Lab previews.
 import assert from 'node:assert/strict';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {waitForDeviceLink, setDeviceScreen, assertIdleCapture} from './test-device/diagnostics.mjs';
 
 const url = process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
-const learn = process.argv.includes('--learn');
 let labPage = 0;
 async function control(body) {
   const response = await fetch(`${url}/config`, {method:'POST', headers:{'content-type':'application/json'},
@@ -26,40 +25,6 @@ async function until(read, check, label, timeout=10000) {
 async function tap(x=240,y=255) {
   await pointer(true,x,y); await sleep(70); await pointer(false,x,y); await sleep(90);
 }
-async function echoInvite() {
-  await tap(); await sleep(700); await tap(180,220);
-  await until(state,s=>s.game===1,'ordinary tap and invitation start Duet');
-}
-async function swipeInvite(direction=0) {
-  const [dx,dy]=[[1,0],[-1,0],[0,1],[0,-1]][direction];
-  for(let n=0;n<=8;n++) {
-    await pointer(true,240+n*13*dx,255+n*13*dy); await sleep(25);
-  }
-  await pointer(false,240+104*dx,255+104*dy);
-  await until(state,s=>s.game===2,'ordinary directional swipe invites Chase');
-}
-async function winDuet(tier) {
-  let current=await until(state,s=>s.game===1&&s.phase===2,'Duet answer window');
-  for(let step=current.step;step<4+2*tier;step++) {
-    await sleep(120+(step%3)*130);
-    await tap(step%2?180:300,step%3?220:300);
-    current=await until(state,s=>s.game===1&&s.step===step+1&&s.phase!==1,'Tess answers the player');
-  }
-  const result=await until(state,s=>s.game===1&&s.phase===3,'Duet celebration');
-  assert.ok(result.progress&(1<<tier));
-}
-async function winChase(tier) {
-  await until(state,s=>s.game===2&&s.phase===2&&s.hit_valid,'Chase rendered target');
-  let previous, last=0;
-  for(let n=0;n<tier+3;n++) {
-    const hit=await until(state,s=>s.game===2&&s.phase===2&&s.hit_valid&&performance.now()-last>=750&&
-      (!previous||Math.hypot(s.hit_x-previous[0],s.hit_y-previous[1])>=55),'Chase target moved');
-    previous=[hit.hit_x,hit.hit_y]; last=performance.now();
-    await tap(...previous);
-    await until(state,s=>s.step===n+1&&s.game===2,'native Chase hit');
-  }
-  const result=await state(); assert.equal(result.phase,3); assert.ok(result.progress&(1<<(tier+3)));
-}
 async function catalog() {
   await sim('boot'); await until(info,s=>s.lab_screen==='Screen Lab','Lab catalog');
 }
@@ -68,7 +33,9 @@ async function select(index) {
   for(let page=0;page<turns;page++) { await sim('tap',{x:356,y:428}); await sleep(90); }
   labPage=target;
   await sim('tap',{x:240,y:144+(index%3)*88});
-  const name=index===22?'Growth: point':`${index<29?'Duet':'Chase'}: tier ${(index<29?index-26:index-29)+1}`;
+  const names={22:'Growth: point',26:'Play: pluck',27:'Play: bloom',28:'Play: stretch',
+    29:'Play: slingshot',30:'Play: gather',31:'Play: alone'};
+  const name=names[index];
   await until(info,s=>s.lab_screen===name,'Lab preview');
 }
 async function openLab() {
@@ -77,68 +44,123 @@ async function openLab() {
   await sim('hold',{x:90,y:36}); await until(info,s=>s.screen_lab,'hidden Lab entry');
   labPage=0;
 }
-async function temporaryGames(saved) {
-  await openLab();
-  await select(22); await until(state,s=>s.available,'Growth preview');
-  await echoInvite(); await winDuet(0); await catalog();
-  for(const direction of [0,1,2,3]) {
-    await select(22); await swipeInvite(direction); await winChase(0); await catalog();
+// A finger held on the glass: USB samples expire after 350 ms, so a held finger is refreshed.
+async function hold(x,y,ms) { const end=performance.now()+ms; do { await pointer(true,x,y); await sleep(60); } while (performance.now()<end); }
+async function pull(fromX,toX,y=255) {
+  for(let x=fromX;x<=toX;x+=10) { await pointer(true,x,y); await sleep(40); }
+  await hold(toX,y,450);
+  const held=await state();
+  await pointer(false,toX,y);
+  return held;
+}
+// Watch the play for a while; returns the strongest of each quantity seen.
+async function watch(ms) {
+  const seen={waves:0,bloom:0,pull:0,speed:0,squash:0,self:0,shaping:false,games:new Set(),burst:0};
+  const end=performance.now()+ms;
+  while(performance.now()<end) {
+    const s=await state();
+    for(const k of ['waves','bloom','pull','speed','squash','self','burst']) seen[k]=Math.max(seen[k],s[k]);
+    seen.shaping=seen.shaping||s.shaping; seen.games.add(s.game);
+    await sleep(30);
   }
-  for(let game=0;game<2;game++) for(let tier=0;tier<3;tier++) {
-    await select((game?29:26)+tier);
-    if(game) await winChase(tier); else await winDuet(tier);
-    assert.equal((await state()).saved,saved,'Lab must not persist victories');
+  return seen;
+}
+async function sweep() {
+  let last=await state();
+  for(let row=0,y=24;y<=456&&(!row||(last.game===3&&last.phase!==3));y+=56,row++) {
+    for(let x=24;x<=456;x+=36) {
+      const s=await pointer(true,row%2?480-x:x,y);
+      if(!s.ok) throw Error('pointer sample rejected');
+      await sleep(25);  // a quick real finger, not a path faster than the display can sample
+    }
+    last=await state();
+  }
+  await pointer(false,240,255);
+  return last;
+}
+async function previews(saved) {
+  await openLab();
+  const expect={26:s=>s.waves>0,27:s=>s.bloom>.5,28:s=>s.pull>.5,29:s=>s.speed>5,30:s=>s.games.has(3),31:s=>s.self>0||s.waves>0};
+  for(const index of [26,27,28,29,30,31]) {
+    await select(index);
+    const seen=await watch(1500);
+    assert.ok(expect[index](seen)&&seen.shaping|| index===30&&expect[index](seen),`Lab preview ${index} plays`);
+    assert.equal((await state()).saved,saved,'Lab must not persist discoveries');
     await catalog();
   }
-  await select(29); await until(state,s=>s.phase===2,'Chase miss window');
-  const missedProgress=(await state()).progress;
-  await tap(10,10); await sleep(150);
-  const missed=await state();
-  assert.equal(missed.game,2,'a miss stays playful'); assert.equal(missed.step,0);
-  assert.equal(missed.progress,missedProgress); await catalog();
-  await select(26); await until(state,s=>s.phase===2,'Duet first turn');
-  const beforeRapid=(await state()).progress;
-  await tap(); await sleep(80); await tap();
-  const rapid=await state(); assert.equal(rapid.game,1); assert.equal(rapid.step,1);
-  assert.equal(rapid.progress,beforeRapid); await catalog();
-  await select(26);
-  await pointer(true); await sleep(100); await pointer(true,275,255); await sleep(100);
-  await pointer(false,350,255);
-  await until(state,s=>s.game===0,'drag yields to normal rotation',1000);
-  await sleep(750); assert.equal((await state()).game,0,'exit drag cannot invite another game');
-  await catalog();
-  await select(26);
-  for(let n=0;n<4;n++) { await pointer(true); await sleep(200); }
-  await pointer(false);
-  await until(state,s=>s.game===0,'held finger ends game',1000); await catalog();
-  await select(26); await until(state,s=>s.game===1&&s.phase===2,'unanswered Duet window');
-  const waitingAt=performance.now();
-  await until(state,s=>s.game===0,'unanswered game timeout',8000);
-  assert.ok(performance.now()-waitingAt>=4500,'timeout must not be immediate'); await catalog();
   await sim('boot'); await until(info,s=>!s.screen_lab&&s.menu,'real Settings');
   await sim('menu'); await until(info,s=>!s.menu,'home');
-  await sleep(600); // menu.open clears before its visual transition finishes
+  await sleep(1500);
 }
-async function realDiscoveries() {
-  for(let game=0;game<2;game++) for(let tier=0;tier<3;tier++) {
-    const before=await state(), bit=1<<(game*3+tier);
-    if(before.progress&bit) continue;
-    if(game) await swipeInvite(tier); else await echoInvite();
-    assert.equal((await state()).tier,tier);
-    if(game) await winChase(tier); else await winDuet(tier);
-    const expected=before.progress|bit;
-    await until(state,s=>s.saved===expected,'milestone committed to NVS');
-    await until(state,s=>s.game===0,'celebration ends');
-    console.log(`native ${game?'Chase':'Duet'} tier ${tier+1}: durable mask ${expected}`);
+const TONE={ring:1,creak:2,twang:4,thud:8,grain:16,whoosh:32,chirp:64};
+async function tilt(x,y,ms) { assert.equal((await sim('gravity',{x,y,ms})).ok,true); }
+// The gyroscope, her temper and her voice, on the device.
+async function feelings() {
+  await sleep(2000);
+  // Tilt: she rolls downhill, knocks into the rim, and rolls home when the device is level again.
+  await tilt(.65,0,2500);
+  let seen=await watch(2000), far=0;
+  for(let i=0;i<10;i++) far=Math.max(far,(await state()).x);
+  const rolled=await state();
+  assert.ok(rolled.tilt_x>.3,'the probe tilt reaches her');
+  assert.ok(far>330&&seen.squash>.05,`a tilt rolls her into the rim (x ${far}, squash ${seen.squash})`);
+  await until(state,s=>Math.abs(s.x-240)<15,'level again, she rolls home',8000);
+  // Pour: a burst held tilted slides downhill; tilting back and forth pours dots through her core.
+  await sleep(1500);
+  for(let n=0;n<6;n++) { await tap(240,255); await sleep(120); }
+  await until(state,s=>s.burst>.8,'a burst',3000);
+  for(let swing=0;swing<6;swing++) { await tilt(swing%2?-.7:.7, swing%3?-.4:.5, 1100); await sleep(1000); }
+  const poured=await state();
+  assert.ok(poured.streak>3||poured.phase===3,`tilting pours dots home (${poured.streak})`);
+  await tilt(0,0,0);
+  await until(state,s=>s.burst===0,'the burst ends',12000);
+  // Temper: poked again and again in one place, she gets cross, and says so.
+  await sleep(1500);
+  let cross=0;
+  for(let n=0;n<10;n++) { await tap(300,255); cross=Math.max(cross,(await state()).annoy); await sleep(80); }
+  const voiced=await state();
+  assert.ok(cross>.5,`rapid pokes annoy her (${cross})`);
+  assert.ok((voiced.tones&(TONE.ring|TONE.chirp|TONE.thud|TONE.grain))===(TONE.ring|TONE.chirp|TONE.thud|TONE.grain),`her body sounds (${voiced.tones})`);
+  await until(state,s=>s.annoy<.3,'and it passes',20000);
+}
+async function realPlay() {
+  // Pluck: a tap on her rings a wave through her edges; two quick taps make two.
+  await tap(265,255);
+  let seen=await watch(500); assert.ok(seen.waves>=1&&seen.shaping,'a tap plucks her');
+  await tap(205,205); await tap(285,305);
+  seen=await watch(300); assert.ok(seen.waves>=2,'two plucks ring together');
+  await sleep(2000);
+  // Bloom: a run of swipes across her winds her up until she opens.
+  // (each lift lasts longer than a display frame, as a real finger's does)
+  let opened=0;
+  for(let n=0;n<12&&opened<.5;n++) {
+    for(let x=170;x<=330;x+=40) { await pointer(true,x,255); await sleep(15); }
+    await pointer(false,370,255); await sleep(150);
+    opened=Math.max(opened,(await state()).bloom);
   }
-  assert.equal((await state()).saved,63);
-  await until(state,s=>s.form===3,'earned tesseract');
-  const uptime=(await info()).uptime_ms;
-  await control({cmd:'reboot'});
-  await until(info,s=>s.uptime_ms<uptime,'actual reboot',15000);
-  await waitForDeviceLink(info);
-  assert.equal((await state()).saved,63); assert.equal((await state()).progress,63);
-  console.log('six real discoveries survive reboot; earned tesseract restored');
+  seen=await watch(600); assert.ok(Math.max(opened,seen.bloom)>.5,`swipes open her (bloom ${Math.max(opened,seen.bloom)})`);
+  await until(state,s=>s.bloom<.2,'she closes as the spin fades',8000);
+  // Stretch and twang: beside her, a short pull.
+  let held=await pull(380,395); assert.equal(held.game,1,'a finger beside her stretches her'); assert.ok(held.pull>.9);
+  await until(state,s=>s.game===0&&s.pull===0,'the twang lets go',4000);  // (excited, she may soon play on by herself)
+  // Slingshot: a long pull flies her into the rim and she bounces home.
+  held=await pull(390,440); assert.equal(held.game,1);
+  seen=await watch(2500); assert.ok(seen.games.has(2)&&seen.speed>5&&seen.squash>.1,'a long pull slings her into the rim');
+  await until(state,s=>s.game===0,'she comes home',6000);
+  // Priority: Settings takes her out of a pull at once.
+  await pointer(true,390,255); await sleep(100); await pointer(true,420,255);
+  await until(state,s=>s.game===1,'a pull to interrupt',1000);
+  await sim('menu'); await until(state,s=>s.game===0&&s.pull===0,'Settings stops the pull',1000);
+  await pointer(false,420,255); await sim('menu'); await until(info,s=>!s.menu,'home'); await sleep(1500);
+  // Shatter and gather: the hardest throw bursts her; a sweep brings every dot home.
+  await pull(390,472);
+  await until(state,s=>s.burst>0,'a hard landing shatters her',3000);
+  await sleep(700);
+  const done=await sweep();
+  assert.equal(done.phase,3,'every dot came home');
+  await until(state,s=>s.game===0,'the gather ends',4000);
+  await feelings();
+  console.log('device play: pluck, echo, bloom, twang, slingshot, settings priority, shatter, gather, tilt, pour and temper passed');
 }
 async function main() {
   const original=await info(); assertIdleCapture(original);
@@ -152,14 +174,15 @@ async function main() {
     if(original.menu) await sim('menu');
     await setDeviceScreen(info,sim,false);
     await waitForDeviceLink(info); // sleeping radio checks can be a minute apart
-    await temporaryGames(saved);
+    await previews(saved);
     assert.equal((await state()).saved,saved);
-    if(learn) await realDiscoveries();
+    if(process.argv.includes("--learn")) await realPlay();
+    else assert.equal((await state()).saved,saved,"Lab acceptance preserves discoveries");
     const after=await info();
     for(const field of ['ssid','url','key','guide_done','volume','ui_volume','brightness'])
       assert.equal(after[field],original[field],`${field} changed`);
     assert.equal(after.heap_failures,original.heap_failures);
-    console.log('device games: real touch sampling, four swipe directions, six tiers, varied pace, misses, drag, hold, timeout and isolated Lab passed');
+    console.log('device games: isolated Lab and unchanged settings passed; persistent home play requires --learn');
   } finally {
     await pointer(false);
     if((await info()).screen_lab) await sim('menu');

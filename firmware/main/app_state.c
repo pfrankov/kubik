@@ -25,18 +25,18 @@ static const power_step_t k_power[PWR_STATE_COUNT][PE_COUNT] = {
         [PE_WAKE] = STEP(PWR_AWAKE, LIT_UP),
         [PE_REPLY] = STEP(PWR_AWAKE, LIT_UP),
         [PE_IDLE_DARK] = STEP(PWR_DARK, PA_SCREEN_OFF),
-        [PE_BUTTON] = STEP(PWR_DARK, PA_SCREEN_OFF),
+        [PE_BUTTON] = STEP(PWR_DARK_MANUAL, PA_SCREEN_OFF),  // the button decides: only PWR or a reply wakes it
         [PE_DARK_NOW] = STEP(PWR_DARK, PA_SCREEN_OFF),
     },
     [PWR_DARK_MANUAL] = {
         [PE_GOODBYE] = STEP(PWR_GOODBYE, 0),
         [PE_REPLY] = STEP(PWR_AWAKE, PA_SCREEN_ON),
-        [PE_IDLE_SLEEP] = STEP(PWR_DARK, PA_FADE_SLEEP),  // the fade runs unseen: the next wake glides up
         [PE_BUTTON] = STEP(PWR_AWAKE, PA_SCREEN_ON),
-        [PE_DARK_NOW] = STEP(PWR_DARK, 0),
+        [PE_DARK_NOW] = STEP(PWR_DARK_MANUAL, 0),
     },
     [PWR_DARK] = {
         [PE_GOODBYE] = STEP(PWR_GOODBYE, 0),
+        [PE_WAKE] = STEP(PWR_AWAKE, PA_SCREEN_ON | LIT_UP),  // a touch or a lift; never after the button
         [PE_REPLY] = STEP(PWR_AWAKE, PA_SCREEN_ON | LIT_UP),
         [PE_BUTTON] = STEP(PWR_AWAKE, PA_SCREEN_ON | LIT_UP),
         [PE_DARK_NOW] = STEP(PWR_DARK, 0),
@@ -52,7 +52,7 @@ power_step_t power_step(power_state_t state, power_event_t event) {
 
 power_event_t power_idle_event(power_state_t state, int64_t idle_ms) {
     if (state == PWR_SLEEPING) return idle_ms > SLEEP_MS + DARKEN_MS + 500 ? PE_IDLE_DARK : PE_NONE;
-    if (state != PWR_AWAKE && state != PWR_DIMMED && state != PWR_DARK_MANUAL) return PE_NONE;
+    if (state != PWR_AWAKE && state != PWR_DIMMED) return PE_NONE;
     if (idle_ms > SLEEP_MS) return PE_IDLE_SLEEP;
     return state == PWR_AWAKE && idle_ms > DIM_MS ? PE_IDLE_DIM : PE_NONE;
 }

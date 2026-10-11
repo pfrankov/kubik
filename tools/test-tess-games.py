@@ -31,15 +31,25 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
     # Isolated state-machine/app-route tests do not run the renderer or speaker.
     # Production feedback is exercised by tess_games_integration_test.c.
     support = temp / "feedback.c"
-    support.write_text('#include "tess_internal.h"\n'
+    support.write_text('#include "tess_internal.h"\n#include <math.h>\n#include <string.h>\n'
                        'void tess_touch_wave(face_t *f,float x,float y){(void)f;(void)x;(void)y;}\n'
                        'void tess_touch_resume(face_t *f,float x,float y,float age){(void)f;(void)x;(void)y;(void)age;}\n'
-                       'void tess_cue(face_t *f,tess_cue_t c,float s,float p){(void)f;(void)c;(void)s;(void)p;}\n')
+                       'void tess_cue(face_t *f,tess_cue_t c,float s,float p){(void)f;(void)c;(void)s;(void)p;}\n'
+                       'void tess_kick(face_t *f,int k,float s){(void)f;(void)k;(void)s;}\n'
+                       'void tess_react(face_t *f,tess_reaction_t r,float s){(void)f;(void)r;(void)s;}\n'
+                       'void tess_scatter_begin(face_t *f){(void)f;}\n'
+                       'void tess_scatter_finish(face_t *f){f->tess_hold[TR_SCATTER]=0;}\n'
+                       'void tess_scatter_spot_px(int k,float *x,float *y){*x=(float)(k%12)*40;*y=(float)(k/12)*48;}\n'
+                       'float tess_sin(float x){return sinf(x);}\n'
+                       'void tess_tone(face_t *f,tess_tone_kind_t k,float h,float g,float s){(void)f;(void)k;(void)h;(void)g;(void)s;}\n'
+                       'void tess_tone_later(face_t *f,tess_tone_kind_t k,float h,float g,float s,float d){(void)f;(void)k;(void)h;(void)g;(void)s;(void)d;}\n'
+                       'void tess_feel_event(face_t *f,mood_event_t e,float s,float d){(void)f;(void)e;(void)s;(void)d;}\n'
+                       'void tess_project_dots(face_t *f,tess_projected_t d[TESS_N]){(void)f;for(int i=0;i<TESS_N;i++)d[i]=(tess_projected_t){1920,2040,16,0,0};}\n')
     for name, source, defines in (("model", ROOT / "firmware/sim/tess_games_test.c", []),
                                    ("touch", app_test, []), ("plush-touch", app_test, ["-DKUBIK_CHARACTER=0"])):
         exe = temp / name
         subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra",
                         "-fsanitize=address,undefined", "-Ifirmware/main", *defines, str(source),
-                        "firmware/main/tess_games.c", str(support), "firmware/main/app_state.c", "-lm", "-o", str(exe)],
+                        "firmware/main/tess_games.c", "firmware/main/tess_gather.c", "firmware/main/tess_play_shape.c", "firmware/main/tess_stretch.c", "firmware/main/tess_temper.c", str(support), "firmware/main/app_state.c", "-lm", "-o", str(exe)],
                        cwd=ROOT, check=True)
         subprocess.run([str(exe)], cwd=ROOT, check=True)

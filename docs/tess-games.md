@@ -1,74 +1,126 @@
-# Native Tess games and growth
+# Playing with Tess
 
-Tess grows as you discover six touch tricks through two small games. They run
-directly on the home character: there is no game menu, title screen, HUD,
-start button or exit button. The games run locally on the device and do not
-need the agent to score taps or generate game content.
+Tess is not a screen that shows games. Her body is the toy. Every dot of her is
+a corner of a tesseract or a point on one of its edges, and everything below
+moves those corners. The dots between them follow on springs, so she wobbles,
+stretches, rings and swings back like something physical. There is no menu,
+score, button or instruction. You find everything by touching her the way you
+already would.
 
-## Play a duet
+## Things she does when you play
 
-Tap Tess and pause. She answers with a small glowing bow and a sound. Tap again
-and she joins you: each touch gets its own answer from that side, with timing
-that follows your pace. Try different places and pauses; there is no hidden
-rhythm to copy. A touch during her short answer does not penalise or restart you.
-Four, six or eight completed exchanges discover the three Duet tiers.
+**Pluck.** Tap her. The corner nearest your finger rings, and the ring travels
+through her edges one step at a time, to the 4 corners next to it, then 6, then
+4, then the one opposite. Her whole body resonates with it, and every path
+meets again at the far corner, which pops forward and flashes.
 
-An isolated tap never earns a discovery. Rapid repeated taps retain the usual
-character reactions. If you ignore an invitation, Tess returns to her normal
-shape. There is no prompt to dismiss.
+**Echo.** Tap two places quickly. Two waves run through her at once. Where they
+meet they add up, and those corners swing further and brighter.
 
-## Play chase
+**Bloom.** Swipe across her. Swipes add up: each one keeps the spin the last one
+left. The faster she turns, the more she opens. Her outer cube flowers out, and
+the inner and outer cubes twist against each other. As the spin fades she
+closes again.
 
-Give Tess a short swipe in any direction and lift your finger. Her usual spin
-continues, then she gathers into a bright moving spark with a little trail.
-Touch the spark to catch her: she glows, chirps and glides towards a new place.
-Her uneven flights slow into pauses, giving you time to catch up.
+**Twang.** Press the glass just beside her, not on her, and pull. The corner
+nearest your finger stretches out after it like taffy. The rest of her follows,
+less the farther each corner is along her edges. Let go and she snaps back,
+ringing.
 
-A near miss brings her towards your hand, so you can try again. The hit area is
-larger than the spark; you do not have to hit its exact centre. Three, four or
-five catches in distinct positions discover the three Chase tiers. Repeated taps
-on one stationary position do not count as new catches.
+**Slingshot.** Pull her far and let go. She flies the other way, hits the rim
+of the glass, flattens on the side that hit, bounces and drifts home. Tap her
+while she flies to catch her.
 
-A hold or drag returns to normal petting or rotation. Six seconds without an
-accepted turn/catch, or twenty seconds of play, ends a round gently. Tess does
-not start games by herself while you are away.
+**Shatter and gather.** Pull her all the way to the edge of the glass and let
+go: she hits the rim so hard that she bursts into dots all over the screen.
+Six quick taps burst her too. No two bursts are alike: her dots fly out along
+their own curves, at their own moments, into a few clusters, strands and sprays
+with some strays flung right out to the edges. They hang there a moment,
+trembling. Sweep your finger through them. Dots near your finger lean towards
+it, and every dot you pass curves home with a tick. When the last one is home
+she is glad. Leave them alone and they fly home by themselves.
 
-## Growth and interruptions
+## Tilting her
 
-Each of the six game-and-tier combinations can add progress once. Duet uses the
-first three discoveries; Chase uses the next three. Tess grows from a point at
-zero discoveries to a square at one or two, a cube at three to five, and a
-tesseract at six. Replaying a mastered tier does not add progress. Progress
-does not decay and has no streak, timer or repeat-grinding bonus. A full factory
-reset clears it.
+Tess feels how the device is held, compared with how it usually stands.
 
-| Discovery | Learned visual trick |
-|---|---|
-| Duet, tier 1 | Two pulses |
-| Duet, tier 2 | Three pulses and a small lift |
-| Duet, tier 3 | Four pulses and a partial fold |
-| Chase, tier 1 | A small orbit |
-| Chase, tier 2 | A figure-eight motion |
-| Chase, tier 3 | Fold to a point and open again |
+**Roll.** Tilt the device and she rolls downhill, gathering speed, bumps into
+the edge of the glass, flattens against it and wobbles. Level it again and she
+rolls back to the middle, sloshing a little. She is soft, too: tilted, all her
+corners sag downhill, the outer cube more.
 
-New installations and upgrades without saved discoveries begin at a point;
-existing network and voice settings remain. Wins are saved after the app has
-finished active capture or agent work. Let it return to idle before powering
-off; an unfinished flash write is not a confirmed durable save.
+**Pour.** Tilt the device while her dots hang after a burst. They slide
+downhill, each with its own grip, so some stream away and some stick. They
+knock against the edges and pile up there. Any dot that slides into her body
+stays home. Tilt back and forth and you can pour her back together. While
+the device is held tilted, the burst waits for you.
 
-An idle timeout or a held touch ends the current game without a penalty or
-message. A miss remains playful; a pet returns to the usual petting response and
-sound. Pressing KEY, starting voice capture or Live,
-receiving text or speech, going offline, opening Setup or a menu, or turning the
-screen fully dark gives the agent and device state priority; the game ends and
-does not resume. Recording keeps its existing sphere animation. During agent
-thinking or speech, the point cloud temporarily uses the complete tesseract.
-If a game tap and a priority event are processed together, the tap is discarded:
-it cannot earn a win, dismiss the arriving reply or stop the new recording.
-An interrupted tap is never replayed into another round.
+**Knock.** Knock on the device and she rattles: a few corners jiggle and her
+dots click, more and louder the harder the knock.
 
-After 40 seconds of quiet idle, Tess can replay a discovered trick as a short
-animation. Ordinary touch interrupts it. Game prompts are never started by a
-background timer. Screen Lab has local game previews for development; its
-progress is temporary and never changes the device's saved discoveries. See
-[the Screen Lab guide](screen-lab.md).
+## Her temper
+
+How she answers depends on what has been happening. Play excites her, being
+poked too fast annoys her, hard knocks frighten her, and gentle play and petting
+make her fond. Each fades on its own, and they colour her moods.
+
+- The same tap rarely gets the same answer. Tap one corner again at once and she
+  giggles: a quick, high ring. Excited, she may answer from the opposite corner a
+  moment later. Once in a while the wave reflects back.
+- Poke her again and again and she gets cross: she pulls the corner in, flinches
+  away and grumbles. Wait, or pet her, and it passes.
+- Frightened, she shies away from a pulling finger instead of reaching for it.
+  Fond, all of her follows it eagerly.
+- Cross, she won't bloom as far.
+- After play she soon asks for more by herself. Curious, she reaches towards
+  where you last touched her.
+
+## Her sounds
+
+Her sounds come from what her body does, in the same soft, spacey palette as
+her voice: no bells and no tunes. A pluck makes her whole body resonate at one
+pitch; the corner only changes the overtone and the slow beating over it, so
+plucking corner after corner never plays a melody. A taut pull hums higher and
+beats faster the further you stretch it and glides down as it lets go. She
+whooshes faster as she spins, thuds softly against the rim (lower for a bigger
+Tess), and her dots puff as they knock and come home, a little higher from higher
+up the glass. Her mood sets where her voice rests: lower when cross, sad or
+sleepy, higher and trembling when scared; a small Tess has a small voice. Her
+body sounds stay quieter than her words. Her body sounds never play over
+the microphone or a spoken reply, and never in the dark or asleep.
+
+## When nobody plays
+
+Left alone for a while, Tess plays by herself, silently, as her temper
+suggests. She plucks herself and a ring runs through her. She reaches one corner
+out, towards where you last touched her if she is curious, and lets it twang
+back. Excited, she gives herself a spin and blooms a little. Long alone, two of
+her opposite corners wrestle apart and snap back. Each of these is something your
+finger can do too. A touch stops her own play at once. Cross or frightened, she
+keeps to herself, and she never plays while sleepy or dozing.
+
+## Growing
+
+Six discoveries count once each, the first time you find them: Pluck, Echo,
+Bloom, Twang, Slingshot (the bounce off the rim), and gathering every dot, by
+sweeping or pouring.
+A new find makes her flash gold and sing out. Tess starts as a single point. One or
+two finds make her a square, three to five a cube, and all six the full
+tesseract. Even as a point, a pluck or a spin briefly flashes the full shape
+she is growing into. Repeats add nothing, and progress never decays. It
+survives restarts, and only a full factory reset clears it. Finds saved by
+earlier versions keep their places in the same six steps.
+
+## The agent comes first
+
+Play never gets in the way. Pressing KEY, saying Hi Tessa, starting voice
+capture or Live, receiving text, speech or a notification, going offline,
+opening Setup or a menu, or the screen going dark stops all of it at once. Her
+dots spring home and nothing resumes on its own. A touch that arrives together
+with such an event is discarded: it cannot dismiss the reply or stop the new
+recording. The release of a finger that was pulling or sweeping never becomes
+an ordinary tap. During agent thinking or speech the cloud uses the complete
+tesseract; recording keeps its sphere.
+
+Screen Lab has a preview of each behaviour for development. Previews never
+change saved progress. See [the Screen Lab guide](screen-lab.md).

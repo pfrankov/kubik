@@ -30,3 +30,19 @@ typedef enum {
     TC_IMPACT,   // a real fallen-particle collision; position encodes its persistent tone
     TC_COUNT
 } tess_cue_t;
+
+// The sounds of her body (tess_sound_body.c). A cue names a reaction; a tone is the sound of a physical event,
+// its pitch and level computed from the movement itself: which corner rings and where, how taut a pull is,
+// how fast she hits the rim or spins, how high a dot comes home. Her mood picks the scale and register.
+typedef enum {
+    TT_RING,    // a corner rings (a pluck's shell)
+    TT_CREAK,   // a pulled edge under tension; pitch rises with it
+    TT_TWANG,   // a pull let go: falls from tension to rest
+    TT_THUD,    // the body hits the rim
+    TT_GRAIN,   // one dot: a knock, a landing, a dot coming home
+    TT_WHOOSH,  // spin: air past her edges
+    TT_CHIRP,   // her voice: shade > .5 asks (up), < .5 sighs or grumbles (down)
+    TT_WOBBLE,  // a scared tremble
+    TT_COUNT
+} tess_tone_kind_t;
+typedef struct { uint8_t kind; float hz, gain, shade, delay_s; } tess_tone_t;

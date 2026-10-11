@@ -16,10 +16,12 @@
 #define LINGER_S .8f          // s the face stays turned to where the finger was
 #define GLOW .3f              // palette warmth the contentment leaves
 #define GRAB_PER_PX (1.f / 150.f)  // rad the front turns per px of drag
-#define CATCH_RATE 9.f        // 1/s at which a finger on it takes the spin out of it
+#define CATCH_RATE 9.f
+#define DRIVE_PX_S 250.f     // px/s above which a finger on it drives the spin rather than holding it
 #define GRAB_DEADBAND 1.5f    // px a frame below which it is sensor noise
 #define FLING_PX_S 380.f      // px/s a finger must leave at to fling it
 #define FLING_MAX 9.f         // rad/s
+#define SPIN_MAX 16.f         // rad/s a run of swipes may wind her up to
 #define FLING_RUN_S 3.f       // swipes this close together are a run
 #define SWING_BACK_S 1.1f
 #define PET_HOLD_S .65f       // as the app's: a held or long stroke is petting
@@ -122,8 +124,10 @@ static void drag(face_t *f, float dt, float x, float y) {
     for (int k = 0; k < 2; k++) p->speed[k] += (d[k] / dt - p->speed[k]) * fminf(1, dt * 14.f);
     if (p->stroke > PET_PATH || p->down_t > PET_HOLD_S) p->petted = true;
     if (f->mode != MODE_IDLE) return;
-    float held_decay = expf(-dt * CATCH_RATE);
-    m->twirl *= held_decay;  // a hand on it stops the spin
+    // A still hand on it stops the spin; a finger sweeping fast across it drives it (swipes add up).
+    bool drives = f->rub.stage == 0 && hypotf(p->speed[0], p->speed[1]) >= DRIVE_PX_S;  // (rubbing still holds her)
+    float held_decay = drives ? 1.f : expf(-dt * CATCH_RATE);
+    m->twirl *= held_decay;
     m->twirl_now *= held_decay;
     for (int k = 0; k < 2; k++) m->drag_speed[k] *= held_decay;
     if (hypotf(d[0], d[1]) > GRAB_DEADBAND && f->rub.stage == 0) {
@@ -141,7 +145,12 @@ static void fling(face_t *f) {
     float w = fminf(speed * GRAB_PER_PX, FLING_MAX), force = w / FLING_MAX;
     int axis = fabsf(p->speed[0]) >= fabsf(p->speed[1]) ? 0 : 1;
     float side = p->speed[axis] < 0 ? -1.f : 1.f;
-    for (int k = 0; k < 2; k++) m->drag_speed[k] = w * p->speed[k] / speed;
+    // Swipes add up: the spin a swipe meets carries on under it, so a run of them winds her up (and spin
+    // opens her, tess_play_shape.c). Without play the swipe sets the spin, as before.
+    float keep = f->tess_games.ready ? .85f : 0.f;
+    for (int k = 0; k < 2; k++) m->drag_speed[k] = keep * m->drag_speed[k] + w * p->speed[k] / speed;
+    float total = hypotf(m->drag_speed[0], m->drag_speed[1]);
+    if (total > SPIN_MAX) for (int k = 0; k < 2; k++) m->drag_speed[k] *= SPIN_MAX / total;
     tess_let_go(m, 2.f);
     p->flings = p->run_t > 0 ? p->flings + 1 : 1;
     p->run_t = FLING_RUN_S;

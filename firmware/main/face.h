@@ -124,7 +124,7 @@ typedef struct {
 
 // Settings menu, drawn instead of the character (a long BOOT press opens it).
 typedef enum { MENU_VOLUME = 0, MENU_BRIGHT, MENU_ACTIONS, MENU_AGENT, MENU_GUIDE, MENU_STATUS, MENU_UI_VOLUME, MENU_EVENTS, MENU_ROWS } menu_row_t;
-typedef enum { MT_WIFI = 0, MT_POWER, MT_RESET, MT_COUNT } menu_text_t;
+typedef enum { MT_POWER = 0, MT_RESET, MT_COUNT } menu_text_t;
 typedef struct {
     bool open;
     bool sound;                 // separate speech and interface controls
@@ -159,6 +159,7 @@ typedef enum { TP_YAW = 0, TP_PITCH, TP_ROLL, TP_COUNT } tess_pose_t;
 // What Tess does with a finger and with nobody (tess_touch.c, tess_play.c).
 #define TESS_QUEUE 6
 #define TESS_CUES 6
+#define TESS_TONES 8
 #define TESS_RIPPLES 3
 typedef struct { float x, y, age; } tess_ripple_t;  // the wave of a press: where it began (units, as the points), seconds ago
 typedef struct {
@@ -176,6 +177,8 @@ typedef struct {
     uint8_t after_what[TESS_QUEUE];                  // (0xFF: free slot)
     struct { uint8_t cue; float strength, position; } cue[TESS_CUES];  // what the speaker is to play (face_take_cue)
     uint8_t cue_n;
+    tess_tone_t tone[TESS_TONES];  // the sounds of her body this frame (face_take_tone)
+    uint8_t tone_n;
 } tess_play_t;
 
 typedef struct {
@@ -268,6 +271,7 @@ typedef struct {
     float view_q[4];       // Tess: device orientation from its resting pose (w, x, y, z); zero = identity
     float jolt_dvx, jolt_dvy;  // input: velocity change since the last update, g*s (screen axes)
     bool dark;             // input: the panel is off, so only clocks and timers advance
+    bool dimmed;           // input: the screen is dimmed or asleep: the character makes no sound of her own
     // The face is loose inside its glass: jolts knock it about, it bounces off the edge once.
     float loose_x, loose_y, loose_vx, loose_vy;  // design px, px/s
     float squash_x, squash_y;                    // brief flattening after hitting the edge
@@ -360,6 +364,7 @@ void face_mood_off(face_t *f, bool off);  // tests, the simulator: no moods at a
 void face_force_mood(face_t *f, mood_t mood, float level);  // tests, the simulator, the device's test hook: Tess is in this mood and stays (CALM: released)
 void face_update(face_t *f, float dt);
 bool face_take_cue(face_t *f, tess_cue_t *cue, float *strength, float *position);  // Tess: the next sound it asks for, oldest first
+bool face_take_tone(face_t *f, tess_tone_t *tone);  // Tess: the next sound of her body, oldest first
 void face_draw(face_t *f, scene_t *s);
 // Setup card content. mods may be NULL (connecting sign); title NULL or ""
 // hides the card. Strings are copied.

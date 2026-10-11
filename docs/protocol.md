@@ -492,12 +492,15 @@ Sending `{"enabled":true}` starts a fresh USB authentication probe.
 |---|---|
 | `{"cmd":"agent_host"}` | Disable Muse selection and reboot using the saved agent server; an active conversation refuses the operation; settings and keys are retained |
 | `{"cmd":"info"}` | device id, fw, P-256 public key, Wi-Fi SSID and `wifi_connected` (IP acquired), server URL, volume, selected `via`, `online` (server welcome processed), battery, heap; while setup is active, its temporary `setup_ap` and `setup_pass` |
+| `{"cmd":"models","offset":0}` | up to 16 listed model IDs (`agent_models`), `agent_target`, `voice_model` and `models_next`. A next value of 16 requests offset 16; -1 ends the list. Only offsets 0/16 are accepted, covering all 32 loaded IDs. The 6 KB reply fits maximum-length IDs even with JSON escaping. |
 | `{"cmd":"set","ssid":"…","pass":"…","url":"","name":"…","volume":70}` | `{"ok":true}`; any subset of keys, saved to NVS; `url` is the server setting (empty, `kubik://…`, `wss://…`), saving it clears the LAN pin |
 | `{"cmd":"reboot"}` | `{"ok":true}`, then restarts |
 | `{"cmd":"reset"}` | factory reset: `{"ok":true}` and a restart into first-run setup; saved Wi-Fi networks, server, LAN pin, name, volume, brightness, guide completion and device key are erased; new pairing is required; the compiled character is unchanged; `{"ok":false,"error":"…"}` if NVS refuses (run it again) |
 | `{"cmd":"sim","ev":"ptt_down"}` | test hook: injects `ptt_down`, `ptt_up`, `tap` (`x`,`y`), `pet`, `shake`, `pickup`, `boot`, `pwr`, `setup`, `menu`, `mode` (`mode`, `ms`), `pair` (`code`), `stats` (сразу печатает статистику кадров) |
 | `{"cmd":"sim","ev":"pointer","down":true,"x":340,"y":255}` | USB test sample through the normal controller/gesture path; integer coordinates 0–479 and a boolean `down` are required. Refresh within 350 ms; otherwise the physical sensor resumes. `down:false` releases the finger |
-| `{"cmd":"sim","ev":"game-state"}` | Locked snapshots of real/Lab game and durable progress: `preview`, `progress`, `saved`, `game` (0 none, 1 Echo, 2 Catch), `phase` (0 rest, 1 show, 2 wait, 3 celebrate), zero-based `tier`, `step`, `round`, `available`, `hit_valid`, panel `hit_x/y`, `clock`, `pending`, `form`, `fold`. Read-only; no game or victory setter |
+| `{"cmd":"sim","ev":"audio-stats","reset":true}` | Local speaker diagnostics: successful `frames`, nonzero `audible_frames`, wall-clock `mix_max_us`, successful-write cadence `feed_max_us`, `late_feeds` above 60 ms DMA reserve and `write_errors`. Returns the snapshot; optional boolean `reset` clears it. Silence/doze are excluded from starvation measurements. This does not measure analog sound |
+| `{"cmd":"sim","ev":"game-state"}` | Locked snapshot of real/Lab play and durable progress: `preview`, `progress`, `saved`, `game` (0 none, 1 stretch, 2 flight, 3 gather), `phase` (0 rest, 1 show, 2 wait, 3 celebrate), `streak` (dots home in a gather), `round`, `available`, her centre `x/y` (panel px), `waves` (pluck waves ringing), `bloom` (0–1), `tones` (one bit per body-tone kind emitted: ring, creak, twang, thud, grain, whoosh, chirp, wobble), `spin` (rad/s), `tilt_x/y` (relative tilt), `excite`, `annoy`, `fear`, `fond` (0–1), `pull` (0–1), `speed` (body, units/s), `squash` (0–1), `self` (0 none, 1 pluck, 2 reach, 3 spin, 4 wrestle), `shaping`, `burst` (s since the current burst began, 0 none), `form`. Read-only; no play or discovery setter |
+| `{"cmd":"sim","ev":"gravity","x":0.6,"y":0,"ms":2000}` | Test tilt: replaces the IMU's gravity on the panel (each axis −1..1) for at most 10 s, then the sensor returns. `{"ok":false}` for anything else |
 
 The saved home Wi-Fi password is write-only: `info` never returns it.
 
@@ -598,7 +601,8 @@ PTT-off once. Classic mode ignores native input-end. See [native voice](native-v
 
 To open the model picker, send `{"t":"agent_options","target":"agent","rid":1,"cursor":0}`. To select a model, send
 `{"t":"agent_model","target":"agent","rid":2,"cursor":2,"id":"provider/model"}`. `rid` is 0–65535; `cursor` is the page number 0–255
-and is required when selecting a model so the reply preserves the current page;
+and is required when selecting a model so the reply carries the page that holds it. The device loads pages 0, 1, 2… one request at a time
+and scrolls the joined list, up to 32 models (eight pages);
 model IDs contain at most 160 characters without control characters. Both requests return `agent_options`
 with the same required `target` (`agent`, `mode`, `voice`, `stt`, or `tts`), `rid`, `cursor`, `total`, current `model`, at most four `models:[{id,label,available?}]`, and
 `stt`/`tts` metadata `{available,provider,model}`. Labels contain at most 80 characters. A safe `error`

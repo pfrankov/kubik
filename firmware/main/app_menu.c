@@ -24,7 +24,7 @@ static int bright_pct(void) { return (g_settings.brightness - 10) * 100 / 245; }
 
 // The menu as the face draws it.
 void menu_sync(void) {
-    static const str_id_t words[MT_COUNT] = {STR_WIFI, STR_POWER_OFF, STR_RESET};
+    static const str_id_t words[MT_COUNT] = {STR_POWER_OFF, STR_RESET};
     face_lock();
     agent_menu_set_online(&g_face.agent, s_online);
     g_face.agent.volume = (uint8_t)g_settings.volume;
@@ -63,8 +63,8 @@ static void request_agent_options(uint8_t cursor) {
 
 static void request_agent_model(const char *id) {
     face_lock();
-    uint8_t cursor = g_face.agent.cursor;
     uint16_t rid = agent_menu_request_model(&g_face.agent, id, (uint32_t)now_ms());
+    uint8_t cursor = g_face.agent.waiting_cursor;
     face_unlock();
     if (rid && send_agent_request("agent_model", rid, cursor, id)) disp_wake();
 }
@@ -91,8 +91,6 @@ static bool agent_screen_navigation(face_agent_hit_t hit, uint8_t *cursor) {
     case AGENT_HIT_VOICE: agent_menu_visit(m, AGENT_VIEW_VOICE_MODES, AGENT_TARGET_MODE); break;
     case AGENT_HIT_STT: agent_menu_visit(m, AGENT_VIEW_MODELS, AGENT_TARGET_STT); break;
     case AGENT_HIT_TTS: agent_menu_visit(m, AGENT_VIEW_MODELS, AGENT_TARGET_TTS); break;
-    case AGENT_HIT_PREV:
-    case AGENT_HIT_NEXT: return agent_menu_turn_page(m, hit == AGENT_HIT_NEXT, cursor);
     default: return false;
     }
     *cursor = 0;
@@ -124,7 +122,7 @@ void menu_back(void) {
 
 static bool agent_selection(face_agent_hit_t hit, char *id, size_t cap) {
     agent_menu_t *m = &g_face.agent;
-    if (hit < AGENT_HIT_MODEL_0 || hit > AGENT_HIT_MODEL_3) return false;
+    if (hit < AGENT_HIT_MODEL_0) return false;
     unsigned i = (unsigned)(hit - AGENT_HIT_MODEL_0);
     if (i >= m->count) return false;
     if (m->view == AGENT_VIEW_VOICE_MODES && agent_menu_current(m, i)) {
@@ -200,6 +198,8 @@ void app_agent_tick(int64_t now) {
     bool open = g_face.agent.open;
     bool load = open && g_face.agent.online && g_face.agent.view != AGENT_VIEW_GUIDE &&
         !g_face.agent.options_loaded && !g_face.agent.request_pending && !g_face.agent.error[0];
+    uint8_t next = 0;
+    bool more = !load && agent_menu_next_page(&g_face.agent, &next);
     if (g_face.agent.pressed_t < 1.f) {
         g_face.agent.pressed_t += 0.05f;
         if (g_face.agent.pressed_t >= 0.24f) g_face.agent.pressed = -1;
@@ -208,6 +208,7 @@ void app_agent_tick(int64_t now) {
     // Reply callbacks run on the transport task; send follow-up requests here,
     // after releasing its WebSocket receive lock.
     if (load) request_agent_options(0);
+    else if (more) request_agent_options(next);
     if (timed_out && open) disp_wake();
 }
 
@@ -296,10 +297,10 @@ static void menu_slider(int row, int v) {
     s_menu_dirty = true;
 }
 
-// Wi-Fi (0) acts at once; reset (1) and power off (2) need a second tap on the same tile within 3 s.
+// Reset (1) and power off (2) need a second tap on the same tile within 3 s.
 static bool menu_tap_actions(int part) {
-    if (part == 1 && !s_service.unlocked) return false;
-    if (part > 0 && (!s_armed_ms || s_armed_part != part)) {
+    if (part < 1 || (part == 1 && !s_service.unlocked)) return false;
+    if (!s_armed_ms || s_armed_part != part) {
         s_armed_ms = now_ms();
         s_armed_part = part;
         audio_sfx(SFX_ARM);
@@ -312,8 +313,7 @@ static bool menu_tap_actions(int part) {
     }
     s_menu_dirty = false;  // a reset must not be undone by the menu's own save
     menu_close(false);
-    if (part == 0) setup_enter(SETUP_BY_USER);
-    else if (part == 2) power_off_begin();
+    if (part == 2) power_off_begin();
     return true;
 }
 
@@ -354,7 +354,12 @@ static bool service_tap(int x, int y) {
     audio_sfx(SFX_ARM); menu_sync(); return true;
 }
 static bool menu_detail_tap(int x, int y) {
-    face_lock(); bool status = device_status_tap(&g_face.status, y); face_unlock();
+    face_lock();
+    bool status = device_status_tap(&g_face.status, x, y);
+    bool wifi = g_face.status.wifi_setup;
+    g_face.status.wifi_setup = false;
+    face_unlock();
+    if (wifi) { s_menu_dirty = false; menu_close(false); setup_enter(SETUP_BY_USER); }
     if (status) { disp_wake(); return true; }
     return journal_tap(x, y);
 }
@@ -389,15 +394,15 @@ void menu_tap(int x, int y) {
     menu_sync();
 }
 
-void menu_drag(int x, int y, bool first) {
+void menu_drag(int x, int y, bool first, bool last) {
     s_menu_touch_ms = now_ms();
     face_lock();
     if (device_status_drag(&g_face.status, x, y, first) || event_journal_drag(&g_face.journal, x, y, first)) {
         face_unlock(); s_menu_drag_row = -1; disp_wake(); return;
     }
-    bool agent = agent_menu_drag(&g_face.agent, x, y, first);
+    bool agent = agent_menu_drag(&g_face.agent, x, y, first, last);
     face_unlock();
-    if (agent) { s_menu_drag_row = -1; return; }
+    if (agent) { s_menu_drag_row = -1; disp_wake(); return; }  // draw the new position now, not at the next 50 ms slot
     if (first) {
         int part, row = face_menu_hit(&g_face, x, y, &part);
         s_menu_drag_row = row == MENU_VOLUME || row == MENU_BRIGHT || row == MENU_UI_VOLUME ? row : -1;

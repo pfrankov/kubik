@@ -15,5 +15,6 @@ void tess_games_set_available(face_t *face, bool available);
 void tess_games_update(face_t *face, float dt);
 bool tess_games_event(face_t *face, face_event_t event, float x, float y);
 bool tess_games_active(const face_t *face);
+bool tess_games_owns_tap(const face_t *face);  // a round is on, or this finger's round just ended
 // Isolated developer previews only: bypass the gesture, not eligibility.
-bool tess_games_start(face_t *face, tess_game_t game, unsigned tier);
+bool tess_games_start(face_t *face, tess_preview_t play, unsigned tier);

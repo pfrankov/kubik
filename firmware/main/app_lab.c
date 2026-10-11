@@ -67,10 +67,10 @@ static bool passive(app_ev_type_t type) {
     }
 }
 static void preview_drag(const app_ev_t *e) {
-    int x = e->a & 0xFFFF; bool first = e->a >> 16;
+    int x = e->a & 0xFFFF; bool first = e->a >> 16 & 1, last = e->a >> 17 & 1;
     if (device_status_drag(&s_lab->face.status, x, e->b, first) ||
         event_journal_drag(&s_lab->face.journal, x, e->b, first)) return;
-    agent_menu_drag(&s_lab->face.agent, x, e->b, first);
+    agent_menu_drag(&s_lab->face.agent, x, e->b, first, last);
 }
 bool app_lab_event(const app_ev_t *e) {
     if (!app_lab_active()) return false;
@@ -118,6 +118,15 @@ bool app_lab_frame(scene_t *scene, float dt, bool powered) {
 
 bool app_lab_take_cue(tess_cue_t *cue, float *strength, float *position) {
     return s_lab && screen_lab_take_cue(s_lab, cue, strength, position);
+}
+
+bool app_lab_take_tone(tess_tone_t *tone) {
+    return s_lab && screen_lab_take_tone(s_lab, tone);
+}
+void app_lab_play_tone(const tess_tone_t *tone) {
+    face_lock();  // (as cues: a copied frame cannot sound after the Lab closed)
+    if (s_lab && screen_lab_tones_allowed(s_lab)) audio_tess_tone(tone);
+    face_unlock();
 }
 
 void app_lab_play_cue(tess_cue_t cue, float strength, float position) {

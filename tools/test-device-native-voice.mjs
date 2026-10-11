@@ -36,10 +36,11 @@ const control = body => {
   controlQueue = pending.catch(() => {}); return pending;
 };
 const wifi = process.argv.includes('--wifi');
+const audioProfile = process.argv.includes('--audio-profile');
 const acousticOnly = process.argv.includes('--acoustic-only');
 if (acousticOnly) assert.ok(process.argv.includes('--near') && process.argv.includes('--echo'), '--acoustic-only requires --near --echo');
-const profile = wifi || process.argv.includes('--profile') || acousticOnly;
-const speechOnly = process.argv.includes('--speech-only') || acousticOnly;
+const profile = wifi || process.argv.includes('--profile') || acousticOnly || audioProfile;
+const speechOnly = process.argv.includes('--speech-only') || acousticOnly || audioProfile;
 const info = () => control({ cmd: 'info' });
 const sim = (ev, extra = {}) => control({ cmd: 'sim', ev, ...extra });
 async function hostUntil(check, label, timeoutMs = 15000) {
@@ -196,6 +197,11 @@ async function acousticProof(state) {
   if (process.argv.includes('--near')) await nearSpeechProof(state, { info, hostUntil });
 }
 
+async function completedProfile(state) {
+  await state.profile;
+  if (state.profileError) throw state.profileError;
+}
+
 async function responseProof(server, state, mode) {
   await setMode(server, state, mode);
   if (mode === "live" && process.argv.includes("--echo")) state.samples = [];
@@ -218,7 +224,7 @@ async function responseProof(server, state, mode) {
     // The first stream keeps quietMs of trailing transport silence before played.
     assert.ok(playedMs >= 500 && playedMs <= 1100, 'Live lost tone or retained unbounded silence');
   } else assert.equal(playedMs, profile ? PROFILE_MS : 500, 'speaker acknowledged insufficient PCM');
-  await state.profile;
+  await completedProfile(state);
   assert.ok((await info()).mic_reads > before.mic_reads);
   await sim('ptt_up');
   if (mode === 'live') {
@@ -227,8 +233,7 @@ async function responseProof(server, state, mode) {
     await hostUntil(() => { if (state.profileError) throw state.profileError; return state.receipts.length >= receipts + 2; }, 'second reply on the same Live connection');
     await until(device => device.live_active && device.live_ready && device.mic_open, 'Live resumes after second reply');
     assert.equal(state.liveConnections, 1, 'Live reopened SDK between questions');
-    await state.profile;
-    if (state.profileError) throw state.profileError;
+    await completedProfile(state);
     if (!profile) {
       await sleep(1000);
       assert.equal(state.receipts.length, receipts + 2, 'transport silence created extra speaker generations');
@@ -239,7 +244,7 @@ async function responseProof(server, state, mode) {
     await sim('ptt_down'); await sim('ptt_up');
     await until(device => !device.live_active && !device.mic_open, 'KEY explicitly ends Live');
   }
-  await state.profile; if (state.profileError) throw state.profileError;
+  await completedProfile(state);
   console.log(`PASS physical ${mode}: native input policy, same agent and speaker ACK${mode === 'live' ? ', two replies on one connection, continuous silence and KEY stop' : ''}`);
 }
 
@@ -358,7 +363,7 @@ async function main() {
   let paused = false;
   try {
     transport = await nativeTransport(server, original, wifi);
-    if (profile) state.speech = speechProfile({ sim, info, measureFrames: !acousticOnly, burst: !process.argv.includes('--paced'),
+    if (profile) state.speech = speechProfile({ sim, info, measureFrames: !acousticOnly && !audioProfile, burst: !process.argv.includes('--paced'),
       chunkMs: process.argv.includes('--single-delta') ? PROFILE_MS : process.argv.includes('--small-deltas') ? 20 : 100 });
     paused = true; await transport.enter(sim, control);
     await until(device => device.online && device.via === transport.via && server.getSession(original.device), 'authenticated production transport', 40000);

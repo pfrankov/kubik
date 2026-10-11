@@ -44,13 +44,6 @@ static const struct { float from_s, length_s, reach; } k_tug[] = {{.04f, .22f, .
 #define PANEL_CENTRE_Y_PX -15.f  // the panel's middle as seen from the cloud's centre
 #define SPOT_DEPTH .9f
 
-// The k-th point of a low-discrepancy sequence in the unit cube (2^32 over the plastic number and its square and cube):
-// evenly spread however many are taken, and the same every time.
-static float sequence(int k, int axis) {
-    static const uint32_t step[3] = {3518319155u, 2882110345u, 2360945575u};
-    return (float)(((uint32_t)(k + 1) * step[axis] + 0x80000000u) >> 8) * (1.f / 16777216);
-}
-
 // A random number in -32768..32767 of a dot, an axis and a tick of the shiver.
 static int noise(int dot, int axis, int tick) {
     uint32_t x = (uint32_t)(dot * 3 + axis) * 0x9E3779B1u + (uint32_t)tick * 0x85EBCA6Bu;
@@ -58,37 +51,153 @@ static int noise(int dot, int axis, int tick) {
     return (int)(x >> 16) - 32768;
 }
 
-// Where slot `k` of the burst lands, in the units of the cloud's plane after the camera: a point of that sequence spread
-// over the whole rectangle of the panel (and a depth to tell the dots apart by colour).
-static void spot_of(int k, float out[3]) {
-    float depth = (2 * sequence(k, 2) - 1) * SPOT_DEPTH, per_px = (4.7f - depth) * (1.f / 360);  // a pixel, in units at that depth
-    out[0] = (2 * sequence(k, 0) - 1) * PANEL_HALF_PX * per_px;
-    out[1] = (PANEL_CENTRE_Y_PX + (2 * sequence(k, 1) - 1) * PANEL_HALF_PX) * per_px;
-    out[2] = depth;
-}
-
-// What every dot and slot is given, the same for all faces and every time: worked out once, not 30 times a second.
+// What every slot and dot is given for one burst: worked out once when it begins, not 30 times a second. No two
+// bursts are alike: each draws its own handful of clusters (strands and sprays, thrown the way she was going, if
+// she was thrown) and a few loners, and every dot leaves at its own moment, flies for its own time along its own
+// curve, and later slides under the tilt with its own friction.
 static struct {
     bool ready;
+    uint32_t seed;
     float spot[TESS_N][3];
-    struct { float leaves, letgo, strength, hold, rings, mass; } dot[TESS_N];  // hold: how far away the strain leaves it
+    float spot_px[TESS_N][2];      // where each slot hangs (thrown, then slid), panel px from the cloud's centre
+    int16_t slide_v[TESS_N][2];    // its sliding speed, px/s
+    // Each dot's character, a byte each (0..255 over its range, see the accessors): RAM is scarce on the C6.
+    struct { uint8_t leaves, out_s, curve, letgo, strength, rings, mass, grip; } dot[TESS_N];
 } given;
+#define Q(field, k) ((float)given.dot[k].field * (1.f / 255))
+static float dot_leaves(int k) { return .12f * Q(leaves, k); }                 // most go at once, a few late
+static float dot_out_s(int k) { return .38f + .32f * Q(out_s, k); }            // and fly for their own time
+static float dot_curve(int k) { return (Q(curve, k) - .5f) * .9f; }            // along their own curve
+static float dot_letgo(int k) { return STRUGGLE_TO_S + RETURN_LAG_S * Q(letgo, k); }
+static float dot_strength(int k) { return .7f + .5f * Q(strength, k); }
+static float dot_hold(int k) { return 1 - STRAIN_REACH * dot_strength(k); }
+static float dot_rings(int k) { return 2 * PI * (1.5f + .75f * Q(rings, k)); }  // swings in the settle, in radians
+static float dot_mass(int k) { return .7f + .6f * Q(mass, k); }
+static float dot_grip(int k) { return .2f + .8f * Q(grip, k); }                // friction under the tilt: most slide, some stick
+static uint8_t byte01(float x) { return (uint8_t)(clampf(x, 0, 1) * 255.f + .5f); }
 
-static void hand_out(void) {
+static float rand01(uint32_t *seed) { *seed = *seed * 1664525u + 1013904223u; return (float)(*seed >> 8) * (1.f / 16777216); }
+static float bell(uint32_t *seed) { return rand01(seed) + rand01(seed) + rand01(seed) - 1.5f; }  // -1.5..1.5, mostly near 0
+
+// The dots stay on the square glass, 16 px from its edges. Returns which walls it met (bit 0 x, bit 1 y).
+static unsigned keep_inside(float p[2]) {
+    unsigned met = 0;
+    if (fabsf(p[0]) > PANEL_HALF_PX) { p[0] = copysignf(PANEL_HALF_PX, p[0]); met |= 1; }
+    float y = p[1] - PANEL_CENTRE_Y_PX;
+    if (fabsf(y) > PANEL_HALF_PX) { p[1] = PANEL_CENTRE_Y_PX + copysignf(PANEL_HALF_PX, y); met |= 2; }
+    return met;
+}
+// An organic spread: every dot tries a few random places and takes the one farthest from the dots already
+// there (best-candidate sampling). That leaves no clumps, no dots on top of each other and no big holes, yet
+// nothing lines up: no grid. How many tries each burst gets (5..8) makes some bursts looser than others; a
+// throw leans the tries its way; a last small jitter keeps neighbours from looking spaced by rule. Whole pixels
+// and integer distances: some 50 000 comparisons stay a couple of milliseconds on the C6, once a burst.
+#define TRY_MIN 5
+#define CELL_PX 60             // the neighbourhood grid: a candidate only meets the dots in its own and the 8 cells round it
+#define CELLS 8
+#define CELL_CAP 12
+typedef struct { uint8_t n[CELLS * CELLS], dot[CELLS * CELLS][CELL_CAP]; int16_t at[TESS_N][2]; } spread_t;
+static int cell_of(int x, int y) {  // x, y: whole px from the panel's top-left
+    int cx = x / CELL_PX, cy = y / CELL_PX;
+    return (cx < 0 ? 0 : cx >= CELLS ? CELLS - 1 : cx) + CELLS * (cy < 0 ? 0 : cy >= CELLS ? CELLS - 1 : cy);
+}
+// The nearest placed dot to (x, y), squared px, looking only next door; no neighbour at all counts as far.
+static int32_t nearest2(const spread_t *g, int x, int y, int32_t enough) {
+    int32_t nearest = 4 * CELL_PX * CELL_PX;
+    int cx = cell_of(x, y) % CELLS, cy = cell_of(x, y) / CELLS;
+    for (int oy = cy - 1; oy <= cy + 1; oy++)
+        for (int ox = cx - 1; ox <= cx + 1; ox++) {
+            if (ox < 0 || oy < 0 || ox >= CELLS || oy >= CELLS) continue;
+            int c = ox + CELLS * oy;
+            for (int i = 0; i < g->n[c]; i++) {
+                int32_t dx = x - g->at[g->dot[c][i]][0], dy = y - g->at[g->dot[c][i]][1], d2 = dx * dx + dy * dy;
+                if (d2 < nearest) nearest = d2;
+                if (nearest <= enough) return nearest;  // it cannot beat the best candidate any more
+            }
+        }
+    return nearest;
+}
+static int rand_px(uint32_t *seed, int span) { *seed = *seed * 1664525u + 1013904223u; return (int)((*seed >> 8) % (uint32_t)span); }
+// The next burst's spread is laid out ahead of time, a few dots a frame while she is whole (tess_scatter_step),
+// so a burst never stalls a frame laying out 112 dots; a burst that comes first finishes the rest at once.
+#define PREPARE_PER_FRAME 16
+static struct { spread_t g; uint32_t seed; int placed, tries; } s_next;
+static void prepare_some(int count) {
+    spread_t *g = &s_next.g;
+    if (!s_next.placed && !s_next.tries) {
+        memset(g->n, 0, sizeof g->n);
+        s_next.seed = s_next.seed * 1664525u + 1013904223u + 0x9E3779B9u;
+        s_next.tries = TRY_MIN + rand_px(&s_next.seed, 4);
+    }
+    int left = 240 - (int)PANEL_HALF_PX, top = 255 + (int)PANEL_CENTRE_Y_PX - (int)PANEL_HALF_PX, side = 2 * (int)PANEL_HALF_PX + 1;
+    for (; count > 0 && s_next.placed < TESS_N; count--) {
+        int32_t best = -1;
+        int bx = 0, by = 0;
+        for (int c = 0; c < s_next.tries; c++) {
+            int x = left + rand_px(&s_next.seed, side), y = top + rand_px(&s_next.seed, side);
+            int32_t d2 = nearest2(g, x, y, best);
+            if (d2 > best) { best = d2; bx = x; by = y; }
+        }
+        int k = s_next.placed++, cell = cell_of(bx, by);
+        g->at[k][0] = (int16_t)bx; g->at[k][1] = (int16_t)by;
+        if (g->n[cell] < CELL_CAP) g->dot[cell][g->n[cell]++] = (uint8_t)k;
+    }
+}
+static void tess_scatter_prepare(void) { if (s_next.placed < TESS_N) prepare_some(PREPARE_PER_FRAME); }
+// A Tess starting afresh starts the chain of spreads afresh: a burst never depends on another face's play.
+void tess_scatter_reset(void) { s_next.placed = s_next.tries = 0; s_next.seed = 0; }
+// Take the prepared spread for this burst (a throw leans it its way), and start preparing the next.
+static void lay_out(uint32_t *seed, float throw_x, float throw_y) {
+    if (!s_next.placed) s_next.seed ^= *seed;  // (never prepared yet: draw from this burst's own seed)
+    prepare_some(TESS_N);
     for (int k = 0; k < TESS_N; k++) {
-        spot_of(k, given.spot[k]);
-        given.dot[k].leaves = OUT_LAG_S * sequence(k + 200, 0);
-        given.dot[k].letgo = STRUGGLE_TO_S + RETURN_LAG_S * sequence(k + 200, 1);
-        given.dot[k].strength = .7f + .5f * sequence(k + 200, 2);
-        given.dot[k].hold = 1 - STRAIN_REACH * given.dot[k].strength;
-        given.dot[k].rings = 2 * PI * (1.5f + .75f * sequence(k + 300, 0));  // swings in the settle, in radians
-        given.dot[k].mass = .7f + .6f * sequence(k + 300, 1);
+        float *p = given.spot_px[k], lean = 22.f + 8.f * rand01(seed), x = (float)(s_next.g.at[k][0] - 240), y = (float)(s_next.g.at[k][1] - 255);
+        // leaning out, a dot moves less the nearer the wall it already is: the throw packs, never lines dots up on the edge
+        float room_x = throw_x * x > 0 ? 1 - fabsf(x) / PANEL_HALF_PX : 1, room_y = throw_y * (y - PANEL_CENTRE_Y_PX) > 0 ? 1 - fabsf(y - PANEL_CENTRE_Y_PX) / PANEL_HALF_PX : 1;
+        p[0] = x + throw_x * lean * room_x + 3.f * bell(seed);
+        p[1] = y + throw_y * lean * room_y + 3.f * bell(seed);
+        keep_inside(p);
+    }
+    s_next.seed ^= *seed;
+    s_next.placed = s_next.tries = 0;
+}
+static void hand_out(uint32_t seed, float throw_x, float throw_y) {
+    given.seed = seed ? seed : 1;
+    uint32_t r = given.seed;
+    lay_out(&r, throw_x, throw_y);
+    for (int k = 0; k < TESS_N; k++) {
+        given.spot[k][2] = (2 * rand01(&r) - 1) * SPOT_DEPTH;
+        given.slide_v[k][0] = given.slide_v[k][1] = 0;
+        given.dot[k].leaves = byte01(rand01(&r) * rand01(&r));
+        given.dot[k].out_s = byte01(rand01(&r));
+        given.dot[k].curve = byte01(rand01(&r));
+        given.dot[k].letgo = byte01(rand01(&r));
+        given.dot[k].strength = byte01(rand01(&r));
+        given.dot[k].rings = byte01(rand01(&r));
+        given.dot[k].mass = byte01(rand01(&r));
+        given.dot[k].grip = byte01(rand01(&r) * rand01(&r));
     }
     given.ready = true;
 }
+static void place_spot(int k) {
+    float per_px = (4.7f - given.spot[k][2]) * (1.f / 360);
+    given.spot[k][0] = given.spot_px[k][0] * per_px;
+    given.spot[k][1] = given.spot_px[k][1] * per_px;
+}
+static void ready_spots(void) {
+    if (given.ready) return;
+    hand_out(0x9E3779B9u, 0, 0);
+    for (int k = 0; k < TESS_N; k++) place_spot(k);
+}
+
+void tess_scatter_spot_px(int k, float *x, float *y) {
+    ready_spots();
+    *x = 240.f + given.spot_px[k][0];
+    *y = 255.f + given.spot_px[k][1];
+}
 
 void tess_scatter_spot(int k, float out[3]) {
-    if (!given.ready) hand_out();
+    ready_spots();
     memcpy(out, given.spot[k], sizeof given.spot[k]);
 }
 
@@ -118,6 +227,9 @@ static struct {
     float tremor;      // the shiver's size in units / 32768, before a dot's release
     float sag[2];      // gravity's bend of the flight, in units (times the dot's mass)
     int tick, blend;   // the shiver's random numbers change every tick; blend (0..256) is how far it is to the next
+    const face_t *face;  // for Gather's swept slots
+    bool finger;         // a Gather finger on the glass: hanging dots lean towards it
+    float finger_px[2];
 } moment;
 
 void tess_scatter_frame(const face_t *f, float t) {
@@ -132,54 +244,157 @@ void tess_scatter_frame(const face_t *f, float t) {
     if (gx == 0 && gy == 0) gy = 1;
     moment.sag[0] = gx * SAG_UNITS * thrown * thrown;
     moment.sag[1] = gy * SAG_UNITS * thrown * thrown;
-    moment.tick = (int)(t * SHIVER_HZ);
-    moment.blend = (int)(256 * smooth01(t * SHIVER_HZ - (float)moment.tick));
+    float clock = t * SHIVER_HZ;
+    moment.face = f;
+    const tess_games_t *g = &f->tess_games;
+    moment.finger = g->ready && g->game == TESS_GAME_GATHER && g->phase == TESS_GAME_WAIT && g->finger_down;
+    moment.finger_px[0] = g->finger_x - 240.f;  // from the cloud's centre, panel pixels
+    moment.finger_px[1] = g->finger_y - 255.f;
+    if (t >= TESS_HANG_S - 1e-3f && tess_games_holds_burst(f)) {  // hanging for a finger: a slow, living tremble
+        moment.tremor = SHIVER_UNITS * .45f * (1.f / 32768);
+        clock = (t + f->tess_games.gather_clock) * SHIVER_HZ * .5f;
+    }
+    moment.tick = (int)clock;
+    moment.blend = (int)(256 * smooth01(clock - (float)moment.tick));
+}
+
+#define HOME_S .3f  // a swept dot's flight home
+
+// A dot that Gather swept: from where it hung straight into its place, fast at the end, with a small ring.
+static bool swept(float p[3], int slot) {
+    float since = 0;
+    if (!moment.face || !tess_games_gathered(moment.face, slot, &since)) return false;
+    float u = since * (1.f / HOME_S);
+    if (u >= 1.6f) return true;
+    float away = u < 1 ? 1 - quartic(u) : -RING_UNITS * tess_sin((u - 1) * (1.f / .6f) * 2 * PI) * (1.6f - u) * (1.f / .6f);
+    float dx = given.spot[slot][0] - p[0], dy = given.spot[slot][1] - p[1];
+    float bend = u < 1 ? .3f * tess_sin(PI * u) * (slot & 1 ? 1.f : -1.f) : 0;  // home along a curve, half each way
+    p[0] += dx * away - dy * bend;
+    p[1] += dy * away + dx * bend;
+    p[2] += (given.spot[slot][2] - p[2]) * away;
+    return true;
+}
+
+#define MAGNET_PX 120.f
+// A hanging dot near the Gather finger leans towards it, more the nearer it is: the finger has a pull.
+static void lean_to_finger(float p[3], int slot, float away) {
+    if (!moment.finger || away < .5f) return;
+    float dx = moment.finger_px[0] - given.spot_px[slot][0], dy = moment.finger_px[1] - given.spot_px[slot][1];
+    float near = 1 - (dx * dx + dy * dy) * (1.f / (MAGNET_PX * MAGNET_PX));  // no square root: a C6 has no FPU
+    if (near <= 0) return;
+    float k = near * near * near * .45f * (4.7f - given.spot[slot][2]) * (1.f / 360);
+    p[0] += dx * k;
+    p[1] += dy * k;
 }
 
 // How far of the way to its spot a dot is: 1 there, 0 home. The strain leaves it `hold` of the way when the return
 // begins, and that is where the magnet takes it from.
 static float reach(int dot) {
-    float t = moment.t, letgo = given.dot[dot].letgo;
-    if (t < STRUGGLE_FROM_S) return 1 - quartic(1 - clampf((t - given.dot[dot].leaves) * (1.f / OUT_S), 0, 1));
-    if (t < letgo) return 1 - given.dot[dot].strength * moment.pull;
+    float t = moment.t, letgo = dot_letgo(dot);
+    if (t < STRUGGLE_FROM_S) return 1 - quartic(1 - clampf((t - dot_leaves(dot)) / dot_out_s(dot), 0, 1));
+    if (t < letgo) return 1 - dot_strength(dot) * moment.pull;
     float x = (t - letgo) * (1.f / APPROACH_S);
-    if (x < 1) return given.dot[dot].hold * (1 - quartic(x));
+    if (x < 1) return dot_hold(dot) * (1 - quartic(x));
     float y = (x - 1) * (APPROACH_S / SETTLE_S);
     if (y >= 1) return 0;
     // it hits the place and rings, the swing dying away to nothing (with no slope) at the end of the settle
-    return -given.dot[dot].hold * RING_UNITS * tess_sin(given.dot[dot].rings * y) * (1 - y) * (1 - y);
+    return -dot_hold(dot) * RING_UNITS * tess_sin(dot_rings(dot) * y) * (1 - y) * (1 - y);
 }
 
 // The dot's tremor, in the plane of the panel: a random push of its own that changes direction about 12 times a second
 // (blended from one to the next, on integers), from the end of the flight to the dot's release.
 static void shiver(int dot, float out[2]) {
-    float size = moment.tremor, letgo = given.dot[dot].letgo;
+    float size = moment.tremor, letgo = dot_letgo(dot);
     if (moment.t > letgo) size *= 1 - smooth01((moment.t - letgo) * (1.f / SHIVER_END_S));
     for (int axis = 0; axis < 2; axis++)
         out[axis] = size * (float)((noise(dot, axis, moment.tick) * (256 - moment.blend) + noise(dot, axis, moment.tick + 1) * moment.blend) >> 8);
 }
 
+// On its way out a dot swings off the straight line, each its own way: sprays and swirls rather than rays.
+static void curve_out(float p[3], int dot, int slot, float away) {
+    if (moment.t >= STRUGGLE_FROM_S || away <= 0 || away >= 1) return;
+    float dx = given.spot[slot][0] - p[0], dy = given.spot[slot][1] - p[1], bend = dot_curve(dot) * tess_sin(PI * away);
+    p[0] -= dy * bend;
+    p[1] += dx * bend;
+}
 void tess_scatter_apply(float p[3], int dot, int slot) {
-    if (!given.ready) hand_out();
-    float away = reach(dot), tremor[2] = {0, 0}, weight = away * given.dot[dot].mass;
-    if (away == 0 && moment.t >= given.dot[dot].letgo) return;
-    if (moment.t >= STRUGGLE_FROM_S && moment.t < given.dot[dot].letgo + SHIVER_END_S) shiver(dot, tremor);
+    ready_spots();
+    if (swept(p, slot)) return;
+    float away = reach(dot), tremor[2] = {0, 0}, weight = away * dot_mass(dot);
+    if (away == 0 && moment.t >= dot_letgo(dot)) return;
+    if (moment.t >= STRUGGLE_FROM_S && moment.t < dot_letgo(dot) + SHIVER_END_S) shiver(dot, tremor);
     for (int axis = 0; axis < 3; axis++)
         p[axis] += (given.spot[slot][axis] - p[axis]) * away + (axis < 2 ? tremor[axis] + moment.sag[axis] * weight : 0);
+    curve_out(p, dot, slot, away);
+    lean_to_finger(p, slot, away);
 }
 
 // A burst that is under way is left to finish: its dots are mid-flight, and starting again would make them jump.
 void tess_scatter_begin(face_t *f) {
     if (f->tess_hold[TR_SCATTER] > 0) return;
+    // This burst's own spread: thrown the way she was flying, if she was.
+    float vx = f->tess_games.fly_v[0], vy = f->tess_games.fly_v[1], speed = sqrtf(vx * vx + vy * vy);
+    hand_out((uint32_t)(frand(f) * 4294967040.f) | 1u, speed > 1 ? vx / speed : 0, speed > 1 ? vy / speed : 0);
+    for (int k = 0; k < TESS_N; k++) place_spot(k);
     f->tess_hold[TR_SCATTER] = TESS_BURST_S;
     f->tess_pulse = 1;
     if (f->tess_points_ready) tess_rematch(f, TS_SCATTER);  // every dot to the nearest spot: they spread outwards, not across
 }
 
+void tess_scatter_finish(face_t *f) {
+    f->tess_hold[TR_SCATTER] = 0;
+    f->tess_reaction[TR_SCATTER] = 0;
+}
+
+// While the burst hangs, the tilt pulls every free dot downhill, each against its own grip: most slide, some
+// stick; they bounce off the rim and pile up against it. A dot that slides through her core is home (poured).
+#define SLIDE_PX_S2 900.f
+#define CORE_PX 60.f           // her body catches what slides into it
+// The glass's edge: a dot bounces back a little and its knock is heard, at most every 0.12 s.
+static void bounce(face_t *f, int k, float *p, const float v[2], float *knock_wait) {
+    unsigned met = keep_inside(p);
+    if (met & 1) given.slide_v[k][0] = (int16_t)(v[0] * -.3f);
+    if (met & 2) given.slide_v[k][1] = (int16_t)(v[1] * -.3f);
+    float into = (met & 1 ? fabsf(v[0]) : 0) + (met & 2 ? fabsf(v[1]) : 0);
+    if (into > 120.f && *knock_wait <= 0) {
+        *knock_wait = .12f;
+        tess_tone(f, TT_GRAIN, tess_tone_hz(f, clampf(.5f - p[1] / 480.f, 0, 1)), fminf(1, into / 500.f), .5f);
+    }
+}
+static void slide(face_t *f, float dt) {
+    static float knock_wait;
+    static bool sliding;      // some dot still moved last frame
+    float gx = f->tess_games.tilt[0], gy = f->tess_games.tilt[1];
+    knock_wait -= dt;
+    if (gx == 0 && gy == 0 && !sliding) return;  // level and at rest: nothing to move (most of a hang)
+    sliding = false;
+    for (int k = 0; k < TESS_N; k++) {
+        float since, *p = given.spot_px[k], v[2] = {given.slide_v[k][0], given.slide_v[k][1]};
+        if (tess_games_gathered(f, k, &since)) continue;
+        float grip = dot_grip(k), loose = 1 - grip, drag = fmaxf(0, 1 - dt * (1.5f + 6.f * grip));  // (linear: no expf per dot)
+        v[0] = clampf((v[0] + gx * SLIDE_PX_S2 * loose * dt) * drag, -3000, 3000);
+        v[1] = clampf((v[1] + gy * SLIDE_PX_S2 * loose * dt) * drag, -3000, 3000);
+        given.slide_v[k][0] = (int16_t)v[0]; given.slide_v[k][1] = (int16_t)v[1];
+        if (fabsf(v[0]) + fabsf(v[1]) < 1.f) continue;
+        sliding = true;
+        p[0] += v[0] * dt; p[1] += v[1] * dt;
+        bounce(f, k, p, v, &knock_wait);
+        place_spot(k);
+        if (p[0] * p[0] + p[1] * p[1] < CORE_PX * CORE_PX) tess_gather_pour(f, k);
+    }
+}
+
 void tess_scatter_step(face_t *f, float dt) {
     float *hold = &f->tess_hold[TR_SCATTER], before = TESS_BURST_S - *hold;
-    if (*hold <= 0) return;
+    if (*hold <= 0) { tess_scatter_prepare(); return; }
+    bool hang = tess_games_holds_burst(f);
+    if (hang && before >= TESS_HANG_S - 1e-3f) {  // (float: the clamp below lands a hair short) the more dots are home, the more of her glow and size returns
+        slide(f, dt);
+        f->tess_reaction[TR_SCATTER] = tess_scatter_weight(before) * (.88f - .3f * tess_games_gathered_share(f));  // halos stay off: the panel repaint stays small
+        return;
+    }
     *hold = fmaxf(0, *hold - dt);
+    if (hang && TESS_BURST_S - *hold > TESS_HANG_S) *hold = TESS_BURST_S - TESS_HANG_S;  // stop exactly at the hang
     f->tess_reaction[TR_SCATTER] = tess_scatter_weight(TESS_BURST_S - *hold);
     if (before < SNAP_AT_S && TESS_BURST_S - *hold >= SNAP_AT_S) tess_cue(f, TC_SNAP, 1.f, 0);
 }

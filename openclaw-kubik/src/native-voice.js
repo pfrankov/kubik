@@ -1,10 +1,11 @@
 import {
-  buildRealtimeVoiceSessionInstructions, buildRealtimeVoiceSpeakExactMessage,
+  buildRealtimeVoiceSessionInstructions,
   createRealtimeVoiceBridgeSession, getRealtimeVoiceProvider,
   REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ, resolveRealtimeVoiceProviderCapabilities,
 } from 'openclaw/plugin-sdk/realtime-voice';
 import { BYTES_PER_MS, MAX_NATIVE_AUDIO_BYTES } from './protocol.js';
 import { delegateVoice, MAX_VOICE_TEXT as MAX_TEXT } from './voice-delegate.js';
+import { RealtimeReply } from './realtime-reply.js';
 
 const MODELS = { realtime: 'gpt-realtime-2.1', live: 'gpt-live-1' };
 const MAX_INPUT_BYTES = 60_000 * BYTES_PER_MS;
@@ -42,13 +43,15 @@ export class NativeVoiceTurn {
   #deadline = null;
   #consult = null;
   #consulted = false;
-  #text = '';
   #answer = '';
-  #shown = '';
+  #reply;
 
   constructor({ config, port, dispatch, turnId, createBridge = createRealtimeVoiceBridgeSession,
     connectMs = 10_000, turnMs = 120_000 }) {
     Object.assign(this, { config, port, dispatch, turnId });
+    this.#reply = new RealtimeReply({ send: text => this.#bridge.sendUserMessage(text),
+      emotion: emotion => port.emotion?.(emotion), finish: () => this.finish(), fail: () => this.fail(),
+      phase: name => port.phase?.(name) });
     this.#bridge = createBridge({ ...config,
       audioFormat: REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
       autoRespondToAudio: false,
@@ -58,11 +61,11 @@ export class NativeVoiceTurn {
         `You are Tess, the voice of the connected agent.${config.language ? ` Speak in ${config.language}.` : ''}`,
         isAgentProxy: true, toolPolicy: 'owner', consultPolicy: 'always' }),
       audioSink: { isOpen: () => !this.#closed && port.isCurrent(), sendAudio: (pcm) => this.#audio(pcm) },
-      onTranscript: (role, text, final, metadata) => this.#transcript(role, text, final, metadata),
+      onTranscript: (role, text, final) => this.#transcript(role, text, final),
       onEvent: ({ type }) => { if (type === 'input_audio_buffer.speech_stopped') this.endInput(); },
       onResponseDone: (outcome) => {
         if (outcome.status === 'failed' || outcome.status === 'incomplete') this.fail();
-        else if (outcome.status === 'completed' && this.#consulted && !this.#consult) this.finish();
+        else if (outcome.status === 'completed') this.#reply.completed();
       },
       onError: () => this.fail(),
       onClose: () => { if (!this.#closed) this.fail(); },
@@ -76,6 +79,7 @@ export class NativeVoiceTurn {
       clearTimeout(connecting);
       if (this.#closed) return;
       this.#ready = true;
+      port.phase?.('provider-ready');
       for (const pcm of this.#pending.splice(0)) if (!this.#sendInput(pcm)) return;
       this.#pendingBytes = 0;
       if (!this.#input) this.#sendTail();
@@ -95,6 +99,7 @@ export class NativeVoiceTurn {
   endInput() {
     if (this.#closed || !this.#input) return;
     this.#input = false;
+    this.port.phase?.('input-ended');
     this.port.endInput();
     if (this.#ready) this.#sendTail();
   }
@@ -116,24 +121,20 @@ export class NativeVoiceTurn {
     this.#tail.unref?.();
   }
 
-  #transcript(role, text, final, metadata) {
+  #transcript(role, text, final) {
     if (this.#closed || !this.port.isCurrent() || typeof text !== 'string') return;
     if (role === 'user') {
       if (text.length > MAX_TEXT) { this.fail(); return; }
       if (!final) return;
+      this.port.phase?.('transcript');
       this.endInput();
       if (!this.#consulted) {
-        this.#runAgent(text).then(({ text: answer }) => {
-          if (this.#closed) return;
-          if (answer) this.#bridge.sendUserMessage(buildRealtimeVoiceSpeakExactMessage({ text: answer, surfaceLabel: 'Kubik' }));
-          else this.finish();
-        }).catch(() => this.fail());
+        this.#runAgent(text).catch(() => this.fail());
       }
       return;
     }
-    this.#text = (metadata?.textMode === 'snapshot' || final) ? text : this.#text + text;
-    if (this.#text.length > MAX_TEXT) { this.fail(); return; }
-    if (!this.#shown) this.port.text(this.#text);
+    // The agent owns screen text. A synthesis transcript describes only the
+    // current spoken block and must not replace the complete answer/card.
   }
 
   async #runAgent(prompt) {
@@ -143,9 +144,11 @@ export class NativeVoiceTurn {
     this.endInput();
     this.#consulted = true;
     this.#consult = delegateVoice({ dispatch: this.dispatch, transcript: prompt, turnId: this.turnId,
-      port: this.port, isCurrent: () => !this.#closed && this.port.isCurrent() }).then(result => {
-      this.#answer = result.answer; this.#shown = result.shown; return result;
-    }).finally(() => { this.#consult = null; });
+      port: this.port, isCurrent: () => !this.#closed && this.port.isCurrent(),
+      onBlock: answer => { this.#answer = answer; },
+      onSpeech: segments => this.#reply.enqueue(segments), onPhase: name => this.port.phase?.(name) }).then(result => {
+      this.#answer = result.answer; return result;
+    }).finally(() => { this.#consult = null; }).then(result => { this.#reply.end(); return result; });
     return this.#consult;
   }
 
@@ -166,6 +169,7 @@ export class NativeVoiceTurn {
     if (this.#closed) return;
     this.#closed = true;
     clearInterval(this.#tail); clearTimeout(this.#deadline);
+    this.#reply.close();
     this.#pending = []; this.#pendingBytes = 0;
     // Cancel voice, not accepted agent/tool work. That work remains in the agent's existing session.
     Promise.resolve().then(() => this.#bridge.close({ disposition: 'detach' })).catch(() => {});

@@ -26,6 +26,8 @@ static bool audio_stream_playing(void) { return playing; }
 static int quiet_calls, sound_calls;
 static void audio_sfx_quiet(void) { assert(locks == 1); quiet_calls++; }
 static void audio_tess_cue(tess_cue_t cue, float strength, float position) { assert(locks == 1 && (cue == TC_IMPACT || cue == TC_SWING)); sound_calls++; }
+static int tone_calls;
+static void audio_tess_tone(const tess_tone_t *tone) { assert(locks == 1 && tone->kind == TT_RING); tone_calls++; }
 static int64_t s_menu_touch_ms;
 #define SS_IDLE 0
 static int s_talk;
@@ -87,14 +89,18 @@ int main(void) {
  screen_lab_select(s_lab,LAB_OFFLINE);
  app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == 1);
  app_lab_play_cue(TC_TOUCH,.5f,0); assert(sound_calls == 1);
- screen_lab_select(s_lab,LAB_ECHO_0);
+ screen_lab_select(s_lab,LAB_PLAY_PLUCK);
  app_lab_play_cue(TC_SWING,.5f,0); assert(sound_calls == 2);
  app_lab_play_cue(TC_SAD,.5f,0); assert(sound_calls == 2);
  s_lab->face.dark=true; app_lab_play_cue(TC_SWING,.5f,0); assert(sound_calls == 2);
+ tess_tone_t ring={TT_RING,440,.5f,.5f,0};
+ app_lab_play_tone(&ring); assert(tone_calls == 0);  // her body sounds: never in the dark
  s_lab->face.dark=false;
+ app_lab_play_tone(&ring); assert(tone_calls == 1);  // only in Tess previews
  screen_lab_select(s_lab,LAB_SPEAK);
  app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == 2);
  app_lab_play_cue(TC_SWING,.5f,0); assert(sound_calls == 2);
+ app_lab_play_tone(&ring); assert(tone_calls == 1);  // a synthetic agent screen never sounds her body
  screen_lab_select(s_lab,-1);
  assert(app_lab_event(&(app_ev_t){.type=EV_BOOT_SHORT}));
  assert(!app_lab_active() && s_menu && !s_lab && !g_face.rub_in.down);
@@ -103,6 +109,7 @@ int main(void) {
  face_lock(); assert(!app_lab_frame(&scene,1.f/30,true)); face_unlock();
  int stopped = quiet_calls; assert(stopped > 0);
  int sounds = sound_calls; app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == sounds);
+ app_lab_play_tone(&ring); assert(tone_calls == 1);  // nor after the Lab closed
  g_face.rub_in.down=true; app_lab_close(); app_lab_close(); assert(!locks && g_face.rub_in.down && quiet_calls == stopped);
  puts("lab isolation: busy/allocation gates, ephemeral sliders, KEY interception, network pass-through, motion and exits passed");
 }

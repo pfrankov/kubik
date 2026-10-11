@@ -136,6 +136,10 @@ static void update_short_timers(face_t *f, float dt) {
     card_update(f, dt);
     f->menu.k = clampf(f->menu.k + (f->menu.open ? dt : -dt) / 0.5f, 0, 1);
     f->menu.pressed_t += dt;
+    f->agent.view_elapsed = fminf(1.f, f->agent.view_elapsed + dt);
+    agent_menu_tick(&f->agent, dt);
+    f->status.enter = fminf(1.f, f->status.enter + dt);
+    f->journal.enter = fminf(1.f, f->journal.enter + dt);
     if (f->agent.open && f->agent.view == AGENT_VIEW_GUIDE && f->agent.guide_elapsed < 1.f)
         f->agent.guide_elapsed = fminf(1.f, f->agent.guide_elapsed + dt);
 }

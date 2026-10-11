@@ -23,6 +23,7 @@ typedef struct {
     bool open, overlay, moved, detail, detail_expired;
     int16_t touch_x, touch_y, last_y;
     int drag;
+    float enter;  // seconds since the list/detail view last changed
 } event_journal_t;
 const char *event_journal_kind(int kind);
 // Reaction labels must have static lifetime (all production callers use literals).

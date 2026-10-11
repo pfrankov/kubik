@@ -48,14 +48,14 @@ static void set_active_profile(settings_t *s, int index) {
 static void set_defaults(settings_t *s) {
     memset(s, 0, sizeof(*s));
     snprintf(s->name, sizeof(s->name), "Kubik");
-    s->volume = 70;
-    s->ui_volume = 70;
+    s->volume = 100;
+    s->ui_volume = 100;
     s->brightness = 200;
 }
 
 static int load_volume(nvs_handle_t h, const char *key, int fallback) {
     int value = get_int(h, key, fallback);
-    return value >= 0 && value <= 100 ? value : 70;
+    return value >= 0 && value <= 100 ? value : 100;
 }
 
 static void migrate_default_name(settings_t *s) {
@@ -147,7 +147,7 @@ void settings_load(void) {
         nvs_handle_t h;
         if (nvs_open("kubik", NVS_READONLY, &h) == ESP_OK) {
         get_str(h, "name", s->name, sizeof(s->name), "Kubik");
-        s->volume = load_volume(h, "volume", 70);
+        s->volume = load_volume(h, "volume", 100);
         s->ui_volume = load_volume(h, "ui_volume", s->volume);
         s->brightness = get_int(h, "bright", 200);
         s->greeted = get_int(h, "greeted", 0);

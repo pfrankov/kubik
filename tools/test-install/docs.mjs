@@ -32,7 +32,7 @@ export async function loadInstallDocs(root) {
   const commands = [...buyer.matchAll(/<pre(?: data-copy)?>([\s\S]*?)<\/pre>/g)]
     .flatMap((match) => match[1].split('\n')).filter((line) => line.startsWith('openclaw '))
     .map((line) => line.replace(/\bCODE\b/g, 'ABCD2345'));
-  const buyerPrefixes = ['openclaw plugins install ./', 'openclaw channels add ',
+  const buyerPrefixes = ['openclaw plugins install openclaw-kubik ', 'openclaw channels add ',
     'openclaw channels status ', 'openclaw pairing list ', 'openclaw pairing approve '];
   for (const prefix of buyerPrefixes) {
     if (!commands.some((command) => command.startsWith(prefix))) throw new Error(`START.html lacks ${prefix}`);

@@ -7,7 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 RENDER = ['render', 'render_dots', 'render_glass', 'render_output', 'render_pipeline', 'render_raster', 'render_scene', 'render_text', 'sprite', 'font', 'font_data']
-FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_update', 'face_setup', 'face_menu', 'face_plush', 'face_rub', 'tess_geometry', 'tess_growth', 'tess_games', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
+FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_update', 'face_setup', 'face_menu', 'face_status', 'ui_kit', 'face_plush', 'face_rub', 'tess_geometry', 'tess_growth', 'tess_games', 'tess_gather', 'tess_play_shape', 'tess_stretch', 'tess_temper', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
 
 def face_sources(extra=(), omit=()):
     # Tests that include a .c for a private reference omit that translation unit.
@@ -15,6 +15,7 @@ def face_sources(extra=(), omit=()):
 
 TESTS = {
     'event_journal': ['event_journal'],
+    'lift': ['lift'],
     'viewpoint': ['viewpoint'],
     'pose_graph': face_sources(extra=[], omit=['face_body']),
     'sprite_interpolation': face_sources(extra=[], omit=['sprite']),

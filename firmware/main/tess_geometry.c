@@ -200,8 +200,8 @@ static rigid_t rigid_pose(const face_t *f, float time, float size_k) {
 static void apply_game_offset(const face_t *f, rigid_t *body) {
     if (!f->tess_games.ready) return;
     float dx = f->tess_games.offset[0], dy = f->tess_games.offset[1];
-    if (isfinite(dx) && dx != 0) body->dx += clampf(dx, -1.25f, 1.25f);
-    if (isfinite(dy) && dy != 0) body->dy += clampf(dy, -1.25f, 1.25f);
+    if (isfinite(dx) && dx != 0) body->dx += clampf(dx, -1.6f, 1.6f);  // (a slung Tess reaches the rim)
+    if (isfinite(dy) && dy != 0) body->dy += clampf(dy, -1.6f, 1.6f);
 }
 
 // A loved Tess swells a little with a heartbeat of its own (a whole-body size, two soft beats a turn of the clock).
@@ -250,12 +250,14 @@ void tess_point_targets(face_t *f, float out[TESS_N][3], int parity) {
     };
     rigid_t body = rigid_pose(f, time, size * breathe * mood_pulse(f, time));
     apply_game_offset(f, &body);
+    tess_play_frame(f, points, body.k, body.dx, body.dy, body.pc, body.ps);
     if (burst < TESS_BURST_S) tess_scatter_frame(f, burst);
     for (int i = parity < 0 ? 0 : parity; i < TESS_N; i += parity < 0 ? 1 : 2) {
         const float *target = tess_targets[f->tess_shape_of[i]], *home = points[f->tess_form_of[i]];
         float x = home[0], y = home[1], z = home[2];
         shape_point(&x, &y, &z, target, i, &shape);
         heart_point(&x, &y, &z, target, i, &shape);
+        tess_play_point(f->tess_form_of[i], &x, &y, &z);
         if (body.ps != 0) { float turn = x * body.pc - y * body.ps; y = x * body.ps + y * body.pc; x = turn; }
         drift_point(&x, &y, &z, target, i, f->tess_shape_of[i], drift, time);
         out[i][0] = x * body.k + body.dx;

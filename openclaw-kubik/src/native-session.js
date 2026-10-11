@@ -1,4 +1,5 @@
 import { BYTES_PER_MS, MAX_NATIVE_AUDIO_BYTES, out } from './protocol.js';
+import { VoiceTurnTrace } from './voice-turn-trace.js';
 
 /** Session-owned input ACKs and independent playback streams for a native conversation. */
 export class NativeSession {
@@ -7,11 +8,15 @@ export class NativeSession {
   #inputTail = Promise.resolve();
   constructor({ session, turn, dispatch, openStream, endStream, clearTurn, setState, show, current }) {
     Object.assign(this, { session, turn, openStream, endStream, clearTurn, setState, show, current });
+    this.trace = new VoiceTurnTrace(session.log, session.device.id, turn.id);
+    this.trace.phase('input-start');
     this.live = session.engine.voiceMode === 'live';
     this.stream = this.#stream();
     const muted = () => !Number.isFinite(session.volume) || session.volume < 20;
-    this.worker = session.engine.createVoiceTurn({ turnId: turn.id, dispatch,
+    this.worker = session.engine.createVoiceTurn({ turnId: turn.id,
+      dispatch: request => dispatch({ ...request, onPhase: name => this.trace.phase(name) }),
       port: { isCurrent: current, endInput: () => this.#endInput(), finish: () => this.#finish(),
+        phase: name => this.trace.phase(name),
         pauseInput: () => this.#input(false), resumeInput: () => this.#input(true),
         finishReply: () => this.#finishReply(), cancelReply: () => this.#cancelReply(),
         fail: reason => this.#fail(reason),
@@ -25,6 +30,7 @@ export class NativeSession {
         },
         audio: pcm => {
           if (!current()) return false;
+          this.trace.phase('provider-audio');
           if (muted()) return true;
           const stream = this.stream ??= this.#stream();
           const queued = session.pacer.queuedBytes + stream.items.reduce((bytes, item) => bytes + (item.pcm?.length ?? 0), 0);
@@ -33,8 +39,9 @@ export class NativeSession {
           session.wakeSpeech(); return true;
         } } });
   }
-  #stream() { const stream = this.openStream('reply'); stream.live = this.live; return stream; }
+  #stream() { const stream = this.openStream('reply'); stream.live = this.live; stream.voiceTrace = this.trace; return stream; }
   #text(text) { const stream = this.stream ??= this.#stream(); stream.shown = ''; this.show(stream, text); }
+  progress(gen, ms) { if (gen === this.stream?.gen && ms > 0) this.trace.phase('device-progress'); }
   #endInput() {
     if (this.ending || !this.current()) return this.ending;
     clearTimeout(this.turn.timer);

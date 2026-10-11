@@ -101,7 +101,7 @@ static void dispatch_frame(uint8_t type, uint8_t *frame, size_t len) {
     if (type == F_HOST_HELLO) {
         if (s_handlers.on_host_hello) s_handlers.on_host_hello((char *)frame, len);
     } else if (type == F_CONFIG) {
-        static char reply[2048];
+        static char reply[LINK_USB_CONFIG_REPLY_CAP];
         reply[0] = 0;
         if (s_handlers.on_config) s_handlers.on_config((char *)frame, len, reply, sizeof(reply));
         reply[sizeof(reply) - 1] = 0;

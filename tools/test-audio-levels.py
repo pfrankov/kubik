@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 audio = (ROOT / 'firmware/main/audio.c').read_text()
-mixer = audio[audio.index('static void mix_speaker_frame('):audio.index('static void speaker_cycle(')]
+mixer = audio[audio.index('static bool mix_speaker_frame('):audio.index('static void speaker_cycle(')]
 TEST = r'''
 #include <assert.h>
 #include <math.h>
@@ -25,8 +25,8 @@ static void mixed_sources(void) {
     float history[4]={0}; int at=0;
     audio_levels_set_speech(100); audio_levels_set_interface(100);
     for (int i=0;i<SPK_FRAME;i++) mix[i]=10000;
-    fx=0; mix_speaker_frame(samples,mix,true,history,&at);
-    float voice=history[0]; assert(samples[0]==20000);
+    fx=0; assert(mix_speaker_frame(samples,mix,true,history,&at));
+    float voice=history[0]; assert(samples[0]==10000);
     for (int i=0;i<SPK_FRAME;i++) mix[i]=10000;
     fx=20000; mix_speaker_frame(samples,mix,true,history,&at);
     assert(history[1]==voice && audible && samples[0]<32767 && samples[0]>20000);
@@ -45,7 +45,7 @@ static void mixed_sources(void) {
     assert(!s_speech_audible && history[muted_at]==0 && samples[0]>0);
     audio_levels_set_interface(0);
     for (int i=0;i<SPK_FRAME;i++) mix[i]=10000;
-    mix_speaker_frame(samples,mix,true,history,&at); assert(samples[0]==0 && !audible);
+    assert(!mix_speaker_frame(samples,mix,true,history,&at)); assert(samples[0]==0 && !audible);
 }
 
 int main(void) {
@@ -54,25 +54,25 @@ int main(void) {
     int ui = audio_levels_interface(10000);
     assert(abs(ui - 1778) <= 1); // Interface has unity gain at 100%; mute remains exact.
     audio_levels_set_speech(70);
-    assert(audio_levels_speech(10000) > 9700); // Old speech at 70% was 1778.
+    assert(abs(audio_levels_speech(10000) - 4900) <= 1); // Q16 squared curve without +6 dB.
     audio_levels_set_speech(0);
     assert(!audio_levels_speech_enabled() && audio_levels_interface_enabled());
     assert(audio_levels_speech(32767) == 0 && audio_levels_interface(10000) == ui);
     audio_levels_set_speech(100); audio_levels_set_interface(0);
     assert(!audio_levels_interface_enabled() && audio_levels_speech_enabled());
-    assert(audio_levels_interface(10000) == 0 && audio_levels_speech(10000) == 20000);
+    assert(audio_levels_interface(10000) == 0 && audio_levels_speech(10000) == 10000);
     assert(audio_levels_limit(32767 + 98301) < 32767);
     int last = 0;
     for (int p = 0; p <= 100; p++) {
         audio_levels_set_speech(p);
         int value = audio_levels_speech(4000);
-        assert(value >= last); last = value;
+        assert(value >= last && value <= 4000); last = value;
     }
     audio_levels_set_speech(100);
     last = 0;
     for (int sample = 0; sample <= 32767; sample++) {
         int value = audio_levels_speech(sample);
-        assert(value >= last && value <= 32767 && audio_levels_speech(-sample) == -value);
+        assert(value >= last && value <= sample && audio_levels_speech(-sample) == -value);
         last = value;
     }
     assert(audio_levels_speech(-32768) > -32768);
@@ -86,4 +86,4 @@ with tempfile.TemporaryDirectory(prefix='kubik-levels-') as directory:
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-fsanitize=address,undefined',
                     '-Ifirmware/main', str(path / 'test.c'), 'firmware/main/audio_levels.c', 'firmware/main/audio_signal.c', '-lm', '-o', str(path / 'test')], cwd=ROOT, check=True)
     subprocess.run([str(path / 'test')], check=True)
-print('audio levels: independent mute/gain, unity interface ceiling, louder speech, smooth bounded peaks passed')
+print('audio levels: independent mute/gain, unity speech/interface ceilings, smooth bounded peaks passed')

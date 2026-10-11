@@ -58,7 +58,8 @@ static void handle_power_short(void) {
 }
 
 static void handle_menu_swipe(void) {
-    if (!g_face.journal.open && !g_face.status.open && s_menu_drag_row < 0) menu_close(true);
+    if (!g_face.journal.open && !g_face.status.open && !agent_menu_owns_swipe(&g_face.agent) && s_menu_drag_row < 0)
+        menu_close(true);
 }
 
 static bool handle_control_event(const app_ev_t *e) {
@@ -78,7 +79,7 @@ static bool handle_control_event(const app_ev_t *e) {
         menu_hold(e->a, e->b);
         return true;
     case EV_DRAG:
-        if (s_menu) menu_drag(e->a & 0xFFFF, e->b, e->a >> 16);
+        if (s_menu) menu_drag(e->a & 0xFFFF, e->b, e->a >> 16 & 1, e->a >> 17 & 1);
         return true;
     case EV_PTT_UP:
         ptt_up();
@@ -367,8 +368,30 @@ static void handle_agent_capabilities(const app_ev_t *e) {
     talk_fire(TE_ABORT);
 }
 
+// A screen that went dark on its own (PWR_DARK) wakes to a touch or a lift. The button's dark (PWR_DARK_MANUAL)
+// never does. The waking touch only wakes: the rest of that gesture is swallowed.
+static bool s_touch_wake_swallow;
+
+static bool touch_gesture(app_ev_type_t type) {
+    return type == EV_TAP || type == EV_PET || type == EV_DRAG || type == EV_MENU_HOLD || type == EV_SWIPE_UP ||
+           type == EV_TOUCH_DOWN;
+}
+static bool wake_from_dark(const app_ev_t *e) {
+    if (s_power != PWR_DARK || (e->type != EV_TOUCH_DOWN && e->type != EV_PICKUP)) return false;
+    power_fire(PE_WAKE, false);
+    s_touch_wake_swallow = e->type == EV_TOUCH_DOWN;
+    return true;
+}
+static bool swallow_waking_touch(const app_ev_t *e) {
+    app_ev_type_t type = e->type;
+    if (type == EV_TOUCH_UP) { s_touch_wake_swallow = false; return true; }
+    if (type == EV_TOUCH_DOWN && e->a == 1) s_touch_wake_swallow = false;
+    if (touch_gesture(type) && s_touch_wake_swallow) return true;
+    return false;
+}
 static bool dark_input_ignored(const app_ev_t *e) {
     app_ev_type_t type = e->type;
+    if (swallow_waking_touch(e)) return true;
     if (type == EV_BOOT_LONG && e->a == 1) return false; // internal service reboot
     bool key_or_touch = type >= EV_PTT_DOWN && type <= EV_PICKUP &&
                         type != EV_PWR_SHORT && type != EV_PWR_LONG;
@@ -377,7 +400,7 @@ static bool dark_input_ignored(const app_ev_t *e) {
 }
 
 static bool intercept_input(const app_ev_t *e) {
-    return dark_input_ignored(e) || app_lab_event(e);
+    return wake_from_dark(e) || dark_input_ignored(e) || app_lab_event(e);
 }
 
 void app_handle(const app_ev_t *e) {

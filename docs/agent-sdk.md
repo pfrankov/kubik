@@ -47,7 +47,7 @@ OpenClaw дополнительно реализует выбор режима �
 Нужен Node.js 24.16+ в ветке 24.x или 26.1+. Из каталога комплекта:
 
 ```sh
-npm install ./openclaw-kubik-0.6.2.tgz
+npm install openclaw-kubik
 export OPENAI_API_KEY='your-voice-provider-key'
 npx kubik-agent-host setup
 npx kubik-agent-host serve

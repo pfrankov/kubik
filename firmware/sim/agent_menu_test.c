@@ -47,7 +47,7 @@ static uint16_t test_options(agent_menu_t *menu, agent_menu_reply_t *reply) {
     set_page(reply, rid, 0);
     assert(agent_menu_accept_reply(menu, reply, 150));
     assert(menu->options_loaded && menu->capabilities_known && menu->stt_available && !menu->tts_available);
-    assert(menu->count == 4 && menu->total == 5 && agent_menu_pages(menu) == 2);
+    assert(menu->count == 4 && menu->total == 5 && agent_menu_listed(menu) == 5);
     assert(agent_menu_current(menu, 0) && !agent_menu_current(menu, 1));
     return rid;
 }
@@ -97,27 +97,34 @@ static void test_timeout_and_bounds(void) {
     assert(agent_menu_error_valid("denied") && !agent_menu_error_valid("raw server text"));
 }
 
+static void load_page(agent_menu_t *menu, agent_menu_reply_t *reply, uint8_t cursor, uint32_t now) {
+    uint16_t rid = agent_menu_request_options(menu, cursor, now);
+    set_page(reply, rid, cursor);
+    reply->total = 5;
+    if (cursor) set_model(&reply->models[0], "model-five", "Model Five");
+    assert(agent_menu_accept_reply(menu, reply, now + 5));
+}
+
 static void test_selection_on_later_page(void) {
     agent_menu_t menu;
     agent_menu_reply_t reply;
     agent_menu_reset(&menu);
     agent_menu_show(&menu, true);
-    uint16_t rid = agent_menu_request_options(&menu, 2, 100);
-    set_page(&reply, rid, 2);
-    reply.total = 9;
-    assert(agent_menu_accept_reply(&menu, &reply, 110));
-    rid = agent_menu_request_model(&menu, "model-one", 120);
-    assert(menu.waiting_cursor == 2);
+    load_page(&menu, &reply, 0, 100);
+    load_page(&menu, &reply, 1, 110);
+    assert(menu.count == 5 && !strcmp(menu.models[4].id, "model-five"));
+    uint16_t rid = agent_menu_request_model(&menu, "model-five", 120);
+    assert(menu.waiting_cursor == 1);  // the reply carries the page that holds the model
     set_page(&reply, rid, 0);
     assert(!agent_menu_accept_reply(&menu, &reply, 130));
-    set_page(&reply, rid, 2);
-    reply.total = 9;
-    assert(agent_menu_accept_reply(&menu, &reply, 140));
-    rid = agent_menu_request_model(&menu, "model-one", 150);
-    reply = (agent_menu_reply_t){.rid = rid, .cursor = 2};
+    set_page(&reply, rid, 1);
+    set_model(&reply.models[0], "model-five", "Model Five");
+    assert(agent_menu_accept_reply(&menu, &reply, 140) && menu.count == 5);
+    rid = agent_menu_request_model(&menu, "model-five", 150);
+    reply = (agent_menu_reply_t){.rid = rid, .cursor = 1};
     strcpy(reply.error, "busy");
     assert(agent_menu_accept_reply(&menu, &reply, 160));
-    assert(!strcmp(menu.error, "busy") && menu.retry_cursor == 2);
+    assert(!strcmp(menu.error, "busy") && menu.retry_cursor == 1);
 }
 
 static unsigned pushed_pixels;
@@ -141,21 +148,20 @@ static void test_ui_and_taps(void) {
     assert(face_agent_hit(&menu, 353, 410) == AGENT_HIT_VOICE);
     assert(face_agent_hit(&menu, 240, 254) == AGENT_HIT_NONE);
     menu.view = AGENT_VIEW_MODELS;
+    // Rows are 66 px tall on a 78 px pitch from y 84; the whole first wire page shows at once.
     assert(face_agent_hit(&menu, 40, 101) == AGENT_HIT_MODEL_0);
-    assert(face_agent_hit(&menu, 440, 227) == AGENT_HIT_MODEL_0);
-    assert(face_agent_hit(&menu, 40, 241) == AGENT_HIT_MODEL_1);
-    assert(face_agent_hit(&menu, 440, 367) == AGENT_HIT_MODEL_1);
-    assert(face_agent_hit(&menu, 40, 234) == AGENT_HIT_NONE);
-    assert(face_agent_hit(&menu, 392, 428) == AGENT_HIT_NEXT);
-    assert(face_agent_hit(&menu, 88, 428) == AGENT_HIT_NONE);
+    assert(face_agent_hit(&menu, 440, 150) == AGENT_HIT_MODEL_0);
+    assert(face_agent_hit(&menu, 40, 156) == AGENT_HIT_NONE);
+    assert(face_agent_hit(&menu, 40, 195) == (AGENT_HIT_MODEL_0 + 1));
+    assert(face_agent_hit(&menu, 440, 273) == (AGENT_HIT_MODEL_0 + 2));
+    assert(face_agent_hit(&menu, 40, 351) == (AGENT_HIT_MODEL_0 + 3));
+    assert(face_agent_hit(&menu, 392, 428) == AGENT_HIT_NONE);  // no paging buttons
     assert(face_agent_hit(&menu, 19, 164) == AGENT_HIT_NONE);
-    menu.half = 1;
-    assert(face_agent_hit(&menu, 40, 164) == AGENT_HIT_MODEL_2);
-    assert(face_agent_hit(&menu, 40, 304) == AGENT_HIT_MODEL_3);
-    menu.request_pending = true;
-    assert(face_agent_hit(&menu, 40, 164) == AGENT_HIT_NONE);
-    assert(face_agent_hit(&menu, 392, 428) == AGENT_HIT_NONE);
-    menu.request_pending = false;
+    menu.request_pending = true; menu.waiting_kind = AGENT_REQUEST_SELECT;
+    assert(face_agent_hit(&menu, 40, 195) == AGENT_HIT_NONE);
+    menu.waiting_kind = AGENT_REQUEST_OPTIONS;  // pages arriving behind the list do not lock it
+    assert(face_agent_hit(&menu, 40, 195) == (AGENT_HIT_MODEL_0 + 1));
+    menu.request_pending = false; menu.waiting_kind = AGENT_REQUEST_NONE;
     strcpy(menu.error, "timeout");
     menu.retry_kind = AGENT_REQUEST_OPTIONS;
     assert(face_agent_hit(&menu, 240, 428) == AGENT_HIT_RETRY);
@@ -169,6 +175,7 @@ static void test_ui_and_taps(void) {
     menu.view = AGENT_VIEW_OVERVIEW;
 
     scene_t scene;
+    menu.view_elapsed = 1.f;  // views fade in; draw the settled page
     scene_begin(&scene, 0);
     face_agent_draw(&scene, &menu, false);
     assert(scene.n < R_MAX_PRIMS && scene.text_n > 0);
@@ -186,35 +193,6 @@ static void test_ui_and_taps(void) {
     unsigned visible = 0;
     for (unsigned i = 0; i < sizeof overlay / sizeof overlay[0]; i++) visible += overlay[i] != 0;
     assert(visible > 1000);
-}
-
-static void test_large_pages_and_drag(void) {
-    agent_menu_t menu;
-    agent_menu_reply_t reply;
-    agent_menu_reset(&menu);
-    test_options(&menu, &reply);
-    menu.view = AGENT_VIEW_MODELS;
-    uint8_t cursor = 0;
-    assert(!agent_menu_turn_page(&menu, true, &cursor) && menu.half == 1);
-    assert(agent_menu_display_page(&menu) == 1 && agent_menu_display_pages(&menu) == 3);
-    assert(agent_menu_turn_page(&menu, true, &cursor) && cursor == 1 && menu.half == 0);
-    uint16_t rid = agent_menu_request_options(&menu, cursor, 200);
-    assert(!agent_menu_can_turn(&menu, false));
-    set_page(&reply, rid, cursor);
-    assert(agent_menu_accept_reply(&menu, &reply, 210));
-    assert(!agent_menu_can_turn(&menu, true));
-    assert(agent_menu_turn_page(&menu, false, &cursor) && cursor == 0 && menu.half == 1);
-    rid = agent_menu_request_options(&menu, cursor, 220);
-    set_page(&reply, rid, cursor);
-    assert(agent_menu_accept_reply(&menu, &reply, 230) && menu.half == 1);
-    assert(!agent_menu_turn_page(&menu, false, &cursor) && menu.half == 0);
-    assert(agent_menu_drag(&menu, 127, 164, true));
-    assert(agent_menu_drag(&menu, 132, 169, false) && agent_menu_take_tap(&menu));
-    agent_menu_drag(&menu, 127, 164, true);
-    agent_menu_drag(&menu, 127, 194, false);
-    assert(!agent_menu_take_tap(&menu));
-    agent_menu_hide(&menu);
-    assert(!agent_menu_drag(&menu, 127, 164, true));
 }
 
 static void test_view_bounds(void) {
@@ -388,10 +366,10 @@ static void test_voice_catalog_scope(void) {
     assert(agent_menu_accept_reply(&menu, &reply, 230));
     assert(!strcmp(menu.model, "model-one") && !strcmp(menu.selected_model, "voice-two"));
     assert(agent_menu_current(&menu, 1) && !agent_menu_current(&menu, 0));
-    assert(face_agent_hit(&menu, 240, 304) == AGENT_HIT_MODEL_1);
-    menu.request_pending = true;
-    assert(face_agent_hit(&menu, 240, 354) == AGENT_HIT_NONE);
-    menu.request_pending = false; menu.count = 0;
+    assert(face_agent_hit(&menu, 240, 195) == (AGENT_HIT_MODEL_0 + 1));
+    menu.request_pending = true; menu.waiting_kind = AGENT_REQUEST_SELECT;
+    assert(face_agent_hit(&menu, 240, 195) == AGENT_HIT_NONE);
+    menu.request_pending = false; menu.waiting_kind = AGENT_REQUEST_NONE; menu.count = 0;
     assert(face_agent_hit(&menu, 240, 354) == AGENT_HIT_NONE);
     menu.target = AGENT_TARGET_AGENT;
     rid = agent_menu_request_options(&menu, 0, 240);
@@ -410,7 +388,7 @@ static void test_voice_modes_and_parents(void) {
     set_model(&r.models[2], "live", "GPT Live"); r.models[2].disabled = true;
     assert(agent_menu_accept_reply(&m, &r, 20) && m.voice_mode == VOICE_CLASSIC);
     assert(face_agent_hit(&m, 44, 100) == AGENT_HIT_MODEL_0);
-    assert(face_agent_hit(&m, 440, 280) == AGENT_HIT_MODEL_1);
+    assert(face_agent_hit(&m, 440, 280) == (AGENT_HIT_MODEL_0 + 1));
     assert(face_agent_hit(&m, 240, 350) == AGENT_HIT_NONE);
     assert(!agent_menu_request_model(&m, "live", 30));
     rid = agent_menu_request_model(&m, "realtime", 30); assert(rid);
@@ -459,7 +437,6 @@ int main(void) {
     test_timeout_and_bounds();
     test_selection_on_later_page();
     test_ui_and_taps();
-    test_large_pages_and_drag();
     test_view_bounds();
     test_guide();
     puts("ok: Agent screen renders within primitive budget; hit bounds, pages, stale ACKs, retry, and capability gate state");

@@ -3,12 +3,8 @@
 #include "audio_signal.h"
 #include "audio_sfx.h"
 #include <string.h>
-#include "assets.h"
-#include "tess_sound.h"
-#include "board.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
-#include "esp_codec_dev_defaults.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -21,6 +17,7 @@
 #include "mic_delivery.h"
 #include "audio_board.h"
 #include "audio_output_tail.h"
+#include "audio_output_profile.h"
 static const char *TAG = "audio";
 #define SPK_FRAME AUDIO_SPEAKER_FRAMES  // 20 ms
 // 900 ms of ADPCM: 100 ms above host credit, leaving RAM for TLS and Wi-Fi.
@@ -285,24 +282,26 @@ static bool read_speech_frame(int16_t *samples, int32_t *mix) {
     xSemaphoreGive(s_ring_lock);
     return have;
 }
-static void mix_speaker_frame(int16_t *samples, int32_t *mix, bool have_speech,
+static bool mix_speaker_frame(int16_t *samples, int32_t *mix, bool have_speech,
                               float level_history[4], int *history_index) {
     for (int i = 0; i < SPK_FRAME; i++) samples[i] = audio_levels_speech(mix[i]);
     float level = have_speech ? audio_signal_level(samples, SPK_FRAME, -48.f, 40.f) : 0.f;
     memset(mix, 0, SPK_FRAME * sizeof(*mix));
     audio_sfx_mix(mix, SPK_FRAME);
-    bool ui_audible = false;
+    bool ui_audible = false, audible = false;
     for (int i = 0; i < SPK_FRAME; i++) {
         int32_t ui = audio_levels_interface(mix[i]);
         ui_audible |= ui != 0;
         int32_t value = audio_levels_mix(samples[i] + ui);
         samples[i] = value > 32767 ? 32767 : value < -32768 ? -32768 : (int16_t)value;
+        audible |= samples[i] != 0;
     }
     audio_sfx_note_output(ui_audible);
     s_spk_level = level_history[*history_index];
     level_history[*history_index] = level;
     *history_index = (*history_index + 1) & 3;
     s_speech_audible = have_speech && audio_levels_speech_enabled();
+    return audible;
 }
 static void speaker_cycle(float level_history[4], int *history_index) {
     static int16_t samples[SPK_FRAME];
@@ -312,10 +311,11 @@ static void speaker_cycle(float level_history[4], int *history_index) {
     memset(mix, 0, sizeof mix);
     bool have_speech = read_speech_frame(samples, mix);
     ring_release_if_idle();
-    mix_speaker_frame(samples, mix, have_speech, level_history, history_index);
+    bool audible = mix_speaker_frame(samples, mix, have_speech, level_history, history_index);
     int64_t mixed = esp_timer_get_time();
     if (epoch == s_stream_epoch && s_active && mixed - started > s_mix_max_us) s_mix_max_us = mixed - started;
-    esp_codec_dev_write(s_out, samples, sizeof samples);
+    int error = esp_codec_dev_write(s_out, samples, sizeof samples);
+    audio_output_profile_note(esp_timer_get_time(), (uint32_t)(mixed - started), audible, error != ESP_OK);
     if (have_speech) output_written();
     uint32_t waited = (uint32_t)(esp_timer_get_time() - mixed);
     if (epoch == s_stream_epoch && s_active && s_played_bytes && waited > s_write_max_us) s_write_max_us = waited;
@@ -494,7 +494,7 @@ void audio_init(int volume) {
     if (!audio_board_init(&s_capture, &s_out, &s_out_codec, &s_tx)) return;
     audio_set_volume(volume);
     ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(s_out, 100));
-    ESP_ERROR_CHECK(xTaskCreate(speaker_task, "spk", 4096, NULL, 7, &s_spk_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreate(speaker_task, "spk", 4096, NULL, 10, &s_spk_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(xTaskCreate(mic_capture_task, "mic", 4096, (void *)&s_mic_task_config, 6, &s_mic_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_LOGI(TAG, "duplex audio ready, %d Hz, volume %d", AUDIO_RATE, volume);
 }

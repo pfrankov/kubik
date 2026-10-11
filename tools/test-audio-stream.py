@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 audio = (ROOT / "firmware/main/audio.c").read_text()
 state = audio[audio.index("static uint8_t *s_ring"):audio.index("static volatile bool s_speech_audible")]
 doze = audio[audio.index("static bool may_doze"):audio.index("static void doze_while_quiet")]
-reader = audio[audio.index("static bool decode_speech_frame"):audio.index("static void mix_speaker_frame")]
+reader = audio[audio.index("static bool decode_speech_frame"):audio.index("static bool mix_speaker_frame")]
 mock = r'''
 #include <assert.h>
 #include <pthread.h>
@@ -22,6 +22,7 @@ mock = r'''
 #include <time.h>
 #include "ima_adpcm.h"
 #include "audio_output_tail.h"
+#include "audio_output_profile.h"
 #define RING_BYTES @RING_BYTES@
 #define RING_BLOCKS 3
 #define RING_BLOCK_BYTES (RING_BYTES/RING_BLOCKS)
@@ -184,7 +185,23 @@ int main(void) {
     s_capture.rx_enabled = true; assert(!may_doze()); s_capture.rx_enabled = false;
     s_capture.adc_enabled = true; assert(!may_doze()); s_capture.adc_enabled = false;
     s_mic_transition = true; assert(!may_doze()); s_mic_transition = false; assert(may_doze());
-    puts("audio ring: restart exclusion; fixed capacity; allocation refusal, no partial playback");
+    audio_output_profile_t profile = {0};
+    audio_output_profile_record(&profile, 1000, 1200, false, false);
+    audio_output_profile_record(&profile, 1000000, 1200, false, false);
+    assert(!profile.feed_max_us && !profile.late_feeds); // silence/doze is not a stall
+    audio_output_profile_record(&profile, 2000000, 1500, true, false);
+    assert(!profile.feed_max_us && !profile.late_feeds && profile.mix_max_us == 1500); // wake begins a new audible interval
+    profile = (audio_output_profile_t){0};
+    audio_output_profile_record(&profile, 1000, 1200, true, false);
+    audio_output_profile_record(&profile, 21000, 1500, true, false);
+    assert(profile.audible_frames == 2 && profile.feed_max_us == 20000 && !profile.late_feeds);
+    audio_output_profile_record(&profile, 81001, 70000, false, true);
+    assert(!profile.late_feeds && profile.write_errors == 1 && profile.last_feed_us == 21000);
+    audio_output_profile_record(&profile, 81001, 70000, false, false);
+    assert(profile.late_feeds == 1 && profile.write_errors == 1 && profile.mix_max_us == 70000);
+    audio_output_profile_record(&profile, 1000000, 500, false, false);
+    assert(profile.late_feeds == 1); // terminal silence cannot keep counting gaps
+    puts("audio ring/output: restart exclusion, capacity, refusal, DMA reserve and silence boundaries");
 }
 '''
 for name in ("RING_BYTES",):

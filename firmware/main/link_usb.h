@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Fits 16 maximum-length, JSON-escaped model IDs plus voice metadata.
+#define LINK_USB_CONFIG_REPLY_CAP 6144
+
 enum {
     F_JSON = 0x01,
     F_AUDIO = 0x02,

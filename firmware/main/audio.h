@@ -59,6 +59,8 @@ void audio_tess_gesture(float x, float y);
 // A cue from Tess's behaviour (tess_cue.h): a tiny sound of the same family as the sound kit. `strength` 0..1 and
 // `position` -1..1 as the cue says. Silent unless the character is Tess; often silent even then (rate limits).
 void audio_tess_cue(tess_cue_t cue, float strength, float position);
+// A sound of Tess's body; like a mood word, never over the microphone or a spoken reply.
+void audio_tess_tone(const tess_tone_t *tone);
 void audio_set_volume(int pct); // agent speech only
 void audio_set_ui_volume(int pct); // interface and character sounds
 

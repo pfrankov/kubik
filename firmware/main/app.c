@@ -197,7 +197,7 @@ int64_t s_pickup_sfx_at;  // the delighted giggle after the start (0 = none)
 
 // The one place the screen changes power state; the table says what each transition does.
 static void prepare_power_transition(power_event_t event, power_state_t next) {
-    if (event == PE_IDLE_SLEEP) audio_sfx_quiet();
+    if (event == PE_IDLE_DIM || event == PE_IDLE_SLEEP) audio_sfx_quiet();  // dimming and sleeping make no sound
     if (!power_is_active(next)) {
         app_voice_live_stop(true); app_wake_abort(true); app_wake_suspend();
         if (talk_is_listening(s_talk)) {
@@ -389,7 +389,7 @@ typedef struct { int32_t x, y; uint32_t round; } game_tap_t;
 static bool capture_game_tap(const app_ev_t *event, game_tap_t *tap) {
     if (KUBIK_CHARACTER != CHARACTER_TESS || event->type != EV_TAP || app_lab_active()) return false;
     face_lock();
-    bool playing = tess_games_active(&g_face);
+    bool playing = tess_games_owns_tap(&g_face);
     if (playing) *tap = (game_tap_t){event->a, event->b, g_face.tess_games.round};
     face_unlock();
     return playing;
@@ -414,6 +414,8 @@ static void apply_game_tap(const game_tap_t *tap) {
             applied = true;
         }
     }
+    if (!applied && g_face.tess_games.round == tap->round)
+        g_face.tess_games.finger_owned = g_face.tess_games.pressed = false;  // its round is over
     face_unlock();
     if (applied) { s_last_touch_or_key = now_ms(); wake(false); }
 }

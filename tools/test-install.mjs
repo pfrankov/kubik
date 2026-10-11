@@ -65,7 +65,7 @@ async function archiveFromPack(tgz) {
 
 async function prepareKit() {
   const kit = option('kit');
-  ctx.tgz = join(ctx.dir, `openclaw-kubik-${ctx.pluginManifest.version}.tgz`); // the kit ships this name; the docs install it by path
+  ctx.tgz = join(ctx.dir, `openclaw-kubik-${ctx.pluginManifest.version}.tgz`); // candidate archive for pre-publication installation; --registry-install follows npm literally
   await (kit ? archiveFromKit(kit, ctx.tgz) : archiveFromPack(ctx.tgz));
 }
 
@@ -125,10 +125,10 @@ function readLanStatus(status, publicPeers = false) {
 }
 
 async function installFollowingDocs() {
-  const archive = `openclaw-kubik-${ctx.pluginManifest.version}.tgz`;
-  // The manual gives the same command for macOS/Linux (./file) and Windows (.\\file); the test runs the first.
-  assert.ok(ctx.docs.some((command) => command.startsWith(`openclaw plugins install .\\${archive} `)), 'the docs lack the Windows plugin install command');
-  const install = documented(ctx.docs, `openclaw plugins install ./${archive} `, { [`./${archive}`]: ctx.tgz });
+  // Before publication, exercise the packed candidate with the exact documented flags.
+  // --registry-install verifies the released package through npm on the same clean path.
+  const install = documented(ctx.docs, 'openclaw plugins install openclaw-kubik ',
+    process.argv.includes('--registry-install') ? {} : { 'install openclaw-kubik ': `install ${ctx.tgz} ` });
   assert.match(await ctx.box.mustRun(install), /Installed plugin: kubik/);
   assert.match(await ctx.box.mustRun(documented(ctx.docs, 'openclaw channels add --channel kubik --enable')), /Added Kubik account "default"/);
   assert.equal(documented(ctx.docs, 'openclaw gateway run'), 'openclaw gateway run');
@@ -413,8 +413,8 @@ async function uninstallFollowingDocs() {
 /** KIT.ru.md: after an uninstall the approvals and the LAN key remain, and `plugins enable kubik` is needed before `channels add`. */
 async function reinstallAfterUninstall() {
   await ctx.box.stopGateway();
-  const archive = `openclaw-kubik-${ctx.pluginManifest.version}.tgz`;
-  await ctx.box.mustRun(documented(ctx.docs, `openclaw plugins install ./${archive} `, { [`./${archive}`]: ctx.tgz }));
+  await ctx.box.mustRun(documented(ctx.docs, 'openclaw plugins install openclaw-kubik ',
+    process.argv.includes('--registry-install') ? {} : { 'install openclaw-kubik ': `install ${ctx.tgz} ` }));
   const blocked = await ctx.box.run(documented(ctx.docs, 'openclaw channels add --channel kubik --enable'));
   assert.ok(!blocked.ok && /Unknown channel "kubik"/.test(blocked.output), `channels add must fail until the plugin is enabled again:\n${blocked.output}`);
   await ctx.box.mustRun(documented(ctx.docs, 'openclaw plugins enable kubik'));

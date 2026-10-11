@@ -1,6 +1,7 @@
 #include "app_lab.h"
 #include "app_status.h"
 #include "app_internal.h"
+#include "app_game_probe.h"
 #include "muse_backend.h"
 
 #include <math.h>
@@ -409,6 +410,7 @@ static void update_face_motion(face_t *f, int64_t t) {
     f->jolt_dvy += dvy;
     input_slide(&f->slide_x, &f->slide_y);
     input_gravity(&f->grav_x, &f->grav_y);
+    app_game_probe_gravity(&f->grav_x, &f->grav_y);  // (a USB test tilt, while it lasts)
     static bool scripted_rub;
     bool scripting = t < s_debug_rub_until;
     if (scripting || scripted_rub) input_rub_script(fmodf(t / 1000.f, 10.f), face_character(f) == CHARACTER_TESS, scripting);
@@ -452,5 +454,6 @@ void app_face_inputs(face_t *f) {
     if (debug) f->mic_level = f->spk_level = 0.5f + 0.4f * sinf(t * 0.03f);
     f->offline_icon = s_offline_icon == BUB_NO_WIFI || s_offline_icon == BUB_NO_SERVER ? s_offline_icon : 0;
     update_face_motion(f, t);
+    f->dimmed = s_power == PWR_DIMMED || power_is_asleep(s_power);
     update_sleep_emotion(f, mode, t);
 }

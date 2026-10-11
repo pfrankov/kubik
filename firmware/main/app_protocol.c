@@ -1,4 +1,5 @@
 #include "app_lab.h"
+#include "app_models.h"
 #include "app_status.h"
 #include "app_journal.h"
 #include "app_game_probe.h"
@@ -246,7 +247,8 @@ static bool sim_drag_hook(cJSON *j, const char *event) {
     if (!cJSON_IsNumber(x) || !cJSON_IsNumber(y) || x->valueint < 0 || x->valueint > 479 ||
         y->valueint < 0 || y->valueint > 479) return false;
     bool first = cJSON_IsTrue(cJSON_GetObjectItem(j, "first"));
-    app_post(EV_DRAG, x->valueint | (first ? 1 << 16 : 0), y->valueint);
+    bool last = cJSON_IsTrue(cJSON_GetObjectItem(j, "last"));
+    app_post(EV_DRAG, x->valueint | (first ? 1 << 16 : 0) | (last ? 1 << 17 : 0), y->valueint);
     return true;
 }
 static bool sim_hook(cJSON *j, const char *event) {
@@ -323,26 +325,6 @@ static void agent_capabilities_snapshot(bool *known, bool *stt, bool *tts) {
     *tts = g_face.agent.tts_available;
     face_unlock();
 }
-static void add_agent_models(cJSON *info) {
-    char ids[AGENT_PAGE_SIZE][AGENT_MODEL_ID_MAX + 1] = {{0}};
-    face_lock();
-    cJSON_AddStringToObject(info, "agent_target", agent_target_name(g_face.agent.target));
-    cJSON_AddStringToObject(info, "voice_model", g_face.agent.selected_model);
-    unsigned count = g_face.agent.count < AGENT_PAGE_SIZE ? g_face.agent.count : AGENT_PAGE_SIZE;
-    for (unsigned i = 0; i < count; i++) snprintf(ids[i], sizeof ids[i], "%s", g_face.agent.models[i].id);
-    face_unlock();
-    cJSON *models = cJSON_CreateArray();
-    if (!models) return;
-    for (unsigned i = 0; i < count; i++) {
-        cJSON *id = cJSON_CreateString(ids[i]);
-        if (!id || !cJSON_AddItemToArray(models, id)) {
-            cJSON_Delete(id);
-            cJSON_Delete(models);
-            return;
-        }
-    }
-    if (!cJSON_AddItemToObject(info, "agent_models", models)) cJSON_Delete(models);
-}
 static void add_agent_view(cJSON *info) {
     static const char *const views[] = {"overview", "models", "guide", "voice_modes", "classic"};
     static const char *const modes[] = {"classic", "realtime", "live"};
@@ -351,8 +333,8 @@ static void add_agent_view(cJSON *info) {
     cJSON_AddBoolToObject(info, "live_ready", app_voice_live_ready());
     face_lock();
     unsigned view = (unsigned)g_face.agent.view;
-    unsigned page = agent_menu_display_page(&g_face.agent);
-    unsigned pages = agent_menu_display_pages(&g_face.agent);
+    unsigned loaded = g_face.agent.count, listed = agent_menu_listed(&g_face.agent);
+    int scroll = (int)g_face.agent.scroll;
     unsigned guide_step = g_face.agent.guide_step;
     bool card_open = g_face.card_n > 0;
     face_unlock();
@@ -363,9 +345,11 @@ static void add_agent_view(cJSON *info) {
     cJSON_AddBoolToObject(info, "guide_done", g_settings.guide_done);
     app_journal_info(info);
     app_status_info(info);
-    cJSON_AddNumberToObject(info, "agent_display_page", page);
-    cJSON_AddNumberToObject(info, "agent_display_pages", pages);
+    cJSON_AddNumberToObject(info, "agent_loaded", loaded);
+    cJSON_AddNumberToObject(info, "agent_listed", listed);
+    cJSON_AddNumberToObject(info, "agent_scroll", scroll);
 }
+// The listed model ids and the voice model alone: with the full status they would not fit the reply.
 static void config_info(char *reply, size_t cap) {
     power_status_t power;
     pmic_read(&power);
@@ -408,7 +392,6 @@ static void config_info(char *reply, size_t cap) {
         cJSON_AddNumberToObject(info, "agent_total", agent_total);
         cJSON_AddStringToObject(info, "agent_status", agent_status);
         cJSON_AddStringToObject(info, "agent_model", agent_model);
-        add_agent_models(info);
         add_agent_view(info);
         cJSON_AddBoolToObject(info, "stt_known", stt_known);
         cJSON_AddBoolToObject(info, "stt_available", stt_available);
@@ -475,6 +458,7 @@ static void dispatch_config(cJSON *j, const char *command, char *reply, size_t c
     if (!strcmp(command, "set")) config_set(j, reply, cap);
     else if (!strcmp(command, "sim")) config_sim(j, reply, cap);
     else if (!strcmp(command, "card")) config_card(j, reply, cap);
+    else if (!strcmp(command, "models")) app_config_models(j, reply, cap);
     else if (!strcmp(command, "lcd")) config_lcd(reply, cap);
     else if (!strcmp(command, "reboot")) config_reboot(reply, cap);
     else if (!strcmp(command, "reset")) config_reset(reply, cap);

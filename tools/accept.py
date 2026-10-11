@@ -108,6 +108,7 @@ def device():
     run(["node", "tools/test-device-navigation.mjs"])
     run(["node", "tools/test-device-screen-lab.mjs"])
     run(["node", "tools/test-device-tess-games.mjs"])
+    run(["node", "tools/test-device-audio-games.mjs"])
     run(["node", "tools/test-device-events.mjs"])
     run(["node", "tools/test-device-sound.mjs"])
     run(["node", "tools/test-device-idle.mjs"])

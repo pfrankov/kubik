@@ -107,7 +107,7 @@ void tess_sound_note(tess_sound_t *s, const tess_note_t *n) {
         .sustain = (int32_t)n->sustain << 15, .attack_step = ENV_ONE / voice_steps_from_ms(n->attack_ms),
         .decay = decay_factor(n->decay_ms), .release = decay_factor(n->release_ms ? n->release_ms : n->decay_ms),
         .gain = n->gain, .chorus_share = n->chorus_gain, .layer_share = n->layer_gain,
-        .stage = ATTACK, .harmony = n->harmony, .bright = n->bright};
+        .stage = ATTACK, .harmony = n->harmony, .bright = n->bright, .body = n->body};
     if (n->bright) {
         v.stage = DECAY; v.env = v.partial_env = v.rise_left = ENV_ONE;
         v.rise_decay = decay_factor(n->attack_ms);
@@ -135,8 +135,22 @@ static int quietest_word_voice(const tess_sound_t *s) {
     return slot;
 }
 
+// Her body's sounds take a free voice, the spare ones first, at most TESS_BODY_VOICES at once; they never
+// take one from a word or from each other: when there is none, the new body sound is dropped.
+static void start_body_note(tess_sound_t *s, const tess_voice_t *v) {
+    int body = 0, slot = -1;
+    for (int i = 0; i < TESS_VOICES; i++) body += s->voices[i].stage && s->voices[i].body;
+    for (int n = 0; n < TESS_VOICES && slot < 0; n++) {
+        int i = (TESS_WORD_VOICES + n) % TESS_VOICES;
+        if (!s->voices[i].stage) slot = i;
+    }
+    if (slot < 0 || body >= TESS_BODY_VOICES) return;
+    s->active_voices++;
+    s->voices[slot] = *v;
+}
 // Collisions use spare voices and finish naturally; saturation drops the new grain.
 static void start_note(tess_sound_t *s, const tess_voice_t *v) {
+    if (v->body) { start_body_note(s, v); return; }
     int slots = v->bright ? TESS_VOICES : TESS_WORD_VOICES;
     int slot = -1;
     for (int i = 0; i < slots && slot < 0; i++) if (!s->voices[i].stage) slot = i;

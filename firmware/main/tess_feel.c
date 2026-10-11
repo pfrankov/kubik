@@ -122,7 +122,7 @@ static bool entry_cue(const mood_machine_t *m, tess_cue_t *cue, float *strength,
 }
 
 static bool may_speak(const face_t *f) {
-    return f->mode == MODE_IDLE && f->emotion != EMO_SLEEPY && !f->dark && !f->tess_fallen;
+    return f->mode == MODE_IDLE && f->emotion != EMO_SLEEPY && !f->dark && !f->dimmed && !f->tess_fallen;
 }
 
 static void plan_cue(face_t *f) {

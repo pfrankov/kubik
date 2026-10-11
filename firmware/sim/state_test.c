@@ -11,9 +11,9 @@
 static const char *const k_power_expect[PWR_STATE_COUNT] = {
     [PWR_AWAKE] = "ADS.MGKA",
     [PWR_DIMMED] = "A.S.M.KA",
-    [PWR_SLEEPING] = "A..KK.KA",
-    [PWR_DARK_MANUAL] = "..K.AGKA",
-    [PWR_DARK] = "....AGKA",
+    [PWR_SLEEPING] = "A..KM.KA",  // BUTTON: the button turned it off, so only PWR wakes it
+    [PWR_DARK_MANUAL] = "....AGMA",  // never wakes by itself or by touch/lift (WAKE)
+    [PWR_DARK] = "A...AGKA",  // WAKE: a touch or a lift
     [PWR_GOODBYE] = "........",
 };
 static const power_state_t k_letter_state[] = {['A'] = PWR_AWAKE, ['D'] = PWR_DIMMED, ['S'] = PWR_SLEEPING,
@@ -75,7 +75,7 @@ static void check_idle_timeline(void) {
     assert(power_idle_event(PWR_DIMMED, DIM_MS + 1) == PE_NONE);
     assert(power_idle_event(PWR_DIMMED, SLEEP_MS + 1) == PE_IDLE_SLEEP);
     assert(power_idle_event(PWR_DARK_MANUAL, DIM_MS + 1) == PE_NONE);
-    assert(power_idle_event(PWR_DARK_MANUAL, SLEEP_MS + 1) == PE_IDLE_SLEEP);
+    assert(power_idle_event(PWR_DARK_MANUAL, 100 * SLEEP_MS) == PE_NONE);  // the button decision is never softened
     assert(power_idle_event(PWR_SLEEPING, SLEEP_MS + 1) == PE_NONE);
     assert(power_idle_event(PWR_SLEEPING, SLEEP_MS + DARKEN_MS + 501) == PE_IDLE_DARK);
     assert(power_idle_event(PWR_DARK, 100 * SLEEP_MS) == PE_NONE);

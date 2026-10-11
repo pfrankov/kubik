@@ -430,11 +430,12 @@ static void check_settings(void) {
     assert(face_menu_hit(&face,72,188,&part)==MENU_VOLUME);
     assert(face_menu_hit(&face,188,80,&part)==MENU_BRIGHT);
     assert(face_menu_hit(&face,356,251,&part)==MENU_GUIDE);
-    assert(face_menu_hit(&face,90,428,&part)==MENU_ACTIONS && part==0);
-    assert(face_menu_hit(&face,240,428,&part)==-1);  // gap, reset hidden
-    assert(face_menu_hit(&face,390,428,&part)==MENU_ACTIONS && part==2);  // power off
+    assert(face_menu_hit(&face,127,428,&part)==MENU_STATUS);  // Status takes the old Wi-Fi place
+    assert(face_menu_hit(&face,353,428,&part)==MENU_ACTIONS && part==2);
     face.menu.service=true;
+    assert(face_menu_hit(&face,90,428,&part)==MENU_STATUS);
     assert(face_menu_hit(&face,240,428,&part)==MENU_ACTIONS && part==1);  // unlocked reset
+    assert(face_menu_hit(&face,390,428,&part)==MENU_ACTIONS && part==2 && face_menu_hit(&face,165,428,&part)==-1);
     face_draw(&face,&menu); check_frame(&state,&menu);
     face.menu.service=false;
     assert(face_menu_hit(&face,432,36,&part)==-1); // charge label is not a button

@@ -76,9 +76,9 @@ static void words_fit(void) {
     }
     // The buttons of the menu's bottom row (k_actions in face_menu.c): 24 px of symbol, 8 of gap, the word, and at
     // least 8 px to each rounded end.
-    static const struct { str_id_t word; float width; } k_actions[3] = {{STR_WIFI, 126}, {STR_RESET, 130}, {STR_POWER_OFF, 160}};
+    static const struct { str_id_t word; float width; } k_actions[2] = {{STR_RESET, 180}, {STR_POWER_OFF, 220}};
     float tightest = 1e9f;
-    for (int i = 0; i < 3; i++) tightest = fminf(tightest, k_actions[i].width - 24 - 8 - label_width(TXT_ACTION, str(k_actions[i].word)));
+    for (int i = 0; i < 2; i++) tightest = fminf(tightest, k_actions[i].width - 24 - 8 - label_width(TXT_ACTION, str(k_actions[i].word)));
     printf("words: widest bubble text %.0f px (of 371), tightest button leaves %.0f px around symbol and word (of 16 needed)\n", widest, tightest);
     assert(tightest >= 16);
     char chip[80];

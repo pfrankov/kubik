@@ -1,10 +1,11 @@
 import { SpeechPacer } from './audio.js';
-import { BYTES_PER_MS, MAX_NATIVE_AUDIO_BYTES, ImaEncoder, nextGen, out, pcmDurationMs, speechFrameIma } from './protocol.js';
+import { BYTES_PER_MS, ImaEncoder, nextGen, out, pcmDurationMs, speechFrameIma } from './protocol.js';
 import { chunkSpeech, parseReply, sanitizeForDisplay, splitShown } from './speech.js';
 import { SessionControl } from './session-control.js';
 import { SpeechStream } from './speech-stream.js';
 import { runRecordedTurn } from './recorded-turn.js';
 import { NativeSession } from './native-session.js';
+import { logRecordedLatency } from './voice-turn-trace.js';
 
 const MAX_TURN_MS = 60_000;
 const PLAYED_GRACE_MS = 2500;
@@ -127,7 +128,9 @@ export class DeviceSession {
         }
         return;
       case 'progress':
-        if (message.gen === this.activeGen && Number.isFinite(message.ms)) this.pacer.played(message.ms);
+        if (message.gen === this.activeGen && Number.isFinite(message.ms)) {
+          this.pacer.played(message.ms); this.#native?.progress(message.gen, message.ms);
+        }
         return;
       case 'poke': this.log(`kubik: ${this.device.id} poke ${message.kind}`); return;
       case 'device_state': this.volume = message.volume; return;
@@ -243,7 +246,7 @@ export class DeviceSession {
     if (joined === stream.shown) return true;
     if (!this.#beginNotifyAttempt(stream)) return false;
     stream.shown = joined;
-    if (stream.timing && !stream.timing.audio && stream.textOnly) this.#logLatency(stream.timing, 'first text');
+    if (stream.timing && !stream.timing.audio && stream.textOnly) logRecordedLatency(this.log, this.device.id, stream.timing, 'first text');
     stream.receipt = this.#receipt = (this.#receipt % 0xffffffff) + 1;
     this.#textStream = stream;
     return this.send(out.text(joined, stream.kind, stream.receipt));
@@ -332,6 +335,7 @@ export class DeviceSession {
       this.activeGen = this.gen;
       if (segment.emotion) this.send(out.emotion(segment.emotion));
       this.send(out.speak(stream.gen, stream.kind));
+      stream.voiceTrace?.phase('host-output');
       this.pacer.startGen(stream.trace);
       this.#setState('speaking');
     } else if (segment.emotion) {
@@ -350,7 +354,7 @@ export class DeviceSession {
         signal: abort.signal,
         onAudio: (pcm) => {
           if (abort.signal.aborted || epoch !== this.epoch) return;
-          if (stream.timing && !stream.timing.audio) this.#logLatency(stream.timing);
+          if (stream.timing && !stream.timing.audio) logRecordedLatency(this.log, this.device.id, stream.timing);
           stream.trace.source(pcm.length); this.pacer.push(pcm);
         },
       });
@@ -365,12 +369,6 @@ export class DeviceSession {
     } finally {
       if (this.#speechAbort === abort) this.#speechAbort = null;
     }
-  }
-  #logLatency(t, what = 'first audio') {
-    t.audio = Date.now();
-    this.log(`kubik: ${this.device.id} turn ${t.turnId} latency: speech-to-text ${t.transcribed - t.released} ms, `
-      + `agent ${(t.text ?? t.audio) - t.transcribed} ms, text-to-speech ${t.audio - (t.text ?? t.audio)} ms; `
-      + `${what} ${t.audio - t.released} ms after the button`);
   }
 
   #emotionAt(emotion, playAt, epoch) {

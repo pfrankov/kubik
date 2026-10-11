@@ -69,11 +69,11 @@ void event_journal_add(event_journal_t *j, uint32_t seconds, journal_kind_t kind
     anchor(j);
 }
 void event_journal_open(event_journal_t *j) {
-    j->open = true; j->offset = 0; j->detail = j->detail_expired = j->moved = false; j->drag = 0;
+    j->open = true; j->offset = 0; j->detail = j->detail_expired = j->moved = false; j->drag = 0; j->enter = 0;
 }
 bool event_journal_back(event_journal_t *j) {
     if (!j->open) return false;
-    if (j->detail) j->detail = false;
+    if (j->detail) { j->detail = false; j->enter = 0; }
     else j->open = false;
     return true;
 }
@@ -101,7 +101,11 @@ bool event_journal_tap(event_journal_t *j, int x, int y) {
     if (y >= 64 && y <= 120) { j->overlay = !j->overlay; return true; }
     if (j->detail) return false;
     if (y >= 128 && y < 428 && j->offset + (y - 128) / 100 < j->count) {
-        j->selected = j->offset + (y - 128) / 100; j->detail = true; j->detail_expired = false;
-    } else if (y >= 428 && y <= 480) scroll(j, x < 240 ? -3 : 3);
+        j->selected = j->offset + (y - 128) / 100; j->detail = true; j->detail_expired = false; j->enter = 0;
+    } else if (y >= 428 && y <= 480) {
+        unsigned before = j->offset;
+        scroll(j, x < 240 ? -3 : 3);
+        if (j->offset != before) j->enter = 0;
+    }
     return false;
 }

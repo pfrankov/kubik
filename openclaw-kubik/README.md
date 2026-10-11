@@ -1,263 +1,148 @@
 # openclaw-kubik
 
-Канал OpenClaw для **Кубика** — настольного ассистента на ESP32-C6 с анимированным персонажем, настройками и текстовыми ответами. В режиме Classic общение идёт так:
+An OpenClaw channel for **Kubik**, a Wi-Fi voice companion built on the Waveshare ESP32-C6 AMOLED board. Your OpenClaw agent keeps its context and tools; Kubik provides the screen, microphone, speaker and Tess character.
 
-1. Пользователь зажимает клавишу и говорит.
-2. Плагин распознаёт речь и отправляет **точный текст** агенту OpenClaw как личное сообщение от устройства.
-3. Ответ агента плагин озвучивает при громкости от 20 и доступном TTS; иначе показывает текст. Эмоции персонажа передаются тегами вида `[[happy]]`.
+## Install
 
-Нативные режимы передают звук потоково. Realtime завершает ввод по паузе;
-GPT Live сохраняет соединение до KEY и возобновляет микрофон после ответа,
-сохраняя сессию и инструменты агента. [Настройка и ограничения](../docs/native-voice.md).
+Run these commands on the **computer or server running OpenClaw**, not on your phone:
 
-```
-ESP32-C6 ──WSS /kubik/v1──▶ openclaw-kubik (в процессе Gateway) ──▶ агент OpenClaw
-   ▲  PCM 24 кГц, JSON-кадры           │  STT / TTS
-   └──── речь 0x03 (IMA) ◀──────────────┴──▶ STT/TTS вашего OpenClaw (или OpenAI-совместимый API)
+```sh
+openclaw plugins install openclaw-kubik --force --accept-capabilities
+openclaw channels add --channel kubik --enable
+openclaw channels status --probe
 ```
 
-Полная спецификация протокола хранится в исходном репозитории (`docs/protocol.md`). Ключей голосовых провайдеров на устройстве нет: они есть только у OpenClaw и плагина. По умолчанию (`voice.provider: openclaw`, `voice.mode: classic`) используются настроенные STT/TTS; отдельный аккаунт OpenAI не нужен. Для OpenAI Realtime/GPT-Live нужна авторизация OpenAI Platform API на Gateway. Движок `openai-http` использует ключ своего совместимого API. Закрытый ключ P-256 не передаётся по сети и штатными интерфейсами; текущая прошивка хранит его в незашифрованной NVS, поэтому физический доступ к flash может позволить его извлечь.
+Requires OpenClaw **2026.9.7 or newer in the 2026 series**, Node.js **24.16+ in 24.x or 26.1+**, and Kubik firmware **0.6.2**. Review the plugin's capabilities before accepting them. A running Gateway applies the installation through its managed update; allow the device to reconnect. If the Gateway is stopped, use `openclaw gateway start` for an installed service or `openclaw gateway run` in a terminal.
 
-## Возможности
+To update the plugin, repeat the installation command. Preserve the OpenClaw state directory and device settings. Do not reset Kubik for an ordinary update.
 
-- **Устройства.** Два транспорта одного протокола, оба без настройки. Они запускаются в `gateway.startAccount` и останавливаются по abort Gateway.
-  - **LAN:** TLS-listener на порту 18790 (все интерфейсы) с собственным самоподписанным ключом P-256 и UDP-обнаружение на том же порту. Ключ создаётся один раз и хранится в state-каталоге OpenClaw (`kubik/lan-tls.json`, 0600); Кубик закрепляет его отпечаток при первом подключении. Обслуживаются только частные адреса (loopback, 10/8, 172.16/12, 192.168/16, 169.254/16, 100.64/10, IPv6 ULA и link-local); остальные соединения закрываются до TLS. С `listen.public: true` TLS-слушатель принимает и остальные адреса (VPS без домена, `kubik://<публичный IP>`), а UDP-обнаружение по-прежнему только частные.
-  - **Маршрут Gateway:** `/kubik/v1` на порту OpenClaw Gateway. Всё, что уже публикует Gateway (Tailscale Funnel через `gateway.tailscale`, Cloudflare Tunnel, обратный прокси), обслуживает и Кубик по `wss://<host>/kubik/v1`.
-  - Устройство входит по challenge–response своим ключом P-256 (протокол v5): подпись привязана к TLS, который видит устройство (отпечаток ключа LAN или `ca:<хост>`, имя, к которому подключилось устройство), поэтому пересылающий TLS-посредник или сервер под другим именем получает `4001`. Новые устройства подтверждаются через штатный pairing OpenClaw.
-  - Требуется прошивка из текущего комплекта 0.6.2 (протокол v5, подтверждение текстовых уведомлений). Микрофон и речь передаются в IMA ADPCM; адаптеры работают с PCM. Прошивка и host обновляются вместе, ключ и pairing сохраняются.
-  - Коды закрытия: `4001` (плохая подпись или привязка к транспорту, отключённое устройство), `4002` (ошибка протокола), `4003` (устройство переподключилось), `4004` (pairing не подтверждён за 10 минут), `4005` (слишком много ожидающих pairing).
-  - Есть heartbeat и лимиты размеров кадров.
-  - У одного устройства одно соединение: новое вытесняет старое.
-- **Собеседник.** Каждое устройство — отдельный собеседник `kubik:<deviceId>` со своей сессией.
-  - Тело сообщения — ровно то, что распознано (`BodyForAgent`).
-  - Разрешены только команды управления разговором, если фраза целиком начинается с них: `/model`, `/models`, `/think`, `/reasoning`, `/fast`, `/status`, `/stop`, `/new`, `/reset` (`CommandAuthorized: true`). Остальной текст — `CommandAuthorized: false`, так что расслышанная фраза не выполнит другую slash-команду.
-  - Вопросы агента (`ask_user`, `channelData.askUser`) озвучиваются, даже если пришли как `kind: "tool"`: «Вопрос: …», варианты, «Или скажи свой вариант». Запуск агента продолжает ждать ответа, и следующая реплика пользователя уходит ему как ответ. Долгие задачи (браузер, код, несколько инструментов) не прерываются: Кубик показывает «думаю», пока агент работает, и произносит ответ, когда он готов. Результат фоновой работы, который агент присылает позже сам (субагент, cron), приходит как обычное уведомление.
-- **Голосовой ход Classic.**
-  1. `ptt on` → очистка буфера → аудио → `ptt off` → commit → транскрипт.
-  2. Пустой транскрипт → `error stt_empty` и `idle`.
-  3. Иначе `thinking` → агент → каждый блок ответа озвучивается по очереди, всё под одним `gen`.
-- **Эмоции.**
-  - Теги `[[neutral|happy|joy|love|sad|angry|surprised|confused|sleepy|thinking|wink|shy|proud]]` превращаются в события `emotion`. Событие приходит в момент, когда начинает звучать соответствующий фрагмент.
-  - Перед TTS вырезаются теги, markdown, ссылки, URL, код, эмодзи и таблицы.
-  - Агент получает правила речевого ответа через `agentPrompt.inboundFormattingHints`: по-русски, коротко, без разметки, числа словами, теги эмоций. Подсказки для инструмента `message` задаёт `messageToolHints`.
-- **Статус OpenClaw на экране.** Плагин слушает шину событий агента (`runtime.events.onAgentEvent`) и видит все запуски в Gateway: вопросы Кубику, heartbeat, cron, субагентов, сообщения из других каналов. Он сводит их к категориям статус-реакций OpenClaw (🧠 думает, 🛠️ инструменты, 💻 код, 🌐 веб, 🛫 деплой, 🏗️ сборка, 🗜️ сжатие памяти, ⏳ нет прогресса 30 с) и шлёт устройству кадр `activity`.
-  - Запуск в собственной сессии Кубика, а также heartbeat, который отчитается Кубику (через `heartbeat.sendTyping`), показываются режимом «думаю» с иконкой и подписью: `Browsing`, `Coding`, `Using tools`.
-  - Любая другая работа OpenClaw показывается только пузырём сверху (`Working`, `Browsing` и т. п.), когда пузырь ничем другим не занят. Лицо при этом не меняется.
-  - Пока агент заметно работает, устройство не показывает «No answer» через 45 секунд.
-- **Прерывание.** Новое нажатие клавиши или `cancel` сразу останавливают речь: генерация отменяется, `gen` меняется. Сам прогон агента **не прерывается** (подробнее в разделе «Ограничения»).
-- **Проактивные сообщения.** `openclaw message send --channel kubik --target kubik-xxxx -m "…"` и инструмент `message` агента озвучивают текст с `speak.kind = "notify"`.
-  - Доставка идёт через Gateway (`deliveryMode: "gateway"`), потому что сокеты устройств живут в процессе Gateway.
-  - Для одобренного устройства офлайн сообщение ставится в очередь до следующего подключения (`status: queued`). Очередь сохраняется на диске, ограничена восемью сообщениями на устройство, 128 всего и сроком 24 ч; отозванный ключ её не получает. Сообщение удаляется после подтверждения устройства. При обрыве до подтверждения оно повторяется на следующем подключении; частично показанный или проигранный ответ может повториться. Явная отмена пользователем завершает доставку.
-- **Провайдеры Classic.** Реплика идёт по цепочке STT → агент → TTS. Ответ озвучивается по мере получения фрагментов. Провайдеры, ключи и тембр задаются на host; доступные модели выбираются на Кубике в Agent → Voice → STT → Recognition/Speech. Каталог и текущий выбор приходят с сервера (см. [управление агентом](../docs/agent-controls.md)).
-  - `openclaw` (по умолчанию): STT и TTS, уже настроенные в самом OpenClaw; своих ключей и URL не нужно.
-    - Распознавание: `runtime.mediaUnderstanding.transcribeAudioFile` (модель из `tools.media.models` с `capabilities: ["audio"]` или автоопределённая по ключу провайдера). Реплика пишется во временный WAV (0600) и сразу удаляется.
-    - Синтез: настроенный `tts.provider`, разрешённый через публичный speech SDK OpenClaw. OpenAI и ElevenLabs отдают поток PCM; для другого провайдера нужен `synthesizeTelephony`, его результат приводится к PCM 24 кГц.
-    - Поверх глобального блока `tts` накладывается `channels.kubik.tts` (например, свой голос или `auto: "off"`, чтобы ядро не озвучивало ответы Кубика ещё раз файлом).
-    - При отмене поток закрывается. Непотоковый SDK-вызов может доработать на сервере, но его результат уже не воспроизводится. Следующая фраза готовится, пока звучит предыдущая; другой провайдер автоматически не подставляется.
-  - `openai-http`: `POST /audio/transcriptions` (WAV) и потоковый `POST /audio/speech` (`pcm`). Ключ берётся из `voice.apiKey`/`apiKeyFile` или `OPENAI_API_KEY` окружения Gateway; на устройство он не попадает.
-- **Формат речи.** Нужна прошивка 0.6.2 из текущего комплекта. Устройство передаёт микрофонный звук в PCM; плагин всегда отправляет речь в IMA ADPCM (`0x03`, в 4 раза меньше PCM: 12 КБ/с).
-- **Темп.** Устройство каждые 100 мс сообщает фактически проигранное (`progress`). Сервер допускает не более 800 мс отправленной, но ещё не подтверждённой речи, включая пакеты в сети; устройство выделяет полный буфер 900 мс либо отказывается от воспроизведения. При заполненном окне пять секунд без продвижения закрывают соединение; повтор того же `progress` не продлевает срок. Отмена сбрасывает буфер устройства.
-- **Статус.** `openclaw channels status --probe` показывает LAN-адреса, порт и начало отпечатка ключа (`mode: lan 192.168.1.5:18790 spki:…; route /kubik/v1`), зарегистрирован ли маршрут Gateway, онлайн-устройства и проверку `GET {baseUrl}/models`. Если включён `allowInsecureBaseUrl`, выводится предупреждение.
+## Connect and approve
 
-## Развёртывание
+1. Scan Kubik's first QR to join its setup Wi-Fi. Scan the second QR to open the setup page.
+2. Choose your 2.4 GHz Wi-Fi. On the same trusted network, leave the server address blank for discovery. Otherwise enter a reachable address as described below.
+3. Run the **complete command shown on Kubik** on your OpenClaw computer:
 
-Пошаговое руководство для владельца комплекта (прошивка, установка плагина, сопряжение, файрвол, Windows, Docker, экраны, сброс) находится в `README.md` комплекта `kubik-kit-tess.zip` или `kubik-kit-plush.zip` (в исходниках `docs/KIT.ru.md`). Здесь только то, что нужно оператору. Требования: Node.js 24.16+ в ветке 24.x либо 26.1+, OpenClaw 2026.9.7, прошивка 0.6.2; эта связка проверяется чистой установкой комплекта. Пакет приватный: `openclaw plugins install ./openclaw-kubik-0.6.2.tgz --force --accept-capabilities` (OpenClaw принимает путь к архиву и сам ставит зависимость `ws` из npm; на Windows `.\openclaw-kubik-0.6.2.tgz`), затем `openclaw channels add --channel kubik --enable` и `openclaw channels status --probe`. Работающий Gateway применяет обновление управляемо; дождитесь переподключения. Если он не запущен, используйте `openclaw gateway start` для службы или `openclaw gateway run` для ручного запуска.
-
-### VPS с публичным IP, без домена
-
-Порт 18790 по умолчанию обслуживает только частные адреса, поэтому для сервера в интернете включите публичный режим и откройте один порт:
-
-```bash
-openclaw config set channels.kubik.listen.enabled true    # по умолчанию true; false отключает LAN-слушатель совсем
-openclaw config set channels.kubik.listen.public true     # TLS-слушатель принимает и не частные адреса
-openclaw gateway restart
-sudo ufw allow 18790/tcp                                   # только этот порт; Gateway (18789) наружу не открывайте
+```sh
+openclaw pairing approve kubik CODE
 ```
 
-В поле адреса на Кубике: `kubik://<публичный IP>`. `openclaw channels status --probe` покажет `lan … public spki:…`. Ключ, пин, привязка v5 и лимиты те же; UDP-обнаружение отвечает по-прежнему только частным адресам.
+Replace `CODE` with the device's current code. You can also approve it in **OpenClaw Web UI → Channels → Pairing requests**. Then follow Kubik's short guide and press **KEY** to talk. A full factory reset creates a new device key and requires approval again.
 
-- **Первый контакт (TOFU).** Кубик закрепляет ключ TLS, который увидел при первом подключении (сохраняется после `welcome`). Активный посредник на пути в этот момент может быть закреплён вместо сервера. Пересылка на настоящий сервер не проходит: подпись Кубика привязана к увиденному ключу, сервер отвечает `4001` и не создаёт запроса pairing. Поэтому одобряйте только код, который показывает `openclaw pairing list kubik`. После закрепления подмена даёт «Server key changed».
-- **До допуска в сессию** (лимиты сервера): TCP/TLS 64 соединения и 8 на адрес, 10 с на рукопожатие и запрос; затем 16 соединений и 4 на адрес, 4 ожидающих pairing устройства (2 на адрес). Чужой не получает ничего без вашего одобрения, но может занять слоты и на время помешать подключить новое устройство.
-- **Файрвол.** Оставьте снаружи только 18790/tcp (и SSH). Если IP дома постоянный, ограничьте порт им.
+Each device has a separate agent session (`kubik:<deviceId>`). Choosing an agent model on Kubik changes that session, not your Telegram or other channels.
 
-### Остальные способы подключения
+## Server address
 
-- **Одна сеть:** ничего не настраивается, Кубик находит слушатель по UDP на порту 18790. Хосту нужны TCP и UDP 18790 из этой сети; при блокировке broadcast: `kubik://<IP хоста>`.
-- **Свой домен:** Cloudflare Tunnel на порт Gateway (по умолчанию 18789) только для пути `/kubik/v1`, см. `deploy/cloudflared/README.md`. Клиентский адрес берётся из Gateway: добавьте адрес прокси в `gateway.trustedProxies` (`openclaw config set gateway.trustedProxies '["127.0.0.1"]' --strict-json`), иначе все удалённые устройства делят один лимит. Тот же список позволяет взять имя хоста для подписи из `X-Forwarded-Host` (подробнее ниже и в `docs/protocol.md`, «Host binding»).
-- **Tailscale Funnel** (`gateway.tailscale.mode: "funnel"`) публикует весь Gateway и требует `gateway.auth.mode: "password"`. Свой обратный прокси: проксируйте только `/kubik/v1` с WebSocket upgrade на порт Gateway.
+`openclaw channels status --probe` shows the Kubik listener, for example `lan 192.168.1.5:18790 spki:…; route /kubik/v1`.
 
-Маршрут Gateway использует собственную проверку ключа (`auth: "plugin"`), токен Gateway устройству не нужен.
+| Location | Address on Kubik |
+| --- | --- |
+| Same trusted network | Leave blank, or `kubik://SERVER-IP:18790` |
+| Remote server with a public HTTPS endpoint | `wss://YOUR-DOMAIN/kubik/v1` |
+| Public server without a domain | `kubik://PUBLIC-IP:18790`, with public listening enabled |
 
-**Имя хоста в подписи.** По маршруту Gateway устройство подписывает `ca:<хост>`: хост из адреса `wss://хост[:порт]/kubik/v1` (строчные буквы, без порта, IPv6 без скобок, без точки в конце). Плагин сверяет его с хостом, на который пришёл запрос: это заголовок `Host`, а `X-Forwarded-Host` (последнее значение списка) только от адреса из `gateway.trustedProxies` и только когда в `Host` адрес или имя без точки (прокси обращается к Gateway по адресу). Отсутствующий, повторный или неразборчивый `Host` даёт `400`. Прокси перед Gateway должен сохранять публичное имя в `Host` либо стоять в `gateway.trustedProxies` и присылать его в `X-Forwarded-Host`; иначе устройство получает `4001`, а в журнале Gateway строка `rejected device … transport binding mismatch … this request arrived on host "…"`. Подписи `ca` без имени хоста не принимаются ни от какой версии прошивки. `Host` задаёт отправитель запроса, поэтому защита работает там, где публичное имя доходит до Gateway через Tailscale, Cloudflare или другой прокси, маршрутизирующий по имени: не публикуйте порт Gateway напрямую.
+Use an address reachable **from Kubik's Wi-Fi**. `localhost` on a computer and a private VPN address do not give Kubik access unless the network routes to them.
 
-### Pairing и отзыв
+The LAN listener uses TLS and remembers its identity in the OpenClaw state directory (`kubik/lan-tls.json`, mode 0600). Kubik pins it on first successful pairing. Allow TCP and UDP 18790 inside your local network for connection and discovery. If broadcast discovery is blocked, enter the LAN address manually.
 
-Новое устройство показывает код; в логе Gateway: `kubik: new device kubik-xxxxxx wants to pair — approve with: openclaw pairing approve kubik <CODE>`. Одобрение хранится в хранилище pairing OpenClaw как `<deviceId>:<отпечаток ключа>`, секретов в `openclaw.json` нет. Отозвать: `openclaw config set channels.kubik.devices.kubik-xxxxxx.enabled false` (через 1–2 секунды, без перезапуска). Первое одобрение на чистом OpenClaw записывает `kubik:<id>:<отпечаток>` в пустой `commands.ownerAllowFrom` (это делает сам `openclaw pairing approve`) и перезапускает канал, Кубик переподключается сам. Записи чужого канала OpenClaw пропускает: права команд на других каналах не меняются, пока плагин включён, но пустой список перестаёт быть пустым (следующее одобрение не назначит владельца, `openclaw doctor` замолчит), а после удаления плагина записи `kubik:…` нужно убрать. Задайте свой `commands.ownerAllowFrom` до одобрения; подробности в разделе 6 руководства комплекта.
+For a public IP without a domain:
 
-Если LAN-ключ сменился (удалён или испорчен `kubik/lan-tls.json`), Кубик показывает «Server key changed»: пересохраните настройки на его странице настройки (это сбрасывает закреплённый ключ).
-
-Установка из исходников (разработка):
-
-```bash
-cd openclaw-kubik
-npm install
-openclaw plugins install --link "$PWD"
-# Для локального пути OpenClaw просит подтверждение. После проверки исходников:
-#   openclaw plugins install --link --force --accept-capabilities "$PWD"
-openclaw channels status --probe   # работающий Gateway применяет установку управляемо
+```sh
+openclaw config set channels.kubik.listen.public true
 ```
 
-Единственная runtime-зависимость — `ws`. `openclaw` указан как optional peer dependency, а в devDependencies закреплена версия 2026.9.7 (для тестов).
+Allow inbound TCP 18790 in the server and hosting-provider firewalls, preferably restricted to your home IP. UDP discovery remains local. Keep the Gateway dashboard port private.
 
-## Конфигурация
+For a public domain, forward **only `/kubik/v1`** to the Gateway port (normally 18789), with a valid public CA certificate. Configure the Gateway's trusted proxies for your actual proxy. A Cloudflare Tunnel example is in the [deployment guide](https://github.com/pfrankov/kubik/blob/main/deploy/cloudflared/README.md). Tailscale Funnel exposes the whole Gateway rather than one path; follow OpenClaw's Gateway authentication requirements.
 
-Канал настраивается одной секцией `channels.kubik`: у канала один неявный аккаунт `default`. Раздел `devices` необязателен: устройства проходят pairing по ключу сами; в `devices` можно задать имя или отключить устройство (`enabled: false`). Секреты в примере — заглушки.
+## Voice and models
 
-```json5
-{
-  channels: {
-    kubik: {
-      enabled: true,
-      // listen: { enabled: true, public: false, port: 18790 }, // public: true = VPS, TLS also from public IPs; UDP discovery always uses 18790
-      devices: {
-        "kubik-b6c634": {
-          name: "Кубик на столе",
-          enabled: true,                       // false отзывает устройство (и его одобренный ключ)
-        },
-      },
-      voice: { provider: "openclaw", language: "ru" }, // STT/TTS из настроек OpenClaw
-      // allowInsecureBaseUrl: true,          // только для локального мока по http://
-      // volume: 70,                          // громкость в welcome
-      // defaultTo: "kubik:kubik-b6c634",
-      // tts: { auto: "off" },                // переопределение блока tts для Кубика
-    },
-  },
-}
-```
+Provider credentials stay on the OpenClaw computer. The default provider (`openclaw`) reuses OpenClaw's configured speech recognition and synthesis; Kubik does not need a separate OpenAI account for Classic STT/TTS.
 
-Для `openclaw` ключи и URL не нужны: STT/TTS берутся из настроек OpenClaw (`tools.media.models` или автоопределение и `tts`).
+- **STT / Classic:** recognition → the existing agent → speech synthesis. Responses are spoken in order as agent blocks become available. Recognition and Speech models are separate.
+- **Realtime:** streaming voice input; a pause ends the question. Ready agent response blocks begin synthesis before the entire dispatch finishes.
+- **GPT Live:** continuous voice connection, started with KEY or “Hi Tessa” on Tess. Pauses do not stop Live; KEY, a tap, menu, sleep, lost connection or an error ends it. The host subtracts speaker echo, and voice activity can interrupt playback while retaining the agent context.
+- **Text only:** unavailable TTS or Speech volume below 20 shows the agent's answer as text.
 
-Setup-адаптер:
+On Kubik, **Settings → Agent → Voice** selects a mode and its available models. Classic has separate Recognition/Speech catalogs; native modes share one voice model. Choices persist on the host for the account and paired device key. They do not change the agent's text model. An empty catalog can mean the provider supports speech without selectable models.
 
-```bash
-openclaw channels add --channel kubik --enable                                        # включить канал (pairing)
-openclaw channels add --channel kubik --device-id kubik-b6c634 --device-name "Кубик"  # задать имя устройства
-```
+Realtime/GPT Live require configured **OpenAI Platform API authorization on the Gateway** and supported firmware. A ChatGPT subscription alone does not supply an API key. Configure providers, credentials and voices on the server; the device reports availability rather than installing providers. See the [voice setup guide](https://github.com/pfrankov/kubik/blob/main/docs/buyer/START.html) and [native voice details](https://github.com/pfrankov/kubik/blob/main/docs/native-voice.md).
 
-Схема конфигурации задана в `src/config.js`. Манифест `openclaw.plugin.json` генерируется командой `npm run sync:manifest`, а синхронность проверяют `npm run check:manifest` и тесты.
+Classic recognition uses `tools.media.models` with audio capability or OpenClaw's provider detection. Synthesis uses `tts.provider`; `channels.kubik.tts` can override the voice for Kubik:
 
-## Обновление конфигурации
-
-Остаются провайдеры `openclaw` и `openai-http`. Удалённые `openai-realtime`, `openai-live`, `openai-gpt-live`, ключи `voice.model`, `voice.instructions` и `devices.<id>.prefs` не принимаются. Перед обновлением удалите такие настройки явно; автоматической подмены движка нет. Старый кадр `prefs` закрывает соединение с кодом 4002.
-
-Нативный голос выбирается отдельно: `voice.provider: "openclaw"` и
-`voice.mode: "realtime"` либо `"live"`; по умолчанию `"classic"`.
-Это голосовой интерфейс к прежней сессии агента, а не новый агент.
-`voice.voice` задаёт голос. Для нативного пути нужны OpenAI Platform API-key auth
-на Gateway и актуальная прошивка. GPT Live включается KEY или Hi Tessa и остаётся включённым между вопросами;
-KEY завершает разговор. Realtime отправляет вопрос после паузы. KEY и пауза завершают запись. Настройка, стоимость и границы проверки:
-[Realtime/GPT-Live](../docs/native-voice.md).
-
-Модель агента выбирается для сессии устройства. Agent → Voice показывает
-STT, Realtime и GPT Live. После выбора режима открываются его модели:
-Recognition/Speech в STT, один голосовой каталог в нативных режимах.
-BOOT возвращает на предыдущий уровень. Выбор режима и моделей сохраняется
-на host для аккаунта и ключа сопряжённого Кубика, отдельно от других устройств.
-`voice.mode` — начальное значение; сохранённый выбор имеет приоритет.
-Пустой каталог не означает отсутствия голоса: некоторые провайдеры не дают
-выбора моделей. Ключи и провайдеры задаются на host. Подробности —
-в [управлении агентом](../docs/agent-controls.md). Тембр Classic TTS задаётся
-через `channels.kubik.tts`, например:
-
-```bash
+```sh
 openclaw config set channels.kubik.tts '{"providers":{"openai":{"speakerVoice":"ash"}}}' --strict-json
 ```
 
-## Локальный запуск с моком (без ключа OpenAI)
+The alternative `openai-http` provider uses an OpenAI-compatible STT/TTS endpoint. Its keys, `baseUrl` and voice models are configured on the host. `allowInsecureBaseUrl` is for a local HTTP mock only: it permits sending credentials without TLS.
 
-Этот раздел предназначен для исходного репозитория; инструменты находятся в его каталоге `tools/` и не входят в устанавливаемый архив плагина:
+## Configuration
 
-- `mock-openai/server.mjs` — мок OpenAI-совместимого API на `127.0.0.1:18800`. Он поддерживает `/v1/models`, `/v1/audio/*` и `/v1/chat/completions`.
-  - Мок LLM отвечает по-русски с тегами эмоций.
-  - STT по кругу выдаёт фиксированные фразы; на тишине или слишком коротком аудио транскрипт пустой.
-  - TTS озвучивает текст через `say -v Milena` и ffmpeg, а если их нет — тоном.
-- `dev-up.sh` / `dev-down.sh` — поднимают и останавливают мок и Gateway профиля `kubik` (`~/.openclaw-kubik`). Логи пишутся в `tools/.logs/`.
-- `fake-device.mjs` — имитация устройства:
-  - говорит фразы в реальном времени кадрами по 40 мс;
-  - печатает события в JSON с таймингами;
-  - сохраняет полученную речь в `tools/.out/turn-N.wav` и отвечает `played`.
+Configuration lives in `channels.kubik`, with one implicit `default` account. Devices pair automatically; optional `devices` entries set a name or disable a device.
 
-```bash
-tools/dev-up.sh                                   # мок + профиль kubik + gateway; токены в tools/dev-secrets.json
-node tools/fake-device.mjs --turns 3              # три голосовых хода
-node tools/fake-device.mjs --turns 1 --silent     # тишина → error stt_empty
-node tools/fake-device.mjs --turns 1 --cancel-after 300   # отмена через 300 мс после начала речи
-node tools/fake-device.mjs --turns 0 --stay 20000 &       # просто быть онлайн 20 с…
-(cd openclaw-kubik && npx openclaw --profile kubik message send \
-   --channel kubik --target kubik-b6c634 -m "[[proud]] Пора выпить воды!")   # …и получить notify
-tools/dev-down.sh
+```json
+{
+  "channels": {
+    "kubik": {
+      "enabled": true,
+      "voice": { "provider": "openclaw", "language": "en" },
+      "devices": {
+        "kubik-xxxxxx": { "name": "Desk Kubik", "enabled": true }
+      }
+    }
+  }
+}
 ```
 
-`tools/dev-secrets.json`, `tools/.logs`, `tools/.out` и кеш мока внесены в `.gitignore`.
+Revoke a device with:
 
-## Переход на настоящий OpenAI
-
-Код менять не нужно. Достаточно правки конфигурации:
-
-```bash
-openclaw config set channels.kubik.voice.baseUrl https://api.openai.com/v1
-openclaw config set channels.kubik.voice.apiKeyFile /abs/path/openai.key   # или OPENAI_API_KEY в окружении Gateway
-openclaw config unset channels.kubik.allowInsecureBaseUrl
-openclaw channels status --probe      # GET /models должен пройти
+```sh
+openclaw config set channels.kubik.devices.kubik-xxxxxx.enabled false
 ```
 
-Модель агента (LLM) настраивается в OpenClaw отдельно, как обычно.
+Replace the sample ID with your device ID. Existing connections and queued notifications recheck authorization. Reapproval does not deliver messages discarded after revocation.
 
-## Тесты
+The schema in `src/config.js` is authoritative. Supported voice providers are `openclaw` and `openai-http`; `voice.mode` is `classic`, `realtime` or `live`. Old providers (`openai-realtime`, `openai-live`, `openai-gpt-live`), `voice.model`, `voice.instructions` and `devices.<id>.prefs` are not accepted: remove obsolete settings explicitly before updating. There is no automatic engine substitution.
 
-Команды этого раздела запускаются из `openclaw-kubik/` исходного репозитория; тесты и скрипты не входят в устанавливаемый архив.
+## Agent activity and notifications
 
-```bash
-npm test             # node:test: схема/манифест, парсер тегов и санитайзер, протокол, темп,
-                     # сервер/сессия (v5-подпись и pairing, 4001–4005, ход, отмена, notify, офлайн), HTTP-движок против мока,
-                     # транспорты на настоящих TLS/UDP: обнаружение, фильтр адресов, привязка и relay-MITM,
-                     # имя хоста в подписи маршрута Gateway (Host, X-Forwarded-Host, устаревший `ca`), маршрут Gateway, USB-мост, сохранение и восстановление ключа
-npm run check:host   # упаковать плагин, загрузить tarball с настоящим SDK 2026.9.7 и прогнать ход и notify
-node ../tools/test-install.mjs   # чистый OpenClaw и команды из docs/KIT.ru.md, устройство-симулятор
+Kubik displays agent thinking, tool use and other activity. Work in the device's own session shows its thinking state; other Gateway activity uses a small status bubble. Background status changes do not wake a dark screen.
+
+Send a notification through the Gateway:
+
+```sh
+openclaw message send --channel kubik --target kubik-xxxxxx -m "Your task is ready."
 ```
 
-Тестам движков нужен мок из каталога `tools/mock-openai` исходного репозитория (`cd ../tools && npm install` из `openclaw-kubik/`). В тестах мок озвучивает тоном.
+Approved offline devices have a durable notification queue: up to eight messages per device, 128 total, expiring after 24 hours. Delivery is removed after the device acknowledges it. A connection loss before acknowledgment can repeat a partially displayed or spoken reply. Explicit user cancellation completes delivery.
 
-## Ограничения
+Emotion tags such as `[[happy]]`, `[[sad]]` and `[[proud]]` animate Tess alongside speech. Markdown, code, URLs and screen-only content are stripped from synthesis. Agent questions keep the run waiting for the user's next response.
 
-- **Прогон агента не отменяется.** Отмена или новое нажатие только останавливают речь. Прогон агента продолжается в фоне:
-  - его ответ сохраняется в истории сессии;
-  - побочные эффекты инструментов выполняются;
-  - оставшиеся блоки ответа не озвучиваются (это видно в логе: `reply block for superseded turn N not spoken`).
-- **Блоки ответа.** OpenClaw 2026.9.3 для моделей `openai-completions` отдаёт текст в блочный стриминг только после конца генерации: неразмеченный текст может оказаться комментарием перед вызовом инструмента.
-  - Ответ режется на блоки примерно по 200 символов (`textChunkLimit`), и первый блок начинает звучать, пока синтезируются следующие.
-  - Но сама речь начинается лишь после того, как LLM закончил ответ.
-  - Для провайдеров с разметкой фаз (Responses) блоки должны идти по ходу генерации, но это не проверялось.
-- **Один аккаунт.** Всё настраивается одной секцией `channels.kubik`. Нельзя запустить несколько независимых серверов для разных устройств; маршрут Gateway обслуживает аккаунт `default`.
-- **Порт LAN занят** (например, старым прокси на 18790): канал работает через маршрут Gateway, статус показывает `lan unavailable (port 18790 is already in use)`.
-- **Не реализовано в протоколе.** Кадр `set` (громкость и яркость на лету) и код `busy` сервер не использует. Команды `poke` только логируются.
-- **Нужно время на синтез.** Эмоции следующих фраз отправляются по оценке времени воспроизведения, а `speak` отправляется только после завершения предыдущего `gen` (по `played` или по таймауту).
-- **Мок не распознаёт речь.** Он выдаёт фиксированную ротацию фраз; тишина определяется по RMS.
+## Security and limits
 
-## Безопасность
+- Devices authenticate with a fresh challenge and P-256 signature bound to the TLS transport. Device private keys are not transmitted; firmware stores them in unencrypted NVS, so physical flash access can expose them.
+- Approval binds both device ID and key. One device has one active connection; a new connection replaces the previous one. Pairing expires after ten minutes. Admission, audio buffers, retries and queues are bounded.
+- LAN uses pinned TLS; remote WSS validates a CA certificate. Plain `ws://` is rejected. Preserve the server TLS identity and pair only with your intended server.
+- Only conversation-control slash commands are authorized from recognized speech: model, reasoning, fast mode, status, stop and new/reset session. Other recognized text is untrusted input.
+- Canceling speech **does not cancel the agent's tools or side effects**. The agent run can finish in the background; its superseded voice blocks are not played.
+- First-audio latency also depends on the agent/provider. Some providers do not expose a final reply block until generation finishes. Provider readiness is not proof of paid API access or response speed.
+- Live is limited to 30 minutes and a single reply to 120 seconds. Other limits and protocol errors are documented in the [protocol](https://github.com/pfrankov/kubik/blob/main/docs/protocol.md).
 
-- **Ключ устройства (v5).**
-  - Пара ключей P-256 создаётся на устройстве; закрытый ключ не передаётся по сети и штатными интерфейсами. Текущая прошивка хранит его в незашифрованной NVS, поэтому физический доступ к flash может позволить извлечь его. Сервер получает открытый ключ и хранит одобрение как `<deviceId>:<отпечаток>` в хранилище pairing OpenClaw.
-  - Вход — подпись свежего 32-байтного nonce, поэтому TLS-прокси перед плагином не видит ничего, что можно повторить. Подпись включает привязку к транспорту (отпечаток ключа LAN, который видел Кубик, или `ca:<хост>` для маршрута Gateway: имя, к которому подключился Кубик); посредник, пересылающий соединение со своим TLS, или сервер под другим именем получает `4001`.
-  - Одобрение привязывает id устройства к ключу: тот же ключ под другим id или другой ключ под тем же id требуют нового подтверждения.
-  - Отзыв: `channels.kubik.devices.<id>.enabled: false`, или удаление записи из allow list pairing.
-  - Лимиты: до 16 соединений до допуска в сессию глобально и 4 от одного клиентского адреса, включая ожидание ответа pairing store после подписи; не больше 4 ожидающих подтверждения устройств (2 с одного адреса). Плохая подпись занимает слот 300 мс; постоянной блокировки по адресу или заявленному ключу нет, поэтому поддельное рукопожатие не блокирует владельца ключа. В LAN клиентский адрес — адрес сокета, заголовки прокси не читаются; на маршруте Gateway — адрес, который определил сам Gateway (`gateway.trustedProxies`), иначе клиенты делят адрес прокси. Ожидание hello и подписи ограничено 3 секундами каждое.
-- **Ключ OpenAI.**
-  - Хранится только на сервере (`apiKey`, `apiKeyFile` или `OPENAI_API_KEY`) и отправляется только на `voice.baseUrl`.
-  - Устройство его не видит.
-  - Ключ не попадает в логи, статус и ошибки, а в объекте аккаунта он неперечисляемый.
-- **Сеть и TLS.** LAN-listener всегда TLS (самоподписанный ключ, закреплённый на Кубике при первом подключении, TOFU) и по умолчанию обслуживает только частные адреса (`listen.public: true` открывает TLS для любых, см. «VPS с публичным IP»); UDP-обнаружение отвечает только частным адресам и не чаще 10 раз в секунду. Файл ключа `kubik/lan-tls.json` в state-каталоге OpenClaw имеет права 0600; кто может его прочитать, может выдать себя за этот OpenClaw в LAN. Удалённый доступ идёт через публикацию Gateway (Tailscale Funnel, Cloudflare Tunnel) по `wss://` с сертификатом из CA bundle. Cloudflare Tunnel позволяет опубликовать только путь `/kubik/v1`, и так и нужно сделать. Tailscale Funnel публикует весь Gateway (Control UI и WebSocket) и требует пароль Gateway: ограничить его одним путём нельзя. Незашифрованный `ws://` канал не принимает.
-- **`allowInsecureBaseUrl`** разрешает `http://` для `voice.baseUrl`, то есть ключ уходит открытым текстом. Используйте его только для локального мока; статус и предупреждения безопасности это показывают.
-- **Распознанная речь** — недоверенный ввод: из slash-команд выполняются только команды управления разговором (модель, уровень рассуждений, fast, статус, стоп, новая сессия); остальные — нет (`CommandAuthorized: false`).
+## Custom agents and development
 
-Для работы без OpenClaw пакет также экспортирует `openclaw-kubik/agent-sdk` и команду `kubik-agent-host`: мастер и отдельный TLS host для собственных ESM адаптеров. Hermes подключается напрямую через [нативную платформу](../docs/hermes.md) своего Gateway. Как написать адаптер для любого другого агента, описано в `agent-sdk.md` комплекта и `docs/agent-sdk.md` исходников.
+The package also exports `openclaw-kubik/agent-sdk` and the `kubik-agent-host` CLI for custom ESM adapters. Hermes has a separate native Gateway platform. The device setup wizard currently offers OpenClaw only. Read the [adapter SDK guide](https://github.com/pfrankov/kubik/blob/main/docs/agent-sdk.md) for extension contracts and a runnable example.
+
+Tests and development scripts are in the source repository, not the installed npm package:
+
+```sh
+cd openclaw-kubik
+npm ci
+npm run check
+npm run check:host
+node ../tools/test-install.mjs
+```
+
+The repository provides a local mock for tests without paid API calls. Full device/firmware acceptance is documented in [acceptance](https://github.com/pfrankov/kubik/blob/main/docs/acceptance.md). The generated manifest explicitly declares no current state migrations in `doctorContract`; schema changes must update that contract together with actual migrations.
+
+## License
+
+Apache-2.0 for Kubik's own code. Included third-party code retains its notices in `licenses/` and `NOTICE`. Firmware assets and the Tessa wake model have separate terms in the source repository; the wake model is not included in this npm package.

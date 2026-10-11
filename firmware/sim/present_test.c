@@ -187,7 +187,7 @@ static void run_overlays(void) {
     }
     face_t face; face_init(&face);
     face.menu.volume = 60; face.menu.brightness = 80;
-    static const char *const words[MT_COUNT] = {"Wi-Fi", "Power off", "Reset"};
+    static const char *const words[MT_COUNT] = {"Power off", "Reset"};
     memcpy(face.menu.txt, words, sizeof words);
     for (int i = 0; i < 100; i++) {
         update_menu_fixture(&face, i);

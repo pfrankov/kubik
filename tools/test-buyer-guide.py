@@ -26,10 +26,11 @@ def check_print():
     assert booklet.index('Know the buttons.') < booklet.index('Press <kbd>PWR</kbd>')
     assert 'Talk to Tess.' in booklet and '“Hi Tessa”' in booklet
     commands = re.findall(r'<pre[^>]*>(.*?)</pre>', booklet, re.S)
-    # A buyer must be able to run listing without also pasting approval.
-    for command in ('openclaw pairing list kubik', 'openclaw pairing approve kubik CODE',
-                    'python ~/.hermes/plugins/kubik/pair.py CODE'):
-        assert command in [block.strip() for block in commands], f'Pairing command needs its own block: {command}'
+    for command in ('openclaw plugins install openclaw-kubik',
+                    'openclaw channels add --channel kubik --enable',
+                    'openclaw pairing approve kubik CODE'):
+        assert command in [block.strip() for block in commands], command
+    assert 'openclaw pairing list kubik' not in booklet
     for stale in ('order email', 'order page', 'START.html', 'VOICE.html', 'CONNECT.html', 'ASK-AGENT.txt', 'Say hello.', 'Match. Then approve.'):
         assert stale not in booklet, stale
     with tempfile.TemporaryDirectory(prefix='kubik-print-check-') as directory:
@@ -71,7 +72,7 @@ def check_browser(browser, output, width):
     page.evaluate('document.fonts.ready')
     assert page.locator('html').get_attribute('lang') == 'en'
     assert page.locator('[data-setup-url]').get_attribute('href') == SETUP_URL
-    assert page.locator('[data-download-url]').get_attribute('href') == 'https://github.com/OWNER/kubik/releases'
+    assert 'openclaw plugins install openclaw-kubik --force --accept-capabilities' in page.locator('pre[data-copy]').all_inner_texts()
     assert 'Temporary address' in page.locator('.draft').inner_text()
     assert page.locator('img').evaluate_all('imgs => imgs.every(i => i.complete && i.naturalWidth > 0)')
     for link in page.locator('nav a').all():

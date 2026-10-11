@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix='kubik-agent-preview-') as tmp:
                     '-Ifirmware/sim/present_stubs', 'firmware/sim/agent_preview.c',
                     *[f'firmware/main/{name}.c' for name in sources], '-lm', '-o', str(exe)],
                    cwd=ROOT, check=True)
-    fixtures = {'events': ['journal'], 'events-empty': ['journal', 'empty'], 'events-detail': ['journal', 'detail'], 'events-overlay': ['journal', 'overlay'], 'events-live': ['journal', 'live'], 'clock': ['clock'], 'clock-low-battery': ['clock', 'low'], 'clock-reminder': ['clock', 'due'], 'overview': ['0'], 'models': ['1'], 'models-long': ['1', '1'],
+    fixtures = {'events': ['journal'], 'events-empty': ['journal', 'empty'], 'events-detail': ['journal', 'detail'], 'events-overlay': ['journal', 'overlay'], 'events-live': ['journal', 'live'], 'clock': ['clock'], 'clock-low-battery': ['clock', 'low'], 'clock-reminder': ['clock', 'due'], 'overview': ['0'], 'models': ['1'], 'models-long': ['1', '0', '', '260'],
                 'model-saving': ['1', '0', 'pending'], 'model-error': ['1', '0', 'error'],
                 'input': ['1', '0', 'input'], 'output': ['1', '0', 'output'], 'input-missing': ['1', '0', 'input-missing'],
                 'offline': ['0', '0', 'offline'], 'settings': ['settings'], 'settings-muted': ['settings', '0'], 'sound': ['settings', '70', 'sound'],

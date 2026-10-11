@@ -146,27 +146,45 @@ static void service_display_controls(frame_out_t *frame, bool *powered, int *bri
     reinitialize_display(frame, *powered, *brightness);
 }
 
+// What Tess asked the speaker for this frame: cues (reactions) and tones (her body), taken under the face lock.
+typedef struct {
+    tess_cue_t cue[TESS_CUES];
+    float strength[TESS_CUES], position[TESS_CUES];
+    tess_tone_t tone[TESS_TONES];
+    int cues, tones;
+} tess_sounds_t;
+static void take_sounds(tess_sounds_t *out, bool lab) {
+    out->cues = out->tones = 0;
+    if (KUBIK_CHARACTER != CHARACTER_TESS) return;
+    while (out->cues < TESS_CUES &&
+           (lab ? app_lab_take_cue(&out->cue[out->cues], &out->strength[out->cues], &out->position[out->cues]) :
+                  face_take_cue(&g_face, &out->cue[out->cues], &out->strength[out->cues], &out->position[out->cues])))
+        out->cues++;
+    while (out->tones < TESS_TONES && (lab ? app_lab_take_tone(&out->tone[out->tones]) : face_take_tone(&g_face, &out->tone[out->tones])))
+        out->tones++;
+}
+static void play_sounds(const tess_sounds_t *in, bool lab) {
+    for (int i = 0; i < in->cues; i++) {
+        if (lab) app_lab_play_cue(in->cue[i], in->strength[i], in->position[i]);
+        else audio_tess_cue(in->cue[i], in->strength[i], in->position[i]);
+    }
+    for (int i = 0; i < in->tones; i++) {
+        if (lab) app_lab_play_tone(&in->tone[i]);
+        else audio_tess_tone(&in->tone[i]);
+    }
+}
+
 static face_mode_t update_scene(scene_t *scene, float elapsed, bool powered) {
     xSemaphoreTake(g_face_mtx, portMAX_DELAY);
     app_face_inputs(&g_face);
     g_face.dark = !powered;
     bool lab = app_lab_frame(scene, elapsed, powered);
     if (!lab) { face_update(&g_face, elapsed); if (powered) face_draw(&g_face, scene); }
-    tess_cue_t cue[TESS_CUES];
-    float strength[TESS_CUES], position[TESS_CUES];
-    int cues = 0;
-    while (KUBIK_CHARACTER == CHARACTER_TESS && cues < TESS_CUES) {
-        bool next = lab ? app_lab_take_cue(&cue[cues], &strength[cues], &position[cues]) :
-                          face_take_cue(&g_face, &cue[cues], &strength[cues], &position[cues]);
-        if (!next) break;
-        cues++;
-    }
+    static tess_sounds_t sounds;  // (the display task's own: kept off its stack)
+    take_sounds(&sounds, lab);
     face_mode_t mode = g_face.mode;
     xSemaphoreGive(g_face_mtx);
-    for (int i = 0; i < cues; i++) {
-        if (lab) app_lab_play_cue(cue[i], strength[i], position[i]);
-        else audio_tess_cue(cue[i], strength[i], position[i]);
-    }
+    play_sounds(&sounds, lab);
     return mode;
 }
 
@@ -223,6 +241,15 @@ static void log_frame_stats(frame_stats_t *st, frame_out_t *f, const scene_t *sc
 }
 
 
+// Frames that cannot make 33 ms run at an even 20 fps: alternating 33/66 ms frames judder.
+static int frame_rate(face_mode_t mode, int64_t *avg_us, int64_t frame_us) {
+    static bool slow;
+    *avg_us += (frame_us - *avg_us) / 2;
+    if (*avg_us > 30000) slow = true;
+    else if (*avg_us < 24000) slow = false;
+    return mode == MODE_LISTENING ? 24 : slow ? 20 : R_FPS;
+}
+
 // Sleeps to the next frame's time. Dark: a notification, touch or remote reply can wake the screen at once; the
 // 250 ms timeout only advances off-screen state when nothing happens.
 static void wait_for_next_frame(bool powered, int fps, TickType_t *wake, int *tick_remainder) {
@@ -242,6 +269,7 @@ static void wait_for_next_frame(bool powered, int fps, TickType_t *wake, int *ti
         *wake = xTaskGetTickCount();
     } else if (ulTaskNotifyTake(pdTRUE, (TickType_t)left)) {
         *wake = xTaskGetTickCount();  // disp_wake(): an input changed the screen; draw it now and keep time from here
+        vTaskDelay(1);  // a finger sends points faster than frames finish: let lower tasks run between them
         *tick_remainder = 0;
     } else {
         *wake += period;
@@ -276,6 +304,7 @@ static void display_task(void *arg) {
     int64_t last = esp_timer_get_time();
     frame_stats_t stats = {.start = last};
     bool powered = true;
+    int64_t frame_avg_us = 0;
     face_mode_t shown_mode = MODE_BOOT;
     esp_pm_lock_handle_t display_speed_lock;
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "display", &display_speed_lock));
@@ -310,7 +339,7 @@ static void display_task(void *arg) {
             log_frame_stats(&stats, f, &scene, t1);
         }
         // Reserve CPU for live microphone TLS/VAD; keep a steady animation cadence.
-        int fps = frame_mode == MODE_LISTENING ? 24 : R_FPS;
+        int fps = frame_rate(frame_mode, &frame_avg_us, t1 - t0);
         wait_for_next_frame(powered, fps, &wake, &tick_remainder);
     }
 }

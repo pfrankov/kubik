@@ -307,6 +307,7 @@ static void check_first_sound(void) {
     assert(peak > 200);
 }
 
+void check_body_tones(void);
 int main(void) {
     check_first_sound();
     check_events();
@@ -317,6 +318,7 @@ int main(void) {
     check_variation();
     check_character();
     check_rules();
+    check_body_tones();
     fprintf(stderr, "palette: at most %.2f %% of any sound's energy above 2.5 kHz, at least %d partials in each, spectral flatness at most %.4f (noise is about .5)\n",
             100 * s_worst_high, s_fewest_partials, s_worst_flatness);
     fprintf(stderr, "onsets: all sounds start softly within %d ms\n", s_slowest_quick);

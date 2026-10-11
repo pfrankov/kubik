@@ -87,8 +87,8 @@ def check_page(page, width, height, output):
     page.set_viewport_size({'width': width, 'height': height})
     state, sent, paths, errors = mount(page)
     assert page.locator('html').get_attribute('lang') == 'en'
-    assert 'openclaw pairing list kubik' in page.locator('#approvalHint').text_content()
-    assert 'Only if the displayed code matches' in page.locator('#approvalHint').text_content()
+    assert 'openclaw pairing approve kubik CODE' in page.locator('#approvalHint').text_content()
+    assert 'command shown on Kubik' in page.locator('#approvalHint').text_content()
     page.get_by_role('button', name='Work · saved', exact=True).click()
     fits = page.locator('#pass').evaluate('''(el) => {
       const probe = document.createElement('span');
@@ -115,11 +115,17 @@ def check_page(page, width, height, output):
     assert page.locator('#agentStep').is_visible() and page.locator('#wifiStep').is_hidden()
     assert page.evaluate('scrollY === 0'), 'A new step must start at its context after closing the keyboard'
     assert page.locator('#agentTitle').evaluate('(e) => e === document.activeElement')
+    assert page.locator('#openclawApproval').is_visible()
+    assert 'openclaw channels add --channel kubik --enable' in page.locator('#pluginSetup pre').inner_text()
+    assert 'computer' in page.locator('#agentHint').inner_text()
+    assert page.locator('#pluginSetup a').get_attribute('href') == 'https://github.com/pfrankov/kubik#get-connected'
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    page.screenshot(path=str(output / f'portal-{width}-approval.png'))
     page.evaluate('new Promise(resolve => requestAnimationFrame(resolve))')
     action = page.locator('#go').bounding_box()
     assert action and action['y'] >= 0 and action['y'] + action['height'] <= height
     page.screenshot(path=str(output / f'portal-{width}-agent-after-keyboard.png'))
-    page.locator('summary').click()
+    page.locator('#serverDetails summary').click()
     page.wait_for_function('''() => {
       const hint = document.getElementById('urlHint').getBoundingClientRect();
       const bar = document.getElementById('actions').getBoundingClientRect();
@@ -128,21 +134,18 @@ def check_page(page, width, height, output):
     hint, bar = page.locator('#urlHint').bounding_box(), page.locator('#actions').bounding_box()
     assert hint and bar and hint['y'] + hint['height'] <= bar['y'] + 1, (hint, bar)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    page.locator('summary').click()
-    page.get_by_role('button', name='Hermes', exact=False).click()
-    assert 'Hermes Gateway' in page.locator('#agentHint').inner_text()
-    assert 'kubik://HOST:18793' in page.locator('#agentHint').inner_text()
-    assert 'GitHub guide' in page.locator('#agentHint').inner_text()
-    page.locator('#go').click()
-    assert sent == []
-    assert 'Enter your Hermes address' in page.locator('#err').inner_text()
-    page.locator('#url').fill('kubik://192.168.1.12:18793')
+    page.locator('#serverDetails summary').click()
+    assert page.locator('[data-agent=Hermes]').is_hidden()
+    assert page.locator('[data-agent=Muse]').is_hidden()
+    assert page.locator('[data-agent=Custom]').is_hidden()
+    page.locator('#serverDetails summary').click()
+    page.locator('#url').fill('kubik://192.168.1.12:18790')
     page.locator('#back').click()
     assert page.locator('#pass').input_value() == 'new-password'
     page.locator('#go').click()
     page.screenshot(path=str(output / f'portal-{width}-agent.png'))
     page.locator('#go').click()
-    assert sent == [{'ssid': 'Work', 'pass': 'new-password', 'agent': 'Hermes', 'url': 'kubik://192.168.1.12:18793'}]
+    assert sent == [{'ssid': 'Work', 'pass': 'new-password', 'agent': 'OpenClaw', 'url': 'kubik://192.168.1.12:18790'}]
     page.wait_for_selector('.status.show')
     assert page.locator('#actions').is_hidden()
     state['phase'] = 'failed'; state['error'] = 'password'
@@ -154,8 +157,8 @@ def check_page(page, width, height, output):
     state['phase'] = 'done'
     page.get_by_text('Wi-Fi connected. Next: pairing.', exact=True).wait_for()
     assert page.locator('#nextSteps').is_visible()
-    assert 'python ~/.hermes/plugins/kubik/pair.py CODE' in page.locator('#approvalHint').inner_text()
-    assert 'matching code' in page.locator('#approvalHint').inner_text()
+    assert 'openclaw pairing approve kubik CODE' in page.locator('#approvalHint').inner_text()
+    assert 'command shown on Kubik' in page.locator('#approvalHint').inner_text()
     assert 'kubik-agent-host' not in page.locator('#approvalHint').inner_text()
     count = len(paths); page.wait_for_timeout(1800)
     assert len(paths) == count, 'Completed setup must stop polling'
@@ -267,31 +270,6 @@ def check_usb(page, output):
     print('USB: English, shared Tess/style, secure validation, submit and invalid retry passed')
 
 
-def check_muse(page, output):
-    page.set_viewport_size({'width': 390, 'height': 844})
-    state, sent, paths, errors = mount(page)
-    page.get_by_role('button', name='Home · saved', exact=True).click()
-    page.locator('#go').click()
-    page.get_by_role('button', name='Muse Direct Wi-Fi', exact=True).click()
-    assert page.locator('#serverDetails').is_hidden()
-    assert page.locator('#sdkToken').get_attribute('type') == 'password'
-    assert 'No computer or server needed' in page.locator('#sdkHint').text_content()
-    page.locator('#sdkToken').fill('mgst_' + 'A' * 43)
-    page.locator('#sdkToken').scroll_into_view_if_needed()
-    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-    page.screenshot(path=str(output / 'portal-muse-key.png'))
-    page.locator('#go').click()
-    page.wait_for_function("document.getElementById('sdkToken').value === ''")
-    assert len(sent) == 1 and sent[0]['agent'] == 'Muse' and 'url' not in sent[0]
-    state['phase'] = 'done'
-    page.wait_for_function("document.getElementById('nextSteps').hidden === false")
-    assert 'MuseGadget' in page.locator('#pairingHint').text_content()
-    assert 'KEY' in page.locator('#approvalHint').text_content()
-    assert 'Bluetooth off' in page.locator('#guideHint').text_content()
-    page.screenshot(path=str(output / 'portal-muse-pair.png'))
-    assert not errors, errors
-    print('Muse: phone flow, masked key, no host field and next-step instructions passed')
-
 
 def main():
     global ORIGIN
@@ -301,7 +279,6 @@ def main():
             browser = p.chromium.launch(channel='chrome', headless=True)
             for width, height in [(390, 844), (320, 568), (1024, 768)]:
                 page = browser.new_page(); check_page(page, width, height, output); page.close()
-            page = browser.new_page(); check_muse(page, output); page.close()
             page = browser.new_page(); check_recovery(page); page.close()
             page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3); check_tess(page, output); page.close()
             page = browser.new_page(); check_usb(page, output); page.close()

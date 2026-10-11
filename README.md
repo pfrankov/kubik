@@ -15,14 +15,21 @@ Connect **OpenClaw** with the Kubik channel plugin; connect **Hermes** with its 
 You need a flashed Kubik, a phone and a 2.4 GHz Wi-Fi network. For **Muse**, follow the [phone-only setup](#muse-without-a-host). For **OpenClaw or Hermes**, keep your agent running on a reachable computer or server and configure its speech providers, then follow these steps:
 
 1. **Prepare your agent.** Follow the [setup page](docs/buyer/START.html) for OpenClaw or Hermes: install the integration and configure speech. OpenClaw supports local discovery with Server address left blank; Hermes uses `kubik://<server-address>:18793`. The guide explains remote addresses; a domain is optional.
-2. **Connect Wi-Fi.** Scan the first QR to join Kubik’s setup Wi-Fi, then the second to open its setup page. Choose your home network, enter its password, select the agent and enter a server address if needed. Tap **Connect Kubik**; the device shows a pairing code when it reaches the host.
+2. **Connect Wi-Fi.** Scan the first QR to join Kubik’s setup Wi-Fi, then the second to open its setup page. Choose your home network, enter its password, select OpenClaw and enter a server address if needed. Tap **Connect Kubik**; the device shows a pairing code when it reaches the host.
 3. **Approve and talk.** Match the pairing code on the device and host, approve the request, and follow the on-device guide. Press **KEY** to start talking.
 
-This repository is a **pre-publication source preview**. The setup page’s GitHub download addresses are marked placeholders; public downloads are not available yet. For source builds and local installation, use the [installation guide](docs/KIT.ru.md).
+Install the OpenClaw channel from npm on your agent computer:
+
+```sh
+openclaw plugins install openclaw-kubik --force --accept-capabilities
+openclaw channels add --channel kubik --enable
+```
+
+See the [English package guide](openclaw-kubik/README.md) for the server address, pairing and voice setup.
 
 ## Muse without a host
 
-Experimental native Muse support uses **only your phone and Kubik**. Choose **Muse** in the Wi-Fi setup wizard, enter a personal [Muse SDK key](https://gadgets.muse.ai/settings/sdk-tokens), then pair in the Muse app under **Settings → Devices → Developer mode → Add device** and confirm with **KEY**. Bluetooth is used for pairing only; afterward Kubik connects directly over Wi-Fi. No computer, server address or Kubik host is needed.
+Experimental native Muse support uses **only your phone and Kubik**. Muse is temporarily hidden in the Wi-Fi setup wizard; the experimental implementation remains in the source. When enabled, choose **Muse**, enter a personal [Muse SDK key](https://gadgets.muse.ai/settings/sdk-tokens), then pair in the Muse app under **Settings → Devices → Developer mode → Add device** and confirm with **KEY**. Bluetooth is used for pairing only; afterward Kubik connects directly over Wi-Fi. No computer, server address or Kubik host is needed.
 
 On this C6 board, the current Muse SDK path accepts a voice note and returns **text**; TTS, Realtime, GPT Live and model selection are unavailable. Native cloud/device pairing is not yet verified. Personal tokens are not included in builds; SDK-token terms do not authorize embedding one in a retail firmware. See [Muse setup and limits](docs/muse.md).
 
@@ -39,14 +46,15 @@ Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
 
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
 
-Tess can also grow from a point into a tesseract as you discover six one-time
-tricks by playing with her: tap for a duet, or swipe and catch her glowing spark.
-There is no game menu or HUD; see
-[Tess games and growth](docs/tess-games.md).
+Her body is a toy: tap her and a wave rings through her edges, swipe her a few
+times and she spins open, press beside her and pull to stretch her or sling her
+into the rim, throw her hard and sweep her shattered dots home. Left alone, she
+plays by herself. Six first discoveries grow her from a point into a tesseract.
+There is no game menu or HUD; see [Playing with Tess](docs/tess-games.md).
 
 When the screen is fully off, press **PWR** to wake it. Touch, BOOT and KEY are ignored until then; an incoming agent reply can wake it automatically. Background activity and reconnections keep the screen off. Touch restores a dimmed screen to full brightness; holding or dragging keeps it active.
 
-Settings provides speech volume, brightness, **Agent**, **Guide** and **Status**. Status shows the current Wi-Fi address, gateway, DNS, MAC, DHCP name and agent endpoint on three swipeable pages. Hold the volume slider for 0.8 seconds to open **Sound**, with separate **Speech** and **Interface** sliders. Press BOOT to return. Both levels are saved independently. Tess synthesizes its short, syllabic reactions locally, with recognizable motifs, expressive endings and prime-length variation cycles. Emotions have distinct arrangements: warm overlapping pads, airy echoes or crossing voices. Menus, sliders, buttons and touch reactions share the same syllabic voice; simple actions stay brief. Replay the guide any time without resetting your connections. The hidden **Events** journal (five taps on the battery indicator in Settings) shows recent agent events: swipe to browse, tap for details, or enable a translucent overlay to follow events while Tess reacts. [Screen Lab](docs/screen-lab.md) previews situations without calling an agent.
+Settings provides speech volume, brightness, **Agent**, **Guide** and **Status** (bottom left, beside Power off). Status shows the current Wi-Fi address, gateway, DNS, MAC, DHCP name and agent endpoint on three swipeable pages; its Wi-Fi button reopens network setup. Hold the volume slider for 0.8 seconds to open **Sound**, with separate **Speech** and **Interface** sliders. Press BOOT to return. Both levels are saved independently. Tess synthesizes its short, syllabic reactions locally, with recognizable motifs, expressive endings and prime-length variation cycles. Emotions have distinct arrangements: warm overlapping pads, airy echoes or crossing voices. Menus, sliders, buttons and touch reactions share the same syllabic voice; simple actions stay brief. Replay the guide any time without resetting your connections. The hidden **Events** journal (five taps on the battery indicator in Settings) shows recent agent events: swipe to browse, tap for details, or enable a translucent overlay to follow events while Tess reacts. [Screen Lab](docs/screen-lab.md) previews situations without calling an agent.
 
 ![Settings, Agent, voice modes and models](docs/media/agent-settings.gif)
 

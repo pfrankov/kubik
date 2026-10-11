@@ -3,21 +3,21 @@
 #include <stdatomic.h>
 
 // Compute gains only when a control changes; the audio loop uses integer math.
-static atomic_int s_speech_gain = 64225; // 70%, squared curve and +6 dB
-static atomic_int s_interface_gain = 11654; // 70%: logarithmic interface curve, unity at 100%
+static atomic_int s_speech_gain = 65536; // 100%, squared curve, unity at 100%
+static atomic_int s_interface_gain = 65536; // 100%: logarithmic interface curve, unity at 100%
 static int percent(int value) { return value < 0 ? 0 : value > 100 ? 100 : value; }
 void audio_levels_set_speech(int value) {
     int p = percent(value);
-    atomic_store(&s_speech_gain, (p * p * 131072LL) / 10000);
+    atomic_store(&s_speech_gain, (p * p * 65536LL) / 10000);
 }
 void audio_levels_set_interface(int value) {
     int p = percent(value);
-    atomic_store(&s_interface_gain, p ? (int)lrintf(powf(10.f, (p - 100) / 40.f) * 65536.f) : 0);
+    atomic_store(&s_interface_gain, p ? (int)lrintf(expf((p - 100) * (2.30258509f / 40.f)) * 65536.f) : 0);
 }
 bool audio_levels_interface_enabled(void) { return atomic_load(&s_interface_gain) != 0; }
 bool audio_levels_speech_enabled(void) { return atomic_load(&s_speech_gain) != 0; }
 static int16_t limit(int32_t value, int32_t knee) {
-    // Smoothly reserve headroom for loud providers instead of hard clipping +6 dB peaks.
+    // Smoothly reserve headroom for loud providers instead of hard clipping peaks.
     int64_t magnitude = value < 0 ? -(int64_t)value : value;
     if (magnitude > knee) {
         int64_t excess = magnitude - knee, headroom = 32767 - knee;

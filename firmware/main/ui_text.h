@@ -33,7 +33,6 @@ typedef enum {
     STR_STILL_WORKING,     // no progress for a while
     STR_TURNING_OFF,       // PWR held: powering off
     // Settings menu (hold BOOT):
-    STR_WIFI,
     STR_POWER_OFF,
     STR_RESET,             // factory reset (asks twice)
     STR_COUNT

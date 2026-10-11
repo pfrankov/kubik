@@ -1,46 +1,138 @@
-# Native Tess games and growth architecture
+# Tess play architecture
 
 ## Runtime contract
 
-`tess_games.c` owns two bounded per-face games, three tiers each, and six durable
-discovery bits. There is no game screen or dedicated button route. One ordinary
-tap followed by 0.55 seconds of quiet produces an invitation wave, bow and local
-cue. The next tap within six seconds joins Duet; this accepting tap and active
-game taps are local, without agent pokes. Rapid taps before the invitation keep
-ordinary character reactions, including the existing six-tap scatter.
+Her structure is the toy. `tess_games.c` owns eligibility, touch routing,
+discoveries, growth form and self-play scheduling; `tess_play_shape.c` turns play
+into displacements of her 16 tesseract vertices; `tess_stretch.c` owns the pull,
+flight and self-play acts; `tess_gather.c` owns the burst's hang and sweep. Nothing
+is drawn on top of her: the renderer, palette and dot budget are unchanged.
 
-Duet answers the player's touch location and pace. A WAIT tap schedules a reply
-0.24–0.48 seconds later, derived from the preceding interval. The wave, gold tint
-and bow accompany the reply. Taps during that brief SHOW phase are ignored;
-there is no exact rhythm test. Four, six or eight exchanges open bits 0–2.
-The final exchange earns its bit when Tess answers, not before the reply.
+**Structure.** `tess_form` emits each vertex followed by three dots along each of
+its upward edges (16 + 32 × 3 = 112 form slots). `tess_play_frame`, called from
+`tess_point_targets` once per target pass with the body scale and offset, computes
+one displacement per vertex; `tess_play_point` gives each dot the blend of its
+edge's two ends, so she always stays connected. The existing per-dot damped
+springs supply wobble, overshoot and lag; a frame with any displacement sets
+`shaping`, which keeps the rigid fast path off. While she is still folded small
+(`form < 3`), displacements use the unfolded tesseract (inner cell 0.55, outer 1)
+as their home, so a point flashes the full shape. The same pass stores each
+vertex's panel position (`vertex_px`, without perspective) for touch lookup: no
+input path projects dots or allocates on its task stack.
 
-An ordinary short swipe (at least 72 px in 0.08–0.6 seconds) invites Chase after
-0.55 seconds from release. Raw pointer samples feed the existing two-axis
-rotation/inertia before entry. A game drag of 18 px or hold of 0.65 seconds yields
-its original coordinates and age to ordinary touch. That release cannot start
-another game. Long petting gestures do not invite Chase.
+**Pluck and Echo.** An ordinary tap within 150 px of her centre, still delivered
+to ordinary tap reactions, plucks the nearest vertex. A wave (four slots: a free
+one first, else the oldest) rings each hypercube shell `h = popcount(v ^ origin)`
+from `0.12 h` s, amplitude `0.7 + 0.3 h`, 3 Hz, decay 3.2/s, outwards by 0.55 units
+and towards the viewer by 0.3. Each shell plays `TC_EXCITE` one step higher; the
+opposite corner raises `pulse`. A second non-quiet pluck at another corner within
+three shells of a wave is Echo; amplitudes simply add where waves overlap.
 
-Chase folds the same body into a bright 13 px core and visits seven irregular
-waypoints, with variable flights and pauses. A six-position trail samples the
-actual projected centre at no more than 18 Hz. Taps within 68 px of that centre
-count, at least 0.45 seconds apart and after 48 px of displacement since the
-last catch. Three, four or five catches open bits 3–5. A miss does not count;
-Tess responds and moves towards the hand for another attempt.
+**Bloom.** A fling keeps 85% of the spin it meets (at most 16 rad/s), and a finger
+moving faster than 250 px/s over her drives rather than brakes her. Bloom eases
+towards `smoothstep((spin - 3.5) / 6.5)`: the outer cell grows by 1.1, the inner by
+0.3, and the two cells counter-rotate by ±0.55 rad. Above 0.8 is the discovery.
 
-Both games allow six seconds without an accepted exchange and twenty seconds
-per round. Celebration returns to normal after three seconds. Progress is a
-finite set of unique wins: repeating a tier never changes its bit. The original
-six-bit mask and growth milestones remain; no saved settings need migration.
+**Twang, Slingshot and catch.** A finger that lands at least 120 px from her
+centre (and is not a burst sweep) starts a STRETCH round on the nearest vertex:
+it is pulled towards the finger (at most 2.6 units), its neighbours by 0.42, 0.17,
+0.06 and 0.02 per edge-distance. A release within 12 px and 0.35 s is an ordinary
+tap. Beyond her 90 px reach, a release past 0.3 units twangs (Twang); past 0.9
+units it slings her (FLY) the opposite way at `3 + 6 × pull` units/s (at most 15).
+She flies with drag 0.8/s and reflects off a 1.45-unit rim with restitution 0.6,
+flattening the side that hit (`squash`); the first rim impact is Slingshot. At
+12 units/s or more the impact bursts her (`tess_scatter_begin`). Slow, she
+returns on a spring; a touch within 95 px of her in flight catches her.
 
-A hold, pet, shake, KEY/voice/Live, agent text/speech, menu/Setup, offline or dark
-state ends play without resumption. Recording keeps its existing sphere;
-thinking and speech temporarily target the full tesseract. Model, cues and trail
-use fixed arrays; no per-frame allocation, flash or network operations.
+**Gather.** The burst stops at `TESS_HANG_S` while `tess_games_holds_burst`
+holds (1.8 s with no round, or the whole round). A finger landing at the hang
+starts Gather; each frame the finger's segment is tested against each slot's
+precomputed panel spot in squared distances (46 px, 96 px once 85% are home);
+hanging dots within 120 px lean towards the finger; swept dots fly home in 0.3 s
+along alternating curves. All 112 home finishes the burst and is the discovery;
+2.2 s without a newly gathered dot ends the round.
+
+**Self-play.** After 16–30 s of quiet (no finger, rub, heart, burst, agitation or
+drowsiness, and eligible), she plays one act of her repertoire in turn, silently:
+a quiet pluck, a reach-and-twang (1.2 s), a spin kick, or two opposite vertices
+wrestling apart (1.2 s). A landing finger ends it. Self-play earns nothing.
+
+**Organic burst.** Each burst's spread is best-candidate sampling on the square
+glass (16 px margin): every dot takes the farthest of 5–8 random candidates from
+the dots already placed (integer distances, a 60 px neighbourhood grid), so there
+are no clumps, overlaps or big holes and no grid. It is laid out ahead, 16 dots a
+frame while she is whole (`tess_scatter_prepare`). At the burst a throw leans
+every dot 22–30 px its way, less the nearer the wall it already is, so nothing
+lines up along the edge; a 3 px jitter follows. The host test keeps the spacing
+spread 0.1–0.36, the closest pair ≥10 px, the largest hole <70 px and at most five
+dots on the edge. Per dot: its own departure (0–0.12 s), flight (0.38–0.7 s),
+curve (±0.45) and grip. While the burst hangs, the relative tilt slides every free dot at
+900 px/s² × (1 − grip) with linear friction (skipped while level and at rest); dots bounce off the panel edges
+(knocks above 120 px/s tick, at most two per frame) and a dot within 60 px of
+her centre is poured home (`tess_gather_pour`, which starts the round). Held
+tilted, the burst waits up to 8 s and a round does not time out.
+
+**Tilt.** `tilt` is gravity on the panel minus a resting pose that starts at the
+first reading and follows with a 20 s time constant, with a 0.06 dead band. Her
+body (`tess_body_update`) is one point mass for throws, tilt and rest: tilt
+accelerates it at 14 units/s² per unit when no round holds her; a home spring of
+3.5/s² with damping 1.2/s (underdamped, she sloshes), none during a fast flight,
+and 40/s² critically damped while the agent has priority. Rim impacts above
+0.8 units/s squash, thud and rattle; only a throw can shatter. Corners sag along
+the tilt (outer 0.5, inner 0.3 units per unit, varied per corner).
+
+**Temper.** `tess_temper.c` keeps excitement, annoyance, fear and fondness
+(0–1, fading at 0.08, 0.07, 0.1 and 0.02 per second) and the last touch. A pluck
+adds excitement, and annoyance when it comes within 1.2 s of the last (more at
+the same corner). Above 0.7 annoyance a tap recoils the corner (negative
+amplitude, she shrinks back), flinches, grumbles and raises `ME_PESTER`; the same
+corner at once while excited giggles (pace 0.55: quicker and an octave up); 30% of
+excited plucks are answered from the opposite corner 0.55–0.85 s later and 10%
+reflect. Pets soothe; rim hits frighten (`ME_JOLT` above 6 units/s); a full
+gather calms and endears (`ME_GLAD`). Fear above 0.5 inverts and weakens a pull;
+fondness strengthens how far her other corners follow. Annoyance damps bloom.
+Self-play is chosen by temper and mood: none when cross or scared, a reach towards
+the last touch when curious, spin or pluck when excited, wrestle/pluck/reach in
+turn when long alone; excited, she asks again within 3–6 s. Knocks (`jolt` above
+0.015) rattle up to three corners with quiet plucks and grains.
+
+**Body sound.** `tess_tone` queues up to eight physical tones per frame beside the
+cues (`face_take_tone`), silent when cues are; the display task plays them after
+the face lock through `audio_tess_tone`, which skips them while the microphone is
+open or a reply plays. `tess_sound_body.c` turns each into one synth note shaped by
+kind, always from the established ensembles (no bell, no tune): a ring (GLOW at
+her body pitch, the corner choosing the octave or twelfth overtone and the beating,
+sinking 1.5% as it settles; a quick wave a fifth up, a recoil a fourth down), creak
+(SWEEP rising with tension, beating faster), twang (falling to rest), thud (HUM,
+200–290 Hz by size, a third harmonic for the small speaker), grain (a short NUDGE
+puff gliding down 20%), whoosh (beating, per half turn, pitch with spin), chirp
+(a glide up or down) and wobble (CLUSTER beating). `tess_tone_hz` is continuous,
+not a scale: a 0–1 height lifts her resting pitch up to a fifth; the rest is D4,
+B3 when grumpy, sad or sleepy, F#4 when scared, a fifth up for a Tess smaller than
+a cube. Body notes are 150–1000 Hz, at most three at once, each ducked by those
+sounding. Full-strength levels measure −35 to −44 dB on the speaker weighting,
+under her words. `python3 tools/render-particles.py --play OUT.wav` renders a
+scripted play session through the real face and synth and prints its peak,
+loudest 100 ms and biggest rise.
+
+Discovery bits are 0 Pluck, 1 Echo, 2 Bloom, 3 Twang, 4 Slingshot, 5 Gather. A new
+bit raises `pulse`, `TR_JOY` and `TC_JOY`. Existing six-bit masks keep their
+meaning as milestones; no settings migration is needed.
+
+Eligibility loss (KEY/voice/Live, a card, agent text/speech, menu/Setup, offline,
+dark) and the agent's events (`FEV_NOTIFY`, `FEV_NOT_HEARD`, `FEV_FAIL`,
+`FEV_TALK_START`) stop everything at once: waves, pull, flight, squash, self-play
+and the round; bloom follows a zero target. Wake, volume and shake do not. A
+round consumes its finger: its release tap, and the pet events of a held pull or
+sweep. Ownership expires 0.5 s after a lift whose tap never arrived. Recording
+keeps its sphere; thinking and speech target the full tesseract. All state is
+fixed-size; there is no allocation, flash or network work per frame. Per frame a
+wave costs five `sin`/`exp` pairs; radial directions are computed once.
 
 The app keeps its existing limit of eight ordinary events followed by ten
 reserved events per batch. Only taps captured while the face still identifies
-an active Tess game are deferred until the batch's other events have run.
+an active Tess game, or an owned finger's release, are deferred until the batch's
+other events have run. A deferred tap whose round has ended is dropped.
 They occupy eight fixed `{x, y, round}` records (96 stack bytes), with no new
 queue, allocation or I/O. After each other event, loss of app or face eligibility
 cancels the game even if a later event restores availability in the same batch.
@@ -103,60 +195,55 @@ point arrays; updates use elapsed time capped at 100 ms.
 
 ## Design decisions
 
-Progress counts **unique wins**, not total play time, streaks or an open-ended
-score. This provides six visible milestones, survives reboots, prevents
-grinding from manufacturing growth and cannot decay when the device is unused.
-The Duet and Chase bit ranges keep the six discoveries independently verifiable.
+Earlier designs ran small games on top of her: points to catch, overlay rings and
+satellites. They read as a device showing a game. Here every behaviour is a
+deformation of her own 4D structure, carried by the springs that already animate
+her, so the play is physics of her body: waves that follow her edges and converge
+at the opposite corner, momentum that opens her, elasticity that stretches and
+throws her, impact that shatters her. Each is reached by a touch people already
+make (tap, swipe, pull beside her, a hard throw), and self-play shows the same
+repertoire to someone who has not found it yet.
 
-For geometry, axis scaling reuses Tess's 4D vertex set and renderer while
-preserving the topology as each dimension opens. A separate shape renderer
-would introduce competing point layouts; flattening the existing tesseract in
-2D would lose the staged square-to-cube-to-tesseract structure. Axis growth
-keeps one source of points and one adult path.
-
-Games grow from a normal touch or swipe, with an observable invitation rather
-than a secret gesture puzzle. Unattended timers never start a game.
+Progress counts **unique discoveries**, not play time, streaks or scores: six
+visible milestones that survive reboots, cannot be ground out and never decay.
+Axis scaling keeps one source of points for every growth stage; Gather reuses the
+burst's slots and choreography instead of a second particle system.
 
 For queued game taps, draining the whole reserved inbox first would reorder
 ordinary KEY-down and reserved KEY-up. A shared global event order would change
-both channels and their latency bounds. A separate pending-event fence would
-duplicate the handlers' session, revision and route checks. Bounded deferral of
-only active-game taps keeps those handlers and normal input order intact, while
-letting every effective preemption in their batch win over game scoring.
-
-For comparison, Flipper's [Dolphin service](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/applications/services/dolphin/dolphin.c)
-uses deed events, deferred persistence and separate daily/mood timers. Tess keeps
-the separation of gameplay state from storage, but its finite discoveries do
-not need calendar timers, an additional service queue or absence penalties.
+both channels and their latency bounds. Bounded deferral of only owned game taps
+keeps those handlers and normal input order intact, while letting every effective
+preemption in their batch win over game input.
 
 ## Verification
 
-`python3 tools/test-tess-games.py` exercises the model and production tap route
-with ASan/UBSan. The renderer, runtime eligibility/bootstrap, and NVS storage
-regressions are covered by `python3 tools/test-render.py`,
-`python3 tools/test-state.py`, and `python3 tools/test-settings.py`; all run in
-`python3 tools/accept.py host`. `python3 tools/accept.py build` builds both TESS
-and PLUSH firmware. Run both levels for a code change. Device acceptance runs
-`node tools/test-device-tess-games.mjs`: native touch sampling, four swipe
-directions, all six temporary Lab tiers, varied pacing, miss feedback, hold/drag
-handoff and timeout. Its optional `--learn` earns missing real discoveries and
-checks durability after reboot; it never resets user settings.
+`python3 tools/test-tess-games.py` checks the model and the production tap route
+with ASan/UBSan. `tess_games_integration_test.c` (in `python3 tools/test-render.py`)
+plays every behaviour through the real face, springs, burst and renderer: plucks
+and three overlapping waves, echo, bloom from swipes, twang, slingshot bounce,
+catch, shatter and a full gather, the ordinary burst, drag rotation, the whole
+self-play repertoire, priority stops and the dot budget. Runtime eligibility and
+NVS storage are covered by `python3 tools/test-state.py` and
+`python3 tools/test-settings.py`; all run in `python3 tools/accept.py host`.
+`python3 tools/accept.py build` builds both TESS and PLUSH firmware.
 
-USB `sim:pointer` supplies one validated controller sample (integer x/y 0–479),
-expiring after 350 ms. It enters the same input task and gesture/rub handlers as
-the touch controller; it cannot set game state or award victories. USB
-`sim:game-state` reports a mutex-protected snapshot and saved mask, without
-credentials. These verify execution on the ESP32, not finger sensitivity,
-subjective audio or panel appearance.
+Device acceptance runs `node tools/test-device-tess-games.mjs` through the USB
+bridge; `sim:gravity` (each axis −1..1, at most 10 s) replaces the sensor's tilt
+while it lasts. It covers all six Lab previews, then on the home screen a pluck, two overlapping
+plucks, a run of swipes to bloom, a twang, a slingshot into the rim, Settings
+preempting a pull, a hard throw that shatters her followed by a full sweep, a
+tilt that rolls her into the rim and home, a burst poured home by tilting, and
+rapid pokes that annoy her, with the body tones they emitted.
+It never resets user settings and checks that previews do not change the saved
+mask. USB `sim:pointer` samples expire after 350 ms; a lift shorter than a display
+frame is not seen, so injected strokes lift for 150 ms like a finger does.
+`sim:game-state` reports `game`, `phase`, `streak`, `waves`, `bloom`, `tones`
+(one bit per tone kind), `spin`, `tilt_x/y`, `excite`, `annoy`, `fear`, `fond`,
+`pull`, `speed`, `squash`, `self`, `shaping`, `burst`, `form`, her centre and the
+saved mask. These verify execution on the ESP32, not finger feel, sound or the
+look of the panel.
 
-Screen Lab's growth/game fixtures can play only the local TOUCH, FLING, SWING,
-EXCITE, DODGE and JOY cues; offline remains IMPACT-only. Synthetic agent/voice
-screens cannot play provider speech or start capture. The same permission
-predicate is rechecked under the face lock immediately before physical playback.
-
-For physical acceptance, tap once and observe the invitation, then play at
-varied tempos and positions. Swipe horizontally and vertically; check the
-usual inertia before folding, target visibility, pauses, catches and misses.
-Hold or drag in play and confirm ordinary pet/rotation returns. Check KEY,
-reply, offline, menu and dark preemption, then restore user settings. No acoustic
-wake-word or paid provider run is required for this change.
+For physical acceptance, tap her and then two places quickly; swipe her several
+times; press beside her and pull a little, then far; tap her in flight; pull to
+the very edge and sweep the burst home; leave her alone for half a minute. Check
+KEY, reply, offline, menu and dark preemption, then restore user settings.

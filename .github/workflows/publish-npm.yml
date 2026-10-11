@@ -1,0 +1,70 @@
+name: Publish npm channel
+on:
+  workflow_run:
+    workflows: [Acceptance]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: npm-openclaw-kubik
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.head_branch == 'main' &&
+       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Verify the tested main commit
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          current=$(gh api "repos/$REPOSITORY/commits/main" --jq .sha)
+          if [ "$current" != "$TESTED_SHA" ]; then
+            echo 'Superseded commit; nothing to publish.'
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          count=$(gh api "repos/$REPOSITORY/actions/workflows/acceptance.yml/runs?head_sha=$TESTED_SHA&status=success" --jq '[.workflow_runs[] | select(.head_branch == "main" and (.event == "push" or .event == "workflow_dispatch") and .head_repository.full_name == .repository.full_name)] | length')
+          test "$count" -gt 0
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - name: Check and publish the immutable package
+        if: steps.gate.outputs.ready == 'true'
+        working-directory: openclaw-kubik
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          npm ci
+          npm run check
+          current=$(gh api "repos/$REPOSITORY/commits/main" --jq .sha)
+          if [ "$current" != "$TESTED_SHA" ]; then
+            echo 'Superseded during checks; nothing to publish.'
+            exit 0
+          fi
+          node scripts/publish.mjs

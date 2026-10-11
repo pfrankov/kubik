@@ -4,7 +4,7 @@
 <section class="page cover"><div class="content">
 <p class="stage">Quick start · Tess</p><h1>KUBIK</h1><p class="lead">Set up your agent.<br>Connect. Start talking.</p>
 <img class="art" src="assets/hello-tess.png" alt="Kubik in three dimensions, with three round top buttons and Tess on its screen.">
-<p>Have USB-C power, a phone and your <strong>2.4 GHz Wi-Fi</strong> password ready. Choose your agent on page 3.</p>
+<p>Have USB-C power, a phone and your <strong>2.4 GHz Wi-Fi</strong> password ready. Prepare OpenClaw on page 3.</p>
 <div class="result"><strong>Open the setup guide on GitHub</strong><br><a class="setup-url" href="https://OWNER.github.io/kubik/" data-setup-url>https://OWNER.github.io/kubik/</a><p class="note">Temporary address — replace before release.</p></div>
 </div><footer><span>Your device is already flashed.</span><span>01</span></footer></section>
 
@@ -22,12 +22,15 @@
 </div><footer><span>Positions shown when facing the screen.</span><span>02</span></footer></section>
 
 <section class="page"><div class="content">
-<p class="stage">1 · Choose your agent</p><h2>Prepare your agent.</h2>
+<p class="stage">1 · Prepare OpenClaw</p><h2>Prepare your agent.</h2>
 <img class="art" src="assets/prepare-agent.png" alt="A laptop and home router connected to the same network.">
-<ol><li><strong>Muse:</strong> sign in on your phone. Create a personal SDK key using the GitHub guide.</li><li><strong>OpenClaw / Hermes:</strong> install the agent and Kubik integration. Check a text reply. Keep it running.</li><li>Configure speech for OpenClaw/Hermes. Muse voice notes return text.</li></ol>
+<p>Install OpenClaw on your computer or server. Check a text reply, then add the npm channel:</p>
+<pre class="command">openclaw plugins install openclaw-kubik</pre>
+<pre class="command">openclaw channels add --channel kubik --enable</pre>
+<p>Configure speech using the GitHub guide. Keep OpenClaw running.</p>
 <p class="note">At home, use the same trusted network. For a remote server, prepare the connection using the GitHub guide first.</p>
-<div class="result"><strong>Ready:</strong> Muse key or agent service running.</div>
-</div><footer><span>Downloads and detailed commands are on GitHub.</span><span>03</span></footer></section>
+<div class="result"><strong>Ready:</strong> OpenClaw running with the Kubik channel.</div>
+</div><footer><span>Detailed installation and speech settings are on GitHub.</span><span>03</span></footer></section>
 
 <section class="page scan"><div class="content">
 <p class="stage">2 · On your phone</p><h2>Scan both QR codes.</h2>
@@ -40,20 +43,18 @@
 
 <section class="page"><div class="content">
 <h2>Connect to your agent.</h2>
-<ol><li>Select your <strong>2.4 GHz Wi-Fi</strong>, enter its password and tap <strong>Continue to agent</strong>.</li><li>Choose your agent. <strong>Muse:</strong> enter its SDK key; no server address is needed.</li><li><strong>OpenClaw:</strong> at home, leave <strong>Server address</strong> blank. Remote OpenClaw: enter <strong>kubik://PUBLIC-IP:18790</strong>. Hermes: enter <strong>kubik://HOST:18793</strong>; no home relay.</li><li>Tap <strong>Connect Kubik</strong>.</li></ol>
+<ol><li>Select your <strong>2.4 GHz Wi-Fi</strong>, enter its password and tap <strong>Continue to agent</strong>.</li><li>Continue with <strong>OpenClaw</strong>.</li><li><strong>OpenClaw:</strong> at home, leave <strong>Server address</strong> blank. Remote OpenClaw: enter <strong>kubik://PUBLIC-IP:18790</strong>.</li><li>Tap <strong>Connect Kubik</strong>.</li></ol>
 <p>Kubik saves the settings and restarts. Your phone may disconnect from KUBIK-XXXX. Watch Kubik now.</p>
 <p class="note">The address belongs to the Kubik integration, not your agent’s dashboard or speech provider. The online guide shows where to find it.</p>
-<div class="result"><strong>Next:</strong> Muse pairs on your phone; OpenClaw/Hermes show a pairing code.</div>
+<div class="result"><strong>Next:</strong> Kubik shows its OpenClaw pairing code.</div>
 </div><footer><span>No code? See page 8.</span><span>05</span></footer></section>
 
 <section class="page pairing"><div class="content">
 <p class="stage">3 · Confirm the connection</p><h2>Approve your Kubik.</h2>
-<p><strong>Muse app:</strong> Settings / Devices / Developer mode / Add device. Choose Kubik’s MuseGadget; press <kbd>KEY</kbd> when asked, then choose Wi-Fi. Bluetooth turns off afterward.</p>
-<p><strong>OpenClaw / Hermes:</strong> use the code displayed on your Kubik. For OpenClaw, first match it to the pairing list.</p>
-<h3>OpenClaw</h3><pre class="command">openclaw pairing list kubik</pre>
+<p>On your OpenClaw computer or server, run the exact command displayed on Kubik:</p>
 <pre class="command">openclaw pairing approve kubik CODE</pre>
-<h3>Hermes</h3><pre class="command">python ~/.hermes/plugins/kubik/pair.py CODE</pre>
-
+<p>Replace CODE with the current code on your device. No listing command is required.</p>
+<p>You can also approve it in OpenClaw Web UI / Channels / Pairing requests.</p>
 <div class="result"><strong>Connected:</strong> follow Guide; BOOT returns home.</div>
 </div><footer><span>No match? Check the GitHub setup guide.</span><span>06</span></footer></section>
 

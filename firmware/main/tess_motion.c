@@ -17,6 +17,7 @@ void tess_reset(face_t *f) {
     f->tess_shape = 0;
     for (int i = 0; i < TESS_N; i++) f->tess_scatter_of[i] = (uint8_t)i;
     tess_match_prepare();
+    tess_scatter_reset();
     f->tess_xw = f->tess_zw = 0;
     f->tess_fallen = false;
     f->tess_touch_t = 10;
@@ -368,7 +369,7 @@ static bool tess_is_form(const face_t *f) {
 
 // (Trembling dots and the waves of a press are the springs' business.)
 static bool holds_to_its_places(const face_t *f) {
-    if (f->tess_games.ready && (f->tess_games.game || f->tess_games.trick || f->tess_games.fold > 0)) return false;
+    if (f->tess_games.ready && (f->tess_games.game || f->tess_games.shaping || f->tess_games.fold > 0)) return false;
     return tess_is_form(f) && f->tess_mode[TM_OFFLINE] < .001f && tess_tremble(f) <= TESS_TREMBLE_FROM && !tess_ripple_active(f);
 }
 

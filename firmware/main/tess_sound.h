@@ -18,6 +18,7 @@
 
 #define TESS_VOICES 12
 #define TESS_WORD_VOICES 6 // preserve the existing UI/character arrangement budget
+#define TESS_BODY_VOICES 3 // her body's sounds at once, at most; they never take a voice from a word
 #define TESS_PENDING 16  // notes composed and waiting for their time
 typedef struct {
     uint32_t start;  // pending notes: the clock (samples) at which it begins
@@ -31,6 +32,7 @@ typedef struct {
     int32_t chorus_share, layer_share;  // Q15 shares of the mix: the detuned copy and the layer (the carrier has the rest)
     bool bright;  // dry collision sparkle; all character/UI voices retain the warm filter
     bool harmony; // accompaniment rather than the word's syllabic lead
+    bool body;    // a sound of her body (tess_sound_body.c)
     uint8_t stage;  // 0 off, 1 attack, 2 decay (and hold), 3 release
 } tess_voice_t;
 
@@ -67,6 +69,8 @@ void tess_sound_event(tess_sound_t *s, sfx_t event, int index, float position, f
 // A cue from Tess's behaviour (tess_cue.h). False when it stayed silent: rate limited, or a stronger sound just started.
 bool tess_sound_cue(tess_sound_t *s, tess_cue_t cue, float strength, float position);
 bool tess_sound_cue_is_utterance(tess_cue_t cue);
+// A sound of her body (tess_sound_body.c): one note shaped by the physical event. False when it was not playable.
+bool tess_sound_tone(tess_sound_t *s, const tess_tone_t *tone);
 bool tess_sound_event_is_utterance(sfx_t event);
 bool tess_sound_active(const tess_sound_t *s);
 bool tess_sound_mix(tess_sound_t *s, int32_t *out, int count);

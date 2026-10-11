@@ -9,7 +9,7 @@ static const char *const names[LAB_COUNT] = {
     "Agent", "Voice modes", "Models", "Guide", "Recording", "Thinking", "Speaking",
     "GPT Live", "Text reply", "Offline points", "Error", "Background work", "Reminder", "Agent events", "Event log",
     "Growth: point", "Growth: square", "Growth: cube", "Growth: tesseract",
-    "Duet: tier 1", "Duet: tier 2", "Duet: tier 3", "Chase: tier 1", "Chase: tier 2", "Chase: tier 3"
+    "Play: pluck", "Play: bloom", "Play: stretch", "Play: slingshot", "Play: gather", "Play: alone"
 };
 const char *screen_lab_name(int screen) { return screen >= 0 && screen < LAB_COUNT ? names[screen] : "Screen Lab"; }
 bool screen_lab_unlock_tap(screen_lab_unlock_t *s, int x, int y, int64_t now) {
@@ -21,7 +21,7 @@ bool screen_lab_unlock_tap(screen_lab_unlock_t *s, int x, int y, int64_t now) {
 bool screen_lab_entry(bool unlocked, int x, int y) { return unlocked && x >= 20 && x <= 260 && y >= 12 && y <= 56; }
 
 static bool growth_preview(int screen) { return screen >= LAB_GROW_POINT && screen <= LAB_GROW_TESSERACT; }
-static bool game_preview(int screen) { return screen >= LAB_ECHO_0 && screen <= LAB_CATCH_2; }
+static bool game_preview(int screen) { return screen >= LAB_PLAY_PLUCK && screen <= LAB_PLAY_SELF; }
 static bool tess_preview_only(screen_lab_t *lab) {
     if (face_character(&lab->face) == CHARACTER_TESS) return true;
     face_card(&lab->face, "Tess game preview only. Use a Tess build to inspect this screen.");
@@ -37,26 +37,20 @@ static void apply_growth_preview(screen_lab_t *lab, int screen) {
 
 static void apply_game_preview(screen_lab_t *lab, int screen) {
     if (!tess_preview_only(lab)) return;
-    unsigned tier;
-    tess_game_t game;
-    if (screen <= LAB_ECHO_2) {
-        game = TESS_GAME_ECHO;
-        tier = (unsigned)(screen - LAB_ECHO_0);
-    } else {
-        game = TESS_GAME_CATCH;
-        tier = (unsigned)(screen - LAB_CATCH_0);
-    }
     tess_games_restore(&lab->face, TESS_PROGRESS_MASK);
     tess_games_set_available(&lab->face, true);
-    if (!tess_games_start(&lab->face, game, tier))
-        face_card(&lab->face, "Could not start this Tess game preview.");
+    // Her play moves her assembled dots: let a fresh fixture form first (bounded, Lab only).
+    for (int frame = 0; frame < 90 && lab->face.tess_assemble < 1.f; frame++) face_update(&lab->face, 1.f / 30);
+    if (!tess_games_start(&lab->face, (tess_preview_t)(screen - LAB_PLAY_PLUCK), 0))
+        face_card(&lab->face, "Could not start this Tess play preview.");
 }
 
 static void catalog(agent_menu_t *m) {
     m->online = m->options_loaded = m->capabilities_known = m->stt_available = m->tts_available = true;
-    m->count = m->total = 3;
-    const char *labels[] = {"Fast", "Detailed", "Balanced"};
-    for (int i = 0; i < 3; i++) {
+    // Pickers show a list long enough to scroll; the three voice modes are just three.
+    const char *labels[] = {"Fast", "Detailed", "Balanced", "Reasoning", "Compact", "Vision", "Long context", "Creative", "Private", "Offline"};
+    m->count = m->total = m->view == AGENT_VIEW_MODELS ? 10 : 3;
+    for (int i = 0; i < m->count; i++) {
         snprintf(m->models[i].id, sizeof m->models[i].id, "demo/model-%d", i);
         snprintf(m->models[i].label, sizeof m->models[i].label, "%s", labels[i]);
     }
@@ -85,7 +79,7 @@ static void settings(face_t *f, const screen_lab_t *lab) {
     f->menu.open = true;
     f->menu.k = 1;
     f->menu.volume = lab->volume; f->menu.ui_volume = lab->ui_volume; f->menu.brightness = lab->brightness;
-    f->menu.txt[MT_WIFI] = str(STR_WIFI); f->menu.txt[MT_POWER] = str(STR_POWER_OFF); f->menu.txt[MT_RESET] = str(STR_RESET);
+    f->menu.txt[MT_POWER] = str(STR_POWER_OFF); f->menu.txt[MT_RESET] = str(STR_RESET);
 }
 static void setup(screen_lab_t *lab, int screen) {
     int n = 0, step = screen == LAB_SETUP_QR ? 2 : 1;

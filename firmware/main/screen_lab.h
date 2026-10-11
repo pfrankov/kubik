@@ -9,7 +9,7 @@ typedef enum {
     LAB_RECORD, LAB_THINK, LAB_SPEAK, LAB_LIVE, LAB_TEXT, LAB_OFFLINE, LAB_ERROR,
     LAB_BACKGROUND, LAB_REMINDER, LAB_EVENTS, LAB_EVENT_LOG,
     LAB_GROW_POINT, LAB_GROW_SQUARE, LAB_GROW_CUBE, LAB_GROW_TESSERACT,
-    LAB_ECHO_0, LAB_ECHO_1, LAB_ECHO_2, LAB_CATCH_0, LAB_CATCH_1, LAB_CATCH_2,
+    LAB_PLAY_PLUCK, LAB_PLAY_BLOOM, LAB_PLAY_STRETCH, LAB_PLAY_FLY, LAB_PLAY_GATHER, LAB_PLAY_SELF,
     LAB_COUNT
 } lab_screen_t;
 typedef enum { LAB_TAP, LAB_BOOT, LAB_KEY, LAB_MENU, LAB_POWER, LAB_HOLD } lab_event_t;
@@ -39,6 +39,9 @@ int screen_lab_control_y(const screen_lab_t *lab);
 
 bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue);
 bool screen_lab_take_cue(screen_lab_t *lab, tess_cue_t *cue, float *strength, float *position);
+// Tess's body sounds play only in her growth and play previews (local, never provider speech).
+bool screen_lab_tones_allowed(const screen_lab_t *lab);
+bool screen_lab_take_tone(screen_lab_t *lab, tess_tone_t *tone);
 
 void screen_lab_demo_event(screen_lab_t *lab);
 void screen_lab_event_fixture(screen_lab_t *lab, int screen);

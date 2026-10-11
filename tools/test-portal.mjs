@@ -74,7 +74,7 @@ assert.equal(context.normalizeServerAddress('kubik://mac-mini.local/'), 'kubik:/
 assert.equal(context.normalizeServerAddress('KUBIK://192.168.1.20:18790'), 'kubik://192.168.1.20:18790');
 assert.equal(context.friendlyServerAddress('kubik://mac-mini.local'), 'kubik://mac-mini.local');
 assert.equal(context.friendlyServerAddress(''), '');
-assert.match(portalHtml, /id="urlHint">On your trusted home network, leave blank to find the agent/, 'Подсказка объясняет поиск в доверенной сети');
+assert.match(portalHtml, /id="urlHint">On the same trusted network, leave blank to find OpenClaw/, 'Подсказка объясняет поиск в доверенной сети');
 assert.match(portalHtml, /id="url"[^>]*aria-describedby="urlHint"/, 'Подсказка связана с полем адреса');
 assert.doesNotMatch(portalHtml, /server_required/, 'Адрес сервера больше не обязателен');
 

@@ -37,6 +37,9 @@ static void tess_sound_event(void *engine, sfx_t id, int index, float position, 
 static bool tess_sound_cue(void *engine, tess_cue_t id, float strength, float position) {
     (void)engine; (void)id; (void)strength; (void)position; assert(locked); queued++; return true;
 }
+static bool tess_sound_tone(void *engine, const tess_tone_t *tone) {
+    (void)engine; (void)tone; assert(locked); queued++; return true;
+}
 '''
 check = r'''
 void audio_kick(void) {
@@ -54,6 +57,11 @@ int main(void) {
     speaking = false;
     mic_open = true; audio_tess_cue(TC_LOVE, 1, 0); assert(kicks == 2 && queued == 2);
     mic_open = false; speaking = true; audio_tess_cue(TC_LOVE, 1, 0); assert(kicks == 2 && queued == 2);
+    speaking = false;
+    // Her body's sounds never play over the microphone or a spoken reply either.
+    tess_tone_t ring = {TT_RING, 440, .5f, .5f, 0};
+    mic_open = true; audio_tess_tone(&ring); assert(kicks == 2 && queued == 2);
+    mic_open = false; speaking = true; audio_tess_tone(&ring); assert(kicks == 2 && queued == 2);
     speaking = false;
     s_character = CHARACTER_PLUSH; static int16_t samples[4];
     play_pcm(samples, 4, 65536); assert(kicks == 3 && s_voices[0].left == 3);

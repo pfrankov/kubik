@@ -25,7 +25,7 @@ void tess_play_reset(face_t *f) {
 }
 
 static bool cues_quiet(const face_t *f) {
-    return f->dark || f->mode == MODE_SLEEP || (f->emotion == EMO_SLEEPY && !f->tess_play.down);
+    return f->dark || f->dimmed || f->mode == MODE_SLEEP || (f->emotion == EMO_SLEEPY && !f->tess_play.down);
 }
 
 void tess_cue(face_t *f, tess_cue_t cue, float strength, float position) {
@@ -35,6 +35,23 @@ void tess_cue(face_t *f, tess_cue_t cue, float strength, float position) {
     p->cue[p->cue_n].cue = (uint8_t)cue;
     p->cue[p->cue_n].strength = strength;
     p->cue[p->cue_n++].position = position;
+}
+
+// A sound of her body: queued like a cue, and silent when cues are (dark, asleep, drowsy).
+void tess_tone(face_t *f, tess_tone_kind_t kind, float hz, float gain, float shade) { tess_tone_later(f, kind, hz, gain, shade, 0); }
+void tess_tone_later(face_t *f, tess_tone_kind_t kind, float hz, float gain, float shade, float delay_s) {
+    tess_play_t *p = &f->tess_play;
+    if (cues_quiet(f) || p->tone_n >= TESS_TONES || !isfinite(hz) || !isfinite(gain) || gain <= 0) return;
+    p->tone[p->tone_n++] = (tess_tone_t){(uint8_t)kind, clampf(hz, 40.f, 3000.f), clampf(gain, 0, 1), clampf(shade, 0, 1), clampf(delay_s, 0, 1)};
+    f->tess_games.tone_kinds |= (uint16_t)(1u << kind);
+}
+bool face_take_tone(face_t *f, tess_tone_t *tone) {
+    tess_play_t *p = &f->tess_play;
+    if (cues_quiet(f)) p->tone_n = 0;
+    if (!p->tone_n) return false;
+    *tone = p->tone[0];
+    memmove(p->tone, p->tone + 1, --p->tone_n * sizeof p->tone[0]);
+    return true;
 }
 
 bool face_take_cue(face_t *f, tess_cue_t *cue, float *strength, float *position) {

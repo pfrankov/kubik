@@ -167,11 +167,16 @@ void draw_pair_card(face_t *f, scene_t *s) {
         sc_label(s, TXT_CODE, ch, x, ty, 0, UI_INK, clampf((k - 0.3f) / 0.7f, 0, 1));
         x += 2 * tw + gap + (i == 3 ? mid : 0);
     }
+    // The command uses the exact code shown above; no list lookup is needed.
+    sc_label(s, TXT_CAPTION, "On the OpenClaw server, run:", cx, 360, 0, UI_TEXT, ta);
+    char approval[64];
+    snprintf(approval, sizeof approval, "openclaw pairing approve kubik %.8s", f->pair_code);
+    sc_label(s, TXT_CAPTION, approval, cx, 390, 0, UI_ACCENT, ta);
     // Waiting for the approval.
     float da = clampf((t - 0.9f) / 0.4f, 0, 1);
     for (int i = 0; i < 3; i++) {
         float ph = fmodf(f->t * 1.2f - i * 0.18f, 1.f);
         float up = ph < 0.4f ? sinf(ph / 0.4f * PI) : 0;
-        sc_circle(s, cx + (i - 1) * 20.f, 392 - up * 7, 5.5f, UI_ACCENT, da * (0.45f + 0.55f * up));
+        sc_circle(s, cx + (i - 1) * 20.f, 442 - up * 7, 5.5f, UI_ACCENT, da * (0.45f + 0.55f * up));
     }
 }

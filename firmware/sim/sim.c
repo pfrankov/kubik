@@ -283,7 +283,7 @@ static void character_preview(int character, int mode, bool menu, bool motion) {
     face_set_power(&f, true, getenv("KUBIK_BATTERY") ? atoi(getenv("KUBIK_BATTERY")) : 85, getenv("KUBIK_CHARGING") != NULL, getenv("KUBIK_CHARGING") != NULL);
     if(menu) {
         f.menu.open=true; f.menu.k=1; f.menu.volume=70; f.menu.brightness=80;
-        f.menu.txt[MT_WIFI]="Wi-Fi"; f.menu.txt[MT_POWER]="Power off";
+        f.menu.txt[MT_POWER]="Power off";
     }
     for(int i=0;i<240;i++) face_update(&f,1.f/R_FPS);
     if(getenv("KUBIK_EVENT")) {

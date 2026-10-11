@@ -15,3 +15,5 @@ void app_lab_game_snapshot(tess_games_t *games, bool *preview);
 bool app_lab_take_cue(tess_cue_t *cue, float *strength, float *position);
 
 void app_lab_play_cue(tess_cue_t cue, float strength, float position);
+bool app_lab_take_tone(tess_tone_t *tone);
+void app_lab_play_tone(const tess_tone_t *tone);

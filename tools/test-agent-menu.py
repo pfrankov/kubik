@@ -24,7 +24,14 @@ def build_test(build, name, test, sources, extra=()):
 
 with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
     build_test(tmp, "state-ui", "firmware/sim/agent_menu_test.c", [
-        "firmware/main/agent_menu.c", "firmware/main/face_agent.c",
+        "firmware/main/agent_menu.c", "firmware/main/face_agent.c", "firmware/main/ui_kit.c",
+        "firmware/main/render.c", "firmware/main/render_dots.c", "firmware/main/render_glass.c",
+        "firmware/main/render_output.c", "firmware/main/render_pipeline.c", "firmware/main/render_raster.c",
+        "firmware/main/render_scene.c", "firmware/main/render_text.c", "firmware/main/font.c",
+        "firmware/main/font_data.c", "-lm",
+    ], extra=("-Ifirmware/sim/present_stubs",))
+    build_test(tmp, "scroll", "firmware/sim/agent_scroll_test.c", [
+        "firmware/main/agent_menu.c", "firmware/main/face_agent.c", "firmware/main/ui_kit.c",
         "firmware/main/render.c", "firmware/main/render_dots.c", "firmware/main/render_glass.c",
         "firmware/main/render_output.c", "firmware/main/render_pipeline.c", "firmware/main/render_raster.c",
         "firmware/main/render_scene.c", "firmware/main/render_text.c", "firmware/main/font.c",
@@ -33,5 +40,17 @@ with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
     build_test(tmp, "protocol", "firmware/sim/agent_protocol_test.c", [
         "firmware/main/agent_protocol.c", "firmware/main/agent_menu.c", str(CJSON / "cJSON.c"),
     ])
+
+    app_menu = (ROOT / "firmware/main/app_menu.c").read_text()
+    request = app_menu[app_menu.index("static void request_agent_model("):app_menu.index("static void request_agent_retry(")]
+    dispatch = Path(tmp) / "dispatch.c"
+    dispatch.write_text((ROOT / "firmware/sim/agent_model_dispatch_test.c").read_text().replace("/* PRODUCTION_REQUEST */", request))
+    build_test(tmp, "model-dispatch", str(dispatch), ["firmware/main/agent_menu.c"])
+
+    protocol = (ROOT / "firmware/main/app_models.c").read_text()
+    helpers = protocol[protocol.index("static void add_agent_models("):]
+    models = Path(tmp) / "models.c"
+    models.write_text((ROOT / "firmware/sim/models_reply_test.c").read_text().replace("/* PRODUCTION_MODELS */", helpers))
+    build_test(tmp, "models-reply", str(models), ["firmware/main/agent_protocol.c", "firmware/main/agent_menu.c", str(CJSON / "cJSON.c")])
 
     build_test(tmp, "hidden-reset", "firmware/sim/menu_service_test.c", [])

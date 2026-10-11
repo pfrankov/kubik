@@ -1,6 +1,8 @@
 #include "face_agent.h"
 #include "font.h"
+#include "ui_kit.h"
 #include "ui_theme.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -13,19 +15,6 @@
 #define TEXT UI_TEXT
 #define DISABLED UI_DISABLED
 
-static void fit_text(char *out, size_t cap, const char *src, text_role_t role, float max_width) {
-    if (!cap) return;
-    src = src ? src : "";
-    size_t n = label_prefix(role, src, cap - 1, max_width, "");
-    const char *suffix = "";
-    if (src[n] && cap >= 4) {
-        n = label_prefix(role, src, cap - 4, max_width, "...");
-        suffix = "...";
-    }
-    memcpy(out, src, n);
-    strcpy(out + n, suffix);
-}
-
 // Geometry follows the main settings: 20px outer margin, 12px gaps, rounded tiles.
 static void tile(scene_t *s, const agent_menu_t *m, face_agent_hit_t hit,
                  float x, float y, float hw, float hh, uint32_t color) {
@@ -36,7 +25,7 @@ static void tile(scene_t *s, const agent_menu_t *m, face_agent_hit_t hit,
 static void fitted(scene_t *s, const char *text, text_role_t role, float x, float y, int align,
                    float width, uint32_t color) {
     char line[AGENT_MODEL_ID_MAX * 2 + 5];
-    fit_text(line, sizeof line, text, role, width);
+    ui_fit(line, sizeof line, text, role, width);
     sc_label(s, role, line, x, y, align, color, 1);
 }
 static void chevron(scene_t *s, float x, float y, bool next, uint32_t color) {
@@ -65,16 +54,18 @@ static const char *error_message(const char *error) {
 }
 static const char *screen_status(const agent_menu_t *m) {
     if (!m->online) return "Offline";
-    if (m->request_pending) return m->waiting_kind == AGENT_REQUEST_SELECT ? "Saving" : "Updating";
+    bool quiet = m->view == AGENT_VIEW_MODELS && m->count;  // more pages arriving behind a shown list
+    if (m->request_pending) return m->waiting_kind == AGENT_REQUEST_SELECT ? "Saving" : quiet ? "" : "Updating";
     if (m->error[0]) return error_message(m->error);
-    if (m->wire_rid) return "Updating";
+    if (m->wire_rid && !quiet) return "Updating";
     return "";
 }
 static void header(scene_t *s, const agent_menu_t *m) {
-    sc_label(s, TXT_PAGE_TITLE, view_title(m), 40, 42, -1, TEXT, 1);
     const char *status = screen_status(m);
-    if (status[0]) fitted(s, status, TXT_CHOICE, 440, 42, 1, 138, m->error[0] || !m->online ? CORAL : MUTED);
-    else sc_icon(s, ICON_CHECK, 426, 42, 32, ACCENT, 1);
+    char count[24];
+    bool list = !status[0] && m->view == AGENT_VIEW_MODELS && m->count > 3;
+    if (list) snprintf(count, sizeof count, "%u models", agent_menu_listed(m));
+    ui_header(s, view_title(m), list ? count : status, m->error[0] || !m->online ? CORAL : list ? ACCENT : MUTED);
 }
 static const char *model_name(const agent_menu_t *m) {
     for (unsigned i = 0; m->target == AGENT_TARGET_AGENT && i < m->count; i++) if (agent_menu_current(m, i)) return m->models[i].label;
@@ -135,31 +126,40 @@ static void classic_settings(scene_t *s, const agent_menu_t *m) {
     sc_label(s, TXT_CHOICE, "Transcribe, then reply", 40, 108, -1, MUTED, 1);
     classic_setting(s, m, true); classic_setting(s, m, false);
 }
-static void model_heading(scene_t *s, const char *name, float y, uint32_t color) {
-    if (label_width(TXT_PAGE_BODY, name) <= 352) {
-        sc_label(s, TXT_PAGE_BODY, name, 44, y - 18, -1, color, 1); return;
-    }
-    char first[AGENT_MODEL_LABEL_MAX + 1];
-    const char *end = name + label_prefix(TXT_PAGE_BODY, name, sizeof first - 1, 352, "");
-    const char *space = NULL;
-    for (const char *p = name; p < end; p++) if (*p == ' ') space = p;
-    if (space) end = space;
-    size_t n = (size_t)(end - name);
-    memcpy(first, name, n); first[n] = 0;
-    while (*end == ' ') end++;
-    sc_label(s, TXT_PAGE_BODY, first, 44, y - 30, -1, color, 1);
-    fitted(s, end, TXT_PAGE_BODY, 44, y + 8, -1, 352, color);
+// A model row of the scrolling list: name and provider on two lines; rows fade in under the header.
+#define ROW_HH 33.f
+static float row_y(const agent_menu_t *m, unsigned i) {
+    return AGENT_LIST_TOP + 4 + ROW_HH + i * AGENT_ROW_PITCH - m->scroll;
 }
-static void model_row(scene_t *s, const agent_menu_t *m, unsigned i, float y) {
-    bool selected = agent_menu_current(m, i);
-    bool saving = m->request_pending && m->waiting_kind == AGENT_REQUEST_SELECT && !strcmp(m->retry_id, m->models[i].id);
-    tile(s, m, (face_agent_hit_t)(AGENT_HIT_MODEL_0 + i), 240, y, 220, 70, selected ? SELECTED : TILE);
+// Rows dissolve under the title and into the bottom edge instead of being cut off.
+static float row_alpha(float y) {
+    float top = y - ROW_HH, in = (top - 52) / 30.f, out = (466 - top) / 66.f;
+    in = in < out ? in : out;
+    return in < 0 ? 0 : in > 1 ? 1 : in;
+}
+// A round badge with the provider's initial; each provider keeps one of two colours.
+static void provider_badge(scene_t *s, const char *provider, float x, float y, bool selected) {
+    char initial[2] = {provider[0] >= 'a' ? provider[0] & ~32 : provider[0], 0};
+    sc_circle(s, x, y, 19, selected ? UI_INK : provider[0] & 1 ? ACCENT : UI_GOLD, 1);
+    sc_label(s, TXT_CHOICE, initial, x, y, 0, selected ? UI_GOLD : UI_INK, 1);
+}
+static bool row_saving(const agent_menu_t *m, unsigned i) {
+    return m->request_pending && m->waiting_kind == AGENT_REQUEST_SELECT && !strcmp(m->retry_id, m->models[i].id);
+}
+static void model_row(scene_t *s, const agent_menu_t *m, unsigned i) {
+    float y = row_y(m, i), alpha = row_alpha(y);
+    if (alpha <= 0 || y - ROW_HH >= 480) return;
+    int first = s->n;
+    bool selected = agent_menu_current(m, i), saving = row_saving(m, i);
+    tile(s, m, (face_agent_hit_t)(AGENT_HIT_MODEL_0 + i), 240, y, 220, ROW_HH, selected ? SELECTED : TILE);
     uint32_t text = selected ? UI_INK : m->online ? TEXT : MUTED;
     uint32_t detail = selected ? UI_INK : MUTED;
-    model_heading(s, m->models[i].label, y, text);
     char provider[AGENT_MODEL_ID_MAX + 1]; model_provider(provider, sizeof provider, m->models[i].id);
-    fitted(s, saving ? "Saving..." : provider, TXT_CHOICE, 44, y + 48, -1, 352, saving ? ACCENT : detail);
-    if (selected) sc_icon(s, ICON_CHECK, 426, y - 12, 30, UI_INK, 1);
+    provider_badge(s, provider, 56, y, selected);
+    fitted(s, m->models[i].label, TXT_PAGE_BODY, 88, y - 11, -1, selected ? 300 : 340, text);
+    fitted(s, saving ? "Saving..." : provider, TXT_CHOICE, 88, y + 17, -1, 300, saving ? ACCENT : detail);
+    if (selected) sc_icon(s, ICON_CHECK, 424, y, 30, UI_INK, 1);
+    for (int k = first; alpha < 1.f && k < s->n; k++) s->p[k].alpha = (uint8_t)(s->p[k].alpha * alpha);
 }
 static bool show_retry(const agent_menu_t *m) {
     return m->online && m->error[0] && m->retry_kind != AGENT_REQUEST_NONE && !m->request_pending;
@@ -169,19 +169,9 @@ static void navigation(scene_t *s, const agent_menu_t *m) {
         tile(s, m, AGENT_HIT_RETRY, 240, 428, 220, 32, TILE);
         sc_label(s, TXT_CHOICE, "Retry", 240, 428, 0, ACCENT, 1); return;
     }
-    unsigned pages = agent_menu_display_pages(m);
-    if (!pages) {
-        if (!m->online || m->request_pending) return;
-        tile(s, m, AGENT_HIT_REFRESH, 240, 428, 220, 32, TILE);
-        sc_label(s, TXT_CHOICE, "Refresh", 240, 428, 0, ACCENT, 1); return;
-    }
-    bool prev = agent_menu_can_turn(m, false), next = agent_menu_can_turn(m, true);
-    tile(s, m, AGENT_HIT_PREV, 88, 428, 68, 32, TILE);
-    tile(s, m, AGENT_HIT_NEXT, 392, 428, 68, 32, TILE);
-    chevron(s, 88, 428, false, prev ? TEXT : DISABLED);
-    chevron(s, 392, 428, true, next ? TEXT : DISABLED);
-    char page[24]; snprintf(page, sizeof page, "%u / %u", agent_menu_display_page(m) + 1u, pages);
-    sc_label(s, TXT_CHOICE, page, 240, 428, 0, MUTED, 1);
+    if (m->count || !m->online || m->request_pending) return;
+    tile(s, m, AGENT_HIT_REFRESH, 240, 428, 220, 32, TILE);
+    sc_label(s, TXT_CHOICE, "Refresh", 240, 428, 0, ACCENT, 1);
 }
 static const char *empty_voice_hint(const agent_menu_t *m) {
     if (!m->online) return "";
@@ -193,10 +183,19 @@ static const char *empty_voice_hint(const agent_menu_t *m) {
 }
 static bool models_loading(const agent_menu_t *m) {
     return m->online && !m->error[0] && (!m->options_loaded ||
-        (m->request_pending && m->waiting_kind == AGENT_REQUEST_OPTIONS));
+        (!m->count && m->request_pending && m->waiting_kind == AGENT_REQUEST_OPTIONS));
+}
+// Past the last loaded row: the list is cut at AGENT_LIST_MAX, or the next pages are still arriving.
+static void list_footer(scene_t *s, const agent_menu_t *m) {
+    bool more = m->count < agent_menu_listed(m);
+    if (m->total <= AGENT_LIST_MAX && !more) return;
+    float y = row_y(m, m->count);
+    if (row_alpha(y) < 1.f) return;
+    sc_label(s, TXT_CHOICE, more ? "Loading more..." : "First 32 models", 240, y, 0, MUTED, 1);
 }
 static void models(scene_t *s, const agent_menu_t *m) {
     bool loading = models_loading(m);
+    int first_prim = s->n;
     if (!m->count || loading) {
         sc_icon(s, ICON_BRAIN, 240, 190, 48, ACCENT, 1);
         const char *line = loading ? (m->view == AGENT_VIEW_VOICE_MODES ? "Loading modes..." : "Loading models...") : !m->online ? "Connect your agent" : "No selectable models";
@@ -205,9 +204,10 @@ static void models(scene_t *s, const agent_menu_t *m) {
             fitted(s, empty_voice_hint(m), TXT_CHOICE, 240, 312, 0, 408, MUTED);
         }
     } else {
-        unsigned first = m->half * 2u;
-        for (unsigned j = 0; j < 2 && first + j < m->count; j++) model_row(s, m, first + j, 158 + j * 152);
+        for (unsigned i = 0; i < m->count; i++) model_row(s, m, i);
+        list_footer(s, m);
     }
+    ui_enter(s, first_prim, m->view_elapsed);
     navigation(s, m);
 }
 static const char *mode_hint(const agent_model_t *choice) {
@@ -231,7 +231,9 @@ static void mode_row(scene_t *s, const agent_menu_t *m, unsigned i) {
 }
 static void voice_modes(scene_t *s, const agent_menu_t *m) {
     if (!m->count || models_loading(m)) { models(s, m); return; }
+    int first = s->n;
     for (unsigned i = 0; i < m->count && i < 3; ++i) mode_row(s, m, i);
+    ui_enter(s, first, m->view_elapsed);
     if (show_retry(m)) navigation(s, m);
 
 }
@@ -334,13 +336,12 @@ static void guide(scene_t *s, const agent_menu_t *m, bool voice_wake) {
     for (unsigned i = 0; i < 4; i++) sc_circle(s, 44 + i * 22, 42, i == m->guide_step ? 5 : 3,
         i == m->guide_step ? UI_GOLD : DISABLED, 1);
     int first = s->n;
-    float t = m->guide_elapsed / 0.18f;
-    if (t > 1) t = 1;
-    if (t < 0) t = 0;
+    float t = m->guide_elapsed / UI_ENTER_SECONDS;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
     float ease = 1 - (1 - t) * (1 - t) * (1 - t);
     guide_button_cue(s, m);
     guide_content(s, m, 10 * (1 - ease), voice_wake);
-    for (int i = first; i < s->n; i++) s->p[i].alpha = (uint8_t)(s->p[i].alpha * ease);
+    ui_enter(s, first, m->guide_elapsed);
     face_agent_hit_t hit = m->guide_step == 3 ? AGENT_HIT_GUIDE_DONE : AGENT_HIT_GUIDE_NEXT;
     tile(s, m, hit, 240, 428, 220, 32, UI_GOLD);
     sc_label(s, TXT_CHOICE, m->guide_save_failed ? "Couldn't save. Try again" :
@@ -352,31 +353,32 @@ void face_agent_draw(scene_t *s, const agent_menu_t *m, bool is_tess) {
     bool voice_wake = is_tess;
     if (m->view == AGENT_VIEW_GUIDE) { guide(s, m, voice_wake); return; }
     header(s, m);
+    int first = s->n;
     switch (m->view) {
     case AGENT_VIEW_MODELS: models(s, m); break;
     case AGENT_VIEW_VOICE_MODES: voice_modes(s, m); break;
-    case AGENT_VIEW_CLASSIC: classic_settings(s, m); break;
-    default: overview(s, m); break;
+    case AGENT_VIEW_CLASSIC: classic_settings(s, m); ui_enter(s, first, m->view_elapsed); break;
+    default: overview(s, m); ui_enter(s, first, m->view_elapsed); break;
     }
 }
-static bool inside(int x, int y, int x0, int y0, int x1, int y1) {
+__attribute__((noinline)) static bool inside(int x, int y, int x0, int y0, int x1, int y1) {
     return x >= x0 && x <= x1 && y >= y0 && y <= y1;
 }
 static face_agent_hit_t hit_model_navigation(const agent_menu_t *m, int x, int y) {
     if (!inside(x, y, 20, 396, 460, 460)) return AGENT_HIT_NONE;
     if (show_retry(m)) return AGENT_HIT_RETRY;
-    if (!m->count) return AGENT_HIT_REFRESH;
-    if (x <= 156 && agent_menu_can_turn(m, false)) return AGENT_HIT_PREV;
-    if (x >= 324 && agent_menu_can_turn(m, true)) return AGENT_HIT_NEXT;
-    return AGENT_HIT_NONE;
+    return m->count ? AGENT_HIT_NONE : AGENT_HIT_REFRESH;
 }
 static face_agent_hit_t hit_models(const agent_menu_t *m, int x, int y) {
-    if (!m->online || m->request_pending) return AGENT_HIT_NONE;
+    if (!m->online || (m->request_pending && m->waiting_kind == AGENT_REQUEST_SELECT)) return AGENT_HIT_NONE;
     face_agent_hit_t nav = hit_model_navigation(m, x, y);
     if (nav != AGENT_HIT_NONE) return nav;
-    unsigned i = m->half * 2u;
-    if (inside(x, y, 20, 88, 460, 228) && i < m->count) return (face_agent_hit_t)(AGENT_HIT_MODEL_0 + i);
-    if (inside(x, y, 20, 240, 460, 380) && i + 1u < m->count) return (face_agent_hit_t)(AGENT_HIT_MODEL_0 + i + 1u);
+    if (m->request_pending && !m->count) return AGENT_HIT_NONE;
+    if (show_retry(m) && y >= 396) return AGENT_HIT_NONE;
+    if (y < 96 || y > 448) return AGENT_HIT_NONE;  // rows still fading in or out are not targets
+    for (unsigned i = 0; i < m->count; i++) {
+        if (fabsf(y - row_y(m, i)) <= ROW_HH) return (face_agent_hit_t)(AGENT_HIT_MODEL_0 + i);
+    }
     return AGENT_HIT_NONE;
 }
 static face_agent_hit_t hit_overview(int x, int y) {

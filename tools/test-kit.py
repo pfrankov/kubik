@@ -142,8 +142,7 @@ with zipfile.ZipFile(kit_path) as kit:
             assert "/".join(parts) in names, (name, target)
 
     manual = kit.read("README.md").decode()
-    archive = f"openclaw-kubik-{plugin_version}.tgz"
-    assert f"openclaw plugins install ./{archive} " in manual and f"openclaw plugins install .\\{archive} " in manual
+    assert "openclaw plugins install openclaw-kubik --force --accept-capabilities" in manual
     assert "npm-pack:" not in manual and "/tmp/kubik-plugin.tgz" not in manual
     for promise in ("уже прошитым", "только по USB", "Доверие при первом подключении", "commands.ownerAllowFrom",
                     "Экспериментально", "не поддерживается", "нельзя достучаться снаружи"):

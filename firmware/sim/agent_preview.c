@@ -21,12 +21,16 @@ static void fixture(agent_menu_t *m) {
     agent_menu_reset(m);
     agent_menu_show(m, true);
     m->options_loaded = m->capabilities_known = m->stt_available = m->tts_available = true;
-    m->total = 19; m->count = 4;
+    m->total = 19; m->count = 12;
     const char *ids[] = {"openai/gpt-6.1-sol", "openai/gpt-6-luna", "anthropic/claude-sonnet-4.6", "openrouter/very-long-provider/model-name"};
     const char *labels[] = {"GPT-6.1 Sol", "GPT-6 Luna", "Claude Sonnet 4.6", "Claude Sonnet 4.6 Extended Thinking"};
     for (unsigned i = 0; i < 4; i++) {
         snprintf(m->models[i].id, sizeof m->models[i].id, "%s", ids[i]);
         snprintf(m->models[i].label, sizeof m->models[i].label, "%s", labels[i]);
+    }
+    for (unsigned i = 4; i < 12; i++) {
+        snprintf(m->models[i].id, sizeof m->models[i].id, "openai/gpt-6-mini-%u", i);
+        snprintf(m->models[i].label, sizeof m->models[i].label, "GPT-6 Mini %u", i);
     }
     strcpy(m->model, ids[0]);
     strcpy(m->stt_provider, "openai"); strcpy(m->stt_model, "gpt-live-transcribe");
@@ -91,7 +95,7 @@ static void settings(scene_t *scene, int volume, bool sound) {
     face.menu.pressed = -1; face.menu.pressed_t = 1;
     face.menu.sound = sound; face.menu.ui_volume = 40;
     face.menu.volume = volume; face.menu.brightness = 80;
-    face.menu.txt[MT_WIFI] = "Wi-Fi"; face.menu.txt[MT_POWER] = "Power off"; face.menu.txt[MT_RESET] = "Reset";
+    face.menu.txt[MT_POWER] = "Power off"; face.menu.txt[MT_RESET] = "Reset";
     face.battery_present = true; face.battery_pct = 85; face.charging = true; face.usb_power = true;
     void draw_menu(face_t *, scene_t *);
     draw_menu(&face, scene);
@@ -140,7 +144,7 @@ static void journal_preview(scene_t *scene, const char *variant) {
     if (!strcmp(variant, "overlay") || !strcmp(variant, "live")) {
         f.live_active = f.live_ready = f.live_mic = !strcmp(variant, "live");
         f.cron_running = 1; f.cron_k = 1; face_set_power(&f, true, 10, true, true);
-    } else { f.menu.open = true; f.menu.k = 1; event_journal_open(j); j->detail = !strcmp(variant, "detail"); }
+    } else { f.menu.open = true; f.menu.k = 1; event_journal_open(j); j->detail = !strcmp(variant, "detail"); j->enter = 1.f; }
     face_draw(&f, scene);
 }
 static void draw_preview_scene(scene_t *scene, agent_menu_t *menu, int argc, char **argv) {
@@ -157,8 +161,8 @@ static void draw_preview_scene(scene_t *scene, agent_menu_t *menu, int argc, cha
 int main(int argc, char **argv) {
     agent_menu_t menu; fixture(&menu);
     menu.view = argc > 1 ? (agent_view_t)atoi(argv[1]) : AGENT_VIEW_OVERVIEW;
-    menu.half = argc > 2 ? (uint8_t)atoi(argv[2]) : 0;
-    menu.guide_step = menu.half; menu.guide_elapsed = 1; menu.volume = 70;
+    menu.guide_step = argc > 2 ? (uint8_t)atoi(argv[2]) : 0;
+    menu.scroll = argc > 4 ? (float)atof(argv[4]) : 0; menu.guide_elapsed = 1; menu.view_elapsed = 1.f; menu.volume = 70;
     flags(&menu, argc > 3 ? argv[3] : "");
     scene_t scene; scene_begin(&scene, 0);
     draw_preview_scene(&scene, &menu, argc, argv);

@@ -16,7 +16,7 @@ typedef struct {
 } tile_t;
 static void configure_menu(face_t *f, int ev) {
     if (ev != 100 && ev != 104 && ev != 105) return;
-    static const char *const words[MT_COUNT] = {"Wi-Fi", "Power off", "Reset"};
+    static const char *const words[MT_COUNT] = {"Power off", "Reset"};
     memcpy(f->menu.txt, words, sizeof words); f->menu.open = true;
     f->menu.volume = 60; f->menu.brightness = 80;
     f->menu.pressed = MENU_VOLUME, f->menu.pressed_part = 0, f->menu.pressed_t = -12;

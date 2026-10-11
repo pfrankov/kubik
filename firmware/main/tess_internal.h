@@ -17,10 +17,16 @@ enum { KICK_HOP, KICK_WIGGLE, KICK_TWIRL, KICK_FLINCH, KICK_NUZZLE, KICK_NOD, KI
 // What can follow later (tess_after): any of the kicks, or one of these.
 enum { AFTER_SWING = KICK_COUNT, AFTER_UNTURN, AFTER_PEEK, AFTER_LOOK_AWAY, AFTER_BOO, AFTER_CONTENT, AFTER_JOY_CUE, AFTER_NONE = 0xFF };
 
+#define TESS_HANG_S .82f   // s into a burst where the dots hang out on the glass (tess_scatter.c), and Gather holds them
 #define TESS_BURST_S 2.6f  // s a hard shake's burst lasts: the choreography of tess_scatter.c (2.5 s) and a moment of the dots at rest
 
 typedef struct { int x, y, radius, key; uint16_t lit; } tess_projected_t;
 void tess_project_dots(face_t *face, tess_projected_t dots[TESS_N]);
+// Play moves her own structure (tess_play_shape.c): once a frame with her vertices, then each dot by its form slot.
+void tess_play_frame(face_t *face, const float points[TESS_N][3], float scale, float body_dx, float body_dy, float body_cos, float body_sin);
+int tess_play_vertex_slot(int vertex);
+int tess_play_slot_vertex(int slot);
+void tess_play_point(int slot, float *x, float *y, float *z);
 
 float tess_sin(float radians);
 void tess_vertices4d(const face_t *face, float vertices[16][4]);  // the tesseract after its 4D turns, before any projection
@@ -49,6 +55,9 @@ void tess_kick(face_t *face, int kind, float strength);    // a reaction of the 
 void tess_react(face_t *face, tess_reaction_t reaction, float seconds);  // a shape or colour of a mood; 0 seconds: its own length
 // Play (tess_touch.c, tess_play.c)
 void tess_cue(face_t *face, tess_cue_t cue, float strength, float position);  // asks the speaker for a sound (face_take_cue)
+void tess_tone(face_t *face, tess_tone_kind_t kind, float hz, float gain, float shade);  // a sound of her body (face_take_tone)
+void tess_tone_later(face_t *face, tess_tone_kind_t kind, float hz, float gain, float shade, float delay_s);
+float tess_tone_hz(const face_t *face, float height);  // her resonance: continuous, mood sets its rest, size its register
 void tess_after(face_t *face, float seconds, int what, float strength);       // a reaction that follows on later (KICK_* or AFTER_*)
 void tess_play_reset(face_t *face);
 void tess_play_glad(face_t *face);      // it is delighted: a joyful bounce and twirl
@@ -75,8 +84,16 @@ void tess_scatter_begin(face_t *face);                    // a hard shake: start
 void tess_scatter_step(face_t *face, float dt);           // the clock, the weight of the whole cloud in it, the snap's cue
 float tess_scatter_weight(float seconds);                 // how far the cloud is spread, 0 formed .. 1, seconds into the burst
 void tess_scatter_spot(int slot, float spot[3]);          // where a slot of the burst lands
+void tess_scatter_spot_px(int slot, float *x, float *y);   // and where that is on the panel
 void tess_scatter_frame(const face_t *face, float seconds);                // what the whole cloud does seconds into the burst: once a frame, before the dots
 void tess_scatter_apply(float point[3], int dot, int slot);  // the dot's place in that moment
+void tess_scatter_finish(face_t *face);                   // every dot is home already: the burst ends now
+void tess_scatter_reset(void);                            // a fresh Tess: the next spreads are laid out from the start
+// Gather's hold on the burst (tess_gather.c): whether it hangs, and whether a slot was swept home (and how long ago).
+bool tess_games_holds_burst(const face_t *face);
+float tess_games_gathered(const face_t *face, int slot, float *since);
+float tess_games_gathered_share(const face_t *face);  // 0..1 of the dots home in a Gather round
+void tess_gather_pour(face_t *face, int slot);         // a dot the tilt slid through her core is home
 enum { TS_FORM = 0, TS_GLOBE, TS_HEART, TS_DRIFT, TS_SCATTER };  // the forms the dots are matched to (tess_rematch)
 void tess_point_targets(face_t *face, float targets[TESS_N][3], int parity);
 void tess_springs(face_t *face, const float targets[TESS_N][3], float dt);

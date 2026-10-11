@@ -27,6 +27,9 @@ static void json(const char *p,size_t n) { events[nevents++]=link_is_welcome(p,n
 static int config_calls;
 static void config(const char *text,size_t len,char *reply,size_t cap) {
     cJSON *j=cJSON_ParseWithLength(text,len);assert(j);
+    if (!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"cmd")),"large")) {
+        assert(cap >= 6001); memset(reply,'x',6000); reply[6000]=0; cJSON_Delete(j); return;
+    }
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"cmd")),"info"));
     snprintf(reply,cap,"{\"ok\":true}");cJSON_Delete(j);config_calls++;
 }
@@ -114,6 +117,15 @@ int main(void) {
         before=usb_size;input_frame(F_CONFIG,request,strlen(request),false);run_usb_rx();
         assert(config_calls==1&&usb_size==before);
         usb_size=0; // keep the existing transport scenarios isolated from the config fixture
+    }
+    {
+        const char *request="{\"cmd\":\"large\"}";
+        input_frame(F_CONFIG,request,strlen(request),true);run_usb_rx();
+        size_t n=usb_bytes[3]|(size_t)usb_bytes[4]<<8;
+        assert(n==6000 && usb_size==n+6);
+        for(size_t i=0;i<n;i++) assert(usb_bytes[5+i]=='x');
+        assert(link_usb_crc8(0,usb_bytes+5,n)==usb_bytes[5+n]);
+        usb_size=0;
     }
     strcpy(g_settings.wifi_ssid,"wifi");strcpy(g_settings.server_url,"wss://server");strcpy(g_settings.name,"name \"quoted\"");g_settings.volume=37;
     time_ms=100;

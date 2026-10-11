@@ -9,6 +9,10 @@
   "categories": [
     "channels"
   ],
+  "doctorContract": {
+    "configRepair": false,
+    "stateMigrations": []
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

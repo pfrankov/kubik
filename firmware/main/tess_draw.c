@@ -254,24 +254,6 @@ static void pulse_game_dots(const face_t *f, dot_t dots[TESS_N]) {
     }
 }
 
-// Six fading positions use the projected body, not a second independently
-// animated object. Sample at 18Hz; duplicate draws cannot grow the trail.
-static void draw_game_trail(face_t *f, scene_t *s) {
-    tess_games_t *g = &f->tess_games;
-    if (g->game != TESS_GAME_CATCH || g->phase == TESS_GAME_CELEBRATE || !g->hit_valid) return;
-    if (g->age - g->trail_at >= .055f) {
-        for (int i = 5; i > 0; i--) memcpy(g->trail[i], g->trail[i - 1], sizeof g->trail[i]);
-        memcpy(g->trail[0], g->hit, sizeof g->hit);
-        if (g->trail_n < 6) g->trail_n++;
-        g->trail_at = g->age;
-    }
-    for (int i = g->trail_n - 1; i >= 1; i--) {
-        float opacity = (6 - i) / 6.f * smooth01(g->fold);
-        sc_glow_dot(s, g->trail[i][0], g->trail[i][1], 2 + opacity * 3,
-                    rgb_scale(0x59DCC4, opacity * .65f), (uint8_t)(opacity * 100));
-    }
-}
-
 static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
     uint8_t order[TESS_N];
     int count = cloud_order(f, dots, order);
@@ -316,6 +298,22 @@ static void draw_recording(face_t *f, scene_t *s) {
     }
 }
 
+static void note_play_target(face_t *f, const dot_t dots[TESS_N]) {
+    f->tess_games.hit_valid = false;
+    if (!f->tess_games.ready || f->tess_fallen) return;
+    for (int i = 0; i < TESS_N; i++) {
+        int vertex = tess_play_slot_vertex(f->tess_form_of[i]);
+        if (vertex < 0) continue;
+        f->tess_games.vertex_px[vertex][0] = dots[i].x * (1.f / 8.f);
+        f->tess_games.vertex_px[vertex][1] = dots[i].y * (1.f / 8.f);
+    }
+    int64_t x = 0, y = 0;
+    for (int i = 0; i < TESS_N; i++) { x += dots[i].x; y += dots[i].y; }
+    f->tess_games.hit[0] = (float)(x / TESS_N) * (1.f / 8.f);
+    f->tess_games.hit[1] = (float)(y / TESS_N) * (1.f / 8.f);
+    f->tess_games.hit_valid = true;
+}
+
 void tess_project_dots(face_t *f, tess_projected_t dots[TESS_N]) {
     float initial[TESS_N][3], m[3][3];
     const float (*points)[3] = f->tess_position;
@@ -337,15 +335,7 @@ void tess_project_dots(face_t *f, tess_projected_t dots[TESS_N]) {
     float depth_range = 1.7f + .6f * form - heart * .7f, depth_gain = 1 / (2 * depth_range);
     project_points(f, points, m, camera, wgain, dust, depth_range, depth_gain, dots);
     fit_conversation(f, dots);
-    if (!f->tess_games.ready || f->tess_fallen) {
-        f->tess_games.hit_valid = false;
-    } else {
-        int64_t x = 0, y = 0;
-        for (int i = 0; i < TESS_N; i++) { x += dots[i].x; y += dots[i].y; }
-        f->tess_games.hit[0] = (float)(x / TESS_N) * (1.f / 8.f);
-        f->tess_games.hit[1] = (float)(y / TESS_N) * (1.f / 8.f);
-        f->tess_games.hit_valid = true;
-    }
+    note_play_target(f, dots);
 }
 
 void tess_draw(face_t *f, scene_t *s) {
@@ -353,13 +343,6 @@ void tess_draw(face_t *f, scene_t *s) {
     tess_project_dots(f, dots);
     pulse_game_dots(f, dots);
     if (f->tess_fallen) shade_fallen(f, dots);
-    draw_game_trail(f, s);
     draw_cloud(f, s, dots);
-    if (f->tess_games.game == TESS_GAME_CATCH && f->tess_games.phase != TESS_GAME_CELEBRATE &&
-        f->tess_games.hit_valid && f->tess_games.fold > .8f) {
-        float pip = smooth01((f->tess_games.fold - .8f) * 5.f);
-        sc_glow_dot(s, f->tess_games.hit[0], f->tess_games.hit[1], 13 * pip,
-                    rgb_mix(0x59DCC4, 0xFFCE78, game_tint(f)), 200);
-    }
     draw_recording(f, s);
 }

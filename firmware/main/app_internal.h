@@ -113,7 +113,7 @@ void menu_open(void);
 void menu_back(void);
 void menu_close(bool sound);
 void menu_tap(int x, int y);
-void menu_drag(int x, int y, bool first);
+void menu_drag(int x, int y, bool first, bool last);
 void menu_hold(int x, int y);
 void device_state_volume_report(bool force);
 bool app_agent_receive_reply(const agent_menu_reply_t *reply);

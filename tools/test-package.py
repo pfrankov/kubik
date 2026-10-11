@@ -92,13 +92,16 @@ def check_compiler_inputs():
         (source / 'selected.cpp').write_text('#include "shared header.h"\nint cpp_value() { return shared_value(); }\n')
         (source / 'excluded.c').write_text('#include "excluded header.h"\nint excluded(void) { return excluded_value(); }\n')
         (build / 'CMakeCache.txt').write_text(f'CMAKE_MAKE_PROGRAM:FILEPATH={ninja}\n')
+        # This fixture has no system headers. An explicit empty sysroot avoids
+        # Apple Clang adding the installed SDKSettings.json to its depfile.
+        fixture_flags = f'-nostdinc -isysroot {shlex.quote(str(build))}'
         (build / 'build.ninja').write_text(
             'rule cc\n'
-            f'  command = {shlex.quote(cc)} -MMD -MF $out.d -MT $out -I include -c $in -o $out\n'
+            f'  command = {shlex.quote(cc)} {fixture_flags} -MMD -MF $out.d -MT $out -I include -c $in -o $out\n'
             '  depfile = $out.d\n'
             '  deps = gcc\n'
             'rule cxx\n'
-            f'  command = {shlex.quote(cxx)} -MMD -MF $out.d -MT $out -I include -c $in -o $out\n'
+            f'  command = {shlex.quote(cxx)} {fixture_flags} -nostdinc++ -MMD -MF $out.d -MT $out -I include -c $in -o $out\n'
             '  depfile = $out.d\n'
             '  deps = gcc\n'
             'build selected-c.o: cc src/selected.c\n'

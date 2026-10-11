@@ -28,7 +28,6 @@ static const char *const k_en[STR_COUNT] = {
     [STR_COMPACTING] = "Tidying memory",
     [STR_STILL_WORKING] = "Still working",
     [STR_TURNING_OFF] = "Turning off",
-    [STR_WIFI] = "Wi-Fi",
     [STR_POWER_OFF] = "Power off",
     [STR_RESET] = "Reset",
 };

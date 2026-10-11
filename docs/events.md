@@ -5,7 +5,7 @@ In Settings, tap the battery indicator five times within four seconds to reveal
 restart, newest first. It records connection, state, activity, emotion, reply and
 notification excerpts, voice lifecycle, errors and requested settings. Identical
 consecutive entries are combined with `xN`; unchanged scheduler snapshots are omitted. The time is minutes/seconds since
-startup, not wall-clock time. Swipe to browse, or tap Older/Newer; tap an entry to
+startup, not wall-clock time. Swipe to browse, or tap the left/right arrows (newer/older); tap an entry to
 read its excerpt and reaction. If a message being read leaves the bounded history,
 the detail view says it has expired instead of showing a different message.
 BOOT returns to the list, then Settings.

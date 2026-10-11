@@ -26,15 +26,16 @@ static void navigation(const face_t *face, const scene_t *scene, const char *wor
     assert(glyph->bx1 - glyph->bx0 >= 30); // strokes survive the native screen scale
     int x = (label->bx0 + glyph->bx1) / 2, y = (glyph->by0 + glyph->by1) / 2, part;
     // A finger-sized rectangle around the visible label/icon routes to the same action.
-    for (int dy = -40; dy <= 40; dy += 8) for (int dx = -60; dx <= 60; dx += 8)
+    int reach = row == MENU_STATUS ? 28 : 40; // the bottom row is a compact strip
+    for (int dy = -reach; dy <= reach; dy += 8) for (int dx = -50; dx <= 50; dx += 8)
         assert(face_menu_hit(face, x + dx, y + dy, &part) == row);
-    assert(label->by0 >= 68 && label->by1 <= 384 && label->bx1 <= 440);
+    assert(label->by0 >= 68 && label->by1 <= 460 && label->bx1 <= 440);
 }
 static void menu_geometry(void) {
     face_t face; face_init(&face);
     face.menu.open = true; face.menu.k = 1;
     face.menu.volume = 70; face.menu.brightness = 80;
-    face.menu.txt[MT_WIFI] = "Wi-Fi"; face.menu.txt[MT_POWER] = "Power off"; face.menu.txt[MT_RESET] = "Reset";
+    face.menu.txt[MT_POWER] = "Power off"; face.menu.txt[MT_RESET] = "Reset";
     scene_t scene; face_draw(&face, &scene);
     assert(scene.n < R_MAX_PRIMS && scene.dots_n == 0);
     assert(text(&scene, "Settings") && !text(&scene, "Events"));
@@ -50,8 +51,9 @@ static void menu_geometry(void) {
     int part;
     for (int tick = 0; tick < 50; tick++) {
         face.menu.k = tick / 50.f;
-        assert(face_menu_hit(&face, 356, 116, &part) == -1);
-        assert(face_menu_hit(&face, 356, 226, &part) == -1);
+        assert(face_menu_hit(&face, 356, 144, &part) == -1);
+        assert(face_menu_hit(&face, 356, 308, &part) == -1);
+        assert(face_menu_hit(&face, 127, 428, &part) == -1);
         assert(face_menu_hit(&face, 72, 226, &part) == -1);
     }
     face.menu.k = 1;
@@ -61,13 +63,15 @@ static void menu_geometry(void) {
         assert(face_menu_hit(&face, 130, y, &part) == -1);
         assert(face_menu_hit(&face, 246, y, &part) == -1);
     }
-    assert(face_menu_hit(&face, 356, 171, &part) == -1); // navigation gutter
-    assert(face_menu_hit(&face, 240, 428, &part) == -1); // no invisible reset/power target
+    assert(face_menu_hit(&face, 356, 226, &part) == -1); // navigation gutter
+    assert(face_menu_hit(&face, 127, 428, &part) == MENU_STATUS && face_menu_hit(&face, 353, 428, &part) == MENU_ACTIONS && part == 2);
+    assert(face_menu_hit(&face, 240, 428, &part) == -1); // gap between Status and Power off
+    assert(face_menu_hit(&face, 12, 428, &part) == -1 && face_menu_hit(&face, 353, 396 - 8, &part) == -1);
     assert(face_menu_slider(0) == 100 && face_menu_slider(480) == 0);
     int last = 100;
     for (int y = 0; y <= 480; y++) { int value = face_menu_slider(y); assert(value <= last); last = value; }
     face.menu.open = false;
-    assert(face_menu_hit(&face, 356, 116, &part) == -1);
+    assert(face_menu_hit(&face, 356, 144, &part) == -1);
 }
 static void menu_power_indicator(face_t *face) {
     scene_t scene;
@@ -129,7 +133,7 @@ static void sound_geometry(void) {
     assert(face_menu_hit(&face, 132, 226, &part) == MENU_VOLUME);
     assert(face_menu_hit(&face, 348, 226, &part) == MENU_UI_VOLUME);
     assert(face_menu_hit(&face, 240, 226, &part) == -1);
-    assert(face_menu_hit(&face, 127, 428, &part) == -1); // old Wi-Fi cannot fire
+    assert(face_menu_hit(&face, 127, 428, &part) == -1); // no bottom-row tiles in Sound
     scene_t scene; scene_begin(&scene, 0); face_draw(&face, &scene);
     assert(text(&scene, "Sound") && text(&scene, "Speech") && text(&scene, "Interface"));
     assert(!text(&scene, "Agent") && !text(&scene, "Guide"));
@@ -167,20 +171,26 @@ static void status_navigation(void) {
     assert(device_status_drag(&f.status,300,200,true));
     assert(device_status_drag(&f.status,240,200,false) && f.status.page==1);
     device_status_drag(&f.status,100,200,false); assert(f.status.page==1);
-    device_status_tap(&f.status,452); assert(f.status.page==2);
+    device_status_tap(&f.status,400,428); assert(f.status.page==2);
     device_status_drag(&f.status,100,200,true); device_status_drag(&f.status,170,200,false);
-    assert(f.status.page==1); device_status_tap(&f.status,200); assert(f.status.page==1);
+    assert(f.status.page==1); device_status_tap(&f.status,240,200); assert(f.status.page==1);
+    device_status_tap(&f.status,60,428); assert(f.status.page==0 && f.status.enter==0);
+    device_status_tap(&f.status,240,428); assert(f.status.page==1);
+    device_status_tap(&f.status,400,428); assert(f.status.page==2);
+    device_status_tap(&f.status,8,428); assert(f.status.page==0);
+    device_status_tap(&f.status,470,452); assert(f.status.page==1);
+    f.status.page=1; device_status_tap(&f.status,240,428); assert(f.status.page==1);
     f.status.page=2; memset(f.status.url,'W',159); f.status.url[159]=0;
     face_draw(&f,&scene); int letters=0;
     for (int i=0;i<scene.n;i++) {
         const prim_t *p=&scene.p[i];
-        if (p->kind==PK_TEXT && p->by0>=220 && p->by1<440) {
+        if (p->kind==PK_TEXT && p->by0>=240 && p->by1<400) {
             letters+=p->b; assert(p->bx0>=20 && p->bx1<=460);
         }
     }
-    assert(letters==159);
+    assert(letters>60 && letters<=159); // four fitted lines of the widest glyph
     assert(device_status_back(&f.status) && !f.status.open && f.menu.open);
-    assert(!device_status_tap(&f.status,452));
+    assert(!device_status_tap(&f.status,240,428));
 }
 int main(void) {
     status_navigation(); menu_geometry(); power_indicator(); sound_geometry(); home_status_alignment();

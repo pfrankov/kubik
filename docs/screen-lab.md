@@ -27,10 +27,11 @@ without interaction closes the lab and frees its fixture memory.
   entire unmodified screen.
 - Home and Offline points: native gestures, inertia and orientation.
 - Growth: point, square, cube and tesseract: Tess-only views of each earned form.
-  Duet and Chase have separate previews for all three difficulty tiers. These are
-  catalog-only developer fixtures: they do not add a game menu, gameplay HUD or
-  exit control to the ordinary character screen. Their game input still uses the
-  native tap route. KEY restarts the same game and tier, including after timeout.
+  Play previews show each behaviour: pluck, bloom, stretch, slingshot, gather and
+  alone (self-play). These are catalog-only developer fixtures: they do not add a
+  game menu, gameplay HUD or exit control to the ordinary character screen. Their
+  input uses the native touch route: tap her, pull beside her, or sweep the burst.
+  KEY replays the same behaviour, including after it has settled.
   In a Plush build these Tess-only entries show an explanatory card and cannot
   start a game. The Tess Home fixture keeps the existing fully grown renderer;
   the form fixtures restore point, square, cube and tesseract
@@ -42,7 +43,7 @@ without interaction closes the lab and frees its fixture memory.
   tools, emotion, speech, notification, error and background work. Pause/Signal
   changes the simulated voice level. Done returns to the catalog.
 - Event log: a sample history using the production viewer. Swipe up/down, use
-  Older/Newer, tap an entry for details, and return with BOOT. Its overlay switch
+  the arrow tiles, tap an entry for details, and return with BOOT. Its overlay switch
   changes only this preview.
 
 Offline points on the device plays real collision sounds through the saved

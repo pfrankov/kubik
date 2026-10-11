@@ -33,9 +33,7 @@
 #define EMO_JOY 1
 #define EMO_HAPPY 2
 #define FEV_TAP 0
-#define TESS_GAME_NONE 0
-#define TESS_GAME_ECHO 1
-#define TESS_GAME_CATCH 2
+enum { TESS_GAME_NONE, TESS_GAME_SPARKS, TESS_GAME_GATHER };
 
 typedef struct {
     unsigned count;
@@ -55,7 +53,7 @@ static int64_t s_boot_ms;
 static struct { int volume; bool greeted; uint8_t tess_progress; } g_settings;
 static bool s_power_off_failed;
 static int64_t s_power_off_at;
-typedef struct { uint8_t progress, game; bool available; uint32_t round; } fake_games_t;
+typedef struct { uint8_t progress, game; bool available, finger_owned, pressed; uint32_t round; } fake_games_t;
 typedef struct { fake_games_t tess_games; float idle_t; } fake_face_t;
 static fake_face_t g_face;
 static int64_t fake_now = 60000, s_tess_flush_retry_at;
@@ -91,6 +89,7 @@ static bool app_games_available(void) {
 static bool tess_games_active(const fake_face_t *face) {
     return face->tess_games.available && face->tess_games.game != TESS_GAME_NONE && !game_card_visible;
 }
+static bool tess_games_owns_tap(const fake_face_t *f) { return tess_games_active(f) || f->tess_games.finger_owned; }
 static bool tess_games_event(fake_face_t *face, int event, float x, float y) {
     assert(face_locked);
     if (event != FEV_TAP) return false;
@@ -98,7 +97,7 @@ static bool tess_games_event(fake_face_t *face, int event, float x, float y) {
     if (tess_games_active(face) && x == game_target_x && y == game_target_y) {
         game_taps++;
         game_won = true;
-        face->tess_games.progress |= face->tess_games.game == TESS_GAME_ECHO ? 1 : 8;
+        face->tess_games.progress |= face->tess_games.game == TESS_GAME_SPARKS ? 1 : 8;
         face->tess_games.game = TESS_GAME_NONE;
         return true;
     }
@@ -398,7 +397,7 @@ static void test_game_taps_defer_across_priority_events(void) {
         for (unsigned event_first = 0; event_first < 2; event_first++) {
             reset_harness();
             start_final_game_tap(i == 0 ? 240 : 300, i == 0 ? 240 : 260,
-                                 i == 0 ? TESS_GAME_ECHO : TESS_GAME_CATCH);
+                                 i == 0 ? TESS_GAME_SPARKS : TESS_GAME_GATHER);
             if (event_first) post_game_preemption(preemptions[i]);
             app_post(EV_TAP, game_target_x, game_target_y);
             if (!event_first) post_game_preemption(preemptions[i]);
@@ -444,7 +443,7 @@ static void test_only_effective_preemption_cancels_game_taps(void) {
     };
     for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         reset_harness();
-        start_final_game_tap(240, 240, TESS_GAME_ECHO);
+        start_final_game_tap(240, 240, TESS_GAME_SPARKS);
         post_unrelated_event(&cases[i]);
         app_post(EV_TAP, game_target_x, game_target_y);
         app_task_pass();
@@ -454,7 +453,7 @@ static void test_only_effective_preemption_cancels_game_taps(void) {
 
 static void test_game_tap_stays_canceled_after_recovery(void) {
     reset_harness();
-    start_final_game_tap(300, 260, TESS_GAME_CATCH);
+    start_final_game_tap(300, 260, TESS_GAME_GATHER);
     app_post(EV_TAP, game_target_x, game_target_y);
     app_post(EV_LINK_DOWN, 0, 0);
     app_post_in_session(EV_SRV_WELCOME, 70, 1, s_session);
@@ -469,14 +468,14 @@ static void test_ptt_and_round_fences_suppress_deferred_hits(void) {
     assert(ptt_down_order == 1 && ptt_up_order == 2 && !ptt_listening);
 
     reset_harness();
-    start_final_game_tap(240, 240, TESS_GAME_ECHO);
+    start_final_game_tap(240, 240, TESS_GAME_SPARKS);
     app_post(EV_TAP, game_target_x, game_target_y);
     app_post(EV_PTT_DOWN, 0, 0); app_post(EV_PTT_UP, 0, 0);
     app_task_pass();
     assert(ptt_down_order == 1 && ptt_up_order == 2 && !game_won && !game_taps && !ordinary_tap_calls);
 
     reset_harness();
-    start_final_game_tap(240, 240, TESS_GAME_ECHO);
+    start_final_game_tap(240, 240, TESS_GAME_SPARKS);
     app_ev_t tap = {.type = EV_TAP, .a = 240, .b = 240};
     game_tap_t deferred;
     assert(capture_game_tap(&tap, &deferred) && deferred.round == 1);

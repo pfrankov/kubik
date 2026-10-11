@@ -15,8 +15,9 @@ mock = r'''
 #include <stdlib.h>
 #include <math.h>
 #include "input_hold.h"
-enum {EV_MENU_HOLD, EV_SWIPE_UP, EV_PET, EV_TAP};
-typedef struct { bool touching, gesture_done; int touch_x0, touch_y0; float touch_path; int64_t touch_started_ms; } input_state_t;
+enum {EV_MENU_HOLD, EV_SWIPE_UP, EV_PET, EV_TAP, EV_DRAG, EV_TOUCH_UP};
+typedef struct { bool touching, gesture_done, first_drag; int touch_x0, touch_y0, drag_x, drag_y; float touch_path; int64_t touch_started_ms; } input_state_t;
+static bool s_menu_view = true;
 enum { MENU_VOLUME, SFX_PAGE };
 static struct { struct { bool open; } status; struct { bool open; } journal; struct { bool open; } agent; struct { bool sound; } menu; } g_face;
 static bool s_menu = true;
@@ -30,7 +31,7 @@ static int face_menu_hit(void *face, int x, int y, int *part) { (void)face;(void
 static int64_t now_ms(void) { return 1000; }
 static void audio_sfx(int sound) { assert(sound==SFX_PAGE); opens++; }
 static void menu_sync(void) {} static void disp_wake(void) {}
-static int events[4];
+static int events[6];
 static void app_post(int type, int x, int y) { (void)x; (void)y; events[type]++; }
 static void update_menu_drag(input_state_t *state, int x, int y, bool menu) {(void)state;(void)x;(void)y;(void)menu;}
 '''
@@ -45,11 +46,11 @@ int main(void) {
  input_state_t s = {.touching=true,.touch_x0=72,.touch_y0=200};
  update_touch_gesture(&s,72,200,799,true); assert(!events[EV_MENU_HOLD]);
  update_touch_gesture(&s,72,200,800,true); update_touch_gesture(&s,72,200,2000,true);
- assert(events[EV_MENU_HOLD]==1); release_touch(&s,2100); assert(!events[EV_TAP]);
+ assert(events[EV_MENU_HOLD]==1); release_touch(&s,2100); assert(!events[EV_TAP] && events[EV_DRAG]==1); // the release reaches lists that coast
  s=(input_state_t){.touching=true,.touch_x0=72,.touch_y0=200,.touch_path=40};
  update_touch_gesture(&s,72,220,900,true); assert(events[EV_MENU_HOLD]==1);
  s=(input_state_t){.touching=true,.touch_x0=72,.touch_y0=200};
- release_touch(&s,200); assert(events[EV_TAP]==1);
+ release_touch(&s,200); assert(events[EV_TAP]==1 && events[EV_TOUCH_UP]==2);
  s=(input_state_t){.touching=true,.touch_x0=72,.touch_y0=200};
  update_touch_gesture(&s,72,200,900,false); assert(events[EV_MENU_HOLD]==1 && events[EV_PET]==1);
 }

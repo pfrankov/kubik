@@ -3,7 +3,8 @@
 #include <stdint.h>
 #include "audio.h"
 
-// One authoritative output geometry: six 10ms DMA descriptors and a 20ms mixed frame.
+// Six 10ms DMA descriptors and a 20ms mixed frame. On single-core C6 the
+// speaker task must preempt display/input, then block in the DMA write.
 #define AUDIO_TX_DESCRIPTORS 6
 #define AUDIO_TX_DESCRIPTOR_FRAMES 240
 #define AUDIO_SPEAKER_FRAMES 480

@@ -6,6 +6,7 @@
 typedef struct {
     bool bright;                          // short collision sparks bypass the warm low-pass
     bool harmony;                         // accompaniment; the syllabic lead remains independently identifiable
+    bool body;                            // a sound of her body: only a free voice, never one a word is using
     uint32_t delay_samples, step, end_step;  // from the start of the sound; pitch at the start and at the end of the glide
     uint16_t ratio_q8, layer_ratio_q8;        // the modulator's and the layer's frequency, in carriers (Q8)
     int16_t chorus_detune;                    // the detuned copy's pitch: this many 1/1024 of the note's above it (below: negative)

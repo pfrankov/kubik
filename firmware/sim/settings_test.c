@@ -332,13 +332,13 @@ static void test_factory_reset(void) {
     assert(!strcmp(g_settings.wifi_ssid, "Odin") && g_settings.volume == 15);
     assert(settings_factory_reset() == ESP_OK);
     assert(!g_settings.wifi_ssid[0] && !g_settings.wifi_pass[0] && !g_settings.server_url[0] && !g_settings.server_pinned);
-    assert(g_settings.volume == 70 && g_settings.brightness == 200 &&
+    assert(g_settings.volume == 100 && g_settings.brightness == 200 &&
            !g_settings.greeted && !g_settings.guide_done && !g_settings.event_overlay && !strcmp(g_settings.name, "Kubik"));
     const char *gone[] = {CONNECTION_RECORD_KEY_A, CONNECTION_RECORD_KEY_B, "networks", "connection", "pin", "devkey", "name", "character", "volume", "bright", "greeted", "guide_done", "event_overlay", "tess_progress", "setup", "vengine"};
     for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) assert(!has(gone[i]));
     assert(!has("devkey"));  // factory reset also clears the device identity key
     settings_load();
-    assert(!g_settings.wifi_ssid[0] && g_settings.volume == 70 && !g_settings.server_pinned);
+    assert(!g_settings.wifi_ssid[0] && g_settings.volume == 100 && !g_settings.server_pinned);
     assert(settings_factory_reset() == ESP_OK);  // already clean: still fine
 }
 
@@ -365,9 +365,9 @@ static void test_split_volume(void) {
     g_settings.ui_volume = 0; g_settings.volume = 80; settings_save(); settings_load();
     assert(g_settings.volume == 80 && g_settings.ui_volume == 0 && g_settings.event_overlay);
     assert(settings_factory_reset() == ESP_OK);
-    assert(g_settings.volume == 70 && g_settings.ui_volume == 70);
+    assert(g_settings.volume == 100 && g_settings.ui_volume == 100);
     nvs_set_i32(1, "volume", 999); nvs_set_i32(1, "ui_volume", -1); settings_load();
-    assert(g_settings.volume == 70 && g_settings.ui_volume == 70);
+    assert(g_settings.volume == 100 && g_settings.ui_volume == 100);
 }
 
 static void english_default_name(void) {

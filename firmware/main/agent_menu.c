@@ -1,5 +1,7 @@
 #include "agent_menu.h"
 
+#include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 static bool copy_bounded(char *dst, size_t cap, const char *src) {
@@ -50,7 +52,6 @@ void agent_menu_show(agent_menu_t *menu, bool online) {
     if (!menu) return;
     menu->open = true;
     agent_menu_visit(menu, AGENT_VIEW_OVERVIEW, AGENT_TARGET_AGENT);
-    menu->half = 0;
     menu->touch_moved = false;
     menu->online = online;
     menu->pressed = -1;
@@ -112,13 +113,15 @@ uint16_t agent_menu_request_options(agent_menu_t *menu, uint8_t cursor, uint32_t
 
 uint16_t agent_menu_request_model(agent_menu_t *menu, const char *id, uint32_t now_ms) {
     if (!menu || !agent_menu_id_valid(id) || !menu->online) return 0;
-    bool listed = false;
-    for (unsigned i = 0; i < menu->count; i++) listed |= !menu->models[i].disabled && !strcmp(menu->models[i].id, id);
-    if (!listed) return 0;
+    unsigned at = menu->count;
+    for (unsigned i = 0; i < menu->count && at == menu->count; i++)
+        if (!menu->models[i].disabled && !strcmp(menu->models[i].id, id)) at = i;
+    if (at == menu->count) return 0;
+    uint8_t page = (uint8_t)(at / AGENT_PAGE_SIZE);
     uint16_t rid = begin_request(menu, AGENT_REQUEST_SELECT, now_ms);
     if (!rid || !copy_bounded(menu->retry_id, sizeof menu->retry_id, id)) return 0;
     menu->retry_kind = AGENT_REQUEST_SELECT;
-    menu->waiting_cursor = menu->retry_cursor = menu->cursor;
+    menu->waiting_cursor = menu->retry_cursor = page;
     return rid;
 }
 
@@ -162,18 +165,23 @@ static bool mode_catalog_valid(const agent_menu_reply_t *r) {
 
 static bool reply_is_valid(const agent_menu_reply_t *r) {
     if (!r || r->count > AGENT_PAGE_SIZE || r->total > 128 || !agent_menu_error_valid(r->error)) return false;
+    if (r->has_catalog && (unsigned)r->cursor * AGENT_PAGE_SIZE + r->count > AGENT_LIST_MAX) return false;
     if (r->has_model && r->model[0] && !agent_menu_id_valid(r->model)) return false;
     return reply_catalog_valid(r) && mode_catalog_valid(r);
 }
 
 static void accept_catalog(agent_menu_t *menu, const agent_menu_reply_t *reply) {
     if (!reply->has_catalog) return;
+    unsigned first = (unsigned)reply->cursor * AGENT_PAGE_SIZE;
     menu->cursor = reply->cursor;
     menu->total = reply->total;
-    menu->count = reply->count;
-    if (menu->count <= 2) menu->half = 0;
-    memcpy(menu->models, reply->models, sizeof menu->models);
+    if (first > menu->count) { menu->count = 0; menu->options_loaded = false; return; }  // gap: load again from the first page
+    memcpy(menu->models + first, reply->models, reply->count * sizeof menu->models[0]);
+    if (first + reply->count > menu->count || !first) menu->count = (uint8_t)(first + reply->count);
+    // A short page ends the host list even when it announced more.
+    if (reply->count < AGENT_PAGE_SIZE && menu->count < menu->total) menu->total = menu->count;
     menu->options_loaded = true;
+    if (menu->scroll > agent_menu_scroll_max(menu)) menu->scroll = agent_menu_scroll_max(menu);
 }
 
 static void accept_status(agent_menu_t *menu, const agent_menu_reply_t *reply) {
@@ -251,43 +259,103 @@ bool agent_menu_current(const agent_menu_t *menu, unsigned index) {
     return id[0] && !strcmp(menu->models[index].id, id);
 }
 
-unsigned agent_menu_pages(const agent_menu_t *menu) {
-    return menu ? (menu->total + AGENT_PAGE_SIZE - 1u) / AGENT_PAGE_SIZE : 0;
+unsigned agent_menu_listed(const agent_menu_t *menu) {
+    return !menu ? 0 : menu->total < AGENT_LIST_MAX ? menu->total : AGENT_LIST_MAX;
 }
 
-unsigned agent_menu_display_pages(const agent_menu_t *menu) {
-    return menu ? (menu->total + 1u) / 2u : 0;
-}
-
-unsigned agent_menu_display_page(const agent_menu_t *menu) {
-    return menu ? menu->cursor * 2u + menu->half : 0;
-}
-
-bool agent_menu_can_turn(const agent_menu_t *menu, bool next) {
-    if (!menu || !menu->online || menu->request_pending) return false;
-    unsigned page = agent_menu_display_page(menu);
-    return next ? page + 1u < agent_menu_display_pages(menu) : page > 0;
-}
-
-bool agent_menu_turn_page(agent_menu_t *menu, bool next, uint8_t *cursor) {
-    if (!cursor || !agent_menu_can_turn(menu, next)) return false;
-    if (next && !menu->half) { menu->half = 1; return false; }
-    if (!next && menu->half) { menu->half = 0; return false; }
-    menu->half = next ? 0 : 1;
-    *cursor = next ? menu->cursor + 1u : menu->cursor - 1u;
+bool agent_menu_next_page(const agent_menu_t *menu, uint8_t *cursor) {
+    if (!menu || !cursor || !menu->open || !menu->online || !menu->options_loaded || menu->request_pending ||
+        menu->wire_rid || menu->error[0] || menu->view == AGENT_VIEW_GUIDE) return false;
+    if (menu->count >= agent_menu_listed(menu) || menu->count % AGENT_PAGE_SIZE) return false;
+    *cursor = (uint8_t)(menu->count / AGENT_PAGE_SIZE);
     return true;
 }
 
-bool agent_menu_drag(agent_menu_t *menu, int x, int y, bool first) {
+float agent_menu_scroll_max(const agent_menu_t *menu) {
+    if (!menu) return 0;
+    float footer = menu->total > AGENT_LIST_MAX ? 44.f : 0.f;
+    float room = menu->count * AGENT_ROW_PITCH + footer - AGENT_LIST_BOTTOM + AGENT_LIST_TOP + 20.f;
+    return room > 0 ? room : 0;
+}
+
+// Past either end the finger moves the list less and less, like pulling a rubber band.
+static float stretch_scroll(const agent_menu_t *menu, float scroll) {
+    float max = agent_menu_scroll_max(menu);
+    float out = scroll < 0 ? scroll : scroll > max ? scroll - max : 0;
+    if (out == 0) return scroll;
+    float pull = fabsf(out) * AGENT_OVERSCROLL / (fabsf(out) + AGENT_OVERSCROLL);  // follows the finger, then resists
+    out = out < 0 ? -pull : pull;
+    return (scroll < 0 ? 0 : max) + out;
+}
+
+#define SCROLL_DEAD_PX 8
+#define LIST_TAP_SLOP 8   // a finger that moves this far over the list is scrolling, never tapping
+#define SCROLL_FRICTION 2.6f   // 1/s: a flick glides for about a second
+#define SCROLL_SPRING 120.f    // 1/s²: pull of a stretched list toward its end
+#define SCROLL_DAMPING 22.f    // 1/s: critical damping of that spring
+#define SCROLL_STOP_SPEED 12.f
+#define SCROLL_HOLD_FADE 9.f   // 1/s: speed lost while a finger rests on the list
+
+bool agent_menu_drag(agent_menu_t *menu, int x, int y, bool first, bool last) {
     if (!menu || !menu->open) return false;
+    bool list = menu->view == AGENT_VIEW_MODELS;
+    if (last) { menu->scrolling = false; return true; }
     if (first) {
         menu->touch_x = (int16_t)x; menu->touch_y = (int16_t)y;
-        menu->touch_moved = false;
-    } else {
-        int dx = x - menu->touch_x, dy = y - menu->touch_y;
-        if (dx * dx + dy * dy >= 24 * 24) menu->touch_moved = true;
+        menu->touch_moved = list && menu->scroll_v != 0;  // a touch that stops a coasting list is not a tap
+        menu->scrolling = false;
+        menu->scroll_v = 0;
+        menu->scroll_prev = menu->scroll;
+        return true;
     }
+    int dx = x - menu->touch_x, dy = y - menu->touch_y;
+    int slop = list ? LIST_TAP_SLOP : 24;
+    if (dx * dx + dy * dy >= slop * slop) menu->touch_moved = true;
+    if (!list) return true;
+    if (!menu->scrolling && abs(dy) >= SCROLL_DEAD_PX && abs(dy) > abs(dx)) {
+        menu->scrolling = menu->touch_moved = true;
+        menu->scroll_start = menu->scroll;
+        menu->scroll_anchor = (int16_t)y;
+    }
+    if (menu->scrolling) menu->scroll = stretch_scroll(menu, menu->scroll_start - (y - menu->scroll_anchor));
     return true;
+}
+
+bool agent_menu_owns_swipe(const agent_menu_t *menu) {
+    return menu && menu->open && menu->view == AGENT_VIEW_MODELS;
+}
+
+// Finger down: speed follows the drag. Released: friction in range; past an end the speed dies
+// quickly and the list eases back to it.
+static void scroll_step(agent_menu_t *menu, float dt, float max) {
+    if (menu->scrolling) {
+        // The panel reports a lift a few samples late: frames without new movement fade the speed gently
+        // instead of dropping it, so a flick released at speed still glides.
+        if (menu->scroll == menu->scroll_prev) menu->scroll_v /= 1.f + SCROLL_HOLD_FADE * dt;
+        else menu->scroll_v += ((menu->scroll - menu->scroll_prev) / dt - menu->scroll_v) * 0.5f;
+        menu->scroll_prev = menu->scroll;
+        return;
+    }
+    dt = fminf(dt, 0.034f);  // a slow frame must not make the spring overshoot
+    float edge = menu->scroll < 0 ? 0 : max;
+    bool out = menu->scroll < 0 || menu->scroll > max;
+    if (!out && fabsf(menu->scroll_v) < SCROLL_STOP_SPEED) { menu->scroll_v = 0; return; }
+    if (out) {  // a damped spring pulls the stretched list back: it starts gently and settles without a jump
+        menu->scroll_v = (menu->scroll_v + (edge - menu->scroll) * SCROLL_SPRING * dt) / (1.f + SCROLL_DAMPING * dt);
+    } else {
+        menu->scroll_v /= 1.f + SCROLL_FRICTION * dt;  // friction without libm
+        float next = menu->scroll + menu->scroll_v * dt;
+        if (next < 0 || next > max) menu->scroll_v *= 0.25f;  // the end absorbs most of the speed
+    }
+    menu->scroll += menu->scroll_v * dt;
+    if (out && fabsf(menu->scroll - edge) < 0.4f) { menu->scroll = edge; menu->scroll_v = 0; }
+}
+
+void agent_menu_tick(agent_menu_t *menu, float dt) {
+    if (!menu || dt <= 0) return;
+    if (!menu->open || menu->view != AGENT_VIEW_MODELS) { menu->scroll_v = 0; menu->scrolling = false; return; }
+    float max = agent_menu_scroll_max(menu);
+    scroll_step(menu, dt, max);
 }
 
 bool agent_menu_take_tap(agent_menu_t *menu) {
@@ -304,6 +372,7 @@ void agent_menu_start_guide(agent_menu_t *menu, bool online) {
     menu->guide_step = 0;
     menu->guide_save_failed = false;
     menu->guide_elapsed = 0;
+    menu->view_elapsed = 0;
 }
 
 void agent_menu_guide_move(agent_menu_t *menu, int direction) {
@@ -312,11 +381,13 @@ void agent_menu_guide_move(agent_menu_t *menu, int direction) {
     if (next < 0 || next > 3) return;
     menu->guide_step = (uint8_t)next;
     menu->guide_elapsed = 0;
+    menu->view_elapsed = 0;
 }
 
 void agent_menu_visit(agent_menu_t *m, agent_view_t view, agent_target_t target) {
-    m->view = view; m->target = target;
-    m->half = m->cursor = m->count = m->total = 0;
+    m->view = view; m->target = target; m->view_elapsed = 0;
+    m->cursor = m->count = m->total = 0;
+    m->scroll = m->scroll_v = 0; m->scrolling = false;
     m->selected_model[0] = m->error[0] = 0;
     m->request_pending = m->options_loaded = false;
     m->waiting_kind = m->retry_kind = AGENT_REQUEST_NONE;

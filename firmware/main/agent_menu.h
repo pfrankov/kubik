@@ -8,7 +8,12 @@
 #define AGENT_MODEL_ID_MAX 160
 #define AGENT_MODEL_LABEL_MAX 80
 #define AGENT_META_MAX 96
-#define AGENT_PAGE_SIZE 4
+#define AGENT_PAGE_SIZE 4   // models per wire catalog page
+#define AGENT_LIST_MAX 32   // models kept for scrolling: eight wire pages loaded one after another
+#define AGENT_ROW_PITCH 78  // scrolling list: row height 66 plus 12 px gap
+#define AGENT_LIST_TOP 80
+#define AGENT_LIST_BOTTOM 460
+#define AGENT_OVERSCROLL 64  // the list stretches this far past either end and springs back
 #define AGENT_ERROR_MAX 23
 #define AGENT_REQUEST_TIMEOUT_MS 8000u
 
@@ -56,15 +61,19 @@ typedef struct {
     agent_target_t target;
     char selected_model[AGENT_MODEL_ID_MAX + 1];
     voice_mode_t voice_mode;
-    uint8_t half;  // two large choices per screen; wire catalogs contain four
     uint8_t guide_step, volume;
     bool guide_save_failed;
     float guide_elapsed;
+    float view_elapsed;  // seconds since the view last changed (0 = just changed); ui_enter fades it in
     int16_t touch_x, touch_y;
     bool touch_moved;
     bool capabilities_known, stt_available, tts_available;
-    uint8_t cursor, total, count;
-    agent_model_t models[AGENT_PAGE_SIZE];
+    uint8_t cursor, total, count;  // cursor: last wire page loaded; count: contiguous models loaded
+    agent_model_t models[AGENT_LIST_MAX];
+    float scroll, scroll_v;  // models list offset (px) and inertial velocity (px/s)
+    float scroll_start, scroll_prev;
+    int16_t scroll_anchor;
+    bool scrolling;
     char model[AGENT_MODEL_ID_MAX + 1];
     char stt_provider[AGENT_META_MAX + 1], stt_model[AGENT_META_MAX + 1];
     char tts_provider[AGENT_META_MAX + 1], tts_model[AGENT_META_MAX + 1];
@@ -91,13 +100,16 @@ bool agent_menu_timeout(agent_menu_t *menu, uint32_t now_ms);
 bool agent_menu_id_valid(const char *id);
 bool agent_menu_error_valid(const char *error);
 bool agent_menu_current(const agent_menu_t *menu, unsigned index);
-unsigned agent_menu_pages(const agent_menu_t *menu);
-unsigned agent_menu_display_pages(const agent_menu_t *menu);
-unsigned agent_menu_display_page(const agent_menu_t *menu);
-bool agent_menu_can_turn(const agent_menu_t *menu, bool next);
-// Changes the local half; true means load the returned wire catalog page.
-bool agent_menu_turn_page(agent_menu_t *menu, bool next, uint8_t *cursor);
-bool agent_menu_drag(agent_menu_t *menu, int x, int y, bool first);
+// Models the list shows: the host total, bounded by AGENT_LIST_MAX.
+unsigned agent_menu_listed(const agent_menu_t *menu);
+// True when the next wire page should be requested now; the list loads page by page behind the first screen.
+bool agent_menu_next_page(const agent_menu_t *menu, uint8_t *cursor);
+float agent_menu_scroll_max(const agent_menu_t *menu);
+// Finger drag scrolls the models list; `last` is the release. The list then coasts and slows down.
+bool agent_menu_drag(agent_menu_t *menu, int x, int y, bool first, bool last);
+void agent_menu_tick(agent_menu_t *menu, float dt);
+// The open model list owns vertical swipes: they scroll it and must not close the menu.
+bool agent_menu_owns_swipe(const agent_menu_t *menu);
 bool agent_menu_take_tap(agent_menu_t *menu);
 void agent_menu_start_guide(agent_menu_t *menu, bool online);
 void agent_menu_guide_move(agent_menu_t *menu, int direction);

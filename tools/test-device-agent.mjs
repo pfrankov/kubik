@@ -14,7 +14,11 @@ async function control(body) {
   assert.equal(r.status, 200);
   const s = await r.json(); assert.equal(s.ok, true); return s;
 }
-const info = () => control({cmd:'info'});
+const info = async () => {
+  const status=await control({cmd:'info'}), first=await control({cmd:'models',offset:0});
+  const second=first.models_next===16 ? await control({cmd:'models',offset:16}) : null;
+  return {...status,...first,agent_models:[...first.agent_models,...(second?.agent_models??[])]};
+};
 const sim = (ev, extra={}) => control({cmd:'sim', ev, ...extra});
 async function until(check, label) {
   for (let i=0; i<60; i++) {
@@ -30,7 +34,7 @@ function preserved(s, original) {
 async function openAgent() {
   let s=await info(); if(s.screen_dark){await sim('pwr'); await sleep(200)}
   s=await info(); if(s.menu){await sim('menu');await sleep(200)}
-  await sim('menu');await sleep(550); await tap(356,116);
+  await sim('menu');await sleep(550); await tap(356,144);
   return until(s=>s.agent_open&&s.agent_view==='overview'&&s.agent_status==='ready'&&s.agent_model, 'Agent overview');
 }
 async function dragRejected(original,x,y) {
@@ -40,17 +44,28 @@ async function dragRejected(original,x,y) {
   assert.equal(after.agent_view,before.agent_view); assert.equal(after.agent_model,before.agent_model);
   preserved(after,original);
 }
-async function page(direction, expected) {
-  await tap(direction>0?392:88,428);
-  return until(s=>s.agent_display_page===expected&&s.agent_status==='ready', `display page ${expected}`);
+// The list scrolls by finger: rows sit 78 px apart from y 117, and coast after the finger leaves.
+const ROW_Y=i=>117+i*78;
+async function settled() {
+  let last=(await info()).agent_scroll;
+  for(let i=0;i<40;i++) { await sleep(120); const now=(await info()).agent_scroll; if(now===last) return now; last=now; }
+  throw Error('list kept scrolling');
 }
-async function moveTo(target) {
-  let s=await info();
-  while(s.agent_display_page!==target) {
-    const direction=s.agent_display_page<target?1:-1;
-    s=await page(direction,s.agent_display_page+direction);
+async function flick(from,to) {
+  await sim('drag',{x:240,y:from,first:true}); await sim('drag',{x:240,y:from+(to<from?-14:14)});
+  await sleep(40); await sim('drag',{x:240,y:(from+to)/2}); await sleep(40); await sim('drag',{x:240,y:to});
+  await sim('drag',{x:240,y:to,last:true}); return settled();
+}
+async function fullList() {
+  return until(s=>s.agent_view==='models'&&s.agent_status==='ready'&&s.agent_loaded===s.agent_listed&&s.agent_loaded>0,'whole model list loaded');
+}
+async function moveTo(index) {
+  for(let i=0;i<40;i++) {
+    const y=ROW_Y(index)-(await info()).agent_scroll;
+    if(y>=130&&y<=420) return y;
+    await flick(y>420?400:200, y>420?220:380);
   }
-  return s;
+  throw Error(`row ${index} not reachable`);
 }
 async function browse(original) {
   await dragRejected(original,127,196); await dragRejected(original,353,196);
@@ -65,22 +80,28 @@ async function browse(original) {
   } else await until(s=>s.agent_view==='models'&&s.agent_target==='voice'&&s.agent_status==='ready','shared voice models');
   await backToAgent();
   await tap(240,196);let s=await until(s=>s.agent_view==='models'&&s.agent_status==='ready','model picker');
-  const ids=[]; const pages=s.agent_display_pages;
-  for(let i=0;i<pages;i++) {
-    assert.equal(s.agent_display_page,i);
-    if(i%2===0) ids.push(...s.agent_models);
-    preserved(s,original);
-    if(i+1<pages) s=await page(1,i+1);
+  s=await fullList(); const ids=[...s.agent_models];
+  assert.equal(ids.length,s.agent_listed); preserved(s,original);
+  if(ids.length>5) {
+    const top=await settled(); assert.equal(top,0);
+    const first=await flick(400,150); assert.ok(first>0,'drag scrolls the list');
+    for(let i=0;i<8;i++) await flick(150,420);
+    assert.equal(await settled(),0,'list stops at the first row');
+    // A short drag released at speed keeps gliding: far past where the finger left it.
+    await sim('drag',{x:240,y:400,first:true}); await sim('drag',{x:240,y:384}); await sleep(40);
+    await sim('drag',{x:240,y:350}); await sleep(40); await sim('drag',{x:240,y:316});
+    await sim('drag',{x:240,y:316,last:true}); const atRelease=(await info()).agent_scroll;
+    const glided=await settled(); assert.ok(glided>atRelease+30,'list keeps coasting after release');
+    for(let i=0;i<8;i++) await flick(150,420);
+    assert.equal(await settled(),0,'list stops at the first row');
   }
-  for(let i=pages-2;i>=0;i--) s=await page(-1,i);
   await dragRejected(original,127,164);
-  console.log(`PASS overview, mode-first voice catalogs, ${pages} large pages in both directions; drags preserve sliders/model`);
+  console.log(`PASS overview, mode-first voice catalogs, ${ids.length} models by inertial scroll; drags preserve sliders/model`);
   return ids;
 }
 async function choose(id,ids,target='agent') {
   const index=ids.indexOf(id);assert.ok(index>=0,`${id} absent from catalog`);
-  await moveTo(Math.floor(index/2));
-  const y=index%2?304:164;
+  const y=await moveTo(index);
   await sim('drag',{x:240,y,first:true});await sim('drag',{x:244,y:y+4});
   await tap(240,y);
   return until(s=>(target==='agent'?s.agent_model:s.voice_model)===id&&s.agent_target===target&&s.agent_status==='ready',`persisted ${id}`);
@@ -111,15 +132,15 @@ async function voiceRoundTrip(agentModel) {
   const alternative=input.agent_models.find(id=>id!==original);
   assert.ok(alternative, 'Need two server voice models for the selection contrast');
   try {
-    const changed=await choose(alternative,input.agent_models,'voice');
+    const changed=await choose(alternative,(await fullList()).agent_models,'voice');
     assert.equal(changed.agent_model,agentModel); await backToAgent();
     const reopened=await voicePicker(); assert.equal(reopened.voice_model,alternative);
-    await choose(original,reopened.agent_models,'voice');
+    await choose(original,(await fullList()).agent_models,'voice');
     assert.equal((await info()).agent_model,agentModel);
     console.log('PASS shared voice model: save, reopen, agent isolation and restore');
   } finally {
     await openAgent(); const current=await voicePicker();
-    if(current.voice_model!==original)await choose(original,current.agent_models,'voice');
+    if(current.voice_model!==original)await choose(original,(await fullList()).agent_models,'voice');
     await backToAgent();
   }
 }

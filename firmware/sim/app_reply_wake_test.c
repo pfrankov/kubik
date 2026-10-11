@@ -22,6 +22,7 @@ static int64_t now_ms(void) { return 1000; }
 static uint32_t link_session(void) { return 1; }
 static void wake(bool sound) {
     assert(!sound);
+    if (power_is_dark(s_power)) return;  // production wake(): processing never lights a dark screen
     power_step_t step = power_step(s_power, PE_WAKE);
     if (step.legal) { s_power = step.next; wakes++; }
 }

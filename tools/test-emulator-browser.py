@@ -53,7 +53,7 @@ def preview_frames(page, screens):
                 assert page.locator("#state").inner_text().startswith(name + " ·"), name
                 samples.append(page.locator("canvas").screenshot())
             frames[name] = tuple(samples)
-            if name.startswith(("Duet:", "Chase:")):
+            if name.startswith("Play:"):
                 page.get_by_role("button", name="KEY", exact=True).click()
                 advance_frames(page, 7)
                 assert page.locator("canvas").screenshot() == samples[0], f"KEY must replay {name}"
@@ -67,7 +67,7 @@ def preview_frames(page, screens):
     distinct = {name: sequence for name, sequence in frames.items() if name != "Growth: tesseract"}
     assert len(set(distinct.values())) == len(distinct), "Preview sequences must not be duplicate placeholders"
     for name, sequence in frames.items():
-        if name.startswith(("Duet:", "Chase:")):
+        if name.startswith("Play:"):
             assert len(set(sequence)) > 1, f"Game preview must animate: {name}"
 
 
@@ -78,12 +78,12 @@ def exercise(page, screens):
     assert len(page.locator("#screen option").all()) == len(screens) + 1
     preview_frames(page, screens)
     choose(page, screens.index("Settings"), "Settings")
-    click(page, 356, 336)
+    click(page, 127, 428)
     state = read_state(page)
     assert state["status_open"] and state["status_page"] == 0
     click(page, 240, 452)
     assert read_state(page)["status_page"] == 1
-    click(page, 240, 452)
+    click(page, 389, 452)
     assert read_state(page)["status_page"] == 2
     page.locator('[data-key="1"]').click()
     assert not read_state(page)["status_open"]
@@ -95,11 +95,12 @@ def exercise(page, screens):
     state = read_state(page)
     assert state["journal_open"]
     page.locator('[data-key="1"]').click()
-    click(page, 356, 116)
+    click(page, 356, 144)
     click(page, 240, 168)
     page.locator('[data-key="1"]').click()
     page.locator('[data-key="1"]').click()
-    click(page, 356, 226)
+    click(page, 356, 308)
+    assert read_state(page)["view"] == 2
     for _ in range(4): click(page, 240, 428)
     choose(page, screens.index("Event log"), "Event log")
     def journal():

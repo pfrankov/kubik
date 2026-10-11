@@ -90,6 +90,86 @@ test('Realtime final input closes capture then delegates once through the existi
   assert.equal(calls.done, 1); assert.deepEqual(calls.close, [{ disposition: 'detach' }]);
 });
 
+test('Realtime speaks a first agent block before dispatch ends and serializes provider responses', async (t) => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { callbacks, calls } = fixture(t, { dispatch: async ({ deliver }) => {
+    await deliver('First sentence.');
+    await deliver('Second sentence.');
+    await gate;
+  } });
+  callbacks.onTranscript('user', 'Question', true); await sleep(0);
+  assert.equal(calls.messages.length, 1); assert.match(calls.messages[0], /First sentence/);
+  assert.equal(calls.done, 0); // accepted agent/tool work is still running
+  callbacks.onResponseDone({ status:'completed' }); await sleep(0);
+  assert.equal(calls.messages.length, 2); assert.match(calls.messages[1], /Second sentence/);
+  callbacks.onResponseDone({ status:'completed' }); await sleep(0);
+  assert.equal(calls.done, 0); // voice alone cannot terminate the unfinished dispatcher
+  release(); await sleep(0);
+  assert.equal(calls.done, 1);
+});
+
+test('Realtime completion waits for queued audio after dispatch, preserving screen-only blocks', async (t) => {
+  const { callbacks, calls } = fixture(t, { dispatch: async ({ deliver }) => {
+    await deliver('A spoken sentence. [[show]]Private screen');
+    await deliver('details[[/show]] Another spoken sentence.');
+  } });
+  callbacks.onTranscript('user', 'Question', true); await sleep(0);
+  assert.equal(calls.done, 0); assert.equal(calls.messages.length, 1);
+  assert.doesNotMatch(calls.messages[0], /Private|details/);
+  callbacks.onResponseDone({ status:'completed' }); await sleep(0);
+  assert.equal(calls.done, 0); assert.equal(calls.messages.length, 2);
+  assert.doesNotMatch(calls.messages[1], /Private|details/);
+  assert.ok(calls.text.some(text => text.includes('Private screen\ndetails')));
+  callbacks.onResponseDone({ status:'completed' }); await sleep(0);
+  assert.equal(calls.done, 1);
+  const screen = fixture(t, { dispatch: ({ deliver }) => deliver('[[show]]Just a card[[/show]]') });
+  screen.callbacks.onTranscript('user', 'Question', true); await sleep(0);
+  assert.equal(screen.calls.messages.length, 0); assert.equal(screen.calls.done, 1);
+});
+
+test('Realtime cancellation discards queued speech without cancelling accepted agent work', async (t) => {
+  let release, acceptedFinished = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { turn, callbacks, calls } = fixture(t, { dispatch: async ({ deliver }) => {
+    await deliver('First sentence.'); await deliver('Queued second sentence.');
+    await gate; acceptedFinished = true; await deliver('Late sentence.');
+  } });
+  callbacks.onTranscript('user', 'Question', true); await sleep(0);
+  turn.close(); callbacks.onResponseDone({ status:'completed' });
+  release(); await sleep(0);
+  assert.equal(acceptedFinished, true);
+  assert.equal(calls.messages.length, 1); assert.equal(calls.done, 0);
+});
+
+test('Realtime provider failure displays accepted partial text and drops later voice delivery', async (t) => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { callbacks, calls } = fixture(t, { dispatch: async ({ deliver }) => {
+    await deliver('A useful partial answer.'); await gate; await deliver('Late answer.');
+  } });
+  callbacks.onTranscript('user', 'Question', true); await sleep(0);
+  callbacks.onResponseDone({ status:'failed' }); await sleep(0);
+  assert.equal(calls.fail, 1); assert.ok(calls.text.includes('A useful partial answer.'));
+  const count = calls.text.length;
+  release(); await sleep(0);
+  assert.equal(calls.messages.length, 1); assert.equal(calls.text.length, count);
+});
+
+test('Realtime voice transcripts cannot replace the authoritative agent answer with one spoken block', async (t) => {
+  const { callbacks, calls } = fixture(t, { dispatch: async ({ deliver }) => {
+    await deliver('First sentence.'); await deliver('Second sentence.');
+  } });
+  callbacks.onTranscript('user', 'Question', true); await sleep(0);
+  const displayed = [...calls.text];
+  assert.ok(displayed.includes('First sentence.\nSecond sentence.'));
+  callbacks.onTranscript('assistant', 'First sentence.', true);
+  callbacks.onResponseDone({ status:'completed' }); await sleep(0);
+  callbacks.onTranscript('assistant', 'Second', false);
+  callbacks.onTranscript('assistant', 'Second sentence.', true);
+  assert.deepEqual(calls.text, displayed);
+});
+
 test('GPT-Live filler cannot finish accepted agent work; quiet completes the reply and retains the session', async (t) => {
   let release;
   const pending = new Promise(resolve => { release = resolve; });

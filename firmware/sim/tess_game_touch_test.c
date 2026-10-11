@@ -1,6 +1,7 @@
 // Actual app tap routing, with physical audio/link services counted rather than
 // invoked. The same local game model used by the display handles accepted taps.
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include "tess.h"
@@ -43,65 +44,69 @@ static bool app_games_available(void) {
 }
 /* PRODUCTION_GAME_TAPS */
 /* PRODUCTION_TAP */
+static bool caught(void) { return hypotf(g_face.tess_games.fly_v[0],g_face.tess_games.fly_v[1])<.01f; }
+static void begin_span(unsigned tier) {
+    g_face.tess_points_ready=true;
+    assert(tess_games_start(&g_face,TESS_PLAY_FLY,tier));
+    for(int i=0;i<20;i++) tess_games_update(&g_face,.02f);  // she is in flight
+    assert(g_face.tess_games.phase==TESS_GAME_WAIT && g_face.tess_games.hit_valid);
+}
 static void ready(bool playing) {
     memset(&g_face,0,sizeof g_face); g_face.character=CHARACTER_TESS; g_face.mode=MODE_IDLE;
     tess_games_restore(&g_face,0);
     s_power=PWR_AWAKE; s_talk=TALK_IDLE; s_online=true; s_gen=-1;
     live=stream=card=lab=false; sounds=pokes=cards=stopped=finished=taps=locks=wakes=0;
-    if(playing) {
-        assert(tess_games_start(&g_face,TESS_GAME_ECHO,0));
-        for(int i=0;i<100;i++) tess_games_update(&g_face,.02f);
-        assert(g_face.tess_games.phase==TESS_GAME_WAIT);
-    }
+    if(playing) begin_span(0);
+}
+static app_ev_t knot_tap(void) {
+    return (app_ev_t){.a=(int)lroundf(g_face.tess_games.hit[0]), .b=(int)lroundf(g_face.tess_games.hit[1]), .type=EV_TAP};
 }
 static void game_taps_stay_local(void) {
-    const app_ev_t event={.a=240,.b=255,.type=EV_TAP};
-    ready(true); touch_tap(&event);
-    assert(g_face.tess_games.step==1 && taps==1 && !sounds && !pokes);
-    touch_tap(&event); // a tap during the answer is ignored, without an agent poke
-    assert(g_face.tess_games.game && g_face.tess_games.step==1 && !g_face.tess_games.progress && !sounds && !pokes);
-    ready(false); touch_tap(&event); assert(taps==1 && sounds==1 && pokes==1);
+    ready(true);
+    app_ev_t event=knot_tap();
+    touch_tap(&event);
+    assert(caught() && taps==1 && !sounds && !pokes);  // a tap on her in flight catches her
+    touch_tap(&event); // another tap on her in flight: still hers, no agent poke
+    assert(g_face.tess_games.game && !sounds && !pokes);
+    const app_ev_t ordinary={.a=240,.b=255,.type=EV_TAP};
+    ready(false); touch_tap(&ordinary); assert(taps==1 && sounds==1 && pokes==1);
 }
 static void voice_card_and_link_keep_priority(void) {
     const app_ev_t event={.a=240,.b=255,.type=EV_TAP};
-    ready(true); live=true; touch_tap(&event); assert(stopped==1 && !taps && !pokes && !g_face.tess_games.progress);
+    ready(true); live=true; touch_tap(&event); assert(stopped==1 && !taps && !pokes);
     ready(true); s_talk=TALK_LATCHED; touch_tap(&event); assert(finished==1 && !taps && !pokes);
     ready(true); card=true; touch_tap(&event); assert(cards==1 && !taps && !pokes);
     ready(true); stream=true; touch_tap(&event);
-    assert(stopped==1 && !g_face.tess_games.progress && !g_face.tess_games.game && !pokes);
+    assert(stopped==1 && !g_face.tess_games.game && !pokes);
     ready(true); s_online=false; touch_tap(&event); assert(!g_face.tess_games.game && !pokes);
     assert(!locks);
 }
 static game_tap_t capture_final_tap(void) {
-    const app_ev_t event={.a=240,.b=255,.type=EV_TAP};
-    ready(true);
-    for(int step=0;step<3;step++) {
-        touch_tap(&event);
-        for(int i=0;i<35;i++) tess_games_update(&g_face,.02f);
-    }
+    ready(false);
+    begin_span(0);  // the catch is captured, not applied yet
+    app_ev_t event=knot_tap();
     game_tap_t tap;
     assert(capture_game_tap(&event,&tap));
+    assert(g_face.tess_games.game && !caught());
     wakes=0;
     return tap;
 }
 static void deferred_taps_are_game_only(void) {
     game_tap_t tap=capture_final_tap();
     apply_game_tap(&tap);
-    assert(wakes==1 && !sounds && !pokes);
-    for(int i=0;i<30;i++) tess_games_update(&g_face,.02f);
-    assert(g_face.tess_games.progress==1);
+    assert(wakes==1 && !sounds && !pokes && caught());  // (then she drifts home)
 
     tap=capture_final_tap(); g_face.card_n=1; card=true;
     preempt_game(); g_face.card_n=0; card=false; // even if the card is cleared later in this batch
     apply_game_tap(&tap);
-    assert(!g_face.tess_games.progress && !g_face.tess_games.game && !cards && !wakes && !pokes);
+    assert(!g_face.tess_games.game && !cards && !wakes && !pokes);
 
     tap=capture_final_tap(); s_online=false; preempt_game(); s_online=true;
     apply_game_tap(&tap);
-    assert(!g_face.tess_games.progress && !g_face.tess_games.game && !wakes);
+    assert(!g_face.tess_games.game && !wakes);
 
     tap=capture_final_tap(); s_power=PWR_DARK_MANUAL; apply_game_tap(&tap);
-    assert(!g_face.tess_games.progress && !g_face.tess_games.game && !wakes);
+    assert(!g_face.tess_games.game && !wakes);
 }
 static void speech_started_before_dispatch_keeps_priority(void) {
     const app_ev_t event={.a=240,.b=255,.type=EV_TAP};
@@ -109,23 +114,27 @@ static void speech_started_before_dispatch_keeps_priority(void) {
     s_gen=42; stream=true; // protocol begins audio before the reserved speak event is handled
     assert(capture_game_tap(&event,&tap));
     apply_game_tap(&tap);
-    assert(s_gen==42 && stream && !stopped && !g_face.tess_games.progress && !pokes && !wakes);
+    assert(s_gen==42 && stream && !stopped && !g_face.tess_games.game && !pokes && !wakes);
 }
 static void old_taps_cannot_enter_a_replacement_round(void) {
     game_tap_t tap=capture_final_tap();
-    assert(tess_games_start(&g_face,TESS_GAME_ECHO,0));
-    for(int i=0;i<100;i++) tess_games_update(&g_face,.02f);
+    assert(tess_games_start(&g_face,TESS_PLAY_FLY,0));
+    for(int i=0;i<20;i++) tess_games_update(&g_face,.02f);
     assert(g_face.tess_games.round!=tap.round);
+    g_face.tess_games.finger_owned = g_face.tess_games.pressed = true;
     apply_game_tap(&tap);
-    assert(tess_games_active(&g_face) && !g_face.tess_games.step && !wakes);
+    assert(g_face.tess_games.finger_owned && g_face.tess_games.pressed);
+    assert(tess_games_active(&g_face) && !caught() && !wakes);
 
     uint32_t round=g_face.tess_games.round;
     tess_games_restore(&g_face,0);
     assert(g_face.tess_games.round!=round && g_face.tess_games.round!=tap.round);
-    assert(tess_games_start(&g_face,TESS_GAME_ECHO,0));
-    for(int i=0;i<100;i++) tess_games_update(&g_face,.02f);
+    assert(tess_games_start(&g_face,TESS_PLAY_FLY,0));
+    for(int i=0;i<20;i++) tess_games_update(&g_face,.02f);
+    g_face.tess_games.finger_owned = g_face.tess_games.pressed = true;
     apply_game_tap(&tap);
-    assert(tess_games_active(&g_face) && !g_face.tess_games.step && !wakes);
+    assert(g_face.tess_games.finger_owned && g_face.tess_games.pressed);
+    assert(tess_games_active(&g_face) && !caught() && !wakes);
 }
 static void capture_keeps_lab_and_ordinary_input_routes(void) {
     const app_ev_t event={.a=240,.b=255,.type=EV_TAP};

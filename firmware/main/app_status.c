@@ -29,7 +29,7 @@ void app_status_refresh(void) {
     face_lock();
     status.open = g_face.status.open; status.page = g_face.status.page;
     status.drag_x = g_face.status.drag_x; status.drag_y = g_face.status.drag_y;
-    status.dragged = g_face.status.dragged;
+    status.dragged = g_face.status.dragged; status.enter = g_face.status.enter;
     g_face.status = status;
     face_unlock();
 }

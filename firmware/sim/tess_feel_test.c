@@ -280,6 +280,33 @@ static void check_stale_word_is_dropped(void) {
     puts("  cues: a word for a mood it has left is not said");
 }
 
+// A dimmed or sleeping screen is silent: the character says nothing of her own accord.
+static void check_dimmed_is_silent(void) {
+    face_t f = start();
+    run(&f, 8);
+    f.dimmed = true;
+    tess_feel_event(&f, ME_TAP, .6f, 0);
+    hold_speech(&f, .5f);
+    assert(!f.feel.cue_pending);
+    heard_t heard[64];
+    int count = 0;
+    for (int i = 0; i < 6 * 30; i++) {
+        face_update(&f, DT);
+        take_cues(&f, i * DT, heard, &count);
+    }
+    assert(count == 0);
+    tess_cue_t cue; float strength, position; tess_tone_t tone;
+    tess_cue(&f, TC_CURIOUS, .5f, 0);
+    tess_tone(&f, TT_RING, 440, .5f, 0);
+    assert(!face_take_cue(&f, &cue, &strength, &position) && !face_take_tone(&f, &tone));
+    face_t lit = start();  // contrast: the same touch on a lit screen is spoken
+    run(&lit, 8);
+    tess_feel_event(&lit, ME_TAP, .6f, 0);
+    hold_speech(&lit, .5f);
+    assert(lit.feel.cue_pending);
+    puts("  cues: silent while the screen is dimmed");
+}
+
 // A TAP outranks another mood event from the same frame. The touch payload stays with its cue,
 // whichever order the two producers report them in.
 static void report_mixed_events(face_t *f, bool reverse) {
@@ -414,6 +441,7 @@ int main(void) {
     check_shake_then_fright();
     check_one_sigh_on_decay();
     check_stale_word_is_dropped();
+    check_dimmed_is_silent();
     check_mixed_event_payload_and_release();
     check_eventless_decay_has_no_side();
     check_storm(true);

@@ -1,6 +1,7 @@
 #include "app_lab.h"
 #include "viewpoint.h"
 #include "input.h"
+#include "lift.h"
 #include "input_hold.h"
 #include "input_probe.h"
 #include <math.h>
@@ -129,13 +130,12 @@ typedef struct {
     float gravity[3], rest[3], gyro_bias[3];
     bool gravity_initialized;
     int64_t last_motion_log_ms;
-    bool rest_valid, rested;
+    bool rest_valid;
     viewpoint_t viewpoint;
     int64_t last_view_us;
     int still_ms, shake_peaks, calm_ms, rest_length_ms;
-    int64_t stirred_ms;
-    int turned_ms;
-    int64_t shake_started_ms, last_peak_ms, last_shake_ms, last_pickup_ms;
+    lift_t lift;
+    int64_t shake_started_ms, last_peak_ms, last_shake_ms;
     int tick;
     // Sampling: every 20 ms while the screen is lit, every 40 ms while it is dark (see input_task).
     int sample_ms, sample_every, pmic_every;
@@ -188,7 +188,7 @@ static void update_power_key(const input_state_t *s) {
 }
 
 static void start_touch(input_state_t *s, int x, int y, int64_t now_ms) {
-    app_post(EV_TOUCH_DOWN, 0, 0);
+    app_post(EV_TOUCH_DOWN, 1, 0);
     s->touching = true;
     s->first_drag = true;
     s->gesture_done = false;
@@ -238,9 +238,11 @@ static void update_touch_gesture(input_state_t *s, int x, int y, int64_t now_ms,
 
 static void release_touch(input_state_t *s, int64_t now_ms) {
     s->touching = false;
+    if (s_menu_view && !s->first_drag) app_post(EV_DRAG, s->drag_x | 1 << 17, s->drag_y);  // lets lists coast
     if (!s->gesture_done && now_ms - s->touch_started_ms < 450 && s->touch_path < 40) {
         app_post(EV_TAP, s->touch_x0, s->touch_y0);
     }
+    app_post(EV_TOUCH_UP, 0, 0);
 }
 
 static void refresh_touch_activity(input_state_t *s, int64_t now_ms) {
@@ -250,7 +252,8 @@ static void refresh_touch_activity(input_state_t *s, int64_t now_ms) {
 }
 
 static void update_touch(input_state_t *s, int64_t now_ms) {
-    if (s->tick % s->sample_every != 0) return;
+    bool dragging = s_menu_view && s->touching;  // a finger on a menu list is read every tick: each frame gets fresh points
+    if (!dragging && s->tick % s->sample_every != 0) return;
     int x, y;
     bool has_touch = input_probe_read(&x, &y);
     if (has_touch) {
@@ -392,24 +395,13 @@ static float rest_alignment(const input_state_t *s) {
 }
 
 static void detect_pickup(input_state_t *s, const motion_sample_t *sample, int64_t now_ms) {
-    if (s->still_ms > 3000) s->rested = true;
-    if (s->rested && !sample->still) {
-        float alignment = rest_alignment(s);
-        s->turned_ms = alignment < PICKUP_COS ? s->turned_ms + s->sample_ms : 0;
-        if (s->turned_ms >= 260 && now_ms - s->last_pickup_ms > 6000 && now_ms - s->last_shake_ms > 3000) {
-            s->last_pickup_ms = now_ms;
-            ESP_LOGI(TAG, "picked up after %d s alone (turned %.0f deg)", s->rest_length_ms / 1000,
-                     acosf(clampf(alignment, -1, 1)) * 57.3f);
-            app_post(EV_PICKUP, s->rest_length_ms / 1000, 0);
-            s->rested = false;
-        }
-        if (!s->stirred_ms) s->stirred_ms = now_ms;
-        else if (now_ms - s->stirred_ms > 3000) s->rested = false;
-    }
-    if (sample->still) {
-        s->stirred_ms = 0;
-        s->turned_ms = 0;
-    }
+    lift_in_t in = {.dt_ms = s->sample_ms, .still = sample->still, .dynamic = sample->dynamic,
+                    .alignment = rest_alignment(s), .turned_cos = PICKUP_COS, .now_ms = now_ms,
+                    .last_shake_ms = s->last_shake_ms};
+    if (!lift_step(&s->lift, &in)) return;
+    ESP_LOGI(TAG, "picked up after %d s alone (turned %.0f deg, peak %.2f g)", s->rest_length_ms / 1000,
+             acosf(clampf(in.alignment, -1, 1)) * 57.3f, s->lift.peak);
+    app_post(EV_PICKUP, s->rest_length_ms / 1000, 0);
 }
 
 static void update_motion(input_state_t *s, int64_t now_ms) {
@@ -478,8 +470,8 @@ static void input_task(void *arg) {
         .gravity = {0, 0, 1},
         .rest = {0, 0, 1},
         .last_shake_ms = -10000,
-        .last_pickup_ms = -10000,
     };
+    lift_init(&state.lift);
     state.imu = imu_init();
     viewpoint_init(&state.viewpoint);
     wake_pins_init();

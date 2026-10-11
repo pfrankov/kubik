@@ -1,13 +1,12 @@
 #include "event_journal.h"
+#include "ui_kit.h"
 #include "ui_theme.h"
 #include <stdio.h>
 #include <string.h>
 
 static void line(scene_t *s, text_role_t role, const char *text, float x, float y, float width, uint32_t color) {
     char shown[JOURNAL_TEXT + 4];
-    size_t n = label_prefix(role, text, sizeof shown - 4, width, "...");
-    memcpy(shown, text, n); shown[n] = 0;
-    if (text[n]) strcat(shown, "...");
+    ui_fit(shown, sizeof shown, text, role, width);
     sc_label(s, role, shown, x, y, -1, color, 1);
 }
 static void stamp(const journal_entry_t *e, char *text, size_t cap) {
@@ -15,8 +14,7 @@ static void stamp(const journal_entry_t *e, char *text, size_t cap) {
     else snprintf(text, cap, "%lu:%02lu", (unsigned long)(e->seconds / 60), (unsigned long)(e->seconds % 60));
 }
 static void header(const event_journal_t *j, scene_t *s) {
-    sc_label(s, TXT_ACTION, "Events", 28, 36, -1, UI_TEXT, 1);
-    sc_label(s, TXT_CAPTION, "Since restart", 452, 36, 1, UI_MUTED, 1);
+    ui_header(s, "Events", "Since restart", UI_MUTED);
     sc_rbox(s, 240, 92, 220, 28, 22, 0, UI_SURFACE, 1);
     sc_label(s, TXT_ACTION, "Overlay on home", 40, 92, -1, UI_TEXT, 1);
     sc_rbox(s, 416, 92, 26, 15, 15, 0, j->overlay ? UI_ACCENT : UI_DISABLED, 1);
@@ -54,9 +52,23 @@ static void detail(const event_journal_t *j, scene_t *s) {
     line(s, TXT_CAPTION, e->reaction, 28, 412, 424, UI_ACCENT);
     sc_label(s, TXT_CAPTION, "Message excerpt / BOOT returns", 240, 452, 0, UI_MUTED, 1);
 }
-void event_journal_draw(const event_journal_t *j, scene_t *s) {
-    header(j, s);
-    if (j->detail) { detail(j, s); return; }
+static void chevron(scene_t *s, float x, float y, bool next, uint32_t color) {
+    float d = next ? 1 : -1;
+    sc_capsule(s, x - d * 5, y - 8, x + d * 3, y, 2.5f, color, 1);
+    sc_capsule(s, x + d * 3, y, x - d * 5, y + 8, 2.5f, color, 1);
+}
+// Same pager look as the Agent models page: two chevron tiles around "n / N".
+static void pager(const event_journal_t *j, scene_t *s) {
+    bool prev = j->offset > 0, next = j->offset + 3u < j->count;
+    sc_rbox(s, 88, 450, 68, 28, UI_RADIUS, 0, UI_SURFACE, 1);
+    sc_rbox(s, 392, 450, 68, 28, UI_RADIUS, 0, UI_SURFACE, 1);
+    chevron(s, 88, 450, false, prev ? UI_TEXT : UI_DISABLED);
+    chevron(s, 392, 450, true, next ? UI_TEXT : UI_DISABLED);
+    char count[24]; unsigned pages = (j->count + 2u) / 3u, page = j->offset / 3u + 1u;
+    snprintf(count, sizeof count, "%u / %u", page > pages ? pages : page, pages);
+    sc_label(s, TXT_CHOICE, count, 240, 450, 0, UI_MUTED, 1);
+}
+static void list(const event_journal_t *j, scene_t *s) {
     if (!j->count) {
         sc_label(s, TXT_ACTION, "No agent events yet", 240, 230, 0, UI_TEXT, 1);
         sc_label(s, TXT_CAPTION, "Connect or talk to your agent", 240, 278, 0, UI_MUTED, 1);
@@ -73,10 +85,13 @@ void event_journal_draw(const event_journal_t *j, scene_t *s) {
         line(s, TXT_ACTION, e->text, 36, top + 45, 408, UI_TEXT);
         line(s, TXT_CAPTION, e->reaction, 36, top + 75, 408, UI_ACCENT);
     }
-    sc_label(s, TXT_ACTION, "Newer", 80, 450, 0, UI_ACCENT, 1);
-    sc_label(s, TXT_ACTION, "Older", 400, 450, 0, UI_GOLD, 1);
-    char count[24]; snprintf(count, sizeof count, "%u / %u", j->offset + 1, j->count);
-    sc_label(s, TXT_CAPTION, count, 240, 450, 0, UI_MUTED, 1);
+    pager(j, s);
+}
+void event_journal_draw(const event_journal_t *j, scene_t *s) {
+    header(j, s);
+    int first = s->n;
+    if (j->detail) detail(j, s); else list(j, s);
+    ui_enter(s, first, j->enter);
 }
 void event_journal_overlay(const event_journal_t *j, scene_t *s, int top) {
     if (!j->overlay || !j->count) return;

@@ -16,69 +16,31 @@
 typedef struct { float cx, cy, hw, hh; } tile_t;
 // 20 px outer inset, 12 px gutters. The header leaves both status and navigation room.
 //   Settings                          battery  (y  16..56)
-//   volume | brightness | Agent                (y  68..164)
-//                       | Guide                (y 178..274)
-//                       | Status               (y 288..384)
-//   Wi-Fi | [reset] | power off                 (y 396..460)
+//   volume | brightness | Agent                (y  68..220)
+//                       | Guide                (y 232..384)
+//   status | power off                          (y 396..460; hidden reset joins in service mode)
 static const tile_t k_tiles[] = {
     [MENU_VOLUME] = {72, 226, 52, 158},
     [MENU_BRIGHT] = {188, 226, 52, 158},
-    [MENU_AGENT] = {356, 116, 104, 48},
-    [MENU_GUIDE] = {356, 226, 104, 48},
-    [MENU_STATUS] = {356, 336, 104, 48},
+    [MENU_AGENT] = {356, 144, 104, 76},
+    [MENU_GUIDE] = {356, 308, 104, 76},
 };
 static const tile_t k_events = {272, 36, 54, 28};
 static const tile_t k_sound[2] = {{132, 226, 100, 158}, {348, 226, 100, 158}};
-static const tile_t k_actions[3] = {{83, 428, 63, 32}, {223, 428, 65, 32}, {380, 428, 80, 32}};
-static const tile_t k_public_actions[3] = {{127, 428, 107, 32}, {0}, {353, 428, 107, 32}};
+// Wi-Fi setup lives in Status. The bottom row is Status | Power off; service mode adds the hidden reset between.
+static const tile_t k_service_actions[3] = {{0}, {240, 428, 68, 32}, {390, 428, 68, 32}};
+static const tile_t k_public_power = {353, 428, 107, 32};
+static const tile_t k_status_public = {127, 428, 107, 32}, k_status_service = {90, 428, 68, 32};
 
-static void status_value(scene_t *s, const char *value, float y, unsigned lines, text_role_t role) {
-    const char *at = value[0] ? value : "Unavailable";
-    for (unsigned i = 0; i < lines && *at; i++) {
-        size_t n = label_prefix(role, at, 159, 424, "");
-        if (!n) break;
-        char line[160]; memcpy(line, at, n); line[n] = 0;
-        sc_label(s, role, line, 28, y + i * 26, -1, UI_TEXT, 1);
-        at += n;
-    }
-}
-static void status_row(scene_t *s, const char *label, const char *value, float y) {
-    sc_label(s, TXT_CAPTION, label, 28, y, -1, UI_MUTED, 1);
-    status_value(s, value, y + 28, 2, TXT_ACTION);
-}
-void draw_status(const device_status_t *status, scene_t *s) {
-    sc_label(s, TXT_CHOICE, "Status", 28, 36, -1, UI_TEXT, 1);
-    static const char *const pages[] = {"Network / 1 of 3", "Device / 2 of 3", "Agent / 3 of 3"};
-    sc_label(s, TXT_CAPTION, pages[status->page % 3], 452, 36, 1, UI_GOLD, 1);
-    if (!status->page) {
-        const char *state = status->connected ? "Connected" : status->radio ? "Not connected" : "Radio sleeping";
-        status_row(s, "Wi-Fi", state, 88);
-        status_row(s, status->connected ? "Network name" : "Saved network", status->ssid, 158);
-        status_row(s, "IP address", status->connected ? status->ip : "Not connected", 228);
-        status_row(s, "Gateway", status->connected ? status->gateway : "Not connected", 298);
-        status_row(s, "DNS server", status->connected ? status->dns : "Not connected", 368);
-    } else if (status->page == 1) {
-        status_row(s, "Device name", status->name, 88);
-        status_row(s, "Processor", "ESP32-C6", 158);
-        status_row(s, "Firmware", status->firmware, 228);
-        status_row(s, "DHCP name", status->hostname, 298);
-        status_row(s, "Wi-Fi MAC", status->mac, 368);
-    } else {
-        const char *route = !strcmp(status->route, "wifi") ? "Wi-Fi" : !strcmp(status->route, "usb") ? "USB" : "None";
-        status_row(s, "Agent", status->agent ? "Connected" : "Not connected", 88);
-        status_row(s, "Connection", route, 148);
-        sc_label(s, TXT_CAPTION, "Server address", 28, 208, -1, UI_MUTED, 1);
-        status_value(s, status->url[0] ? status->url : "Automatic LAN discovery", 236, 8, TXT_CAPTION);
-    }
-    sc_label(s, TXT_CAPTION, "Swipe or tap / BOOT returns", 240, 452, 0, UI_ACCENT, 1);
-}
+static const tile_t *status_tile(const face_menu_t *menu) { return menu->service ? &k_status_service : &k_status_public; }
 
 static const tile_t *action_tile(const face_menu_t *menu, int part) {
-    if (menu->service) return &k_actions[part];
-    return part == 1 ? NULL : &k_public_actions[part];
+    if (part == 0) return NULL;
+    if (menu->service) return &k_service_actions[part];
+    return part == 1 ? NULL : &k_public_power;
 }
 
-static bool tile_hit(const tile_t *tile, int x, int y) {
+__attribute__((noinline)) static bool tile_hit(const tile_t *tile, int x, int y) {
     return tile && fabsf(x - tile->cx) <= tile->hw && fabsf(y - tile->cy) <= tile->hh;
 }
 
@@ -104,27 +66,33 @@ static bool events_hit(const face_menu_t *menu, int x, int y) {
     return menu->service && tile_hit(&k_events, x, y);
 }
 
-int face_menu_hit(const face_t *f, int x, int y, int *part) {
-    *part = 0;
-    if (!f->menu.open || f->menu.k < 1.f) return -1;
-    if (f->menu.sound) {
-        for (int i = 0; i < 2; i++) if (tile_hit(&k_sound[i], x, y)) {
-            *part = face_menu_slider(y); return i ? MENU_UI_VOLUME : MENU_VOLUME;
-        }
-        return -1;
+static int sound_hit(int x, int y, int *part) {
+    for (int i = 0; i < 2; i++) if (tile_hit(&k_sound[i], x, y)) {
+        *part = face_menu_slider(y); return i ? MENU_UI_VOLUME : MENU_VOLUME;
     }
-    if (events_hit(&f->menu, x, y)) return MENU_EVENTS;
-    for (int r = 0; r < MENU_UI_VOLUME; r++) {
-        if (r == MENU_ACTIONS || !tile_hit(&k_tiles[r], x, y)) continue;
-        *part = tile_part(r, y);
-        return r;
-    }
+    return -1;
+}
+static int bottom_row_hit(const face_menu_t *menu, int x, int y, int *part) {
+    if (tile_hit(status_tile(menu), x, y)) return MENU_STATUS;
     for (int i = 0; i < 3; i++) {
-        if (!tile_hit(action_tile(&f->menu, i), x, y)) continue;
+        if (!tile_hit(action_tile(menu, i), x, y)) continue;
         *part = i;
         return MENU_ACTIONS;
     }
     return -1;
+}
+
+int face_menu_hit(const face_t *f, int x, int y, int *part) {
+    *part = 0;
+    if (!f->menu.open || f->menu.k < 1.f) return -1;
+    if (f->menu.sound) return sound_hit(x, y, part);
+    if (events_hit(&f->menu, x, y)) return MENU_EVENTS;
+    for (int r = 0; r < MENU_UI_VOLUME; r++) {
+        if (r == MENU_ACTIONS || r == MENU_STATUS || !tile_hit(&k_tiles[r], x, y)) continue;
+        *part = tile_part(r, y);
+        return r;
+    }
+    return bottom_row_hit(&f->menu, x, y, part);
 }
 
 // A tile popping in (k 0..1) and briefly squeezed when pressed.
@@ -167,7 +135,7 @@ void draw_battery(face_t *f, scene_t *s, bool menu) {
     char text[64];
     if (!f->battery_present) snprintf(text, sizeof text, "—");
     else snprintf(text, sizeof text, "%d%%", f->battery_pct);
-    float y = !menu && (f->cron_k > .01f || f->offline_k > .01f) ? CRON_Y + 50.f : 36.f;
+    float y = !menu && (f->cron_k > .01f || f->offline_k > .01f) ? CRON_Y + 66.f : 36.f;
     bool external_power = menu && f->usb_power;
     uint32_t color = external_power ? COL_MINT : f->battery_low ? COL_CORAL : COL_PLUSH;
     sc_label(s, TXT_ACTION, text, 432, y, 1, color, 1);
@@ -237,29 +205,26 @@ static void draw_action_symbol(scene_t *s, float x, float y, int part, uint32_t 
         sc_icon(s, ICON_POWER, x, y, 24.f, color, alpha);
         return;
     }
-    if (part == 1) {  // reset: a ring open at the right, with an arrow head on its upper end
-        sc_arc(s, x, y, 10, 2.5f, 3.f, PI / 2, color, alpha);
-        sc_capsule(s, x + 5, y - 10, x + 12, y - 10, 3.f, color, alpha);
-        sc_capsule(s, x + 5, y - 10, x + 5, y - 17, 3.f, color, alpha);
-        return;
-    }
-    sc_icon(s, ICON_QR_CODE, x, y, 25.f, color, alpha);
+    // reset: a ring open at the right, with an arrow head on its upper end
+    sc_arc(s, x, y, 10, 2.5f, 3.f, PI / 2, color, alpha);
+    sc_capsule(s, x + 5, y - 10, x + 12, y - 10, 3.f, color, alpha);
+    sc_capsule(s, x + 5, y - 10, x + 5, y - 17, 3.f, color, alpha);
 }
 
 static void draw_menu_actions(scene_t *s, const face_menu_t *m, float k, float pt) {
-    // Rare actions use compact, full-width touch targets; the two that cannot be undone ask twice.
-    static const int k_words[3] = {MT_WIFI, MT_RESET, MT_POWER};
-    for (int i = 0; i < 3; i++) {
+    // Rare actions use compact, full-width touch targets; both cannot be undone and ask twice.
+    static const int k_words[3] = {-1, MT_RESET, MT_POWER};
+    for (int i = 1; i < 3; i++) {
         const tile_t *t = action_tile(m, i);
         if (!t) continue;
         float tk = menu_progress(k, 4), a = clampf(tk * 1.6f, 0, 1);
         bool pr = m->pressed == MENU_ACTIONS && m->pressed_part == i;
         bool armed = m->armed == i + 1;
-        draw_tile(s, t, tk, pr, pt, armed ? COL_CORAL : i ? COL_TILE_POWER : COL_TILE);
-        uint32_t c = armed ? COL_INK : i ? COL_CORAL : COL_PLUSH;
+        draw_tile(s, t, tk, pr, pt, armed ? COL_CORAL : COL_TILE_POWER);
+        uint32_t c = armed ? COL_INK : COL_CORAL;
         const char *word = menu_text(m, k_words[i]);
         float left = t->cx - (2 * ACTION_SYMBOL_HW + ACTION_GAP + label_width(TXT_ACTION, word)) * 0.5f;
-        draw_action_symbol(s, left + ACTION_SYMBOL_HW, t->cy, i, i == 0 && !armed ? COL_MINT : c, a);
+        draw_action_symbol(s, left + ACTION_SYMBOL_HW, t->cy, i, c, a);
         sc_label(s, TXT_ACTION, word, left + 2 * ACTION_SYMBOL_HW + ACTION_GAP, t->cy, -1, c, a);
     }
 }
@@ -271,7 +236,7 @@ static void draw_navigation(scene_t *s, const face_menu_t *m, float k) {
         {MENU_STATUS, ICON_GLOBE, "Status", COL_MINT},
     };
     for (unsigned i = 0; i < sizeof links / sizeof links[0]; i++) {
-        const tile_t *t = &k_tiles[links[i].row];
+        const tile_t *t = links[i].row == MENU_STATUS ? status_tile(m) : &k_tiles[links[i].row];
         float tk = menu_progress(k, 2 + i), a = clampf(tk * 1.6f, 0, 1);
         draw_tile(s, t, tk, m->pressed == links[i].row, m->pressed_t, COL_TILE);
         float width = 32 + 12 + label_width(TXT_CHOICE, links[i].label);

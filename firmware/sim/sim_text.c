@@ -44,7 +44,7 @@ static void bubbles(void) {
 static void menu(bool pressed) {
     face_t f = fresh();
     face_menu_t *m = &f.menu;
-    static const char *const words[MT_COUNT] = {"Wi-Fi", "Power off", "Reset"};
+    static const char *const words[MT_COUNT] = {"Power off", "Reset"};
     memcpy(m->txt, words, sizeof words);
     m->volume = 60; m->brightness = 35;
     m->open = true;

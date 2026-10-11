@@ -119,7 +119,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-state-") as tmp:
                     "firmware/main/app_mailbox.c", "-o", post_exe], cwd=ROOT, check=True)
     subprocess.run([post_exe], cwd=ROOT, check=True)
 
-    dispatch = events[events.index("static bool dark_input_ignored("):]
+    dispatch = events[events.index("// A screen that went dark on its own"):]
     dark_c = Path(tmp) / "dark.c"
     dark_c.write_text((ROOT / "firmware/sim/app_dark_input_test.c").read_text().replace("/* PRODUCTION_EVENTS */", event_enum).replace("/* PRODUCTION_DISPATCH */", dispatch).replace("/* PRODUCTION_TOUCH */", events[events.index("static bool is_touch_event("):events.index("static void handle_link_down(")]))
     dark_exe = str(Path(tmp) / "dark-test")
