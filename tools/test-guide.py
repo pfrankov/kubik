@@ -142,5 +142,5 @@ with tempfile.TemporaryDirectory(prefix='kubik-guide-') as tmp:
     src.write_text(mocks + source + tests)
     subprocess.run(['cc', '-std=c11', '-D_POSIX_C_SOURCE=200809L', '-O1', '-g', '-fsanitize=address,undefined',
                     '-Ifirmware/main', '-Ifirmware/sim/settings_stubs', str(src),
-                    'firmware/main/event_journal.c', 'firmware/main/agent_menu.c', 'firmware/main/app_state.c', '-o', str(exe)], cwd=ROOT, check=True)
+                    'firmware/main/event_journal.c', 'firmware/main/agent_menu.c', 'firmware/main/app_state.c', '-lm', '-o', str(exe)], cwd=ROOT, check=True)
     subprocess.run([str(exe)], check=True)
