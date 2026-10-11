@@ -105,10 +105,11 @@ static void replay_cost_frame(tess_sound_t *sound, const tess_sound_t *target_st
         fprintf(stderr, "synth: replay %d/%d CPU %.1f us, monotonic %.1f us, PCM %s\n",
                 replay, COST_REPLAYS, cost.cpu_us, cost.wall_us, signature == expected ? "match" : "MISMATCH");
         report_phases("replay", cost);
+        assert(signature == expected);
     }
 }
 
-void check_cost(tess_sound_t *sound) {
+void check_cost(tess_sound_t *sound, bool enforce_budget) {
     // Keep one pristine sound state for failure-only reconstruction.
     phase_clock_init();
     tess_sound_t initial = *sound;
@@ -159,7 +160,8 @@ void check_cost(tess_sound_t *sound) {
         tess_sound_t target_state;
         bool matches = reconstruct_cost_frame(sound, &initial, worst_play, worst_frame, worst_signature, &target_state);
         fprintf(stderr, "synth: deterministic worst-frame reconstruction PCM %s\n", matches ? "match" : "MISMATCH");
-        if (matches) replay_cost_frame(sound, &target_state, worst_signature);
+        assert(matches);
+        replay_cost_frame(sound, &target_state, worst_signature);
     }
-    assert(worst < 1000);  // 5 % of the buffer's time, on a host that is tens of times faster than the device
+    if (enforce_budget) assert(worst < 1000);  // Strict per-buffer budget, measured without instrumentation.
 }

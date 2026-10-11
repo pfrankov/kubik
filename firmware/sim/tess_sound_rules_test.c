@@ -6,8 +6,6 @@
 #include "tess_sound_probe.h"
 #include "../main/tess_sound_rules.h"
 
-void check_cost(tess_sound_t *sound);
-
 static tess_sound_t s_rules;
 static int32_t s_frame[PROBE_FRAME], s_pcm[PROBE_MAX_SAMPLES];
 
@@ -458,5 +456,4 @@ void check_rules(void) {
     check_reset();
     check_feelings();
     check_moods();
-    check_cost(&s_rules);
 }
