@@ -87,6 +87,27 @@ Realtime/Live and device model selection are not provided by this platform.
 * Text frames: one JSON object, UTF-8, max 4 KiB.
 * Binary frames: audio. Byte 0 = kind, byte 1 = sequence tag, rest = audio.
 
+The channel sends one complete WebSocket message per JSON object or audio packet,
+with compression disabled. A full 100 ms speech packet is 1205 bytes: two routing
+bytes, a three-byte IMA state header and 1200 encoded bytes. A final short packet
+contains only its remaining audio. The host encodes directly into a fresh wire
+buffer for each packet; queued sends retain their own bytes. Encoding state is
+shared within a generation and reset for the next generation.
+
+Firmware uses a 2048-byte SDK receive buffer. Complete binary messages are
+consumed synchronously from that buffer; JSON and SDK receive chunks of larger
+payloads use temporary storage released after dispatch or disconnect. Receive
+limits are 4096 bytes for JSON and 4802 bytes for binary payloads. These are
+transport bounds, not the emitted IMA packet sizes or playback-ring capacity.
+The host's WebSocket receiver has a separate 16 KiB transport bound; protocol
+parsing accepts only the microphone packet sizes described below.
+
+Host → device payloads use one final WebSocket frame per JSON object or audio
+packet. Firmware assembles SDK receive chunks within that frame; it does not
+concatenate separate RFC 6455 continuation frames into one application payload.
+The SDK's [data events](https://docs.espressif.com/projects/esp-protocols/esp_websocket_client/docs/latest/index.html#events)
+may split a single frame larger than its receive buffer across several callbacks.
+
 Audio is **mono, 24 000 Hz** in both directions: IMA ADPCM on the wire; adapters receive/produce PCM s16le.
 The current channel requires v5 host-bound or SPKI-bound signatures. Provider adapters may resample their output before sending it;
 the OpenClaw adapter normalizes TTS to this format.
@@ -155,7 +176,7 @@ An empty/interrupted automatic turn uses `{"t":"cancel","turn":5}` on that conne
   ms of it the device has consumed from the decoded speech ring; one already mixed 20 ms frame may still be in the codec write path. The server paces speech by it: it keeps at most the device buffer
   minus a margin unplayed (sent − played), counting audio still in flight as buffered, so a late start, a
   network stall or a burst is bounded. An incomplete ring allocation refuses playback; incomplete playback cannot acknowledge delivery.
-* `played` reports that the decoded speech ring for `gen` has drained. `ms` is required; delivery requires a matching generation and `ms` at least `max(1, floor(total sent PCM duration in ms))`. Empty, refused or partial playback does not consume a notification. Firmware counts decoded ring samples; one already mixed 20 ms frame may still be in the codec write path. The six TX DMA descriptors can retain up to 60 ms after a codec write. This receipt does not establish physical speaker completion. Before codec doze, firmware keeps writing silence for an 80 ms drain guard derived from DMA capacity plus one 20 ms mixed frame.
+* `played` reports that the decoded speech ring for `gen` has drained. `ms` is required; delivery requires a matching generation and `ms` at least `max(1, floor(total sent PCM duration in ms))`. Empty, refused or partial playback does not consume a notification. Firmware counts decoded ring samples. Before sending this receipt it requires an empty ended ring, no mixed speech frame awaiting its codec write, and expiry of the 80 ms output drain guard after the last speech write. That guard covers six 10 ms TX DMA descriptors plus one 20 ms mixed frame; codec doze uses the same condition. This is a software completion condition, not a physical acoustic measurement.
 * `poke` is an optional interaction hint (`tap`, `pet`, `shake`, `pickup`) — the
   server may ignore it. Any other lowercase kind is accepted as `other`: a gesture
   from newer firmware never costs the connection (and the turn in progress).
@@ -336,6 +357,8 @@ after preparing voice capabilities. A rejected or superseded reconnect leaves
 the current session and its voice configuration intact. Live PTT, cancellation,
 volume updates and agent controls each wait for a fresh authorization check;
 queued frames retain their order and are bounded to 64 frames / 64 KiB.
+The byte budget includes decoded microphone PCM and the Live echo-reference PCM,
+plus serialized JSON bytes; it is not a compressed wire-byte count.
 A revoked device is closed before the requested control reaches its session.
 
 Limits: at most 16 simultaneous pre-session sockets per server and 4 per
@@ -749,7 +772,7 @@ buffer before socket consumption, leaving space for ACKs during duplex sends.
 The TCP receive window holds at most 2880 bytes (two 1440-byte segments).
 A 485-byte compressed microphone frame fits a single WebSocket payload. A complete
 binary message is consumed synchronously from the SDK's RX buffer without a duplicate
-allocation. Fragmented messages and JSON use bounded temporary assembly storage.
+allocation. SDK receive chunks of a frame and JSON use bounded temporary assembly storage.
 
 Speech memory: the firmware allocates its entire 900 ms ADPCM ring in three fixed 3600-byte blocks (two in LP SRAM, one in ordinary internal heap)
 or refuses playback. It starts with 600 ms buffered and resumes a starved
@@ -789,7 +812,12 @@ KEY release does not end Live; explicit stop sends `cancel` for that turn.
 `live_input {turn:u8,on:boolean}` and its matching `live_input_ack` confirm startup
 (on:true for Live), or close Realtime input (on:false). Stale turns are ignored;
 the ACK deadline is 3 s. Live does not pause input for a reply or a playback receipt.
-Each output segment has its own `gen`; `played` confirms the actual I2S tail.
+Cancellation before the scheduled provider connection skips `connect`; closing
+a native conversation clears its connection and conversation deadlines. Live
+queues the owned echo-canceller output while connecting, without copying it again;
+later capture and WASM scratch reuse cannot modify these queued bytes.
+Each output segment has its own `gen`; `played` confirms decoded ring consumption,
+with the codec/DMA drain limits described under Device → server JSON.
 `speak_cancel {gen:u8}` flushes queued speech for that generation. The device replies
 `cancelled {gen:u8}` after stopping its matching stream; an already-drained generation
 is also acknowledged. Foreign connection/generation commands cannot stop newer output.

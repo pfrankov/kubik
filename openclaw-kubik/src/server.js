@@ -13,7 +13,7 @@ import { sanitizeForDisplay, speakableText } from './speech.js';
 const HELLO_TIMEOUT_MS = 3000; // until the hello arrives, then again until the auth arrives: a slot is never held longer
 const HEARTBEAT_MS = 15_000;
 const DEAD_AFTER_MS = 45_000;
-const MAX_WS_PAYLOAD = 16 * 1024; // protocol limits (4 KiB JSON / 8 KiB audio) are enforced with close 4002
+const MAX_WS_PAYLOAD = 16 * 1024; // parsing enforces 4 KiB JSON and 485/968-byte microphone packets with close 4002
 const PAIRING_POLL_MS = 2000;
 const PAIRING_TIMEOUT_MS = 10 * 60_000;
 const MAX_PENDING = 4;
