@@ -56,6 +56,7 @@ export function guardSessionFrames(session, conn, { authorize, onFailure, onFram
   return {
     message: (value) => process({ authorize: ['ptt', 'cancel', 'device_state', 'agent_options', 'agent_model'].includes(value.t),
       bytes: Buffer.byteLength(JSON.stringify(value)), run: () => session.handleMessage(value) }),
-    audio: (value) => process({ authorize: false, bytes: value.pcm.byteLength, run: () => session.handleAudio(value) }),
+    audio: (value) => process({ authorize: false, bytes: value.pcm.byteLength + (value.reference?.byteLength ?? 0),
+      run: () => session.handleAudio(value) }),
   };
 }

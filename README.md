@@ -23,7 +23,7 @@ python3 -m venv .venv
 .venv/bin/python flash-device.py
 ```
 
-On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\python.exe` instead. The installer checks image hashes before writing and preserves saved Wi-Fi networks, pairing and settings. For a new device, continue with the steps below; for an existing device, let it reconnect. Firmware **0.6.3** ships with **openclaw-kubik 0.6.4**; update the channel from npm with the installation command below.
+On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\python.exe` instead. The installer checks image hashes before writing and preserves saved Wi-Fi networks, pairing and settings. For a new device, continue with the steps below; for an existing device, let it reconnect. Current firmware: **0.6.3**. Current channel: **openclaw-kubik 0.6.5**; update the channel from npm with the installation command below.
 
 ## Get connected
 
@@ -108,9 +108,10 @@ python3 tools/accept.py
 
 Acceptance builds both characters and checks the renderer, protocol, setup pages and clean host installation. It does not publish or flash your device. Build outputs and local credentials are excluded from Git.
 
-Exact RGB references are validated on macOS ARM64. Linux CI runs `lint`,
-`host-portable` and `build`; the portable host suite includes the renderer's
-sanitizer and frame-stream checks. See [acceptance](docs/acceptance.md#ci) for the platform boundary.
+CI runs `lint` once and the `agent`, `native` and `build` stages on both macOS
+and Linux. Exact RGB references are validated on macOS ARM64. Linux uses
+`native-portable`, retaining sanitizer and frame-stream checks without RGB hash
+comparison. See [acceptance](docs/acceptance.md#ci) for the platform boundary.
 
 To reproduce the UI demonstration:
 

@@ -89,25 +89,27 @@ export async function monitorAccount(ctx, deps = {}) {
     try { unsubscribe = core.events.onAgentEvent((evt) => tracker.event(evt)); }
     catch (error) { warn(`kubik: agent activity is not shown (${error?.message ?? error})`); }
   }
-  server = new KubikServer({
-    account, log, setStatus, pairing, activity, cron, agentControl,
-    notificationPath: join(deps.lan?.stateDir ?? join(core.state.resolveStateDir(process.env), CHANNEL_ID), "notifications.json"),
-    engineFactory: deps.engineFactory ?? createEngine,
-    engineOptions: { core, cfg: ctx.cfg },
-    ...deps.serverOptions,
-    dispatch: (turn) => (deps.dispatch ?? dispatchTranscript)({ ...turn, account, cfg: ctx.cfg, log: warn, info: log, setStatus }),
-  });
+  let manualLifecycle = false;
   try {
+    server = new KubikServer({
+      account, log, setStatus, pairing, activity, cron, agentControl,
+      notificationPath: join(deps.lan?.stateDir ?? join(core.state.resolveStateDir(process.env), CHANNEL_ID), "notifications.json"),
+      engineFactory: deps.engineFactory ?? createEngine,
+      engineOptions: { core, cfg: ctx.cfg },
+      ...deps.serverOptions,
+      dispatch: (turn) => (deps.dispatch ?? dispatchTranscript)({ ...turn, account, cfg: ctx.cfg, log: warn, info: log, setStatus }),
+    });
     signal?.throwIfAborted();
     server.start();
     servers.set(account.accountId, server);
     const lanError = await startLan({ account, server, core, options: deps.lan, warn });
+    signal?.throwIfAborted();
     unsubscribeCron = cron.subscribe(() => server.refreshCron());
     cron.refresh();
     const { mode, lan, gatewayRoute } = transportStatus(account.accountId);
     log(`kubik: devices connect via ${mode}`);
     setStatus(sdk.channelReadyPatch({ mode, lan, gatewayRoute, lastError: lanError }));
-    if (!signal) return server; // tests drive the lifecycle manually
+    if (!signal) { manualLifecycle = true; return server; } // tests drive the lifecycle manually
     await new Promise((resolve) => signal.aborted ? resolve() : signal.addEventListener('abort', resolve, { once: true }));
   } catch (error) {
     if (!signal?.aborted) {
@@ -116,12 +118,12 @@ export async function monitorAccount(ctx, deps = {}) {
       throw new Error(message);
     }
   } finally {
-    if (signal) {
+    if (!manualLifecycle) {
       try { unsubscribe?.(); } catch { /* best effort */ }
       unsubscribeCron?.();
       tracker?.close();
       if (servers.get(account.accountId) === server) servers.delete(account.accountId);
-      await server.stop();
+      await server?.stop();
       setStatus(sdk.channelStoppedPatch({ lastStopAt: Date.now(), onlineDevices: [] }));
     }
   }

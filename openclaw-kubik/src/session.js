@@ -1,5 +1,5 @@
 import { SpeechPacer } from './audio.js';
-import { BYTES_PER_MS, ImaEncoder, nextGen, out, pcmDurationMs, speechFrameIma } from './protocol.js';
+import { BYTES_PER_MS, ImaEncoder, nextGen, out, pcmDurationMs } from './protocol.js';
 import { chunkSpeech, parseReply, sanitizeForDisplay, splitShown } from './speech.js';
 import { SessionControl } from './session-control.js';
 import { SpeechStream } from './speech-stream.js';
@@ -50,7 +50,7 @@ export class DeviceSession {
         if (gen == null) return;
         // One continuous ADPCM sequence per gen: the device decodes on from the state of the gen's first frame.
         if (this.#ima?.gen !== gen) this.#ima = { gen, encoder: new ImaEncoder() };
-        this.#sendRaw(speechFrameIma(gen, this.#ima.encoder.encode(pcm)));
+        this.#sendRaw(this.#ima.encoder.encodeSpeech(gen, pcm));
       },
       bufferedAmount: () => this.ws.bufferedAmount ?? 0,
     });

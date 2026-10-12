@@ -41,6 +41,7 @@ export class NativeVoiceTurn {
   #inputBytes = 0;
   #tail = null;
   #deadline = null;
+  #connecting = null;
   #consult = null;
   #consulted = false;
   #answer = '';
@@ -73,17 +74,17 @@ export class NativeVoiceTurn {
     });
     this.#deadline = setTimeout(() => this.fail(), turnMs);
     this.#deadline.unref?.();
-    const connecting = setTimeout(() => this.fail(), connectMs);
-    connecting.unref?.();
-    Promise.resolve().then(() => this.#bridge.connect()).then(() => {
-      clearTimeout(connecting);
+    this.#connecting = setTimeout(() => this.fail(), connectMs);
+    this.#connecting.unref?.();
+    Promise.resolve().then(() => this.#closed ? undefined : this.#bridge.connect()).then(() => {
+      clearTimeout(this.#connecting);
       if (this.#closed) return;
       this.#ready = true;
       port.phase?.('provider-ready');
       for (const pcm of this.#pending.splice(0)) if (!this.#sendInput(pcm)) return;
       this.#pendingBytes = 0;
       if (!this.#input) this.#sendTail();
-    }).catch(() => { clearTimeout(connecting); this.fail(); });
+    }).catch(() => { clearTimeout(this.#connecting); this.fail(); });
   }
 
   append(pcm) {
@@ -168,7 +169,7 @@ export class NativeVoiceTurn {
   close() {
     if (this.#closed) return;
     this.#closed = true;
-    clearInterval(this.#tail); clearTimeout(this.#deadline);
+    clearInterval(this.#tail); clearTimeout(this.#deadline); clearTimeout(this.#connecting);
     this.#reply.close();
     this.#pending = []; this.#pendingBytes = 0;
     // Cancel voice, not accepted agent/tool work. That work remains in the agent's existing session.

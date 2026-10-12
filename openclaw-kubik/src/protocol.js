@@ -239,15 +239,22 @@ export class ImaEncoder {
     return nibble;
   }
   /** s16le PCM → one frame payload. An odd last sample is repeated to fill the byte. */
-  encode(pcm) {
+  encode(pcm) { return this.#encode(pcm, 0); }
+  /** Encode into an owned speech wire frame, avoiding an intermediate payload and copy. */
+  encodeSpeech(gen, pcm) {
+    const frame = this.#encode(pcm, 2);
+    frame[0] = KIND_SPEECH_IMA; frame[1] = gen;
+    return frame;
+  }
+  #encode(pcm, offset) {
     const samples = pcm.length >> 1;
-    const out = Buffer.allocUnsafe(3 + ((samples + 1) >> 1));
-    out.writeInt16LE(this.pred, 0);
-    out[2] = this.index;
+    const out = Buffer.allocUnsafe(offset + 3 + ((samples + 1) >> 1));
+    out.writeInt16LE(this.pred, offset);
+    out[offset + 2] = this.index;
     for (let i = 0; i < samples; i += 2) {
       const lo = this.#sample(pcm.readInt16LE(i * 2));
       const hi = this.#sample(pcm.readInt16LE(Math.min(i + 1, samples - 1) * 2));
-      out[3 + (i >> 1)] = lo | (hi << 4);
+      out[offset + 3 + (i >> 1)] = lo | (hi << 4);
     }
     return out;
   }

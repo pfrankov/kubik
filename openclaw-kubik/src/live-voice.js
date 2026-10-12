@@ -49,7 +49,7 @@ export class LiveVoiceSession {
     this.#deadline = setTimeout(() => this.fail('session_limit'), sessionMs);
     this.#connecting = setTimeout(() => this.fail('connect_timeout'), connectMs);
     this.#deadline.unref?.(); this.#connecting.unref?.();
-    Promise.resolve().then(() => this.#bridge.connect()).then(async () => {
+    Promise.resolve().then(() => this.#current() ? this.#bridge.connect() : undefined).then(async () => {
       clearTimeout(this.#connecting);
       if (!this.#current()) return;
       await port.resumeInput();
@@ -67,7 +67,8 @@ export class LiveVoiceSession {
     if (this.#ready) { this.#send(pcm); return; }
     this.#pendingBytes += pcm.length;
     if (this.#pendingBytes > 5000 * BYTES_PER_MS) { this.fail('input_queue_full'); return; }
-    this.#pending.push(Buffer.from(pcm));
+    // EchoCleaner returns an owned output buffer, independent of capture and WASM scratch.
+    this.#pending.push(pcm);
   }
   #send(pcm) {
     try { this.#bridge.sendAudio(pcm); return true; }
