@@ -123,3 +123,40 @@ test('failed connect stays closed until another connect succeeds', async () => {
   assert.deepEqual(spoken, ['Ready.']);
   await adapter.close();
 });
+
+test('a superseded connect cannot report success after a newer lifecycle starts', async () => {
+  const releases = [];
+  const signals = [];
+  const adapter = defineAdapter({
+    id: 'stale-connect', label: 'Stale connect',
+    connect({ signal }) {
+      signals.push(signal);
+      return new Promise(resolve => { releases.push(resolve); });
+    },
+    reply() { return 'Ready.'; },
+  });
+
+  const stale = adapter.connect();
+  const current = adapter.connect();
+  releases[1]('current');
+  assert.equal(await current, 'current');
+  releases[0]('stale');
+  await assert.rejects(stale, error => error.name === 'AbortError');
+  assert.equal(signals[0].aborted, true);
+  assert.equal(signals[1].aborted, false);
+  await adapter.close();
+});
+
+test('connect cannot report success after close aborts its lifecycle', async () => {
+  let release;
+  const adapter = defineAdapter({
+    id: 'closed-connect', label: 'Closed connect',
+    connect() { return new Promise(resolve => { release = resolve; }); },
+    reply() { return 'Ready.'; },
+  });
+
+  const pending = adapter.connect();
+  await adapter.close();
+  release('too late');
+  await assert.rejects(pending, error => error.name === 'AbortError');
+});
