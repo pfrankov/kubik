@@ -79,7 +79,8 @@ export function speechProfile({ sim, info, burst, chunkMs = 100, measureFrames =
     try { await measurement; } catch (error) { measurementError = error; }
     // played includes transport credit and the hardware tail; a fixed sleep can cancel valid playback.
     const completion = /speech played gen=\d+ ms=(\d+) elapsed=(\d+) gaps=(\d+) \((\d+) ms\)/;
-    await waitForLog(() => completion.test(logSince(from)), 'Missing physical playback completion diagnostics', 5000);
+    await waitForLog(() => completion.test(logSince(from)), 'Missing physical playback completion diagnostics',
+      Math.max(0, started + PROFILE_MS + 5000 - performance.now()));
     const log = logSince(from);
     assert.doesNotMatch(log, /speech buffer|reservation failed|alloc \d+ failed|read error|PANIC|assert failed/);
     const played = completion.exec(log);
