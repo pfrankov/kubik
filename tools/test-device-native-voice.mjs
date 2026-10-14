@@ -202,6 +202,13 @@ async function completedProfile(state) {
   if (state.profileError) throw state.profileError;
 }
 
+function assertPlaybackDuration(mode, playedMs) {
+  if (mode === 'live' && !profile) {
+    // A short first stream can retain bounded trailing transport silence.
+    assert.ok(playedMs >= 500 && playedMs <= 1100, 'Live lost tone or retained unbounded silence');
+  } else assert.equal(playedMs, profile ? PROFILE_MS : 500, 'speaker acknowledged insufficient PCM');
+}
+
 async function responseProof(server, state, mode) {
   await setMode(server, state, mode);
   if (mode === "live" && process.argv.includes("--echo")) state.samples = [];
@@ -218,22 +225,19 @@ async function responseProof(server, state, mode) {
     assert.equal((await info()).mic_open, true, 'Live playback closed the microphone');
   }
   assert.ok(state.audioFrames > 0, 'physical PCM never reached the native bridge');
-  await hostUntil(() => { if (state.profileError) throw state.profileError; return state.receipts.length > receipts; }, `${mode} physical playback ACK`);
-  const playedMs = state.receipts.at(-1).ms;
-  if (mode === 'live' && !profile) {
-    // The first stream keeps quietMs of trailing transport silence before played.
-    assert.ok(playedMs >= 500 && playedMs <= 1100, 'Live lost tone or retained unbounded silence');
-  } else assert.equal(playedMs, profile ? PROFILE_MS : 500, 'speaker acknowledged insufficient PCM');
+  await hostUntil(() => state.receipts.length > receipts, `${mode} physical playback ACK`);
+  assertPlaybackDuration(mode, state.receipts.at(-1).ms);
   await completedProfile(state);
   assert.ok((await info()).mic_reads > before.mic_reads);
   await sim('ptt_up');
   if (mode === 'live') {
     await until(device => device.live_active && device.live_ready && device.mic_open, 'Live resumes after first reply');
     state.nextLiveReply = true;
-    await hostUntil(() => { if (state.profileError) throw state.profileError; return state.receipts.length >= receipts + 2; }, 'second reply on the same Live connection');
+    await hostUntil(() => state.receipts.length >= receipts + 2, 'second reply on the same Live connection');
+    assertPlaybackDuration(mode, state.receipts.at(-1).ms);
+    await completedProfile(state);
     await until(device => device.live_active && device.live_ready && device.mic_open, 'Live resumes after second reply');
     assert.equal(state.liveConnections, 1, 'Live reopened SDK between questions');
-    await completedProfile(state);
     if (!profile) {
       await sleep(1000);
       assert.equal(state.receipts.length, receipts + 2, 'transport silence created extra speaker generations');
