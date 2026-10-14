@@ -5,6 +5,17 @@ import { flushStats, measureWindow } from './diagnostics.mjs';
 import { frameVerdict } from './frames.mjs';
 
 export const PROFILE_MS = 8000;
+export async function measurePlaybackWindow(measure, isPlaying, report = console.warn) {
+  const requirePlayback = () => {
+    if (!isPlaying()) throw Error('Speech ended before frame diagnostics completed; this window is unmeasured');
+  };
+  return measureWindow(async () => {
+    requirePlayback();
+    const frames = await measure();
+    requirePlayback();
+    return frames;
+  }, report);
+}
 async function waitForLog(check, label, timeoutMs) {
   const deadline = performance.now() + timeoutMs;
   while (!check() && performance.now() < deadline) await sleep(40);
@@ -22,8 +33,8 @@ export function speechProfile({ sim, info, burst, chunkMs = 100, measureFrames =
     try { readSync(fd, bytes, 0, size, offset); return bytes.toString(); } finally { closeSync(fd); }
   };
   const stats = () => flushStats({ sim, logSize, logSince });
-  async function sample(mode) {
-    const frames = await measureWindow(stats);
+  async function sample(mode, isPlaying) {
+    const frames = await measurePlaybackWindow(stats, isPlaying);
     console.log(`PROFILE ${mode}: ${JSON.stringify(frames)}`);
     assert.ok(frameVerdict(frames, 'conversation'), `${mode} speech animation exceeded its frame budget`);
   }
@@ -32,6 +43,11 @@ export function speechProfile({ sim, info, burst, chunkMs = 100, measureFrames =
     if (measureFrames) await stats();
     const started = performance.now();
     const presentedSpeech = () => /main: mode 4 on screen/.test(logSince(from));
+    const stillPlaying = () => {
+      const text = logSince(from);
+      const modes = [...text.matchAll(/main: mode (\d+) on screen/g)];
+      return modes.at(-1)?.[1] === '4' && !/speech played gen=\d+/.test(text);
+    };
     // USB measurements must not pause the simulated network producer.
     const measurement = measureFrames ? (async () => {
       await waitForLog(presentedSpeech, 'Speech never reached the screen', 2000);
@@ -39,7 +55,7 @@ export function speechProfile({ sim, info, burst, chunkMs = 100, measureFrames =
       const measuring = performance.now();
       for (const at of [2200, 4600, 7000]) {
         await sleep(Math.max(0, measuring + at - performance.now()));
-        await sample(mode);
+        await sample(mode, stillPlaying);
       }
     })() : Promise.resolve();
     measurement.catch(() => {}); // Await below; avoid an unhandled rejection while producing PCM.
@@ -59,10 +75,12 @@ export function speechProfile({ sim, info, burst, chunkMs = 100, measureFrames =
       }
     }
     callbacks.onResponseDone({ status: 'completed' });
-    await measurement;
+    let measurementError;
+    try { await measurement; } catch (error) { measurementError = error; }
     // played includes transport credit and the hardware tail; a fixed sleep can cancel valid playback.
     const completion = /speech played gen=\d+ ms=(\d+) elapsed=(\d+) gaps=(\d+) \((\d+) ms\)/;
-    await waitForLog(() => completion.test(logSince(from)), 'Missing physical playback completion diagnostics', 5000);
+    await waitForLog(() => completion.test(logSince(from)), 'Missing physical playback completion diagnostics',
+      Math.max(0, started + PROFILE_MS + 5000 - performance.now()));
     const log = logSince(from);
     assert.doesNotMatch(log, /speech buffer|reservation failed|alloc \d+ failed|read error|PANIC|assert failed/);
     const played = completion.exec(log);
@@ -70,5 +88,6 @@ export function speechProfile({ sim, info, burst, chunkMs = 100, measureFrames =
     assert.equal(Number(played[1]), PROFILE_MS);
     assert.equal(Number(played[3]), 0, 'Audio starved during the bounded local fixture');
     console.log(`PASS ${mode} ${burst ? 'burst' : 'paced'} ${chunkMs}ms chunks: ${played[0]}`);
+    if (measurementError) throw measurementError;
   };
 }

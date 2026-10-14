@@ -1,7 +1,7 @@
 {
   "id": "kubik",
   "name": "Kubik",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Kubik voice desk device channel (push-to-talk ESP32-C6, OpenAI-compatible voice)",
   "channels": [
     "kubik"

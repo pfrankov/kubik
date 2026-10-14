@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { flushStats, measureWindow, MissingStats, setDeviceScreen, waitForDeviceLink } from './diagnostics.mjs';
+import { measurePlaybackWindow, PROFILE_MS, speechProfile } from './speech-profile.mjs';
+import { mkdtempSync, appendFileSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 test('screen preflight wakes only a dark display, restores it and rejects a missed power event', async () => {
   let dark = true, toggles = 0;
@@ -46,6 +50,53 @@ test('one missing observation is retried; numeric and other failures are never r
   calls = 0;
   await assert.rejects(measureWindow(async () => { calls++; throw Error('device rejected'); }), /device rejected/);
   assert.equal(calls, 1);
+});
+
+test('speech windows reject playback completion before, during or between diagnostic attempts', async () => {
+  let playing = false, calls = 0;
+  const measure = async () => { calls++; playing = false; return { fps: 24 }; };
+  await assert.rejects(measurePlaybackWindow(measure, () => playing), /window is unmeasured/);
+  assert.equal(calls, 0, 'listening cannot start a speech measurement');
+  playing = true;
+  await assert.rejects(measurePlaybackWindow(measure, () => playing), /window is unmeasured/);
+  assert.equal(calls, 1, 'a window crossing playback completion is not a speech sample');
+  playing = true; calls = 0;
+  await assert.rejects(measurePlaybackWindow(async () => {
+    calls++; playing = false; throw new MissingStats('lost');
+  }, () => playing, () => {}), /window is unmeasured/);
+  assert.equal(calls, 1, 'a lost speech window cannot retry in listening');
+  const badFrames = { fps: 25, late: 99 };
+  assert.equal(await measurePlaybackWindow(async () => badFrames, () => true), badFrames,
+    'numeric failures during speech remain unchanged for the original verdict');
+});
+
+test('lost speaking coverage still validates exact playback before reporting the measurement error', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kubik-profile-test-'));
+  const saved = { log: process.env.KUBIK_DEVICE_LOG, pcm: process.env.KUBIK_TEST_SPEECH_PCM };
+  const path = join(dir, 'device.log');
+  process.env.KUBIK_DEVICE_LOG = path;
+  delete process.env.KUBIK_TEST_SPEECH_PCM;
+  try {
+    for (const milliseconds of [PROFILE_MS, PROFILE_MS - 1]) {
+      writeFileSync(path, '');
+      let announced = false;
+      const profile = speechProfile({ sim: async () => appendFileSync(path, block + '\n'),
+        info: async () => ({}), burst: true });
+      const pending = profile({ onAudio() {
+        if (!announced) { announced = true; appendFileSync(path, 'main: mode 4 on screen\n'); }
+      }, onResponseDone() {
+        appendFileSync(path, `app: speech played gen=1 ms=${milliseconds} elapsed=${PROFILE_MS} gaps=0 (0 ms)\nmain: mode 2 on screen\n`);
+      } }, () => false, 'live');
+      await assert.rejects(pending, error => milliseconds === PROFILE_MS
+        ? /window is unmeasured/.test(error.message)
+        : error.actual === PROFILE_MS - 1 && error.expected === PROFILE_MS);
+    }
+  } finally {
+    for (const [key, value] of [['KUBIK_DEVICE_LOG', saved.log], ['KUBIK_TEST_SPEECH_PCM', saved.pcm]]) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(dir, { recursive: true });
+  }
 });
 
 import { assertIdleCapture } from './diagnostics.mjs';

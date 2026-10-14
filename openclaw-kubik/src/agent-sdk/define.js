@@ -73,7 +73,11 @@ function replaceSignal(state) {
 async function connectSpec(spec, state, ctx) {
   const signal = replaceSignal(state);
   const attempt = state.lifetime;
-  try { return await spec.connect({ ...ctx, signal }); }
+  try {
+    const result = await spec.connect({ ...ctx, signal });
+    signal.throwIfAborted();
+    return result;
+  }
   catch (error) {
     // A failed attempt closes only its own lifetime; a newer connect owns its slot.
     if (state.lifetime === attempt) attempt.abort();
