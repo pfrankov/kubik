@@ -13,8 +13,8 @@ int __real_esp_transport_write(esp_transport_handle_t transport, const char *buf
 
 // The SDK writes a masked header then its body in separate TLS records. A Live
 // frame fits in one 1 KB record; packing those writes avoids a tiny TCP segment
-// waiting for an ACK while the client lock prevents incoming speech from being read.
-// Keep the SDK's framing/masking, TLS, pinning, parser and common client lock.
+// waiting for an ACK while TLS is busy.
+// Keep SDK framing/masking and the link-owned, serialized TLS context.
 static _Atomic(TaskHandle_t) s_owner;
 static esp_transport_handle_t s_parent;
 static int s_payload, s_header;

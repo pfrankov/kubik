@@ -77,6 +77,7 @@ static void test_requests_and_ack(void) {
     agent_menu_reset(&menu);
     test_options(&menu, &reply);
     test_selection_ack(&menu, &reply);
+    agent_menu_clear_catalog(&menu);
 }
 
 static void test_timeout_and_bounds(void) {
@@ -125,6 +126,7 @@ static void test_selection_on_later_page(void) {
     strcpy(reply.error, "busy");
     assert(agent_menu_accept_reply(&menu, &reply, 160));
     assert(!strcmp(menu.error, "busy") && menu.retry_cursor == 1);
+    agent_menu_clear_catalog(&menu);
 }
 
 static unsigned pushed_pixels;
@@ -193,6 +195,7 @@ static void test_ui_and_taps(void) {
     unsigned visible = 0;
     for (unsigned i = 0; i < sizeof overlay / sizeof overlay[0]; i++) visible += overlay[i] != 0;
     assert(visible > 1000);
+    agent_menu_clear_catalog(&menu);
 }
 
 static void test_view_bounds(void) {
@@ -215,6 +218,7 @@ static void test_view_bounds(void) {
         // include two bilinear-neighbour pixels (minimum y5).
         assert(x0 >= 10 && x1 <= 232 && y0 >= 5 && y1 <= 232);
     }
+    agent_menu_clear_catalog(&menu);
 }
 
 static void check_refresh_bounds(agent_menu_t *m) {
@@ -376,6 +380,7 @@ static void test_voice_catalog_scope(void) {
     reply.rid = rid;
     assert(!agent_menu_accept_reply(&menu, &reply, 250)); // delayed Input cannot replace Agent catalog
 
+    agent_menu_clear_catalog(&menu);
 }
 
 static void test_voice_modes_and_parents(void) {

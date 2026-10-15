@@ -23,10 +23,10 @@ static const char *TAG = "audio";
 // 900 ms of ADPCM: 100 ms above host credit, leaving RAM for TLS and Wi-Fi.
 #define RING_BYTES_PER_MS (AUDIO_RATE / 2 / 1000)
 #define RING_BYTES 10800
-#define RING_BLOCKS 3
+#define RING_BLOCKS 9
 #define RING_BLOCK_BYTES (RING_BYTES / RING_BLOCKS)
 _Static_assert(RING_BYTES == 900 * RING_BYTES_PER_MS, "the ring holds 900 ms of speech, above the 800 ms send window");
-#define PREBUF_BYTES (600 * RING_BYTES_PER_MS)  // one bounded TCP retry before speech starts
+#define PREBUF_BYTES (800 * RING_BYTES_PER_MS)  // fill the existing host credit before playback
 #define REBUF_BYTES (300 * RING_BYTES_PER_MS)   // after running dry mid-speech
 #define FRAME_BYTES (SPK_FRAME / 2)
 // TDM slots: MIC1, speaker loop-back, MIC2, unused. PTT sends MIC1 alone.
@@ -59,9 +59,9 @@ static void ring_free_locked(void) {
 static bool ring_acquire_locked(void) {
     if (s_ring_cap) return true;
     // CPU-only ADPCM belongs in LP SRAM; leave ordinary DMA-capable SRAM for Wi-Fi.
-    // Two 3600-byte LP blocks fit beside Live's 3072-byte sender stack.
+    // Six 1200-byte LP blocks fit beside Live's 3072-byte sender stack.
     for (int i = 0; i < RING_BLOCKS; i++) {
-        unsigned caps = i < 2 ? MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT : MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        unsigned caps = i < 6 ? MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT : MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
         s_ring[i] = heap_caps_malloc(RING_BLOCK_BYTES, caps);
         if (!s_ring[i]) { ring_free_locked(); return false; }
     }

@@ -1,3 +1,5 @@
+#include "audio_output_profile.h"
+#include "status_json.h"
 #include "app_speech.h"
 #include <stdio.h>
 #include "audio.h"
@@ -18,7 +20,34 @@ static uint32_t s_session;
 static bool s_ended;
 static int64_t s_started_us, s_progress_ms;
 static int64_t s_rx_us;
-static uint32_t s_rx_packets, s_rx_gap_ms, s_rx_first_ms;
+static uint32_t s_rx_packets, s_rx_gap_ms, s_rx_first_ms, s_rx_rejected;
+static audio_output_profile_t s_output_started;
+static struct { int gen; uint32_t sequence, ms, elapsed, gaps, gap_ms, mix_us, write_us, rx_packets, rx_first_ms, rx_gap_ms, rx_rejected, late_feeds, write_errors; char reason[12]; } s_finished;
+void app_speech_diagnostics(char *reply, size_t capacity) {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    status_json_t json;
+    status_json_begin(&json, reply, capacity);
+    status_json_bool(&json, "ok", true);
+    status_json_integer(&json, "active", s_gen);
+    status_json_integer(&json, "sequence", s_finished.sequence);
+    status_json_integer(&json, "gen", s_finished.gen);
+    status_json_string(&json, "reason", s_finished.reason);
+    status_json_integer(&json, "ms", s_finished.ms);
+    status_json_integer(&json, "elapsed", s_finished.elapsed);
+    status_json_integer(&json, "gaps", s_finished.gaps);
+    status_json_integer(&json, "gap_ms", s_finished.gap_ms);
+    status_json_integer(&json, "mix_us", s_finished.mix_us);
+    status_json_integer(&json, "write_us", s_finished.write_us);
+    status_json_integer(&json, "rx_packets", s_finished.rx_packets);
+    status_json_integer(&json, "rx_first_ms", s_finished.rx_first_ms);
+    status_json_integer(&json, "rx_gap_ms", s_finished.rx_gap_ms);
+    status_json_integer(&json, "rx_rejected", s_finished.rx_rejected);
+    status_json_integer(&json, "late_feeds", s_finished.late_feeds);
+    status_json_integer(&json, "write_errors", s_finished.write_errors);
+    status_json_integer(&json, "heap_failures", hp_allocation_failures());
+    if (!status_json_end(&json)) snprintf(reply, capacity, "{\"ok\":false}");
+    xSemaphoreGive(s_lock);
+}
 
 void app_speech_init(void) {
     s_lock = xSemaphoreCreateMutex();
@@ -35,7 +64,8 @@ void app_speech_begin(int gen, uint32_t session) {
     s_session = session;
     s_ended = false;
     s_started_us = esp_timer_get_time();
-    s_rx_us = 0; s_rx_packets = s_rx_gap_ms = s_rx_first_ms = 0;
+    s_rx_us = 0; s_rx_packets = s_rx_gap_ms = s_rx_first_ms = s_rx_rejected = 0;
+    s_output_started = audio_output_profile_read(false);
     s_progress_ms = s_started_us / 1000;
     app_wake_suspend();
     tls_mem_speech(!strcmp(link_via(), "wifi"));
@@ -52,13 +82,14 @@ bool app_speech_matches(int gen, uint32_t session) {
 
 void app_speech_write(int gen, uint32_t session, const uint8_t *frame, size_t bytes) {
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (matches(gen, session) && audio_stream_write_ima(frame, bytes)) {
+    if (!matches(gen, session)) { xSemaphoreGive(s_lock); return; }
+    if (audio_stream_write_ima(frame, bytes)) {
         int64_t now = esp_timer_get_time();
         uint32_t gap = (uint32_t)((now - s_rx_us) / 1000);
         if (!s_rx_packets) s_rx_first_ms = (uint32_t)((now - s_started_us) / 1000);
         else if (gap > s_rx_gap_ms) s_rx_gap_ms = gap;
         s_rx_us = now; ++s_rx_packets;
-    }
+    } else { ++s_rx_rejected; }
     xSemaphoreGive(s_lock);
 }
 
@@ -81,6 +112,16 @@ static uint32_t log_playback(const char *reason, int gen) {
     uint32_t gaps, gap_ms, mix_us, write_us, played_ms = audio_stream_played_ms();
     audio_stream_gaps(&gaps, &gap_ms);
     audio_stream_timing(&mix_us, &write_us);
+    s_finished.gen = gen; ++s_finished.sequence;
+    s_finished.ms = played_ms; s_finished.elapsed = (esp_timer_get_time() - s_started_us) / 1000;
+    s_finished.gaps = gaps; s_finished.gap_ms = gap_ms;
+    s_finished.mix_us = mix_us; s_finished.write_us = write_us;
+    s_finished.rx_packets = s_rx_packets; s_finished.rx_first_ms = s_rx_first_ms;
+    s_finished.rx_gap_ms = s_rx_gap_ms; s_finished.rx_rejected = s_rx_rejected;
+    audio_output_profile_t output = audio_output_profile_read(false);
+    s_finished.late_feeds = output.late_feeds - s_output_started.late_feeds;
+    s_finished.write_errors = output.write_errors - s_output_started.write_errors;
+    snprintf(s_finished.reason, sizeof s_finished.reason, "%s", reason);
     ESP_LOGI("app", "speech %s gen=%d ms=%u elapsed=%u gaps=%u (%u ms) mix<=%uus dma-wait<=%uus via=%s", reason, gen,
              (unsigned)played_ms, (unsigned)((esp_timer_get_time() - s_started_us) / 1000), (unsigned)gaps,
              (unsigned)gap_ms, (unsigned)mix_us, (unsigned)write_us, link_via());
@@ -136,7 +177,7 @@ bool app_speech_tick(int64_t now_ms, bool progress) {
         audio_stream_stop(); // drained streams must release the active flag so dark codecs can doze
         clear_locked();
         completed = true;
-    } else if (gen >= 0 && progress && !s_ended && now_ms - s_progress_ms >= 100) {
+    } else if (gen >= 0 && progress && !s_ended && now_ms - s_progress_ms >= 50) {
         s_progress_ms = now_ms;
         snprintf(message, sizeof message, "{\"t\":\"progress\",\"gen\":%d,\"ms\":%u}", gen, (unsigned)audio_stream_played_ms());
     }

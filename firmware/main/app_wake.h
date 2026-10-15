@@ -8,6 +8,7 @@ void app_wake_init(void);
 void app_wake_tick(void);
 void app_wake_suspend(void);
 void app_wake_transport_busy(bool busy);
+void app_wake_configuration_busy(bool busy);
 void app_wake_event(uint32_t epoch);
 void app_wake_end_event(int turn, int reason);
 void app_wake_abort(bool tell_server);
@@ -24,6 +25,7 @@ static inline void app_wake_init(void) {}
 static inline void app_wake_tick(void) {}
 static inline void app_wake_suspend(void) {}
 static inline void app_wake_transport_busy(bool busy) { (void)busy; }
+static inline void app_wake_configuration_busy(bool busy) { (void)busy; }
 static inline void app_wake_event(uint32_t epoch) { (void)epoch; }
 static inline void app_wake_end_event(int turn, int reason) { (void)turn; (void)reason; }
 static inline void app_wake_abort(bool tell_server) { (void)tell_server; }

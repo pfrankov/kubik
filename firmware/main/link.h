@@ -18,14 +18,13 @@
 #define LINK_USB_EPOCH_BYTES 4
 #define LINK_WS_RX_MAX (LINK_SPEECH_PCM_MAX + LINK_AUDIO_HEADER_BYTES)
 #define LINK_USB_PAYLOAD_MAX (LINK_WS_RX_MAX + LINK_USB_EPOCH_BYTES)
-// Includes a text sentinel and one alignment byte.
-#define LINK_USB_RX_STORAGE (LINK_USB_PAYLOAD_MAX + 2)
 
 typedef struct {
     void (*on_json)(const char *json, size_t len);
     void (*on_audio)(uint8_t kind, uint8_t tag, const uint8_t *pcm, size_t len);
     void (*on_link)(bool up);
     // USB config command (frame 0x21); write a JSON reply into `reply`.
+    // json and reply may alias: parse/copy input before writing a complete reply.
     void (*on_config)(const char *json, size_t len, char *reply, size_t cap);
     // OpenClaw does not know this Kubik yet: show `code` for the owner to approve.
     // Called again while waiting; the same connection then gets its welcome.

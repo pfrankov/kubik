@@ -48,7 +48,7 @@ static void command(const char *line) {
     else if (!strcmp(name, "event") && valid_event(a)) event(a, b, c);
     else if (!strcmp(name, "pointer")) screen_lab_pointer(&lab, a != 0, b, c);
     else if (!strcmp(name, "tilt")) { tilt_x = a; tilt_y = b; }
-    else if (!strcmp(name, "character")) { screen_lab_init(&lab, a == CHARACTER_PLUSH ? CHARACTER_PLUSH : CHARACTER_TESS); }
+    else if (!strcmp(name, "character")) { agent_menu_clear_catalog(&lab.face.agent); screen_lab_init(&lab, a == CHARACTER_PLUSH ? CHARACTER_PLUSH : CHARACTER_TESS); }
     else if (!strcmp(name, "frame")) frame_command(fields, a);
 }
 int main(void) {
@@ -56,5 +56,6 @@ int main(void) {
     screen_lab_init(&lab, CHARACTER_TESS);
     char line[160];
     while (fgets(line, sizeof line, stdin)) command(line);
+    agent_menu_clear_catalog(&lab.face.agent);
     return 0;
 }

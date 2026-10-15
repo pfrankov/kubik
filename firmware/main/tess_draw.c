@@ -1,6 +1,8 @@
 #include "tess_internal.h"
 #include <string.h>
+#include <float.h>
 #include <stdlib.h>
+#include "palette_blend.h"
 
 static int imax(int a, int b) { return a > b ? a : b; }
 static int imin(int a, int b) { return a < b ? a : b; }
@@ -13,7 +15,7 @@ static int imin(int a, int b) { return a < b ? a : b; }
 typedef tess_projected_t dot_t;  // Q3 position/size, depth and twinkle
 
 static uint32_t ramp(uint32_t far, uint32_t mid, uint32_t near, float d) {
-    return d < .5f ? rgb_mix(far, mid, d * 2) : rgb_mix(mid, near, d * 2 - 1);
+    return d < .5f ? palette_mix(far, mid, d * 2) : palette_mix(mid, near, d * 2 - 1);
 }
 // Far to near: violet, blue, sky blue, turquoise, light turquoise (never white). Stops by the user.
 static uint32_t tess_depth_ramp(float d) {
@@ -23,7 +25,7 @@ static uint32_t tess_depth_ramp(float d) {
     float x = clampf((d - .12f) / .8f, 0, 1);  // few points are really far: the violet starts early
     int i = 0;
     while (i < n - 2 && x > at[i + 1]) i++;
-    return rgb_mix(stop[i], stop[i + 1], (x - at[i]) / (at[i + 1] - at[i]));
+    return palette_mix(stop[i], stop[i + 1], (x - at[i]) / (at[i + 1] - at[i]));
 }
 
 // What each mood tints the depth ramp with (far, mid, near): the same order of brightness, never white. Curious is a
@@ -35,15 +37,14 @@ static const uint32_t k_mood_ramp[MOOD_COUNT][3] = {
     [MOOD_SLEEPY] = {0x0A0A10, 0x343058, 0x8683B0},
 };
 // The ramp the moods make of the neutral one, by their colour weights (the rest of the weight stays with the neutral one).
-static uint32_t tess_mood_color(const face_t *f, uint32_t c, float d) {
-    float total = 1;
-    for (int mood = MOOD_CURIOUS; mood < MOOD_COUNT; mood++) total -= f->feel.mix[mood];
-    total = fmaxf(0.f, total);  // (the weights are rounded: they may add up to a little over one)
+typedef struct { float mood[MOOD_COUNT], warm, reply, play, noir, dim; } palette_t;
+
+static uint32_t tess_mood_color(const palette_t *palette, uint32_t c, float d) {
     for (int mood = MOOD_CURIOUS; mood < MOOD_COUNT; mood++) {
-        float weight = f->feel.mix[mood];
-        if (weight <= 0) continue;
-        total += weight;
-        c = rgb_mix(c, ramp(k_mood_ramp[mood][0], k_mood_ramp[mood][1], k_mood_ramp[mood][2], d), weight / total);
+        float weight = palette->mood[mood];
+        // Every 8-bit channel delta times <=1/256 truncates to zero.
+        if (weight <= 1.f / 256) continue;
+        c = palette_mix(c, ramp(k_mood_ramp[mood][0], k_mood_ramp[mood][1], k_mood_ramp[mood][2], d), weight);
     }
     return c;
 }
@@ -64,24 +65,60 @@ static float game_tint(const face_t *f) {
     return f->tess_games.ready ? roundf(clampf(f->tess_games.pulse, 0, 1) * 8) / 8 : 0;
 }
 
-static uint32_t tess_color(const face_t *f, float d) {
-    const float *r = f->tess_reaction, *mw = f->tess_mode;
-    uint32_t c = tess_mood_color(f, tess_depth_ramp(d), d);
-    if (f->tess_mood.warm > .01f) c = rgb_mix(c, ramp(0x1C0E06, 0xB8641A, 0xFFC868, d), tess_warmth(f) * .9f);
-    if (r[TR_SAD] > .01f) c = rgb_mix(c, ramp(0x030826, 0x1E3E9A, 0x5A86F0, d), r[TR_SAD] * .8f);
-    if (r[TR_ANGRY] > .01f) c = rgb_mix(c, ramp(0x200605, 0x9A2A1C, 0xFF7152, d), r[TR_ANGRY]);
-    if (r[TR_JOY] > .01f) c = rgb_mix(c, ramp(0x160E04, 0x8C6418, 0xFFCB5C, d), r[TR_JOY] * .7f);
-    if (r[TR_SHY] > .01f) c = rgb_mix(c, ramp(0x200A1A, 0x93406E, 0xFF9CCB, d), r[TR_SHY] * .7f);
-    if (r[TR_HEART] > .01f) c = rgb_mix(c, ramp(0x2E0B28, 0xA3316F, 0xFF8AC4, d), r[TR_HEART]);
-    float reply = reply_tint(f);
-    if (reply > 0) c = rgb_mix(c, ramp(0x120825, 0x2BA69A, 0xFFE2A0, d), reply);
-    float play = game_tint(f);
-    if (play > 0) c = rgb_mix(c, ramp(0x170D04, 0x987524, 0xFFCE78, d), play * .65f);
+// All 32 depths use the same blend coefficients; retain their exact operation order.
+static palette_t prepare_palette(const face_t *f) {
+    palette_t p = {0};
+    float total = 1;
+    for (int mood = MOOD_CURIOUS; mood < MOOD_COUNT; mood++) total -= f->feel.mix[mood];
+    total = fmaxf(0.f, total);
+    for (int mood = MOOD_CURIOUS; mood < MOOD_COUNT; mood++) {
+        float weight = f->feel.mix[mood];
+        if (weight <= 0) continue;
+        total += weight; p.mood[mood] = weight / total;
+    }
+    p.warm = tess_warmth(f) * .9f; p.reply = reply_tint(f); p.play = game_tint(f);
+    p.noir = tess_noir(f); p.dim = 1 - .45f * f->tess_mode[TM_SLEEP];
+    return p;
+}
+
+static uint32_t palette_color(const face_t *f, float d, const palette_t *palette) {
+    const float *r = f->tess_reaction;
+    uint32_t c = tess_mood_color(palette, tess_depth_ramp(d), d);
+    if (f->tess_mood.warm > .01f) c = palette_mix(c, ramp(0x1C0E06, 0xB8641A, 0xFFC868, d), palette->warm);
+    if (r[TR_SAD] > .01f) c = palette_mix(c, ramp(0x030826, 0x1E3E9A, 0x5A86F0, d), r[TR_SAD] * .8f);
+    if (r[TR_ANGRY] > .01f) c = palette_mix(c, ramp(0x200605, 0x9A2A1C, 0xFF7152, d), r[TR_ANGRY]);
+    if (r[TR_JOY] > .01f) c = palette_mix(c, ramp(0x160E04, 0x8C6418, 0xFFCB5C, d), r[TR_JOY] * .7f);
+    if (r[TR_SHY] > .01f) c = palette_mix(c, ramp(0x200A1A, 0x93406E, 0xFF9CCB, d), r[TR_SHY] * .7f);
+    if (r[TR_HEART] > .01f) c = palette_mix(c, ramp(0x2E0B28, 0xA3316F, 0xFF8AC4, d), r[TR_HEART]);
+    float reply = palette->reply;
+    if (reply > 0) c = palette_mix(c, ramp(0x120825, 0x2BA69A, 0xFFE2A0, d), reply);
+    float play = palette->play;
+    if (play > 0) c = palette_mix(c, ramp(0x170D04, 0x987524, 0xFFCE78, d), play * .65f);
     // No connection: noir. Black and white, over any mood, at full contrast: dark grey specks far, pure white near.
-    float noir = tess_noir(f);
-    if (noir > .01f) c = rgb_mix(c, ramp(0x202020, 0xA6A6A6, 0xFFFFFF, d), noir);
-    float dim = 1 - .45f * mw[TM_SLEEP];
+    float noir = palette->noir;
+    if (noir > .01f) c = palette_mix(c, ramp(0x202020, 0xA6A6A6, 0xFFFFFF, d), noir);
+    float dim = palette->dim;
     return dim < .99f ? rgb_scale(c, dim) : c;
+}
+
+// Geometry is finite and far inside int32 Q12. Decode binary32 directly:
+// exact ties-to-even, without three software-float calls per coordinate.
+_Static_assert(sizeof(float) == 4 && FLT_RADIX == 2 && FLT_MANT_DIG == 24, "binary32 geometry");
+static int32_t position_q12(float value) {
+    uint32_t bits; memcpy(&bits, &value, sizeof bits);
+    int exponent = (int)((bits >> 23) & 255) - 115; // binary exponent + Q12
+    if (exponent < -1) return 0;
+    bool negative = bits >> 31;
+    if (exponent >= 31) return negative ? INT32_MIN : INT32_MAX;
+    uint32_t mantissa = (bits & 0x7fffff) | 0x800000, magnitude;
+    if (exponent >= 23) magnitude = mantissa << (exponent - 23);
+    else {
+        unsigned shift = 23 - exponent, half = 1u << (shift - 1);
+        magnitude = mantissa >> shift;
+        uint32_t remainder = mantissa & ((1u << shift) - 1);
+        magnitude += remainder > half || (remainder == half && (magnitude & 1));
+    }
+    return negative ? -(int32_t)magnitude : (int32_t)magnitude;
 }
 
 // On integers (object units * 4096, the view * 65536): per point this was ~40 soft-float operations and a
@@ -96,7 +133,7 @@ static void project_points(const face_t *f, const float points[TESS_N][3], const
     int32_t gain_q = (int32_t)(depth_gain * 65536), dust_q = (int32_t)(dust * 4096);
     for (int i = 0; i < TESS_N; i++) {
         int32_t source[3], rotated[3];
-        for (int axis = 0; axis < 3; axis++) source[axis] = (int32_t)lrintf(points[i][axis] * 4096);
+        for (int axis = 0; axis < 3; axis++) source[axis] = position_q12(points[i][axis]);
         for (int axis = 0; axis < 3; axis++)
             rotated[axis] = (int32_t)(((int64_t)view[axis][0] * source[0] + (int64_t)view[axis][1] * source[1] +
                                        (int64_t)view[axis][2] * source[2] + (1 << 15)) >> 16);
@@ -191,7 +228,7 @@ static void draw_fallen(const face_t *f, scene_t *s, dot_t dots[TESS_N], const u
         int point = order[i], tone = noir_tone(point), lit = dots[point].lit;
         float glow = lit * (1.f / 256);
         float speed = fmaxf(noir_speed(f, point), glow);
-        uint32_t color = rgb_mix(k_noir_tone[tone], 0xFFFFFF, speed);
+        uint32_t color = palette_mix(k_noir_tone[tone], 0xFFFFFF, speed);
         int radius = dots[point].radius * k_noir_size[tone] / 100 + lit * TWINKLE_SWELL_Q3 / 256;
         float halo = fmaxf(speed * .5f, glow);
         sc_glow_dot_q3(s, dots[point].x, dots[point].y, radius, color, (uint8_t)(k_noir_halo[tone] + (255 - k_noir_halo[tone]) * halo));
@@ -269,7 +306,8 @@ static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
     static uint32_t shade[TESS_SHADES];
     static bool palette_valid;
     if (!palette_valid || memcmp(previous_key, color_key, sizeof color_key)) {
-        for (int i = 0; i < TESS_SHADES; i++) shade[i] = tess_color(f, (i + .5f) / TESS_SHADES);
+        palette_t palette = prepare_palette(f);
+        for (int i = 0; i < TESS_SHADES; i++) shade[i] = palette_color(f, (i + .5f) / TESS_SHADES, &palette);
         memcpy(previous_key, color_key, sizeof color_key);
         palette_valid = true;
     }

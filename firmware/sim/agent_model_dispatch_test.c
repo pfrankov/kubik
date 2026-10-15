@@ -15,10 +15,12 @@ static bool send_agent_request(const char *kind, uint16_t rid, uint8_t cursor, c
 /* PRODUCTION_REQUEST */
 int main(void) {
     agent_menu_visit(&g_face.agent, AGENT_VIEW_MODELS, AGENT_TARGET_AGENT);
+    assert(agent_menu_reserve_catalog(&g_face.agent));
     g_face.agent.online = true; g_face.agent.cursor = 2;
     g_face.agent.count = 1;
     strcpy(g_face.agent.models[0].id, "model-0");
     request_agent_model("model-0");
     assert(sent_rid && sent_cursor == 0 && wakes == 1);
     assert(g_face.agent.waiting_cursor == sent_cursor);
+    agent_menu_clear_catalog(&g_face.agent);
 }

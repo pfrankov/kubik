@@ -17,9 +17,11 @@ with tempfile.TemporaryDirectory(prefix="c6-wake-word-") as directory:
 app = (ROOT / 'firmware/main/app_wake.c').read_text()
 power_source = (ROOT / 'firmware/main/app_state.c').read_text()
 power_active = power_source[power_source.index('bool power_is_active('):power_source.index('// ------------------------------------------------------------------ talk')]
-eligibility = app[app.index('static bool eligible('):app.index('static void suspend_model(')]
+eligibility = app[app.index('static bool wake_transport_busy('):app.index('static wake_preroll_t *stop_model(')]
 lifecycle = app[app.index('static void start_listening('):app.index('void app_wake_recording_stop(')]
-upload = app[app.index('static bool start_upload('):app.index('void app_wake_event(')]
+upload = app[app.index('static bool send_preroll('):app.index('void app_wake_abort(')]
+preroll_support = app[app.index('typedef struct { int16_t pcm[2]'):app.index('void app_wake_init(')]
+stop_model = app[app.index('static wake_preroll_t *stop_model('):app.index('void app_wake_transport_busy(')]
 wake_callback = app[app.index('static void wake_frame('):app.index('static void start_listening(')]
 transport = app[app.index('void app_wake_transport_busy('):app.index('void app_wake_suspend(')]
 fixture = r"""
@@ -28,17 +30,20 @@ fixture = r"""
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdatomic.h>
 #include "wake_resample.h"
 #include "auto_voice.h"
+#define configASSERT assert
 static bool s_failed, s_listening, s_automatic, s_pending, healthy=true;
 static bool model_ok, gate_ok=true;
 static unsigned s_attempts, starts, stops, aborts;
 static int64_t s_retry_at, clock_ms;
 static uint32_t s_epoch, capture_epoch=1, s_auto_session=4, current_session=4;
-static int s_lock, s_gen=-1, s_talk=0, s_power=0, s_srv;
+static int s_lock=1, s_gen=-1, s_talk=0, s_power=0, s_srv;
 static bool s_online=true, mic_allowed=true, s_setup, s_menu, s_act_own;
 static atomic_bool s_transport_busy, s_retry_reset;
+static atomic_uint s_configuration_busy;
 static char s_pair_code[16];
 static int64_t s_power_off_at;
 #define TALK_IDLE 0
@@ -52,7 +57,7 @@ typedef int power_state_t;
 #define PWR_DIMMED 1
 static bool app_agent_mic_allowed(void) {return mic_allowed;}
 static wake_resample_t s_resample;
-static int16_t s_pcm[640];
+static int16_t s_pcm[320];
 static auto_voice_t s_voice;
 static int s_auto_turn=42, s_vad, events, vad_calls;
 static bool send_ok=true, json_ok=true, json_sent, mic_started;
@@ -80,10 +85,33 @@ static void app_post(int event, int turn, int reason) {
     if(event==EV_VOICE_WAKE) {assert(turn==(int)s_epoch && !reason);return;}
     assert(event==2 && turn==42 && reason==2); events++;
 }
-static unsigned s_postwake_count, s_postwake_next;
-static int16_t s_postwake[2][MIC_FRAME_SAMPLES];
-static bool detected;
-static bool wake_model_feed(const int16_t *pcm, size_t n) {(void)pcm;(void)n;return detected;}
+#define MALLOC_CAP_INTERNAL 1
+#define MALLOC_CAP_8BIT 2
+static unsigned held;
+static bool allocation_fail, tls_ok=true, vad_ok=true, wake_gate_open;
+static void *heap_caps_calloc(size_t n,size_t bytes,unsigned caps) {
+    assert(n==1 && bytes==3848 && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+    if(allocation_fail)return NULL;
+    held++;return calloc(n,bytes);
+}
+static void heap_caps_free(void *p) {
+    if(p) {assert(held && !wake_gate_open);held--;free(p);}
+}
+static bool tls_mem_turn(bool active) {assert(active);return tls_ok;}
+static const char *link_via(void) {return "wifi";}
+static int app_voice_mode(void) {return voice_mode;}
+#define VAD_MODE_3 3
+#define ESP_LOGI(...) ((void)0)
+#define ESP_LOGE(...) ((void)0)
+static int vad_create_with_param(int mode,int rate,int ms,int a,int b) {
+    assert(mode==3 && rate==16000 && ms==20 && a==20 && b==20);return vad_ok;
+}
+static bool detected, detected_first_half;
+static unsigned model_feed_calls;
+static bool wake_model_feed(const int16_t *pcm, size_t n) {
+    assert(pcm==s_pcm && n==320);++model_feed_calls;
+    return detected || (detected_first_half && model_feed_calls%2==1);
+}
 #define portMAX_DELAY 0xffffffffu
 static void xSemaphoreTake(int lock, unsigned wait) {(void)lock;(void)wait;}
 static void xSemaphoreGive(int lock) {(void)lock;}
@@ -97,7 +125,7 @@ static uint32_t audio_capture_epoch(void) {return capture_epoch;}
 static uint32_t link_session(void) {return current_session;}
 
 static bool audio_wake_gate(bool open, void (*cb)(const int16_t *, int, const uint8_t *)) {
-    (void)cb; if(open) { ++capture_epoch; } return gate_ok;
+    (void)cb; wake_gate_open=open && gate_ok; if(open) { ++capture_epoch; } return gate_ok;
 }
 static bool link_send_json_in_session(const char *json, uint32_t session) {
     assert(strstr(json,"ptt") && session==s_auto_session); json_sent=json_ok; return json_ok;
@@ -105,18 +133,19 @@ static bool link_send_json_in_session(const char *json, uint32_t session) {
 static void wifi_set_fast(bool fast) {assert(fast);}
 static void disp_wake(void) {}
 static bool audio_mic_start_epoch(void (*cb)(const int16_t *,int,const uint8_t *), uint32_t epoch) {
-    assert(cb && epoch==capture_epoch && json_sent); mic_started=true;return gate_ok;
+    assert(cb && epoch==capture_epoch && json_sent && !held); mic_started=true;return gate_ok;
 }
 static void app_voice_capture_failed(void) {}
 static void app_voice_capture_started(int turn) {assert(turn==42);capture_started++;}
 static bool talk_is_listening(int talk) {return talk==1;}
-static void suspend_model(void) {if(s_listening){s_listening=false;wake_model_stop();}}
+static void suspend_model(void);
 static void app_wake_suspend(void) {suspend_model();}
 static void app_wake_abort(bool server) {assert(server);s_automatic=false;++aborts;}
 """
 fixture += r"""
 #include <stdarg.h>
 static int64_t s_last_touch_or_key, s_ptt_t0;
+static void app_agent_reclaim_catalog(void) {}
 static int g_face, live_stops;
 #define TE_PRESS 1
 #define TE_RELEASE_SHORT 2
@@ -130,10 +159,14 @@ static void send_json(const char *format,...) {
     char text[100];va_list args;va_start(args,format);vsnprintf(text,sizeof text,format,args);va_end(args);
     assert(strstr(text,"automatic") && strstr(text,"true"));json_sent=true;
 }
-static bool app_voice_start_capture(void) {s_pending=false;mic_started=gate_ok;return gate_ok;}
+static bool app_voice_start_capture(void) {assert(!held);s_pending=false;mic_started=gate_ok;return gate_ok;}
 static void app_voice_live_stop(bool server) {assert(server);live_active=false;mic_started=false;live_stops++;}
 """
 cases = r"""
+static wake_preroll_t *make_preroll(void) {
+    wake_preroll_t *p=heap_caps_calloc(1,sizeof *p,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+    assert(p);p->count=2;p->pcm[0][0]=44;p->pcm[1][0]=55;return p;
+}
 int main(void) {
     assert(eligible());
     voice_mode=VOICE_LIVE; assert(eligible());
@@ -186,45 +219,69 @@ int main(void) {
     before=starts; app_wake_tick(); assert(starts==before && !s_attempts);
     app_wake_transport_busy(false); app_wake_tick(); assert(starts==before+1 && s_listening);
     puts("wake transport: short reconnect pulses reset retry budget in app task");
-    s_listening=true; s_pending=false; s_postwake_count=s_postwake_next=0;
-    frame_pcm[0]=11; wake_frame(frame_pcm,960,NULL); assert(!s_postwake_count);
-    detected=true; frame_pcm[0]=22; wake_frame(frame_pcm,960,NULL);
-    assert(s_pending && !s_postwake_count); // Detection frame never enters upload.
+    before=starts;
+    app_wake_configuration_busy(true); assert(!eligible() && !s_listening);
+    app_wake_configuration_busy(true);
+    app_wake_configuration_busy(false); app_wake_tick(); assert(!s_listening && starts==before);
+    app_wake_configuration_busy(false); assert(eligible());
+    app_wake_tick(); assert(s_listening && starts==before+1);
+    puts("wake settings: nested persistence leases release memory and resume only after the last writer");
+    s_listening=true; s_pending=false; s_preroll->count=s_preroll->next=0;
+    frame_pcm[0]=11; wake_frame(frame_pcm,960,NULL); assert(!s_preroll->count);
+    detected_first_half=true; frame_pcm[0]=22; wake_frame(frame_pcm,960,NULL);
+    detected_first_half=false; // A false second half must not lose the first-half trigger.
+    assert(s_pending && !s_preroll->count); // Detection frame never enters upload.
     frame_pcm[0]=33; wake_frame(frame_pcm,960,NULL);
     frame_pcm[0]=44; wake_frame(frame_pcm,960,NULL);
-    assert(s_postwake_count==2 && s_postwake[0][0]==33 && s_postwake[1][0]==44);
+    assert(s_preroll->count==2 && s_preroll->pcm[0][0]==33 && s_preroll->pcm[1][0]==44);
     frame_pcm[0]=55; wake_frame(frame_pcm,960,NULL);
-    assert(s_postwake_count==2 && s_postwake[s_postwake_next][0]==44 && s_postwake[(s_postwake_next+1)%2][0]==55);
+    assert(s_preroll->count==2 && s_preroll->pcm[s_preroll->next][0]==44 && s_preroll->pcm[(s_preroll->next+1)%2][0]==55);
     s_pending=false; json_sent=false; json_ok=true; uploaded_n=0; capture_started=0; mic_started=false;
-    assert(start_upload(capture_epoch));
+    wake_preroll_t *tail=stop_model(true);assert(tail && !s_preroll && !s_listening && held==1);
+    assert(start_upload(capture_epoch,tail) && !held);
     assert(uploaded_n==2 && uploaded[0]==44 && uploaded[1]==55 && mic_started && capture_started==1);
     json_ok=false;json_sent=false;uploaded_n=0;mic_started=false;capture_started=0;
-    assert(!start_upload(capture_epoch) && !uploaded_n && !mic_started && !capture_started);
+    assert(!start_upload(capture_epoch,make_preroll()) && !uploaded_n && !mic_started && !capture_started);
     json_ok=true;send_ok=false;
-    assert(!start_upload(capture_epoch) && !uploaded_n && !mic_started && !capture_started);
+    assert(!start_upload(capture_epoch,make_preroll()) && !uploaded_n && !mic_started && !capture_started);
     send_ok=true;gate_ok=false;
-    assert(!start_upload(capture_epoch) && mic_started && !capture_started);
-    gate_ok=true;start_listening();assert(!s_postwake_count && !s_postwake_next && !s_pending);
+    assert(!start_upload(capture_epoch,make_preroll()) && mic_started && !capture_started);
+    assert(!held);gate_ok=true;start_listening();assert(!s_preroll->count && !s_preroll->next && !s_pending);
     puts("wake privacy: post-detection upload order, bounded ring and startup failure checks passed");
     s_turn=41; s_talk=0; current_session=s_auto_session; send_ok=gate_ok=true;
-    s_postwake_count=2;s_postwake_next=0;s_postwake[0][0]=44;s_postwake[1][0]=55;
+    s_preroll->count=2;s_preroll->next=0;s_preroll->pcm[0][0]=44;s_preroll->pcm[1][0]=55;
     uploaded_n=0;mic_started=false;json_sent=false;
     int before_vad=vad_calls;
-    start_live_wake();
+    tail=stop_model(true);start_live_wake(tail);assert(!held);
     assert(live_active && mic_started && uploaded_n==2 && vad_calls==before_vad);
     assert(uploaded[0]==44 && uploaded[1]==55 && s_talk==1);
-    s_turn=41;send_ok=false;start_live_wake();
+    s_turn=41;send_ok=false;start_live_wake(make_preroll());assert(!held);
     assert(!live_active && !mic_started && live_stops==1);
-    s_turn=41;send_ok=true;gate_ok=false;uploaded_n=0;start_live_wake();
+    s_turn=41;send_ok=true;gate_ok=false;uploaded_n=0;start_live_wake(make_preroll());assert(!held);
     assert(!live_active && !mic_started && live_stops==2);
     puts("Live wake: actual start branch preserves post-activation frames, bypasses VAD and closes on failure");
+    s_talk=0;live_active=false;send_ok=gate_ok=true;mic_started=false;s_automatic=false;
+    unsigned stopped=stops;allocation_fail=true;start_listening();
+    assert(!s_listening && !held && !s_preroll && stops==stopped+1);allocation_fail=false;
+    for(unsigned fail=0;fail<5;++fail) {
+        s_turn=41;s_talk=0;live_active=false;s_automatic=false;mic_started=false;
+        voice_mode=fail==1?0:VOICE_LIVE;tls_ok=fail!=0;vad_ok=fail!=1;send_ok=fail!=2;gate_ok=true;
+        start_listening();assert(s_listening && held==1 && s_preroll);
+        s_pending=true;s_preroll->count=2;s_preroll->pcm[0][0]=44;s_preroll->pcm[1][0]=55;
+        uploaded_n=0;json_sent=false;
+        if(fail==3)gate_ok=false;
+        app_wake_event(s_epoch);
+        assert(!s_listening && !s_preroll && !held && !wake_gate_open);
+        if(fail==4)assert(live_active && mic_started && uploaded_n==2 && uploaded[0]==44 && uploaded[1]==55);
+    }
+    puts("wake preroll: actual event transfers ownership; TLS/VAD/send/capture failure releases it before voice I/O");
 
 }
 """
 with tempfile.TemporaryDirectory(prefix='c6-wake-lifecycle-') as directory:
     source = pathlib.Path(directory) / 'lifecycle.c'
     binary = pathlib.Path(directory) / 'lifecycle'
-    source.write_text(fixture + power_active + eligibility + transport + wake_callback + lifecycle + upload + cases)
+    source.write_text(fixture + preroll_support + power_active + eligibility + stop_model + transport + wake_callback + lifecycle + upload + cases)
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
                     '-I', str(ROOT / 'firmware/main'), str(source), str(ROOT / 'firmware/main/wake_resample.c'), str(ROOT / 'firmware/main/auto_voice.c'), '-lm', '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

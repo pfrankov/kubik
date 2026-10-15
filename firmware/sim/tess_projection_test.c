@@ -179,7 +179,29 @@ static void device_turns_are_continuous(void) {
     assert(worst_reference <= 3.f);  // the integer projection is within 1/8 px on each end of a step
 }
 
+static void q12_matches_scalar(void) {
+    const float edge[] = {0.f, -0.f, 0x1p-149f, -0x1p-149f, 0x1p-13f, -0x1p-13f,
+        0x1.000002p-13f, -0x1.000002p-13f, 0x1.fffffep-14f, 524287.96875f, -524288.f};
+    for (unsigned i = 0; i < sizeof edge / sizeof edge[0]; i++)
+        assert(position_q12(edge[i]) == (int32_t)lrintf(edge[i] * 4096));
+    for (int n = -131072; n <= 131072; n++) {
+        float tie = (n + .5f) / 4096;
+        assert(position_q12(tie) == (int32_t)lrintf(tie * 4096));
+        assert(position_q12(nextafterf(tie, INFINITY)) == (int32_t)lrintf(nextafterf(tie, INFINITY) * 4096));
+        assert(position_q12(nextafterf(tie, -INFINITY)) == (int32_t)lrintf(nextafterf(tie, -INFINITY) * 4096));
+    }
+    uint32_t seed = 17;
+    for (int n = 0; n < 1000000; n++) {
+        seed = seed * 1664525u + 1013904223u;
+        uint32_t bits = (seed & 0x807fffff) | ((seed >> 24) % 145u << 23);
+        float value; memcpy(&value, &bits, sizeof value);
+        assert(position_q12(value) == (int32_t)lrintf(value * 4096));
+    }
+    puts("Q12: exact scalar rounding for subnormals, signed half ties, adjacent floats and one million finite coordinates");
+}
+
 int main(void) {
+    q12_matches_scalar();
     device_turns_are_continuous();
     float still = turning_view_step_change(false), moving = turning_view_step_change(true);
     printf("turning view: worst change of a dot's step %.1f (cloud held), %.1f (cloud moving), 1/8 px\n", still, moving);

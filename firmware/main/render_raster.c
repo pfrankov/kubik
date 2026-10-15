@@ -1,5 +1,6 @@
 #include "render_internal.h"
 #include "render_pixels.h"
+#include "render_sqrt_table.h"
 
 #include <math.h>
 #include <string.h>
@@ -21,13 +22,6 @@ static inline int32_t imin(int32_t a, int32_t b) { return a < b ? a : b; }
 
 // floor(sqrt(n)): table seed (sqrt(i) in Q11 for i < 1024, interpolated) plus an exact
 // one-step correction. ~4x cheaper than the bitwise loop on this FPU-less core.
-static uint16_t s_sqrt_t[1025];
-static void isqrt_init(void) {
-    for (int i = 0; i <= 1024; i++) {
-        uint32_t v = (uint32_t)(sqrtf((float)i) * 2048.f + 0.5f);
-        s_sqrt_t[i] = (uint16_t)(v > 65535 ? 65535 : v);
-    }
-}
 static inline uint32_t isqrt(uint32_t n) {
     if (n < 2) return n;
     int s = 0;
@@ -482,7 +476,6 @@ uint32_t render_raster_prepare(scene_t *s, bool swap) {
     uint32_t tp = R_NOW();
     canvas_geometry(s);
     g_render_swap = swap;
-    if (!s_sqrt_t[1]) isqrt_init();
     for (int i = 0; i < s->n; i++) compute_bbox(s, &s->p[i]);
     render_dots_prepare(s);
     memset(s_plain, 0, sizeof s_plain);  // the clip cache measures with the general distance

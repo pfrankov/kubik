@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_websocket_client.h"
+#include "link_tls.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -28,7 +29,6 @@ static const char *TAG = "link";
 #define USB_PROBE_MS 8000
 #define WSS_ATTEMPT_MS 22000
 #define WS_SEND_MS 1500
-// TLS RX shares priority with speaker/mic delivery (7), below display (8).
 // The receiver fills a 900 ms ADPCM ring; host credit limits in-flight speech to 800 ms.
 #define WS_TASK_PRIO 7
 // Wi-Fi is the primary route; USB is offered (the hello that makes the bridge open its upstream) only after
@@ -42,13 +42,13 @@ static atomic_int s_via;
 static atomic_uint s_session;
 static atomic_bool s_host_seen, s_wifi_allowed = true;
 static atomic_uint s_host_ms, s_wifi_pause_until_ms;
-// Route transitions and callback delivery are serialized; network sends and
-// client destruction have a separate lock so WS callbacks cannot deadlock them.
+// Route delivery and public send/destroy operations have separate owners.
 static SemaphoreHandle_t s_route_mtx, s_ws_io_mtx;
 static uint32_t s_usb_epoch, s_probe_epoch, s_probe_ms;
 static usb_status_t s_usb_status;
 static bool s_usb_ready;
 static esp_websocket_client_handle_t s_ws;
+static esp_transport_handle_t s_wss, s_tls;
 static bool s_ws_connected, s_ws_ready, s_ws_failed, s_ws_hello_sent;
 static uint32_t s_ws_started_ms, s_ws_attempt_ms, s_ws_down_ms;
 static char *s_ws_rx;
@@ -194,8 +194,6 @@ static void usb_routed_input(uint8_t type, uint8_t *data, size_t len) {
         link_pin_usb_bind(epoch, (const char *)data, len);
         goto done;
     }
-    // The handshake (challenge, pairing code) runs while the bridge is still
-    // probing; the welcome and everything after it need a ready bridge.
     if (usb_handshake_pending(type, (const char *)data, len)) {
         handshake_frame((const char *)data, len, true, epoch);
         goto done;
@@ -204,8 +202,6 @@ static void usb_routed_input(uint8_t type, uint8_t *data, size_t len) {
     if (usb_welcome_pending(type, (const char *)data, len)) {
         s_usb_ready = true;
         atomic_store(&s_problem, LINK_OK);
-        // The authenticated welcome promotes the route before app callbacks,
-        // including when it arrives between the manager's 200ms ticks.
         set_via_locked(VIA_USB);
     }
     if (s_usb_ready && atomic_load(&s_via) == VIA_USB) dispatch_usb_input(type, data, len);
@@ -233,14 +229,15 @@ static void ws_stop(void) {
     if (atomic_load(&s_via) == VIA_WIFI) set_via_locked(VIA_NONE);
     xSemaphoreGive(s_route_mtx);
     if (ws) {
-        // Disconnected/start-failed clients can reject stop; destroy still owns
-        // and must release the allocation. Never destroy from an event callback.
         hp_mark("ws stop");
         esp_websocket_client_stop(ws);
         esp_websocket_client_destroy(ws);
         hp_mark("ws destroyed");
     app_wake_transport_busy(false);
     }
+    if (s_wss) esp_transport_destroy(s_wss);
+    if (s_tls) esp_transport_destroy(s_tls);
+    s_wss = s_tls = NULL;
     free(rx);
     xSemaphoreGive(s_ws_io_mtx);
 }
@@ -250,17 +247,21 @@ static bool ws_start(const char *uri) {
     app_wake_transport_busy(true);
     hp_mark("ws start");
     esp_websocket_client_config_t cfg = {
-        .uri = uri, .buffer_size = 2048,
+        .uri = uri, .buffer_size = 1280,
         .disable_auto_reconnect = true, .network_timeout_ms = 15000,
-        // Unanswered pings mean a dead route (e.g. the server dropped us): reconnect.
         .ping_interval_sec = 10, .pingpong_timeout_sec = 30,
         .task_stack = 5120, .task_prio = WS_TASK_PRIO,
-        // LAN mode pins the plugin's own key; a public address needs a CA.
         .crt_bundle_attach = pinned ? link_pin_attach : esp_crt_bundle_attach,
     };
     xSemaphoreTake(s_ws_io_mtx, portMAX_DELAY);
-    esp_websocket_client_handle_t ws = esp_websocket_client_init(&cfg);
-    if (!ws) { xSemaphoreGive(s_ws_io_mtx); ESP_LOGW(TAG, "websocket allocation failed"); app_wake_transport_busy(false); return false; }
+    s_wss = link_tls_wss(uri, pinned, &s_tls);
+    cfg.ext_transport = s_wss;
+    esp_websocket_client_handle_t ws = s_wss ? esp_websocket_client_init(&cfg) : NULL;
+    if (!ws) {
+        if (s_wss) esp_transport_destroy(s_wss);
+        if (s_tls) esp_transport_destroy(s_tls);
+        s_wss = s_tls = NULL;
+        xSemaphoreGive(s_ws_io_mtx); ESP_LOGW(TAG, "websocket allocation failed"); app_wake_transport_busy(false); return false; }
     xSemaphoreTake(s_route_mtx, portMAX_DELAY);
     snprintf(s_endpoint, sizeof s_endpoint, "%s", uri);
     s_ws = ws;
@@ -281,17 +282,22 @@ static bool ws_start(const char *uri) {
     return true;
 }
 static bool ws_send(const void *data, size_t len, bool binary, bool handshake, uint32_t session) {
+    int64_t begin = esp_timer_get_time();
     xSemaphoreTake(s_ws_io_mtx, portMAX_DELAY);
+    int64_t owned = esp_timer_get_time();
     xSemaphoreTake(s_route_mtx, portMAX_DELAY);
     esp_websocket_client_handle_t ws = s_ws;
     bool allowed = ws && s_ws_connected && (!session || session == atomic_load(&s_session)) &&
         (handshake || (s_ws_ready && atomic_load(&s_via) == VIA_WIFI));
     xSemaphoreGive(s_route_mtx);
+    int64_t routed = esp_timer_get_time();
     int n = -1;
-    // A failed write makes the client drop the whole connection, so give a slow uplink time.
     if (allowed) n = binary ? esp_websocket_client_send_bin(ws, data, len, pdMS_TO_TICKS(WS_SEND_MS))
                             : esp_websocket_client_send_text(ws, data, len, pdMS_TO_TICKS(WS_SEND_MS));
     xSemaphoreGive(s_ws_io_mtx);
+    int64_t end = esp_timer_get_time();
+    if (end - begin > 80000) ESP_LOGW(TAG, "slow WSS send: owner=%d route=%d sdk=%d ms, binary=%d bytes=%u",
+        (int)((owned-begin)/1000), (int)((routed-owned)/1000), (int)((end-routed)/1000), binary, (unsigned)len);
     return n == (int)len;
 }
 void link_endpoint(char *out, size_t cap) {
@@ -417,11 +423,9 @@ static void manager_send_challenge(manager_state_t *s) {
         if (ok) link_usb_frame(F_JSON, e, 4, auth, strlen(auth));
     } else if (!ok || !ws_send(auth, strlen(auth), false, true, 0)) manager_mark_ws_failed(s);
 }
-
 static void manager_backoff(manager_retry_t *r) {
     r->backoff = r->backoff < 5000 ? r->backoff * 2 : 10000;
 }
-
 static void manager_retry_failed(manager_state_t *s, manager_retry_t *r) {
     ws_stop(); r->next_ws = s->now + (r->was_ready ? 500 : r->backoff);
     if (!r->was_ready) manager_backoff(r);
@@ -432,7 +436,6 @@ static bool manager_ws_due(manager_state_t *s, manager_retry_t *r) {
         ((int32_t)(s->now - r->next_ws) >= 0) && wifi_link_attempt_allowed() &&
         (strncmp(g_settings.server_url, "wss://", 6) || wifi_time_ready());
 }
-
 static void manager_stop_wifi(manager_state_t *s) {
     if (s->has_ws) ws_stop();
     link_target_stop();
@@ -453,7 +456,6 @@ static void manager_connect(manager_state_t *s, manager_retry_t *r) {
         atomic_store(&s_problem, LINK_NO_SERVER);
     r->next_ws = s->now + r->backoff; manager_backoff(r);
 }
-
 static void manager_wifi_step(manager_state_t *s, manager_retry_t *r) {
     if (!s->wifi_ok) { manager_stop_wifi(s); return; }
     // Keep Wi-Fi alive while USB carries traffic so it can take over seamlessly.
@@ -463,7 +465,6 @@ static void manager_wifi_step(manager_state_t *s, manager_retry_t *r) {
     if (s->ready) { r->backoff = 2000; r->was_ready = true; return; }
     if (manager_ws_due(s, r)) manager_connect(s, r);
 }
-
 static void manager_task(void *arg) {
     (void)arg;
     manager_retry_t retry = {.boot = now_ms(), .next_ws = now_ms() + 3000, .backoff = 2000};
@@ -476,7 +477,6 @@ static void manager_task(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
-
 static void muse_route(bool ready) {
     xSemaphoreTake(s_route_mtx, portMAX_DELAY);
     set_via_locked(ready ? VIA_MUSE : VIA_NONE);

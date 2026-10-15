@@ -49,6 +49,7 @@ static void catalog(agent_menu_t *m) {
     m->online = m->options_loaded = m->capabilities_known = m->stt_available = m->tts_available = true;
     // Pickers show a list long enough to scroll; the three voice modes are just three.
     const char *labels[] = {"Fast", "Detailed", "Balanced", "Reasoning", "Compact", "Vision", "Long context", "Creative", "Private", "Offline"};
+    if (!agent_menu_reserve_catalog(m)) return;
     m->count = m->total = m->view == AGENT_VIEW_MODELS ? 10 : 3;
     for (int i = 0; i < m->count; i++) {
         snprintf(m->models[i].id, sizeof m->models[i].id, "demo/model-%d", i);
@@ -62,6 +63,7 @@ static void catalog(agent_menu_t *m) {
 void screen_lab_catalog(screen_lab_t *lab) {
     agent_menu_t *m = &lab->face.agent;
     catalog(m);
+    if (!m->models) return;
     m->voice_mode = lab->model_choice[AGENT_TARGET_MODE];
     strcpy(m->model, m->models[lab->model_choice[AGENT_TARGET_AGENT]].id);
     strcpy(m->stt_model, m->models[lab->model_choice[AGENT_TARGET_STT]].label);
@@ -140,6 +142,7 @@ void screen_lab_select(screen_lab_t *lab, int screen) {
     lab->selected = screen; lab->signal = true; lab->overlay = true;
     lab->finger = (rub_track_t){0};
     face_t *f = &lab->face;
+    agent_menu_clear_catalog(&f->agent);
     face_init(f);
 #ifndef ESP_PLATFORM
     face_set_character(f, lab->character);

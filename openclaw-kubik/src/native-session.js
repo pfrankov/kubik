@@ -76,6 +76,7 @@ export class NativeSession {
   acknowledge(message) {
     const wait = this.#inputAck;
     if (!wait || message.turn !== this.turn.id || message.on !== wait.on || !this.current()) return;
+    if (!message.on) this.trace.phase("input-ack");
     clearTimeout(wait.timer); this.#inputAck = null;
     this.turn.phase = message.on && !this.live ? 'recording' : 'native';
     this.setState(message.on ? 'listening' : 'thinking');

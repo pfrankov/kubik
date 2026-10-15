@@ -16,6 +16,7 @@ mock = r'''
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include "wifi.h"
@@ -214,7 +215,16 @@ static wifi_ap_record_t scan_recs[6] = {
     {"home", -40, WIFI_AUTH_WPA2_PSK}, {"", -45, WIFI_AUTH_OPEN}, {"cafe", -50, WIFI_AUTH_OPEN},
     {"home", -60, WIFI_AUTH_WPA2_PSK}, {"office", -70, WIFI_AUTH_WPA_PSK}, {"far", -90, WIFI_AUTH_OPEN}};
 static atomic_bool s_scanning; // tentative; defined by wifi.c
-static bool scanning_seen;
+static bool scanning_seen, scan_alloc_fails, records_fail;
+static unsigned scan_buffers, scan_clears;
+static void *scan_reserve(size_t n, size_t size) {
+    assert(n == 24 && size == sizeof(wifi_ap_record_t));
+    if (scan_alloc_fails) return NULL;
+    void *p = calloc(n, size); assert(p); ++scan_buffers; return p;
+}
+static void scan_free(void *p) { assert(p && scan_buffers); --scan_buffers; free(p); }
+#define calloc scan_reserve
+#define free scan_free
 int esp_wifi_scan_start(wifi_scan_config_t *c, bool block) {
     // A retry timer firing during the blocking scan must not start a connect.
     assert(driver_locked);
@@ -222,8 +232,8 @@ int esp_wifi_scan_start(wifi_scan_config_t *c, bool block) {
     int c0 = connects; assert(block); scanning_seen = s_scanning; fire_timer(); assert(connects == c0);
     return scan_fails ? ESP_FAIL : ESP_OK;
 }
-int esp_wifi_scan_get_ap_records(uint16_t *n, wifi_ap_record_t *r) { assert(*n >= 6); memcpy(r, scan_recs, sizeof scan_recs); *n = 6; return 0; }
-int esp_wifi_clear_ap_list(void) { return 0; }
+int esp_wifi_scan_get_ap_records(uint16_t *n, wifi_ap_record_t *r) { assert(*n >= 6 && scan_buffers == 1); if (records_fail) return ESP_FAIL; memcpy(r, scan_recs, sizeof scan_recs); *n = 6; return 0; }
+int esp_wifi_clear_ap_list(void) { ++scan_clears; return 0; }
 '''
 test = r'''
 static void stop_before_driver_start(void) { wifi_radio_stop(); }
@@ -400,6 +410,14 @@ int main(void) {
     assert(!strcmp(nets[1].ssid,"cafe") && !nets[1].secure && !strcmp(nets[2].ssid,"office"));
     assert(timer_armed && timer_us==500000);
     scan_fails=true; assert(wifi_scan(nets,3)==0 && timer_armed); scan_fails=false;
+    assert(!scan_buffers);
+    unsigned cleared = scan_clears;
+    scan_alloc_fails = true; assert(wifi_scan(nets,3) == 0); scan_alloc_fails = false;
+    assert(!scan_buffers && scan_clears == ++cleared && timer_armed);
+    records_fail = true; assert(wifi_scan(nets,3) == 0); records_fail = false;
+    assert(!scan_buffers && scan_clears == ++cleared && timer_armed);
+    assert(wifi_scan(nets,3) == 3 && !scan_buffers); // failure cannot retain scratch or break the next scan
+
     wifi_radio_stop();
     strcpy(g_settings.wifi_profiles[0].ssid,"absent");
     strcpy(g_settings.wifi_profiles[1].ssid,"office");

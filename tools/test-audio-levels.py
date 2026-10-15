@@ -48,7 +48,28 @@ static void mixed_sources(void) {
     assert(!mix_speaker_frame(samples,mix,true,history,&at)); assert(samples[0]==0 && !audible);
 }
 
+static int16_t reference_limit(int32_t value, int32_t knee) {
+    int64_t magnitude = value < 0 ? -(int64_t)value : value;
+    if (magnitude > knee) { int64_t excess=magnitude-knee,h=32767-knee; magnitude=knee+h*excess/(h+excess); }
+    return (int16_t)(value < 0 ? -magnitude : magnitude);
+}
+static void exact_levels(void) {
+    uint32_t seed=19;
+    for(int i=0;i<1000000;i++) {
+        seed=seed*1664525u+1013904223u; int32_t value; memcpy(&value,&seed,sizeof value);
+        assert(audio_levels_limit(value)==reference_limit(value,24576));
+        assert(audio_levels_mix(value)==reference_limit(value,32000));
+    }
+    for(int p=0;p<=100;p++) {
+        audio_levels_set_speech(p);
+        int32_t gain=(p*p*65536LL)/10000;
+        for(int sample=-32768;sample<=32767;sample++)
+            assert(audio_levels_speech(sample)==reference_limit((int32_t)((int64_t)sample*gain/65536),24576));
+    }
+}
+
 int main(void) {
+    exact_levels();
     mixed_sources();
     audio_levels_set_interface(70);
     int ui = audio_levels_interface(10000);

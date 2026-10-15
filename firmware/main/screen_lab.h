@@ -28,6 +28,7 @@ typedef struct { int taps; int64_t first_ms; bool ready; } screen_lab_unlock_t;
 bool screen_lab_unlock_tap(screen_lab_unlock_t *state, int x, int y, int64_t now);
 bool screen_lab_entry(bool unlocked, int x, int y);
 void screen_lab_catalog(screen_lab_t *lab);
+// Initialize fresh storage; clear lab->face.agent catalog before reinitializing.
 void screen_lab_init(screen_lab_t *lab, int character);
 void screen_lab_select(screen_lab_t *lab, int screen);
 void screen_lab_event(screen_lab_t *lab, lab_event_t event, int x, int y);

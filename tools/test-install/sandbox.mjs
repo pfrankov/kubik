@@ -10,7 +10,9 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const KEPT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR', 'SystemRoot'];
+// npm's explicit network route is safe to retain; account/provider configuration
+// and credentials still come only from this test's isolated HOME.
+const KEPT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR', 'SystemRoot', 'npm_config_https_proxy'];
 
 /** A free TCP port on loopback. */
 export function freePort() {

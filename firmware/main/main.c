@@ -1,3 +1,5 @@
+#include "app_speech.h"
+#include "frame_diagnostics.h"
 #include <stdatomic.h>
 #include "app_lab.h"
 // Kubik: a push-to-talk desk companion for OpenClaw.
@@ -174,24 +176,35 @@ static void play_sounds(const tess_sounds_t *in, bool lab) {
     }
 }
 
+static struct { int lock, update, draw, sounds; } s_scene_cost;
+
 static face_mode_t update_scene(scene_t *scene, float elapsed, bool powered) {
+    int64_t started = esp_timer_get_time();
     xSemaphoreTake(g_face_mtx, portMAX_DELAY);
+    int64_t locked = esp_timer_get_time();
     app_face_inputs(&g_face);
     g_face.dark = !powered;
     bool lab = app_lab_frame(scene, elapsed, powered);
-    if (!lab) { face_update(&g_face, elapsed); if (powered) face_draw(&g_face, scene); }
+    if (!lab) face_update(&g_face, elapsed);
+    int64_t updated = esp_timer_get_time();
+    if (!lab && powered) face_draw(&g_face, scene);
+    int64_t drawn = esp_timer_get_time();
     static tess_sounds_t sounds;  // (the display task's own: kept off its stack)
     take_sounds(&sounds, lab);
     face_mode_t mode = g_face.mode;
     xSemaphoreGive(g_face_mtx);
     play_sounds(&sounds, lab);
+    s_scene_cost.lock = locked - started; s_scene_cost.update = updated - locked;
+    s_scene_cost.draw = drawn - updated; s_scene_cost.sounds = esp_timer_get_time() - drawn;
     return mode;
 }
 
 typedef struct {
     int64_t start, sum, max, face, render, image, shapes, prep, glass, present_sum, present_max;
     int64_t hash_seen, pack_seen, send_seen, px_seen, windows_seen;  // f->hash_us / expand_us / px / windows at the end of the previous frame: the per-frame share
-    int frames, late;
+    int frames, late, presented;
+    uint32_t modes;
+    uint32_t slow_frames, deadline_misses;
 } frame_stats_t;
 
 // One frame's cost; a frame over its slot gets its own line with the stages, so a stutter can be traced.
@@ -205,9 +218,10 @@ static void account_frame(frame_stats_t *st, frame_out_t *f, const render_state_
     st->frames++;
     if (total_us > (1000000 + R_FPS - 1) / R_FPS) {
         st->late++;
-        ESP_LOGW(TAG, "slow frame %lld us, mode %d: face %lld, prep %d, image %d, shapes %d, glass %d, hash %lld, pack %lld, send %lld, px %lld in %lld windows",
+        ESP_LOGW(TAG, "slow frame %lld us, mode %d: face %lld, prep %d, image %d, shapes %d, glass %d, hash %lld, pack %lld, send %lld, px %lld in %lld windows; scene lock %d update %d draw %d sounds %d",
                  total_us, (int)g_face.mode, face_us, (int)rs->prep_us, (int)rs->image_us, (int)rs->shapes_us, (int)rs->glass_us,
-                 f->hash_us - st->hash_seen, f->pack_us - st->pack_seen, f->expand_us - st->send_seen, f->px - st->px_seen, f->windows - st->windows_seen);
+                 f->hash_us - st->hash_seen, f->pack_us - st->pack_seen, f->expand_us - st->send_seen, f->px - st->px_seen, f->windows - st->windows_seen,
+                 s_scene_cost.lock, s_scene_cost.update, s_scene_cost.draw, s_scene_cost.sounds);
     }
     st->hash_seen = f->hash_us;
     st->pack_seen = f->pack_us;
@@ -227,6 +241,16 @@ static void log_frame_stats(frame_stats_t *st, frame_out_t *f, const scene_t *sc
     ESP_LOGI(TAG, "present: %lld us/frame max %lld, panel burst (first to last write) %lld us avg, %lld max over %lld frames, frames shown %lld..%lld us apart, character %s, stack free %u",
              st->present_sum / n, st->present_max, f->bursts ? f->burst_sum / f->bursts : 0, f->burst_max, f->bursts, f->gap_min, f->gap_max,
              character_name(KUBIK_CHARACTER), (unsigned)uxTaskGetStackHighWaterMark(NULL));
+    const frame_diagnostics_snapshot_t snapshot = {
+        .frames = n, .elapsed_us = now - st->start, .mean_us = st->sum / n,
+        .max_us = st->max, .late = st->late, .px = f->px / n, .prims = scene->n,
+        .face = st->face / n, .shapes = st->shapes / n, .prep = st->prep / n,
+        .image = st->image / n, .glass = st->glass / n, .hash = f->hash_us / n,
+        .send = f->expand_us / n, .gap_us = f->gap_max,
+        .modes = st->modes, .presented = st->presented, .overflows = f->overflows, .active = atomic_load(&s_gen),
+        .slow_frames = st->slow_frames, .deadline_misses = st->deadline_misses,
+    };
+    frame_diagnostics_publish(&snapshot);
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
     log_cpu();
 #endif
@@ -241,23 +265,34 @@ static void log_frame_stats(frame_stats_t *st, frame_out_t *f, const scene_t *sc
 }
 
 
-// Frames that cannot make 33 ms run at an even 20 fps: alternating 33/66 ms frames judder.
+// Only sustained over-budget work reduces cadence. Recover with 1.3 ms
+// headroom; a healthy 31 ms reaction must not remain capped at 20 fps.
 static int frame_rate(face_mode_t mode, int64_t *avg_us, int64_t frame_us) {
     static bool slow;
-    *avg_us += (frame_us - *avg_us) / 2;
-    if (*avg_us > 30000) slow = true;
-    else if (*avg_us < 24000) slow = false;
-    return mode == MODE_LISTENING ? 24 : slow ? 20 : R_FPS;
+    static face_mode_t previous = MODE_BOOT;
+    static unsigned over_budget;
+    if (mode != previous) {
+        previous = mode; slow = false; over_budget = 0; *avg_us = frame_us;
+    } else *avg_us += (frame_us - *avg_us) / 2;
+    const int64_t budget = (1000000 + R_FPS - 1) / R_FPS;
+    // One transient miss must not add a run of 50 ms frames. Sustained work
+    // still reduces cadence, while a new screen owns its own workload estimate.
+    if (frame_us > budget) {
+        if (over_budget < 2) ++over_budget;
+        if (over_budget == 2 && *avg_us > budget) slow = true;
+    } else over_budget = 0;
+    if (*avg_us < 32000) slow = false;
+    return slow ? 20 : R_FPS;
 }
 
 // Sleeps to the next frame's time. Dark: a notification, touch or remote reply can wake the screen at once; the
 // 250 ms timeout only advances off-screen state when nothing happens.
-static void wait_for_next_frame(bool powered, int fps, TickType_t *wake, int *tick_remainder) {
+static bool wait_for_next_frame(bool powered, int fps, TickType_t *wake, int *tick_remainder) {
     if (!powered) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(250));
         *wake = xTaskGetTickCount();
         *tick_remainder = 0;
-        return;
+        return false;
     }
     *tick_remainder += configTICK_RATE_HZ;
     TickType_t period = *tick_remainder / fps;
@@ -267,6 +302,7 @@ static void wait_for_next_frame(bool powered, int fps, TickType_t *wake, int *ti
         // A missed frame must still yield to idle; never spin trying to catch up.
         vTaskDelay(1);
         *wake = xTaskGetTickCount();
+        return true;
     } else if (ulTaskNotifyTake(pdTRUE, (TickType_t)left)) {
         *wake = xTaskGetTickCount();  // disp_wake(): an input changed the screen; draw it now and keep time from here
         vTaskDelay(1);  // a finger sends points faster than frames finish: let lower tasks run between them
@@ -274,6 +310,7 @@ static void wait_for_next_frame(bool powered, int fps, TickType_t *wake, int *ti
     } else {
         *wake += period;
     }
+    return false;
 }
 
 static void report_presented_mode(bool presented, face_mode_t mode, bool requested, face_mode_t *shown) {
@@ -328,19 +365,20 @@ static void display_task(void *arg) {
         int64_t t_face = esp_timer_get_time();
         bool presented = powered && present_frame(f, &rs, &scene);
         int64_t t1 = esp_timer_get_time();
+        int fps = frame_rate(frame_mode, &frame_avg_us, t1 - t0);
+        stats.slow_frames += fps == 20;
         if (powered) {
             stats.present_sum += t1 - t_face;
             if (t1 - t_face > stats.present_max) stats.present_max = t1 - t_face;
         }
+        if (presented) { ++stats.presented; stats.modes |= 1u << frame_mode; }
         account_frame(&stats, f, &rs, t_face - t0, powered ? t1 - t_face : 0, t1 - t0);
         report_presented_mode(presented, frame_mode, report_mode, &shown_mode);
-        if (t1 - stats.start > 10000000 || g_perf_flush) {
-            g_perf_flush = false;
+        if (t1 - stats.start > 10000000 || frame_diagnostics_requested()) {
             log_frame_stats(&stats, f, &scene, t1);
         }
-        // Reserve CPU for live microphone TLS/VAD; keep a steady animation cadence.
-        int fps = frame_rate(frame_mode, &frame_avg_us, t1 - t0);
-        wait_for_next_frame(powered, fps, &wake, &tick_remainder);
+        // Audio/mic tasks retain higher priority; healthy screens keep the same cadence.
+        stats.deadline_misses += wait_for_next_frame(powered, fps, &wake, &tick_remainder);
     }
 }
 
@@ -350,6 +388,7 @@ static void initialize_home_face(void) {
 }
 
 void app_main(void) {
+    frame_diagnostics_init();
     tls_mem_init();  // before anything uses mbedTLS
     // The no-sleep lock is held before light sleep is enabled: USB must never see a sleep window at boot.
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "awake", &s_awake_lock));

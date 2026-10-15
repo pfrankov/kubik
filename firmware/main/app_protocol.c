@@ -1,3 +1,4 @@
+#include "frame_diagnostics.h"
 #include "app_lab.h"
 #include "app_models.h"
 #include "app_status.h"
@@ -172,7 +173,7 @@ static bool config_save_connection(cJSON *j, bool *connection_change, char *repl
     snprintf(reply, cap, "{\"ok\":false,\"error\":\"%s\"}", config_connection_error(err));
     return false;
 }
-static void config_set(cJSON *j, char *reply, size_t cap) {
+static void config_set_values(cJSON *j, char *reply, size_t cap) {
     bool connection_change;
     if (!config_save_connection(j, &connection_change, reply, cap)) return;
     const char *name = cJSON_GetStringValue(cJSON_GetObjectItem(j, "name"));
@@ -196,6 +197,11 @@ static void config_set(cJSON *j, char *reply, size_t cap) {
     settings_save();
     snprintf(reply, cap, "{\"ok\":true,\"rebooting\":%s}", connection_change ? "true" : "false");
     if (connection_change) app_post(EV_BOOT_LONG, 1, 0);
+}
+static void config_set(cJSON *j, char *reply, size_t cap) {
+    app_wake_configuration_busy(true);
+    config_set_values(j, reply, cap);
+    app_wake_configuration_busy(false);
 }
 // Hooks that last for a `ms` given (or their default): the view turns about a changing axis (as in `sim rotate`),
 // a finger rubs the character (as in `sim rub vigorous`), or the Wi-Fi session stops (routing test; nothing is saved).
@@ -234,8 +240,7 @@ static bool sim_screen_hook(cJSON *j, const char *event) {
         app_post(EV_SETUP_START, SETUP_BY_USER, 0);
     } else if (!strcmp(event, "mood")) {
         sim_mood_hook(j);
-    } else if (!strcmp(event, "stats")) {
-        g_perf_flush = true;
+
     } else {
         return false;
     }
@@ -261,6 +266,10 @@ static bool sim_hook(cJSON *j, const char *event) {
     return true;
 }
 static void config_sim(cJSON *j, char *reply, size_t cap) {
+    const char *event = cJSON_GetStringValue(cJSON_GetObjectItem(j, "ev"));
+    if (event && !strcmp(event, "stats")) {
+        frame_diagnostics_reply(reply, cap); return;
+    }
     if (app_game_probe(j, reply, cap)) return;
     static const struct {
         const char *name;
@@ -269,7 +278,6 @@ static void config_sim(cJSON *j, char *reply, size_t cap) {
                   {"hold", EV_MENU_HOLD}, {"pet", EV_PET}, {"shake", EV_SHAKE}, {"pickup", EV_PICKUP},
                   {"boot", EV_BOOT_SHORT}, {"pwr", EV_PWR_SHORT}, {"menu", EV_BOOT_LONG},
                   {"pwr_long", EV_PWR_LONG}};
-    const char *event = cJSON_GetStringValue(cJSON_GetObjectItem(j, "ev"));
     cJSON *x = cJSON_GetObjectItem(j, "x"), *y = cJSON_GetObjectItem(j, "y");
     bool found = event && sim_hook(j, event);
     for (size_t i = 0; event && i < sizeof(events) / sizeof(events[0]); i++) {
@@ -456,6 +464,7 @@ static void config_agent_host(char *reply, size_t cap) {
 static void dispatch_config(cJSON *j, const char *command, char *reply, size_t cap) {
     if (!strcmp(command, "set")) config_set(j, reply, cap);
     else if (!strcmp(command, "sim")) config_sim(j, reply, cap);
+    else if (!strcmp(command, "speech")) app_speech_diagnostics(reply, cap);
     else if (!strcmp(command, "card")) config_card(j, reply, cap);
     else if (!strcmp(command, "models")) app_config_models(j, reply, cap);
     else if (!strcmp(command, "lcd")) config_lcd(reply, cap);

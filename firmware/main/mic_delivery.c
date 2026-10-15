@@ -13,17 +13,27 @@
 #define FRAMES 30
 #define SAMPLES 960
 #define LIVE_FRAMES 16
+#define LIVE_BLOCKS 16
+#define LIVE_BLOCK_FRAMES (LIVE_FRAMES / LIVE_BLOCKS)
+_Static_assert(LIVE_FRAMES % LIVE_BLOCKS == 0, "whole Live frames per block");
 #define IMA_BYTES (IMA_HEADER_BYTES + SAMPLES / 2)
 #define STACK_BYTES 4096
 typedef struct { uint32_t epoch; uint8_t ima[IMA_HEADER_BYTES + SAMPLES / 2]; } frame_t;
 #define WORKSPACE_BYTES (FRAMES * sizeof(frame_t) + SAMPLES * sizeof(int16_t))
 static frame_t *s_frames;
+static void *s_live_blocks[LIVE_BLOCKS];
 static int16_t *s_pcm;
 static ima_state_t s_encoder;
 static bool s_duplex;
 static size_t s_capacity, s_stride, s_workspace_bytes;
 static frame_t *queued_frame(unsigned index) {
-    return (frame_t *)((uint8_t *)s_frames + (index % s_capacity) * s_stride);
+    size_t slot = index % s_capacity;
+    uint8_t *base = (uint8_t *)s_frames;
+    if (s_duplex) {
+        base = s_live_blocks[slot / LIVE_BLOCK_FRAMES];
+        slot %= LIVE_BLOCK_FRAMES;
+    }
+    return (frame_t *)(base + slot * s_stride);
 }
 // Only the active sender stack leases LP SRAM. The packed queue and its decode
 // scratch share the existing TLS workspace and release it before playback.
@@ -68,10 +78,16 @@ static void delivery_task(void *unused) {
 
 static void release_buffers(void) {
     // Called only after the worker joined, or before it could start.
-    if (s_frames) {
+    if (s_duplex) {
+        for (int block = 0; block < LIVE_BLOCKS; ++block) {
+            if (s_live_blocks[block]) {
+                memset(s_live_blocks[block], 0, LIVE_BLOCK_FRAMES * s_stride);
+                heap_caps_free(s_live_blocks[block]); s_live_blocks[block] = NULL;
+            }
+        }
+    } else if (s_frames) {
         memset(s_frames, 0, s_workspace_bytes);
-        if (s_duplex) heap_caps_free(s_frames);
-        else tls_mem_capture_release();
+        tls_mem_capture_release();
     }
     s_frames = NULL; s_pcm = NULL;
     heap_caps_free(s_stack); s_stack = NULL;
@@ -82,7 +98,17 @@ static bool reserve_queue(bool duplex) {
     s_capacity = duplex ? LIVE_FRAMES : FRAMES;
     s_stride = duplex ? sizeof(frame_t) + IMA_BYTES + 1 : sizeof(frame_t); // 4-byte aligned
     s_workspace_bytes = s_capacity * s_stride + (duplex ? 0 : SAMPLES * sizeof(int16_t));
-    if (duplex) s_frames = heap_caps_malloc(s_workspace_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (duplex) {
+        // Same 16-frame capacity; one 972-byte frame per allocation preserves
+        // larger free heap regions for Wi-Fi packets instead of taking them.
+        // No contiguous 15.5 KB hole is required
+        // beside the TLS record. Every partial allocation is owned and cleared.
+        for (int block = 0; block < LIVE_BLOCKS; ++block) {
+            s_live_blocks[block] = heap_caps_malloc(LIVE_BLOCK_FRAMES * s_stride, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (!s_live_blocks[block]) { release_buffers(); return false; }
+        }
+        s_frames = s_live_blocks[0];
+    }
     // Classic/Realtime lease TLS memory; Live must receive TLS while still capturing.
     // A TLS reader may briefly own the workspace after the PTT control frame.
     for (int retry = 0; retry < 10 && !s_frames && !duplex; retry++) {

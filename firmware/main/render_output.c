@@ -7,13 +7,16 @@ typedef uint32_t pixel_pair_t __attribute__((__may_alias__));
 static int32_t imax(int32_t a, int32_t b) { return a > b ? a : b; }
 static int32_t imin(int32_t a, int32_t b) { return a < b ? a : b; }
 
-int render_band_windows(const uint16_t *mask, int p0, int p1, render_win_t *out) {
+static int band_windows(const uint16_t *mask, int p0, int p1, render_win_t *out) {
     uint32_t pair[R_BAND * 2], all = 0;
     for (int p = p0; p < p1; p++) {
         pair[p - p0] = mask[p] | (p + 1 < R_H ? mask[p + 1] : 0);
         all |= pair[p - p0];
     }
-    all |= (all << 1) & (all >> 1);  // one unchanged stripe between two changed ones costs less to send than a window
+    all |= (all << 1) & (all >> 1);
+    // At 40 MHz two unchanged stripes cost less than another panel window's
+    // commands and DMA setup. They are still rendered and sent losslessly.
+    all |= ((all << 1) & (all >> 2)) | ((all << 2) & (all >> 1));
     int n = 0;
     for (int k = 0; k < R_W / 16 && n < RENDER_BAND_WINDOWS;) {
         if (!(all >> k & 1)) { k++; continue; }
@@ -30,6 +33,28 @@ int render_band_windows(const uint16_t *mask, int p0, int p1, render_win_t *out)
             out[n++] = (render_win_t){(int16_t)((k > 0 ? k * 16 - 1 : 0) * R_SCALE), (int16_t)(first * R_SCALE),
                                       (int16_t)(end * 16 * R_SCALE), (int16_t)((last + 1) * R_SCALE)};
         k = end;
+    }
+    return n;
+}
+
+static int window_cost(const render_win_t *windows, int n) {
+    // Measured C6 queue/setup cost expressed as equivalent QSPI panel pixels.
+    int cost = n * 1000;
+    for (int i = 0; i < n; i++)
+        cost += (windows[i].x1 - windows[i].x0) * (windows[i].y1 - windows[i].y0);
+    return cost;
+}
+
+int render_band_windows(const uint16_t *mask, int p0, int p1, render_win_t *out) {
+    int n = band_windows(mask, p0, p1, out);
+    if (p1 - p0 < 2) return n;
+    render_win_t split[RENDER_BAND_WINDOWS * 2];
+    int mid = (p0 + p1) / 2;
+    int first = band_windows(mask, p0, mid, split);
+    int halves = first + band_windows(mask, mid, p1, split + first);
+    if (halves <= RENDER_BAND_WINDOWS && window_cost(split, halves) < window_cost(out, n)) {
+        memcpy(out, split, (size_t)halves * sizeof *out);
+        return halves;
     }
     return n;
 }
@@ -53,6 +78,17 @@ static inline uint32_t midpoint2(uint32_t a, uint32_t b) {
 static inline uint32_t swap2(uint32_t v) {
     return ((v >> 8) & 0x00FF00FFu) | ((v << 8) & 0xFF00FF00u);
 }
+// UI backgrounds need no interpolation arithmetic. Keep the exact same pairs.
+static R_HOT bool flat_row(render_output_t *st, int k, bool swap) {
+    int lo = st->xa & ~1, hi = imin(st->xb + 2, R_W);
+    const uint16_t *src = st->source[k];
+    uint16_t color = src[lo];
+    for (int x = lo + 1; x < hi; x++) if (src[x] != color) return false;
+    uint32_t pair = color | ((uint32_t)color << 16), output = swap ? swap2(pair) : pair;
+    for (int x = lo; x < st->xb; x++) { st->row[k][x] = pair; st->even[k][x] = output; }
+    return true;
+}
+
 // Native row y as expanded pairs, for columns xa..xb-1 (rounded out to whole pixel pairs).
 static R_HOT int output_row(render_output_t *st, int y, bool swap) {
     int k = y & 1;
@@ -64,10 +100,17 @@ static R_HOT int output_row(render_output_t *st, int y, bool swap) {
             st->source_key[k] = y;
         }
         uint32_t *row = st->row[k], *even = st->even[k];
+        st->flat[k] = flat_row(st, k, swap);
         // Two pixels per step: (a0, a1) and their right neighbours (a1, a2) give both midpoints at once.
 #pragma GCC unroll 2
-        for (int x = st->xa & ~1; x < st->xb; x += 2) {
+        for (int x = st->xa & ~1; !st->flat[k] && x < st->xb; x += 2) {
             uint32_t w = *(const pixel_pair_t *)(const void *)(src + x);
+            // Sparse clouds leave long black spans inside otherwise changed rows.
+            // Three zero source pixels expand to four exact zero panel pixels.
+            if (!w && !src[x + 2]) {
+                row[x] = row[x + 1] = even[x] = even[x + 1] = 0;
+                continue;
+            }
             uint32_t m = midpoint2(w, (w >> 16) | ((uint32_t)src[x + 2] << 16));
             uint32_t r0 = (w & 0xFFFFu) | (m << 16), r1 = (w >> 16) | (m & 0xFFFF0000u);
             row[x] = r0;
@@ -88,16 +131,19 @@ R_HOT void render_expand_2x(render_output_t *st, uint16_t *out, int x0, int y0, 
         int ka = output_row(st, sy, swap), kb = output_row(st, imin(sy + 1, R_H - 1), swap);
         const uint32_t *a = st->row[ka] + c, *b = st->row[kb] + c, *even = st->even[ka] + c;
         pixel_pair_t *same = (pixel_pair_t *)out, *odd = (pixel_pair_t *)(out + width);  // even panel row: the native row itself
-        if (swap) {
+        if (st->flat[ka] && st->flat[kb] && a[0] == b[0]) {
+            if (!even[0]) memset(out, 0, (size_t)width * R_SCALE * 2);
+            else for (int x = 0; x < width; x++) same[x] = even[0];
+        } else if (swap) {
 #pragma GCC unroll 4
             for (int x = 0; x < n; x++) {
                 same[x] = even[x];
-                odd[x] = swap2(midpoint2(a[x], b[x]));
+                odd[x] = a[x] == b[x] ? even[x] : swap2(midpoint2(a[x], b[x]));
             }
         } else {
             for (int x = 0; x < n; x++) {
                 same[x] = even[x];
-                odd[x] = midpoint2(a[x], b[x]);
+                odd[x] = a[x] == b[x] ? even[x] : midpoint2(a[x], b[x]);
             }
         }
         out += width * R_SCALE;

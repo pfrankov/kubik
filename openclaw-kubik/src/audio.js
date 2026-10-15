@@ -1,3 +1,4 @@
+import { setImmediate as yieldIo } from 'node:timers/promises';
 import { BYTES_PER_MS, MAX_SPEECH_PAYLOAD_BYTES, SAMPLE_RATE, SPEECH_LEAD_MS } from './protocol.js';
 
 /** Wraps s16le mono PCM in a RIFF/WAVE header. */
@@ -175,6 +176,7 @@ export class SpeechPacer {
   async #pump() {
     if (this.#running) return;
     this.#running = true;
+    let batchMs = 0;
     try {
       while (this.#items.length) {
         const head = this.#items[0];
@@ -203,6 +205,14 @@ export class SpeechPacer {
         }
         this.sendAudio(frame);
         this.#trace?.sent(size, this.bufferedAmount());
+        batchMs += ms;
+        if (batchMs >= 100) {
+          batchMs = 0;
+          // Give each full audio packet an I/O turn before encoding the next,
+          // so a provider burst does not coalesce into oversized TLS records.
+          // Credit and the 100 ms packet size stay unchanged.
+          await yieldIo();
+        }
       }
     } finally {
       this.#running = false;

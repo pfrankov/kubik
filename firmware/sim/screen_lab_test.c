@@ -126,6 +126,7 @@ static void screens(int character) {
             screen_lab_draw(&lab, &scene);
             assert(scene.n + scene.dots_n > 0 && scene.n <= R_MAX_PRIMS && scene.text_n <= R_TEXT_POOL);
             assert(scene.dots_n <= R_MAX_DOTS);
+            if (character == CHARACTER_TESS) assert(scene.n < 64);
         }
         assert(!lab.face.agent.request_pending);
     }

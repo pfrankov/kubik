@@ -53,15 +53,25 @@ bool tess_ripple_active(const face_t *f) {
     return false;
 }
 
-void tess_ripple_point(const face_t *f, float *x, float *y, float *z) {
+unsigned tess_ripple_frame(const face_t *f, tess_ripple_frame_t out[TESS_RIPPLES]) {
+    unsigned count = 0;
     for (int k = 0; k < TESS_RIPPLES; k++) {
         const tess_ripple_t *r = &f->tess_ripple[k];
         if (r->age >= RIPPLE_LIFE_S) continue;
-        float dx = *x - r->x, dy = *y - r->y, d2 = dx * dx + dy * dy, ring = r->age * RIPPLE_SPEED;
+        float ring = r->age * RIPPLE_SPEED;
         float near = fmaxf(0, ring - RIPPLE_HALF), far = ring + RIPPLE_HALF;
-        if (d2 < near * near || d2 > far * far) continue;  // (not yet reached, or past)
-        float d = sqrtf(d2) + 1e-3f, u = (d - ring) / RIPPLE_HALF;
-        float gain = (1 - u * u) * (1 - r->age / RIPPLE_LIFE_S) / (1 + RIPPLE_FADE * d);
+        out[count++] = (tess_ripple_frame_t){r->x, r->y, ring, near * near, far * far, 1 - r->age / RIPPLE_LIFE_S};
+    }
+    return count;
+}
+
+void tess_ripple_point(const tess_ripple_frame_t *ripples, unsigned count, float *x, float *y, float *z) {
+    for (unsigned k = 0; k < count; k++) {
+        const tess_ripple_frame_t *r = &ripples[k];
+        float dx = *x - r->x, dy = *y - r->y, d2 = dx * dx + dy * dy;
+        if (d2 < r->near2 || d2 > r->far2) continue;
+        float d = sqrtf(d2) + 1e-3f, u = (d - r->ring) / RIPPLE_HALF;
+        float gain = (1 - u * u) * r->fade / (1 + RIPPLE_FADE * d);
         *x += dx / d * RIPPLE_PUSH * gain;
         *y += dy / d * RIPPLE_PUSH * gain;
         *z += RIPPLE_LIFT * gain;

@@ -1,5 +1,6 @@
 #include "present.h"
 
+#include <assert.h>
 #include <string.h>
 
 #include "esp_timer.h"
@@ -17,6 +18,18 @@ static void mask_union(uint16_t *mask, const canvas_rect_t *r, int y0, int y1) {
 // The store's room a band of nothing but noise needs: 9 rows of 15 stripes, 64 bytes each, at worst.
 #define FLUSH_BYTES (FRAME_STORE_BYTES - (R_BAND + 1) * FRAME_STRIPES * FRAME_STRIPE * 4)
 
+// Only an admitted merged rectangle may reconstruct unstored black stripes.
+static void read_merged(void *ctx, int y, uint16_t *out, int xa, int xb) {
+    frame_store_t *store = ctx;
+    for (int k = xa / FRAME_STRIPE; k <= (xb - 1) / FRAME_STRIPE; k++) {
+        if (store->stripes[y] & (1u << k)) continue;
+        int first = k * FRAME_STRIPE > xa ? k * FRAME_STRIPE : xa;
+        int last = (k + 1) * FRAME_STRIPE < xb ? (k + 1) * FRAME_STRIPE : xb;
+        memset(out + first, 0, (size_t)(last - first) * sizeof *out);
+    }
+    frame_store_read(ctx, y, out, xa, xb);
+}
+
 // Sends one panel window: the native rows it covers are expanded 2x and the edge band and text drawn over them.
 static void send_window(frame_out_t *f, const render_win_t *w) {
     int64_t t = esp_timer_get_time();
@@ -31,7 +44,7 @@ static void send_window(frame_out_t *f, const render_win_t *w) {
         f->next = (f->next + 1) % LCD_PIPE;
         render_expand_2x(&f->output, out, w->x0, y, width, rows, true);
         render_edge_overlay(f->scene, out, w->x0, y, width, rows, true);
-        render_text_overlay(f->scene, out, w->x0, y, width, rows, true);
+        if (f->overlay_count) render_text_overlay(f->scene, out, w->x0, y, width, rows, true);
         display_write(out, width * rows, y + rows == w->y1);
     }
     display_end();
@@ -120,6 +133,31 @@ static int add_edge_sides(render_win_t *w, int n, int y0, int reach) {
     return n;
 }
 
+// Stripe hashes find damage cheaply; their exact old/new lit hull can trim
+// the outer columns. Explicit overlays/healing still own their whole stripe.
+static void changed_hull(const frame_out_t *f, int y, int *left, int *right) {
+    if (y >= R_H) return;
+    if (f->overlay_mask[y] || (y >= f->heal_y && y < f->heal_y + f->heal_h)) {
+        *left = 0; *right = R_W; return;
+    }
+    int lo = f->canvas.changed_x0[y], hi = f->canvas.changed_x1[y];
+    if (lo >= hi) return;
+    if (lo < *left) *left = lo;
+    if (hi > *right) *right = hi;
+}
+static void trim_windows(const frame_out_t *f, render_win_t *windows, int n) {
+    for (int i = 0; i < n; i++) {
+        render_win_t *w = &windows[i];
+        int left = R_W, right = 0;
+        for (int y = w->y0 / R_SCALE; y <= w->y1 / R_SCALE && y < R_H; y++)
+            changed_hull(f, y, &left, &right);
+        if (left >= right) continue;
+        int x0 = left > 0 ? (left - 1) * R_SCALE : 0;
+        w->x0 = (int16_t)larger(w->x0, x0);
+        w->x1 = (int16_t)(w->x1 < right * R_SCALE ? w->x1 : right * R_SCALE);
+    }
+}
+
 // The windows of band y0, from what changed in it and the edge band. An edge band that only grows or retracts (it
 // does when listening starts and ends) is redrawn where its pixels change: a ring of a few pixels, not the band's
 // whole reach, which would be most of the screen's border. Any other change of it (colour, radius) is redrawn where
@@ -134,6 +172,7 @@ static void plan_band(frame_out_t *f, int y0) {
         n = 1;
     } else {
         n = render_band_windows(f->mask, y0, y0 + R_BAND, w);
+        trim_windows(f, w, n);
         if (ring) n = add_edge_ring(f, y0, w, n);
         else if (reach > 0) n = add_edge_sides(w, n, y0, reach);
     }
@@ -233,6 +272,108 @@ static void overlay_prepare(frame_out_t *f, const scene_t *scene) {
     for (unsigned i = count; i < f->overlay_count; i++) overlay_mark(f, &f->overlay_prev[i]);
     f->overlay_count = count;
 }
+static uint16_t stripe_range(int first, int last) {
+    if (first >= last) return 0;
+    return (uint16_t)(((1u << ((last - 1) / FRAME_STRIPE + 1)) - 1) & ~((1u << (first / FRAME_STRIPE)) - 1));
+}
+
+// The store need not keep black outside each row's current lit hull. It must
+// keep every lit stripe of a larger rectangle, including bilinear
+// neighbours. The mask comes from exact pixel ORs, never stripe hashes.
+static bool rectangle_readable(const frame_out_t *f, const render_win_t *w) {
+    int right = w->x1 / R_SCALE + 2;
+    if (right > R_W) right = R_W;
+    uint16_t required = stripe_range(w->x0 / R_SCALE, right);
+    for (int y = w->y0 / R_SCALE; y <= w->y1 / R_SCALE && y < R_H; y++) {
+        uint16_t missing = required & ~f->store.stripes[y];
+        uint16_t lit = f->canvas.row_lit[y];
+        if (missing & lit) return false;
+    }
+    return true;
+}
+
+typedef struct { uint8_t band, slot; } window_ref_t;
+static render_win_t *window_at(frame_out_t *f, window_ref_t ref) { return &f->plan[ref.band][ref.slot]; }
+static int window_area(const render_win_t *w) { return (w->x1 - w->x0) * (w->y1 - w->y0); }
+
+// Return the panel-pixel equivalent saved by joining vertically touching or overlapping
+// windows. Extra black pixels are allowed only when cheaper than addressing.
+static int join_saving(const render_win_t *a, const render_win_t *b, render_win_t *box) {
+    if (a->y1 < b->y0 || b->y1 < a->y0) return 0;
+    *box = (render_win_t){a->x0 < b->x0 ? a->x0 : b->x0, a->y0 < b->y0 ? a->y0 : b->y0,
+        a->x1 > b->x1 ? a->x1 : b->x1, a->y1 > b->y1 ? a->y1 : b->y1};
+    return 1000 + window_area(a) + window_area(b) - window_area(box);
+}
+static bool window_skipped(const frame_out_t *f, window_ref_t ref) {
+    return (f->plan_skip[ref.band] & (1u << ref.slot)) != 0;
+}
+// Widening a root can make another root cheap to join, or cover it entirely.
+// Reconsider the bounded live roots so those pixels are not sent twice.
+static void join_neighbors(frame_out_t *f, window_ref_t root, const window_ref_t *previous, int count) {
+    render_win_t *w = window_at(f, root);
+    for (int i = 0; i < count; i++) {
+        window_ref_t other = previous[i];
+        if ((other.band == root.band && other.slot == root.slot) || window_skipped(f, other)) continue;
+        render_win_t box = {0};
+        if (join_saving(w, window_at(f, other), &box) <= 0 || !rectangle_readable(f, &box)) continue;
+        *w = box;
+        f->plan_skip[other.band] |= (uint16_t)(1u << other.slot);
+    }
+}
+static bool join_readable(frame_out_t *f, window_ref_t ref, const window_ref_t *previous, int count) {
+    render_win_t *w = window_at(f, ref), best_box;
+    int best = -1, saving = 0;
+    for (int i = 0; i < count; i++) {
+        if (window_skipped(f, previous[i])) continue;
+        render_win_t box = {0};
+        int candidate = join_saving(window_at(f, previous[i]), w, &box);
+        if (candidate > saving && rectangle_readable(f, &box)) {
+            best = i; saving = candidate; best_box = box;
+        }
+    }
+    if (best < 0) return false;
+    window_ref_t root = previous[best];
+    *window_at(f, root) = best_box;
+    f->plan_skip[ref.band] |= (uint16_t)(1u << ref.slot);
+    join_neighbors(f, root, previous, count);
+    return true;
+}
+
+// The completed store lets neighbouring bands share a wider window without
+// speculating about pixels. Keep only roots reaching the current band; the
+// bounded list needs no allocation or extra RGB storage.
+static bool merge_frame_windows(frame_out_t *f) {
+    window_ref_t previous[PLAN_WINDOWS * 2];
+    int count = 0;
+    bool merged = false;
+    for (int band = 0; band < R_BANDS; band++) {
+        int kept = 0;
+        for (int i = 0; i < count; i++)
+            if (!window_skipped(f, previous[i]) && window_at(f, previous[i])->y1 >= band * R_BAND * R_SCALE)
+                previous[kept++] = previous[i];
+        count = kept;
+        for (int i = 0; i < f->plan_n[band]; i++) {
+            if (f->plan_skip[band] & (1u << i)) continue;
+            window_ref_t ref = {(uint8_t)band, (uint8_t)i};
+            if (join_readable(f, ref, previous, count)) merged = true;
+            else {
+                assert(count < PLAN_WINDOWS * 2);
+                previous[count++] = ref;
+            }
+        }
+    }
+    return merged;
+}
+
+static void output_frame(frame_out_t *frame) {
+    frame->burst_start = 0;
+    bool merged = !frame->sent && merge_frame_windows(frame);
+    // One reader for this immutable store preserves cached rows across windows.
+    // Original windows already own their stripes; admitted boxes prove all gaps black.
+    render_output_begin(&frame->output, merged ? read_merged : frame_store_read, &frame->store);
+    for (int y = frame->sent * R_BAND; y < R_H; y += R_BAND) send_band(frame, y);
+}
+
 bool present_frame(frame_out_t *frame, render_state_t *state, scene_t *scene) {
     // Ordered item comparison also repaints overlapping overlays after reordering.
     overlay_prepare(frame, scene);
@@ -254,9 +395,7 @@ bool present_frame(frame_out_t *frame, render_state_t *state, scene_t *scene) {
         return false;
     }
     if (frame->store.used > frame->store_max) frame->store_max = frame->store.used;
-    frame->burst_start = 0;
-    render_output_begin(&frame->output, frame_store_read, &frame->store);
-    for (int y = frame->sent * R_BAND; y < R_H; y += R_BAND) send_band(frame, y);
+    output_frame(frame);
     if (frame->burst_start) {
         int64_t gap = frame->shown_at ? frame->burst_start - frame->shown_at : 0;
         if (gap && (!frame->gap_min || gap < frame->gap_min)) frame->gap_min = gap;

@@ -16,6 +16,9 @@ static canvas_rect_t build(bool unaligned) {
         assert(canvas_rows(&c, y, y + 8, src));
     }
     for (int y = 0; y < CANVAS_H; y++) {
+        uint16_t lit = 0;
+        for (int x = 0; x < CANVAS_W; x++) if (frame[y][x]) lit |= 1u << (x / CANVAS_STRIPE);
+        assert(c.row_lit[y] == lit);
         uint32_t expected_hash = 0x811C9DC5u;
         for (int k = 0; k < CANVAS_STRIPES; k++) expected_hash = (expected_hash ^ c.stripe_hash[y][k]) * 0x9E3779B1u;
         assert(c.row_hash[y] == expected_hash);

@@ -44,8 +44,10 @@ CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
 # headroom without retaining a second eight-frame driver queue during Live.
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=4
-CONFIG_ESP_WIFI_RX_BA_WIN=4
-CONFIG_ESP_WIFI_TX_BA_WIN=4
+# Duplex speech is only ~36 KB/s. Avoid aggregate/reorder bursts against the
+# four-frame C6 driver pools; each small voice/ACK frame is handled independently.
+# CONFIG_ESP_WIFI_AMPDU_RX_ENABLED is not set
+# CONFIG_ESP_WIFI_AMPDU_TX_ENABLED is not set
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 # Continuous Live sends 968-byte mic/reference frames; keep TX scratch at 1 KB.
 # esp_tls_mbedtls_write fragments larger control messages; RX stays at 16 KB.
@@ -73,10 +75,13 @@ CONFIG_LWIP_LOCAL_HOSTNAME="kubik"
 # cache, which the sprite frames stream through.
 CONFIG_SPI_MASTER_IN_IRAM=y
 
-# Speech is 12 KB/s. Two 1440-byte segments bound copied RX pbufs while Live
-# also sends the microphone: 28.8 KB/s at 100 ms RTT, without a four-packet heap burst.
-CONFIG_LWIP_TCP_WND_DEFAULT=2880
+# Four MSS permit three out-of-order packets to trigger fast retransmission.
+# The former two-MSS window forced measured losses to wait for the TCP retry timer.
+# Audio credit remains 800 ms and the ring 900 ms; copied RX pbufs stay bounded.
+CONFIG_LWIP_TCP_WND_DEFAULT=5760
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=12
+# Report out-of-order ranges so Linux can recover losses without a full RTO.
+CONFIG_LWIP_TCP_SACK_OUT=y
 # Release scarce driver RX buffers before a serialized TLS send can wait for
 # ACKs. TCP keeps its own bounded pbufs instead of holding Wi-Fi buffers hostage.
 CONFIG_LWIP_L2_TO_L3_COPY=y
@@ -103,3 +108,15 @@ CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
 CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
 
 CONFIG_SPI_FLASH_AUTO_SUSPEND=y
+
+# Release idle WS scratch; link_tls serializes TLS calls outside socket waits.
+CONFIG_ESP_WS_CLIENT_ENABLE_DYNAMIC_BUFFER=y
+
+CONFIG_ESP_WS_CLIENT_SEPARATE_TX_LOCK=y
+
+# Six MSS cap the memory held behind a lost microphone segment. Real
+# nonblocking writes avoid select's half-buffer low-water mark (link_tls.c).
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=8640
+
+# Project lwIP hook sizes NODELAY records without full-MSS padding.
+CONFIG_LWIP_TCP_OVERSIZE_MSS=y

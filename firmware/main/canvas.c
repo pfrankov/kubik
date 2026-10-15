@@ -70,6 +70,7 @@ static CANVAS_HOT canvas_extent_t row_extent(const uint16_t *src, uint32_t lit) 
 }
 
 static CANVAS_HOT void save_row(canvas_t *c, int y, canvas_scan_t scan, canvas_extent_t extent) {
+    c->row_lit[y] = (uint16_t)scan.lit;
     c->changed_x0[y] = c->changed_x1[y] = 0;
     c->changed_mask[y] = 0;
     if (!c->previous_valid) {

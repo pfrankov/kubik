@@ -144,7 +144,6 @@ volatile int64_t s_debug_network_until;
 volatile int64_t s_debug_until;  // "sim" "mode" test hook
 volatile int64_t s_debug_rub_until;   // "sim" "rub" test hook: a scripted vigorous rub of the finger
 volatile int64_t s_debug_spin_until;  // "sim" "spin" test hook: a scripted turn of the view
-volatile bool g_perf_flush;
 
 
 void face_lock(void) { xSemaphoreTake(g_face_mtx, portMAX_DELAY); }

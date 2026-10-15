@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Physical native input/output boundaries with the production session and a fake SDK provider.
 // --wifi profiles 8 s of burst PCM over real TLS; --paced tests incremental delivery.
-// --single-delta tests one 8 s provider callback; --small-deltas tests 20 ms callbacks.
+// --single-delta tests one 8 s callback; --small-deltas tests 20 ms callbacks.
+// --stress requires --wifi --speech-only and checks 12 replies in one Live session.
 // Point the USB bridge at ws://127.0.0.1:18999/kubik/v1. No paid calls or wake-phrase audio.
 import assert from 'node:assert/strict';
 import { EchoCleaner } from '../openclaw-kubik/src/echo-cleaner.js';
@@ -41,6 +42,9 @@ const acousticOnly = process.argv.includes('--acoustic-only');
 if (acousticOnly) assert.ok(process.argv.includes('--near') && process.argv.includes('--echo'), '--acoustic-only requires --near --echo');
 const profile = wifi || process.argv.includes('--profile') || acousticOnly || audioProfile;
 const speechOnly = process.argv.includes('--speech-only') || acousticOnly || audioProfile;
+const liveReplies = process.argv.includes('--stress') ? 12 : 2;
+if (liveReplies > 2) assert.ok(wifi && process.argv.includes('--speech-only') && !acousticOnly &&
+  !audioProfile && !process.argv.includes('--live-only'), '--stress requires the full --wifi --speech-only FPS profile');
 const info = () => control({ cmd: 'info' });
 const sim = (ev, extra = {}) => control({ cmd: 'sim', ev, ...extra });
 async function hostUntil(check, label, timeoutMs = 15000) {
@@ -101,9 +105,10 @@ function nativeEngine(state) {
         close: () => { closed = true; clearInterval(silence); clearTimeout(silenceStop); },
         sendAudio() {
           state.audioFrames++;
-          if (fired || state.hold || (mode === 'live' && replies && !state.nextLiveReply) || closed || replies >= (mode === 'live' ? 2 : 1)) return;
+          if (fired || state.hold || (mode === 'live' && replies && !state.nextLiveReply) || closed || replies >= (mode === 'live' ? liveReplies : 1)) return;
           fired = true; replies++; state.nextLiveReply = false;
           setTimeout(async () => {
+            if (mode === 'realtime') await hostUntil(() => state.captureObserved || closed, 'capture observation before mock end');
             if (closed) return;
             callbacks.onTranscript('user', 'Physical native session test', true);
             if (mode === 'live') {
@@ -198,8 +203,9 @@ async function acousticProof(state) {
 }
 
 async function completedProfile(state) {
-  await state.profile;
+  const played = await state.profile;
   if (state.profileError) throw state.profileError;
+  if (state.speech) assert.equal(played.gen, state.receipts.at(-1).gen, 'USB completion must match the actual played ACK');
 }
 
 function assertPlaybackDuration(mode, playedMs) {
@@ -214,8 +220,10 @@ async function responseProof(server, state, mode) {
   if (mode === "live" && process.argv.includes("--echo")) state.samples = [];
   const before = await info();
   const receipts = state.receipts.length;
+  state.captureObserved = false;
   await sim('ptt_down');
   await until(device => device.mic_open && device.mic_rx_enabled, `${mode} KEY opens microphone`);
+  state.captureObserved = true;
   if (mode === 'realtime') await until(device => !device.mic_open && !device.mic_enabled, 'Realtime closes capture before playback');
   else {
     await until(device => device.live_ready && device.mic_open, 'Live continuous capture ready');
@@ -232,15 +240,17 @@ async function responseProof(server, state, mode) {
   await sim('ptt_up');
   if (mode === 'live') {
     await until(device => device.live_active && device.live_ready && device.mic_open, 'Live resumes after first reply');
-    state.nextLiveReply = true;
-    await hostUntil(() => state.receipts.length >= receipts + 2, 'second reply on the same Live connection');
-    assertPlaybackDuration(mode, state.receipts.at(-1).ms);
-    await completedProfile(state);
-    await until(device => device.live_active && device.live_ready && device.mic_open, 'Live resumes after second reply');
+    for (let reply = 2; reply <= liveReplies; reply++) {
+      state.nextLiveReply = true;
+      await hostUntil(() => state.receipts.length >= receipts + reply, `Live reply ${reply} on the same connection`);
+      assertPlaybackDuration(mode, state.receipts.at(-1).ms);
+      await completedProfile(state);
+      await until(device => device.live_active && device.live_ready && device.mic_open, 'Live resumes after reply');
+    }
     assert.equal(state.liveConnections, 1, 'Live reopened SDK between questions');
     if (!profile) {
       await sleep(1000);
-      assert.equal(state.receipts.length, receipts + 2, 'transport silence created extra speaker generations');
+      assert.equal(state.receipts.length, receipts + liveReplies, 'transport silence created extra speaker generations');
       assert.equal((await info()).mic_open, true, 'transport silence closed input again');
     }
     await acousticProof(state);
@@ -249,7 +259,8 @@ async function responseProof(server, state, mode) {
     await until(device => !device.live_active && !device.mic_open, 'KEY explicitly ends Live');
   }
   await completedProfile(state);
-  console.log(`PASS physical ${mode}: native input policy, same agent and speaker ACK${mode === 'live' ? ', two replies on one connection, continuous silence and KEY stop' : ''}`);
+  const detail = mode === 'live' ? `, ${liveReplies} replies on one connection, continuous silence and KEY stop` : '';
+  console.log(`PASS physical ${mode}: native input policy, same agent and speaker ACK${detail}`);
 }
 
 async function passiveWakeProof(server, state, character) {
@@ -344,8 +355,13 @@ async function nativeProofs(server, state, character) {
   const liveOnly = process.argv.includes('--live-only') || acousticOnly;
   if (!liveOnly) await responseProof(server, state, 'realtime');
   await responseProof(server, state, 'live');
-  assert.equal(state.dispatches, liveOnly ? 2 : 3, 'Every native question must delegate to the agent');
+  assert.equal(state.dispatches, liveReplies + (liveOnly ? 0 : 1), 'Every native question must delegate to the agent');
   if (!speechOnly) await inputContrasts(server, state);
+}
+
+async function restoreTransport(transport, paused) {
+  if (!paused) return;
+  await transport.restore(sim, control);
 }
 
 async function main() {
@@ -367,10 +383,11 @@ async function main() {
   let paused = false;
   try {
     transport = await nativeTransport(server, original, wifi);
-    if (profile) state.speech = speechProfile({ sim, info, measureFrames: !acousticOnly && !audioProfile, burst: !process.argv.includes('--paced'),
+    if (profile) state.speech = speechProfile({ sim, info, diagnostics: () => control({ cmd: 'speech' }), faults: () => control({cmd:'bridge-diagnostics'}), measureFrames: !acousticOnly && !audioProfile, burst: !process.argv.includes('--paced'),
       chunkMs: process.argv.includes('--single-delta') ? PROFILE_MS : process.argv.includes('--small-deltas') ? 20 : 100 });
     paused = true; await transport.enter(sim, control);
     await until(device => device.online && device.via === transport.via && server.getSession(original.device), 'authenticated production transport', 40000);
+    if (wifi) await until(device => device.server_pinned, 'TLS peer pin committed before capture');
     server.getSession(original.device).ws.on('message', (data, binary) => {
       if (!binary) {
         const message = JSON.parse(String(data));
@@ -388,11 +405,11 @@ async function main() {
       await server.stop();
       await until(device => Number.isInteger(device.heap) && typeof device.url === 'string', 'complete status before restoration', 45000);
       try { if ((await info()).mic_open) { await sim('ptt_up'); await sim('ptt_down'); await sim('ptt_up'); } }
-      finally { if (paused) await transport.restore(sim, control); }
+      finally { await restoreTransport(transport, paused); }
     } finally { await transport?.close(); }
     const restored = await until(device => device.via === original.via && device.wifi_connected === original.wifi_connected && device.voice_mode === original.voice_mode && Boolean(device.key),
       'original network route', 45000);
-    for (const key of ['volume', 'brightness', 'ssid', 'url', 'key', 'character', 'server_pinned', 'guide_done'])
+    for (const key of ['volume', 'ui_volume', 'brightness', 'ssid', 'url', 'key', 'character', 'server_pinned', 'guide_done'])
       assert.ok(restored[key] === original[key], `${key} changed`);
     if (restored.screen_dark !== original.screen_dark) await sim('pwr');
     if (restored.menu !== original.menu) await sim('menu');

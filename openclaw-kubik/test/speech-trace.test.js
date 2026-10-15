@@ -1,24 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {setImmediate as yieldIo} from 'node:timers/promises';
 import { SpeechTrace } from '../src/speech-trace.js';
 import { SpeechPacer } from '../src/audio.js';
-import { acknowledgeNativeInput, sleep } from './helpers.js';
+import { acknowledgeNativeInput } from './helpers.js';
 import { DeviceSession } from '../src/session.js';
 
-test('speech diagnostics distinguish delayed source, device progress and socket pressure without payloads', async () => {
+test('speech diagnostics distinguish delayed source, device progress and socket pressure without payloads', async (t) => {
   let clock = 100, buffered = 0;
   const trace = new SpeechTrace(() => clock);
   const pacer = new SpeechPacer({ now: () => clock, progressWindowMs: 1200,
     bufferedAmount: () => buffered, sendAudio() {} });
+  t.after(() => pacer.clear());
   pacer.startGen(trace);
   const pcm = Buffer.alloc(1200 * 48);
   trace.source(pcm.length); pacer.push(pcm);
+  for (let batch=0;batch<12;batch++) await yieldIo();
   clock += 800; trace.source(100 * 48); pacer.push(Buffer.alloc(100 * 48));
-  clock += 300; pacer.played(100); await sleep(0);
+  clock += 300; pacer.played(100); await pacer.drained();
   assert.equal(pacer.sentMs, 1300);
   buffered = 300_000;
   clock += 100; pacer.played(1300); trace.source(100 * 48); pacer.push(Buffer.alloc(100 * 48));
-  clock += 200; buffered = 0; pacer.played(1300); await sleep(0);
+  clock += 200; buffered = 0; pacer.played(1300);
   await pacer.drained();
   const stats = trace.summary();
   assert.equal(stats.sourceChunks, 3); assert.equal(stats.sourceMs, 1400);
@@ -38,8 +41,8 @@ test('session logs one numeric speech summary after playback or interruption', a
     log: line => logs.push(line), ws: { readyState: 1, send(value) { acknowledgeNativeInput(session, value); if (typeof value === 'string') events.push(JSON.parse(value)); } } });
   t.after(() => session.close());
   for (const turn of [1, 2]) {
-    session.handleMessage({ t: 'ptt', on: true, turn }); port.endInput();
-    port.audio(Buffer.alloc(100 * 48)); port.audio(Buffer.alloc(200 * 48)); port.finish(); await sleep(0);
+    session.handleMessage({ t: 'ptt', on: true, turn }); await port.endInput();
+    port.audio(Buffer.alloc(100 * 48)); port.audio(Buffer.alloc(200 * 48)); port.finish(); await yieldIo(); await session.pacer.drained(); await yieldIo();
     const gen = events.findLast(event => event.t === 'speak_end').gen;
     assert.equal(logs.filter(line => /sourceChunks/.test(line)).length, turn - 1);
     if (turn === 1) session.handleMessage({ t: 'played', gen, ms: 300 });
@@ -59,6 +62,7 @@ test('cancellation flushes an outstanding wait once and a broken diagnostic sink
   const pacer = new SpeechPacer({ now: () => clock, progressWindowMs: 1200, sendAudio() {},
     onTrace: (_outcome, stats) => { result = stats; throw Error('Broken log sink'); } });
   pacer.startGen(trace); trace.source(2000 * 48); pacer.push(Buffer.alloc(2000 * 48));
+  for (let batch=0;batch<12;batch++) await yieldIo();
   clock = 750;
   assert.doesNotThrow(() => pacer.finishTrace('cancel'));
   pacer.clear(); await pacer.drained();

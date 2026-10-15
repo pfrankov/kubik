@@ -382,11 +382,12 @@ static void sit_on_targets(face_t *f) {
 
 // The springs' lag melts away as the cloud settles as the tesseract (about 0.4 s).
 static void melt_lag(face_t *f) {
+    float free = 1 - f->tess_rigid;
     for (int i = 0; i < TESS_N; i++)
         for (int axis = 0; axis < 3; axis++) {
-            float lag = (f->tess_position[i][axis] - f->tess_target[i][axis]) * (1 - f->tess_rigid);
+            float lag = (f->tess_position[i][axis] - f->tess_target[i][axis]) * free;
             f->tess_position[i][axis] = f->tess_target[i][axis] + lag;
-            f->tess_velocity[i][axis] *= 1 - f->tess_rigid;
+            f->tess_velocity[i][axis] *= free;
         }
 }
 

@@ -50,6 +50,28 @@ def check_size_margin():
         raise AssertionError("a firmware leaving under 2% of the app partition free was accepted")
 
 
+
+def check_network_memory_profile():
+    # Check the generated build, not defaults that an existing sdkconfig can ignore.
+    config = dict(re.findall(r'^#define (CONFIG_\w+) (\d+)$',
+                            (BUILD / 'config/sdkconfig.h').read_text(), re.M))
+    expected = {
+        'CONFIG_LWIP_TCP_MSS': 1440, 'CONFIG_LWIP_TCP_WND_DEFAULT': 5760,
+        'CONFIG_LWIP_TCP_SND_BUF_DEFAULT': 8640, 'CONFIG_LWIP_TCP_OVERSIZE_MSS': 1, 'CONFIG_LWIP_TCP_RECVMBOX_SIZE': 12,
+        'CONFIG_LWIP_TCP_QUEUE_OOSEQ': 1, 'CONFIG_LWIP_TCP_SACK_OUT': 1, 'CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS': 4,
+        'CONFIG_LWIP_L2_TO_L3_COPY': 1, 'CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM': 4,
+        'CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM': 4, 'CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER': 1,
+        'CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM': 4,
+        'CONFIG_ESP_WS_CLIENT_ENABLE_DYNAMIC_BUFFER': 1, 'CONFIG_ESP_WS_CLIENT_SEPARATE_TX_LOCK': 1,
+    }
+    for key, value in expected.items():
+        assert config.get(key) == str(value), f'{CHARACTER}: unexpected generated {key}'
+    for direction in ('RX', 'TX'):
+        key = f'CONFIG_ESP_WIFI_AMPDU_{direction}_ENABLED'
+        assert key not in config, f'{CHARACTER}: unexpected Wi-Fi aggregation'
+
+
+
 def check_plush_config():
     spec = importlib.util.spec_from_file_location('plush_config', ROOT / 'tools/configure-plush.py')
     module = importlib.util.module_from_spec(spec)
@@ -361,6 +383,7 @@ def check_sound_inventory():
 
 
 def main():
+    check_network_memory_profile()
     check_size_margin()
     check_plush_config()
     check_bridge_selection()

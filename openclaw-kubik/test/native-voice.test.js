@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NativeVoiceTurn, resolveNativeVoice } from '../src/native-voice.js';
 import { LiveVoiceSession } from '../src/live-voice.js';
+import { setImmediate as yieldIo } from 'node:timers/promises';
 import { DeviceSession } from '../src/session.js';
 import { SPEECH_LEAD_MS, MAX_NATIVE_AUDIO_BYTES } from '../src/protocol.js';
 import { resolveAccount } from '../src/config.js';
@@ -235,7 +236,8 @@ test('native queue bounds accumulated deltas while device progress is stalled', 
     dispatch: async () => {}, ws: { readyState: 1, bufferedAmount: 0, send(value) { acknowledgeNativeInput(session, value); } } });
   t.after(() => session.close());
   session.handleMessage({ t: 'ptt', on: true, turn: 1 }); port.endInput();
-  assert.equal(port.audio(Buffer.alloc(59_000 * 48)), true); await sleep(0);
+  assert.equal(port.audio(Buffer.alloc(59_000 * 48)), true);
+  for (let batch=0;batch<10 && session.pacer.sentMs<SPEECH_LEAD_MS;batch++) await yieldIo();
   assert.equal(session.pacer.sentMs, SPEECH_LEAD_MS);
   assert.equal(port.audio(Buffer.alloc(3000 * 48)), false, 'accepted more than one minute of pending PCM');
   assert.ok(session.pacer.queuedBytes <= MAX_NATIVE_AUDIO_BYTES);

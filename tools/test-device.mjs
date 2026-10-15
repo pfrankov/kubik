@@ -26,7 +26,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { frameVerdict } from './test-device/frames.mjs';
 import { startMock } from './test-device/mock.mjs';
-import { flushStats, measureWindow, setDeviceScreen, waitForDeviceLink } from './test-device/diagnostics.mjs';
+import { flushStats, measureWindow, setDeviceScreen, waitForDeviceLink, waitForDeviceState } from './test-device/diagnostics.mjs';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
@@ -149,10 +149,11 @@ function judgeFrames(name, s, kind = 'stable') {
 const MOODS = ['calm', 'curious', 'playful', 'loved', 'scared', 'grumpy', 'sad', 'sleepy'];
 const setMood = (mood) => sim('mood', { mood });
 async function forceMode(mode) {
-  const from = logSize();
+  await diagnostics();
   await sim('mode', { mode, ms: 20000 });
-  const expected = new RegExp(`main: mode ${mode} on screen`);
-  if (!await waitForLine(expected, from)) throw Error(`Mode ${mode} was not shown on the panel`);
+  // A displayed mode is proven by the framed snapshot, independent of log loss.
+  await waitForDeviceState(diagnostics, s => (s.modes & (1 << mode)) && s.presented,
+    `mode ${mode} on the panel`);
 }
 const SCREENS = [
   { name: 'idle', enter: () => forceMode(MODE.idle) },
@@ -242,7 +243,6 @@ async function measureConversation(character) {
 async function waitForLink() {
   return waitForDeviceLink(() => device({ cmd: 'info' }));
 }
-
 // ---------------------------------------------------------------- settings, menu, characters
 
 async function calm() {  // no menu, setup or pairing screen open, and OpenClaw idle, when a step starts
@@ -283,10 +283,10 @@ async function menuWalk(original) {
   check('menu volume tile sets the volume', moved.volume !== volume, `${volume} -> ${moved.volume}`);
   await sim('drag', { x: 72, y: 226, first: true });
   await sim('hold', { x: 72, y: 226 });
-  const sound = await device({ cmd: 'info' });
+  const sound = await waitForDeviceState(() => device({cmd:'info'}), s => s.sound_menu === true, 'Sound after volume hold');
   check('volume hold opens Sound', sound.sound_menu === true);
   await sim('tap', { x: 348, y: 300 });
-  const split = await device({ cmd: 'info' });
+  const split = await waitForDeviceState(() => device({cmd:'info'}), s => s.ui_volume !== sound.ui_volume, 'Interface slider change');
   check('interface slider is independent', split.ui_volume !== sound.ui_volume && split.volume === sound.volume);
   await sim('boot'); await sleep(250);
   check('BOOT returns from Sound to Settings', !(await device({ cmd: 'info' })).sound_menu && (await device({ cmd: 'info' })).menu);

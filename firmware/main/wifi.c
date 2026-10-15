@@ -1,6 +1,7 @@
 #include "wifi.h"
 
 #include <string.h>
+#include <stdlib.h>
 #include <stdatomic.h>
 #include <time.h>
 
@@ -413,8 +414,11 @@ bool wifi_ap_active(void) { return s_ap_on; }
 
 static int copy_scan(wifi_net_t *out, int cap) {
     uint16_t count = 24;
-    static wifi_ap_record_t recs[24];
-    if (esp_wifi_scan_get_ap_records(&count, recs) != ESP_OK) return 0;
+    wifi_ap_record_t *recs = calloc(count, sizeof *recs);
+    if (!recs) { esp_wifi_clear_ap_list(); return 0; }
+    if (esp_wifi_scan_get_ap_records(&count, recs) != ESP_OK) {
+        free(recs); esp_wifi_clear_ap_list(); return 0;
+    }
     int n = 0;
     for (int i = 0; i < count; i++) {  // records arrive strongest first
         const char *ssid = (const char *)recs[i].ssid;
@@ -428,6 +432,7 @@ static int copy_scan(wifi_net_t *out, int cap) {
         out[n].secure = recs[i].authmode != WIFI_AUTH_OPEN;
         n++;
     }
+    free(recs);
     return n;
 }
 

@@ -1,7 +1,7 @@
 // Local native touch workload in isolated Screen Lab; no provider calls or saved-setting changes.
 import assert from 'node:assert/strict';
 import {setTimeout as sleep} from 'node:timers/promises';
-import {setDeviceScreen, waitForDeviceLink, assertIdleCapture} from './test-device/diagnostics.mjs';
+import {setDeviceScreen, waitForDeviceLink, waitForDeviceState, waitForIdleCapture} from './test-device/diagnostics.mjs';
 
 const url = process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
 async function control(body) {
@@ -30,7 +30,7 @@ async function exercise() {
 }
 async function main() {
   await waitForDeviceLink(info);
-  const original=await info(); assertIdleCapture(original);
+  const original=await waitForIdleCapture(info);
   assert.equal(original.character,'Tess'); assert.equal(original.screen_lab,false);
   assert.equal(original.card_open,false); assert.equal(original.live_active,false);
   try {
@@ -38,7 +38,8 @@ async function main() {
     await setDeviceScreen(info,sim,false); await waitForDeviceLink(info); await sleep(3000);
     await sim('menu'); await sleep(600);
     for(let n=0;n<5;n++) { await sim('tap',{x:90,y:36}); await sleep(90); }
-    await sim('hold',{x:90,y:36}); assert.ok((await info()).screen_lab);
+    await sim('hold',{x:90,y:36});
+    await waitForDeviceState(info,state=>state.screen_lab,'Screen Lab entry before audio workload');
     for(let n=0;n<8;n++) { await sim('tap',{x:356,y:428}); await sleep(90); }
     await sim('tap',{x:240,y:320}); await sleep(600);
     assert.equal((await info()).lab_screen,'Play: pluck');

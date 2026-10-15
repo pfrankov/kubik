@@ -30,7 +30,11 @@
 #define R_SCALE 2
 #define R_BAND 8
 #define R_BANDS (R_H / R_BAND)
-#define R_MAX_PRIMS 80  // face stress maximum 48, text card 14; keep spare slots
+#if defined(ESP_PLATFORM) && KUBIK_CHARACTER == 1
+#define R_MAX_PRIMS 64  // Tess overlay census: sim/tess_scene_capacity_test.c
+#else
+#define R_MAX_PRIMS 80  // Plush and native reference retain the full scene capacity.
+#endif
 
 enum { PK_RBOX = 0, PK_RING, PK_ARC, PK_HEART, PK_SPRITE, PK_QR, PK_TEXT, PK_ICON };
 #define R_TEXT_POOL 640  // glyph indices of all text primitives in a scene
@@ -226,7 +230,7 @@ typedef struct {
     render_row_fn read;
     void *ctx;
     int key[2], source_key[2], xa, xb;
-    bool swap[2];
+    bool swap[2], flat[2];
     uint32_t row[2][R_W];   // native pixel | midpoint with the next one << 16
     uint32_t even[2][R_W];  // the same pairs in the output byte order: an even panel row as is
     uint16_t source[2][R_W + 2];  // [R_W] repeats the last pixel

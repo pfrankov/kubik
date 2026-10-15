@@ -94,7 +94,7 @@ contains only its remaining audio. The host encodes directly into a fresh wire
 buffer for each packet; queued sends retain their own bytes. Encoding state is
 shared within a generation and reset for the next generation.
 
-Firmware uses a 2048-byte SDK receive buffer. Complete binary messages are
+Firmware uses a 1280-byte SDK receive buffer. Complete binary messages are
 consumed synchronously from that buffer; JSON and SDK receive chunks of larger
 payloads use temporary storage released after dispatch or disconnect. Receive
 limits are 4096 bytes for JSON and 4802 bytes for binary payloads. These are
@@ -431,6 +431,12 @@ The USB Serial/JTAG port carries a framed byte stream. Anything outside frames
 the payload only. A frame with a bad CRC is dropped and the parser resyncs on
 the next `A5 5A`.
 
+The configuration parser and reply share a 6144-byte buffer: handlers parse the
+request into owned data before overwriting it. Replies are streamed under one
+frame lock in writes of at most 1024 bytes; the driver TX ring is 2048 bytes.
+This preserves complete framed replies without requiring an atomic driver write
+as large as the reply.
+
 A heartbeat reports physical bridge presence separately from server availability.
 `status` is `disabled`, `probing`, `ready`, or `unavailable`; `epoch` is a nonzero
 32-bit integer, changed for every fresh authentication attempt. Firmware accepts
@@ -511,6 +517,10 @@ Sending `{"enabled":true}` starts a fresh USB authentication probe.
 
 ### Config commands (`0x21` → `0x22`)
 
+Persistent settings and TLS-pin writes temporarily lease the passive wake-model
+workspace; all read-only commands preserve wake activation. After a failed write
+the lease is released, so listening can resume.
+
 | Command | Reply |
 |---|---|
 | `{"cmd":"agent_host"}` | Disable Muse selection and reboot using the saved agent server; an active conversation refuses the operation; settings and keys are retained |
@@ -519,8 +529,10 @@ Sending `{"enabled":true}` starts a fresh USB authentication probe.
 | `{"cmd":"set","ssid":"…","pass":"…","url":"","name":"…","volume":70}` | `{"ok":true}`; any subset of keys, saved to NVS; `url` is the server setting (empty, `kubik://…`, `wss://…`), saving it clears the LAN pin |
 | `{"cmd":"reboot"}` | `{"ok":true}`, then restarts |
 | `{"cmd":"reset"}` | factory reset: `{"ok":true}` and a restart into first-run setup; saved Wi-Fi networks, server, LAN pin, name, volume, brightness, guide completion and device key are erased; new pairing is required; the compiled character is unchanged; `{"ok":false,"error":"…"}` if NVS refuses (run it again) |
-| `{"cmd":"sim","ev":"ptt_down"}` | test hook: injects `ptt_down`, `ptt_up`, `tap` (`x`,`y`), `pet`, `shake`, `pickup`, `boot`, `pwr`, `setup`, `menu`, `mode` (`mode`, `ms`), `pair` (`code`), `stats` (сразу печатает статистику кадров) |
+| `{"cmd":"sim","ev":"ptt_down"}` | test hook: injects `ptt_down`, `ptt_up`, `tap` (`x`,`y`), `pet`, `shake`, `pickup`, `boot`, `pwr`, `setup`, `menu`, `mode` (`mode`, `ms`), `pair` (`code`), `stats` (bounded framed snapshot; see below) |
 | `{"cmd":"sim","ev":"pointer","down":true,"x":340,"y":255}` | USB test sample through the normal controller/gesture path; integer coordinates 0–479 and a boolean `down` are required. Refresh within 350 ms; otherwise the physical sensor resumes. `down:false` releases the finger |
+| `{"cmd":"sim","ev":"stats"}` | Complete display window and reset: request `sequence`, frames/elapsed/mean/max in microseconds, CPU stages, panel gap, presented frames/overflows, presented `modes` bitmask, active speech generation and character. `slow_frames` counts selected 20 FPS slots; `deadline_misses` counts missed scheduling deadlines. No heap allocation. Waits at most 500 ms for the display; busy/timeout/truncation fail explicitly. Ordinary log lines remain best effort and cannot substitute for the reply. |
+| `{"cmd":"speech"}` | Active generation and retained last termination: sequence/gen/reason, actual played ms, elapsed ms, underrun count/duration, mix/DMA timing, accepted/rejected RX and packet timing, speaker late feeds/write errors, heap allocation failures. Polling does not reset counters. Match `gen` to the routed `played` ACK; stopped/cancelled/lost are never successful playback. |
 | `{"cmd":"sim","ev":"audio-stats","reset":true}` | Local speaker diagnostics: successful `frames`, nonzero `audible_frames`, wall-clock `mix_max_us`, successful-write cadence `feed_max_us`, `late_feeds` above 60 ms DMA reserve and `write_errors`. Returns the snapshot; optional boolean `reset` clears it. Silence/doze are excluded from starvation measurements. This does not measure analog sound |
 | `{"cmd":"sim","ev":"game-state"}` | Locked snapshot of real/Lab play and durable progress: `preview`, `progress`, `saved`, `game` (0 none, 1 stretch, 2 flight, 3 gather), `phase` (0 rest, 1 show, 2 wait, 3 celebrate), `streak` (dots home in a gather), `round`, `available`, her centre `x/y` (panel px), `waves` (pluck waves ringing), `bloom` (0–1), `tones` (one bit per body-tone kind emitted: ring, creak, twang, thud, grain, whoosh, chirp, wobble), `spin` (rad/s), `tilt_x/y` (relative tilt), `excite`, `annoy`, `fear`, `fond` (0–1), `pull` (0–1), `speed` (body, units/s), `squash` (0–1), `self` (0 none, 1 pluck, 2 reach, 3 spin, 4 wrestle), `shaping`, `burst` (s since the current burst began, 0 none), `form`. Read-only; no play or discovery setter |
 | `{"cmd":"sim","ev":"gravity","x":0.6,"y":0,"ms":2000}` | Test tilt: replaces the IMU's gravity on the panel (each axis −1..1) for at most 10 s, then the sensor returns. `{"ok":false}` for anything else |
@@ -754,10 +766,12 @@ stack temporarily leases LP SRAM with MALLOC_CAP_RTCRAM (CPU-only, not DMA),
 leaving ordinary SRAM for Wi-Fi. After the worker joins, its stack is freed and
 both queue/scratch are cleared, including startup failure cleanup. TLS cannot use
 that workspace until the worker joins; playback then reuses it for full records.
-Passive wake inference stays at priority 6 and uses raw PCM. Listening animation
-targets 24 FPS; other states remain 30 FPS.
+Passive wake inference stays at priority 6 and uses raw PCM. Listening and other
+active states target 30 FPS; sustained overload temporarily selects 20 FPS.
 Live uses sixteen paired 40 ms mic/reference frames (15552 bytes, 640 ms) in
-separate internal memory, with no local PCM decode. Its sender stack uses 3072
+sixteen separately allocated 972-byte internal blocks, with no local PCM decode.
+Capacity remains sixteen pairs; partial allocation failures clear/free every owned
+block, and normal cleanup waits for the sender to join. Its sender stack uses 3072
 bytes of LP SRAM. Live mic delivery shares priority 6 with playback progress;
 WebSocket RX stays at 7, below display 8. The receiver can consume queued speech
 before another microphone send, and backlog cannot starve playback credit.
@@ -766,19 +780,30 @@ The stock SDK masks and frames WebSocket messages. A bounded 1024-byte write
 coalescer combines its header and body: a Live 968-byte microphone/reference
 payload occupies one TLS content write. Larger messages retain the same wire
 bytes across bounded writes. A short write fails the connection; no partial
-frame is reported as delivered. The common SDK client lock remains enabled.
-Wi-Fi uses four dynamic RX buffers. Copying RX into lwIP releases the driver
+frame is reported as delivered. The hash-pinned SDK patch separates RX/TX locks;
+the WSS transport serializes TLS calls but releases that lock around socket waits.
+Wi-Fi uses four dynamic RX and four dynamic TX buffers. Copying RX into lwIP releases the driver
 buffer before socket consumption, leaving space for ACKs during duplex sends.
-The TCP receive window holds at most 2880 bytes (two 1440-byte segments).
-A 485-byte compressed microphone frame fits a single WebSocket payload. A complete
+A-MPDU RX/TX is disabled for the C6 voice profile: its approximately 36 KB/s
+compressed duplex stream uses individual Wi-Fi frames with the same four-frame pools.
+The TCP send window holds at most 8640 bytes (six 1440-byte segments),
+bounding SRAM held behind a lost microphone segment. Each send first attempts
+the nonblocking write instead of waiting for select's half-buffer low-water mark.
+The TCP receive window holds at most 5760 bytes (four 1440-byte segments),
+allowing three later segments to report a lost one before the retransmission timer.
+Selective acknowledgements report out-of-order ranges to the sender; the existing
+out-of-order queue stays capped at four pbufs. Wi-Fi RX/TX counts remain four.
+A 485-byte compressed microphone frame fits a single WebSocket payload. Dynamic TX scratch holds only the largest fragment of the current send; the
+1280-byte receive buffer is unchanged. A complete
 binary message is consumed synchronously from the SDK's RX buffer without a duplicate
 allocation. SDK receive chunks of a frame and JSON use bounded temporary assembly storage.
 
-Speech memory: the firmware allocates its entire 900 ms ADPCM ring in three fixed 3600-byte blocks (two in LP SRAM, one in ordinary internal heap)
-or refuses playback. It starts with 600 ms buffered and resumes a starved
-stream after 300 ms. Short replies can start after a bounded 600 ms wait from their first
+Speech memory: the firmware allocates its entire 900 ms ADPCM ring in nine 1200-byte blocks (six in LP SRAM, three in ordinary internal heap)
+or refuses playback. It starts with 800 ms buffered and resumes a starved
+stream after 300 ms. Short replies can start after a bounded 800 ms wait from their first
 PCM, even without an end marker. Starvation counters describe pauses followed
-by more PCM; a terminal quiet tail is excluded. One reservation leaves smaller heap regions available to Wi-Fi/TLS.
+by more PCM; a terminal quiet tail is excluded. Small blocks leave fragmented
+heap regions available to Wi-Fi/TLS without enlarging the ring.
 TLS TX scratch uses a 1024-byte content limit; ESP-IDF fragments larger writes.
 RX retains its 16 KB content limit. TX and ordinary speech RX use separate
 reserved slots during Live: a 1536-byte fixed TX slot and the full RX reservation. During Wi-Fi speech it reserves 17408 bytes for
@@ -790,11 +815,16 @@ A single native callback may span multiple seconds: the same 60 s pending-PCM
 limit bounds individual callbacks and the combined stream/pacer queue.
 The pacer coalesces small PCM callbacks into 100 ms packets. A partial packet waits
 at most 100 ms from its first bytes; a marker/end boundary flushes it immediately,
-subject to device credit. This reduces small writes over TLS without enlarging the ring.
+subject to device credit. Each complete 100 ms packet yields to socket I/O
+before the next packet, avoiding a multi-packet TLS write that can hold the
+device receive lock while a missing TCP segment is retransmitted. No artificial
+wall-clock delay or extra consumption credit is granted.
 
 The production speech pacer caps sent-but-unconfirmed PCM at 800 ms,
 including audio still in network transit. Matching monotonic `progress` receipts
-release this window; time alone cannot release it. Five seconds without forward
+release this window; time alone cannot release it. Firmware reports consumption
+at most once per 50 ms, so existing credit can return earlier without increasing
+the queue or trusting wall-clock estimates. Five seconds without forward
 playback progress while the window is full closes the stalled connection.
 The 900 ms firmware ring therefore retains 100 ms of capacity headroom.
 For user turns, TLS memory is reserved after the wake model stops and before VAD

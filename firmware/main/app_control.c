@@ -57,6 +57,7 @@ void ptt_down(void) {
         audio_sfx(SFX_ERROR);
         return;
     }
+    app_agent_reclaim_catalog();
     if (!tls_mem_turn(!strcmp(link_via(), "wifi"))) {
         face_lock(); face_card(&g_face, "Voice memory is busy. Try KEY again."); face_unlock();
         audio_sfx(SFX_ERROR); return;
