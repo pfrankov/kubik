@@ -24,6 +24,7 @@
 static unsigned allocated, peak, chunks, payload, locks, fail_at, planned;
 static struct { void *data; size_t bytes; } regions[2];
 static bool exhausted, connected = true;
+static int expected_timeout = 100;
 static unsigned char received[4096];
 static void *reserve(size_t n, size_t size) {
     if (exhausted) return NULL;
@@ -67,7 +68,7 @@ static const char *esp_err_to_name(int code) { (void)code; return "mock"; }
 static void esp_websocket_client_error(client_t *client, const char *format, ...) { assert(client && format); }
 static void esp_websocket_client_abort_connection(client_t *client, int kind) { assert(client && kind == 1); }
 static int esp_transport_ws_send_raw(void *transport, int opcode, char *data, int bytes, int timeout) {
-    assert(transport && timeout == 100 && bytes >= 0);
+    assert(transport && timeout == expected_timeout && bytes >= 0);
     assert(payload + bytes <= sizeof received);
     bool owns = false;
     for (unsigned i = 0; i < 2; ++i) if (regions[i].data == data && (unsigned)bytes <= regions[i].bytes) owns = true;
@@ -96,6 +97,19 @@ static void send_case(client_t *client, unsigned bytes) {
     assert(payload == bytes && !memcmp(received, data, bytes) && !memcmp(original, data, bytes));
     assert(!locks && allocated == baseline && !client->tx_buffer);
 }
+static void timeout_cases(client_t *client) {
+    const struct { TickType_t ticks; int millis; } cases[] = {
+        {0, 0}, {100, 100}, {portMAX_DELAY, -1},
+    };
+    unsigned char data = 42;
+    for (unsigned i = 0; i < sizeof cases / sizeof *cases; ++i) {
+        expected_timeout = cases[i].millis;
+        planned = 1; chunks = payload = 0;
+        assert(esp_websocket_client_send_with_exact_opcode(client, 130, &data, 1, cases[i].ticks) == 1);
+        assert(payload == 1 && chunks == 1 && received[0] == data && !allocated && !locks);
+    }
+    expected_timeout = 100;
+}
 int main(void) {
     client_t client = {.transport = (void *)1, .buffer_size = 1280, .send_ready = true};
     const unsigned sizes[] = {0, 1, 69, 968, 1279, 1280, 1281, 4096};
@@ -116,5 +130,6 @@ int main(void) {
     assert(allocated == 1280 && client.rx_buffer); // Simultaneous full-capacity RX is untouched.
     esp_websocket_free_buf(&client, false); assert(!allocated);
     send_case(&client, 968);
+    timeout_cases(&client);
     puts("WebSocket TX: exact short allocation, original fragmentation/FIN/bytes, zero, allocation/write failures and concurrent unchanged RX passed");
 }

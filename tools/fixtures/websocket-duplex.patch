@@ -84,7 +84,7 @@
          ESP_LOGE(TAG, "Failed to setup tx buffer");
          goto unlock_and_return;
      }
-@@ -735,7 +759,7 @@
+@@ -735,10 +759,10 @@
          } else if (contained_fin) {
              opcode = opcode | WS_TRANSPORT_OPCODES_FIN;
          }
@@ -92,7 +92,11 @@
 +        if (need_write) memcpy(client->tx_buffer, data + widx, need_write);
          // send with ws specific way and specific opcode
          wlen = esp_transport_ws_send_raw(client->transport, opcode, (char *)client->tx_buffer, need_write,
-                                          (timeout == portMAX_DELAY) ? -1 : timeout * portTICK_PERIOD_MS);
+-                                         (timeout == portMAX_DELAY) ? -1 : timeout * portTICK_PERIOD_MS);
++                                         (timeout == portMAX_DELAY) ? -1 : (int)(timeout * portTICK_PERIOD_MS));
+         if (wlen < 0 || (wlen == 0 && need_write != 0)) {
+             ret = wlen;
+             esp_websocket_free_buf(client, true);
 @@ -1077,7 +1101,7 @@
  {
      int rlen;
