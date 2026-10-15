@@ -100,7 +100,15 @@ test('activity and cron event relays validate snapshots, expire them, and keep b
 test('activity snapshots respect their absolute expiry before a delayed timer runs', async () => {
   let now = 1000;
   let changes = 0;
-  const activity = createActivityRelay({ now: () => now, onChange: () => changes++ });
+  let views;
+  let inRefresh = false;
+  const activity = createActivityRelay({ now: () => now, onChange: () => {
+    assert.equal(inRefresh, false, 'session refresh must not recurse');
+    inRefresh = true;
+    changes++;
+    views = ['kubik-alpha', 'kubik-beta'].map(id => activity.summary(activity.sessionKeyFor(id)));
+    inRefresh = false;
+  } });
   activity.set('kubik-alpha', { own: 'coding', other: '' }, 1000);
   activity.set('kubik-beta', { own: 'web', other: '' }, 1000);
 
@@ -111,6 +119,7 @@ test('activity snapshots respect their absolute expiry before a delayed timer ru
   assert.equal(changes, 0, 'read-side expiry must not refresh sessions recursively');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(changes, 1, 'read-side expiry must refresh every connected session');
+  assert.deepEqual(views, [{ own: '', other: '' }, { own: '', other: '' }]);
 
   activity.set('kubik-alpha', { own: 'thinking', other: '' }, 1000);
   changes = 0;
