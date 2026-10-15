@@ -37,19 +37,24 @@ with tempfile.TemporaryDirectory(prefix='kubik-tls-duplex-') as tmp:
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pthread',
                     '-fsanitize=address,undefined', '-g', '-O1', str(src), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=30)
-    # Prove the EINTR test rejects both an early exit and an ignored deadline.
+    # Broken deadlines must fail the exact ordinary and interrupted wait checks.
     bound = 'if (n == -3) {\n            if (esp_timer_get_time() >= end) return 0;'
-    assert source.count(bound) == 1
-    for replacement, diagnostic in (
-        ('return 0;', 'interrupt_count==30'),
-        ('if (0) return 0;', 'interrupt_count<=100'),
-    ):
-        mutated = source.replace(bound, 'if (n == -3) {\n            ' + replacement)
+    budget = '(int64_t)(ms < 0 ? 15000 : ms) * 1000'
+    cached = 'if (cached > 0) return 1;'
+    assert source.count(bound) == source.count(budget) == source.count(cached) == 1
+    mutations = [
+        (source.replace(bound, 'if (n == -3) {\n            return 0;'), 'eintr', 'interrupt_count==30'),
+        (source.replace(bound, 'if (n == -3) {\n            if (0) return 0;'), 'eintr', 'tv->tv_usec==31000-interrupt_count*1000'),
+        (source.replace(bound, 'if (n == -3) {\n            end=esp_timer_get_time()+30000;'), 'eintr', 'tv->tv_usec==31000-interrupt_count*1000'),
+        (source.replace(budget, '(int64_t)(ms < 0 ? 15000 : ms+70) * 1000'), 'timeout', 'tv->tv_usec<=30000'),
+        (source.replace(cached, cached + '\n        return 0;'), 'timeout', 'timeout_calls==1'),
+    ]
+    for mutated, scenario, diagnostic in mutations:
         src.write_text(fixture.replace('/* ACTUAL_TRANSPORT */', mutated))
         subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pthread',
                         '-fsanitize=address,undefined', '-g', '-O1', str(src), '-o', str(exe)], check=True)
-        rejected = subprocess.run([str(exe), 'eintr'], capture_output=True, text=True, timeout=5)
-        assert rejected.returncode and diagnostic in rejected.stderr, 'Broken EINTR deadline was accepted'
+        rejected = subprocess.run([str(exe), scenario], capture_output=True, text=True, timeout=5)
+        assert rejected.returncode and diagnostic in rejected.stderr, 'Broken TLS deadline was accepted'
     src.write_text(fixture.replace('/* ACTUAL_TRANSPORT */', source))
     for define, diagnostic in (
         ('ESP_IDF_VERSION=0', 'Review the pinned transport'),

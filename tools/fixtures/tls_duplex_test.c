@@ -48,9 +48,9 @@ static void xSemaphoreGive(SemaphoreHandle_t p) {
 static void vSemaphoreDelete(SemaphoreHandle_t p) {
     pthread_cond_destroy(&p->cv); pthread_mutex_destroy(&p->m); free(p);
 }
-static _Thread_local int64_t interrupted_clock;
+static _Thread_local int64_t controlled_clock;
 static int64_t esp_timer_get_time(void) {
-    if (interrupted_clock) return interrupted_clock;
+    if (controlled_clock) return controlled_clock;
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts); return (int64_t)ts.tv_sec*1000000+ts.tv_nsec/1000;
 }
 static atomic_int tls_active, destroyed, reads, writes, hold_write, hold_alert;
@@ -134,15 +134,26 @@ static void esp_transport_set_func(esp_transport_handle_t t,
     assert(t&&conn&&read&&write&&close&&pr&&pw&&destroy);
 }
 static int last_network_error, last_errno, select_error, conservative_writable, select_interrupt, interrupt_count;
+static int timeout_select, timeout_calls;
 static void capture_tcp_transport_error(esp_transport_handle_t t,int error) { assert(t->foundation); last_network_error=error; }
 static void esp_transport_capture_errno(esp_transport_handle_t t,int error) { assert(t->foundation); last_errno=error; }
 typedef struct { const char *ws_path; bool propagate_control_frames; } esp_transport_ws_config_t;
 static esp_transport_handle_t esp_transport_ws_init(esp_transport_handle_t parent) { assert(parent); return esp_transport_init(); }
 static int esp_transport_ws_set_config(esp_transport_handle_t t,const esp_transport_ws_config_t *c) { assert(t && c->ws_path[0]=='/' && c->propagate_control_frames); return 0; }
+static bool controlled_wait(fd_set *r,fd_set *w,struct timeval *tv) {
+    if(!timeout_select) return false;
+    assert(!locks && r && !w && tv->tv_sec==0 && tv->tv_usec<=30000);
+    timeout_calls++;
+    if(timeout_select!=1) return false;
+    assert(timeout_calls==1 && tv->tv_usec==30000);
+    controlled_clock+=tv->tv_usec; return true;
+}
 static int checked_select(int n,fd_set *r,fd_set *w,fd_set *e,struct timeval *tv) {
+    if(controlled_wait(r,w,tv)) return 0;
     if(select_interrupt) {
-        assert(interrupted_clock && ++interrupt_count<=100);
-        interrupted_clock+=1000; errno=EINTR; return -1;
+        assert(controlled_clock && ++interrupt_count<=100);
+        assert(tv->tv_sec==0 && tv->tv_usec==31000-interrupt_count*1000);
+        controlled_clock+=1000; errno=EINTR; return -1;
     }
     assert(!locks); if(conservative_writable && w)return 0; if(select_error) { errno=ECONNRESET; return -1; } return select(n,r,w,e,tv);
 }
@@ -212,23 +223,41 @@ static void large_write_test(esp_transport_handle_t t) {
 }
 static void interrupted_wait_test(esp_transport_handle_t t) {
     char byte;
-    // Advance only the interrupted wait's clock: CI scheduling cannot extend
-    // its logical deadline. Ordinary timeouts and socket peers use real time.
-    select_interrupt=1; interrupt_count=0; interrupted_clock=1000000;
+    // Advance only this deadline test's clock; socket peers use real time.
+    select_interrupt=1; interrupt_count=0; controlled_clock=1000000;
     int64_t start=esp_timer_get_time();
     assert(tls_read(t,&byte,1,30)==0);
     assert(interrupt_count==30 && esp_timer_get_time()-start==30000);
-    select_interrupt=0; interrupted_clock=0;
+    select_interrupt=0; controlled_clock=0;
+}
+static void exact_timeout_test(esp_transport_handle_t t) {
+    char byte;
+    timeout_select=1; timeout_calls=0; controlled_clock=1000000;
+    int64_t start=esp_timer_get_time();
+    assert(tls_read(t,&byte,1,30)==0 && last_network_error==0);
+    assert(timeout_calls==1 && esp_timer_get_time()-start==30000);
+    timeout_select=0; controlled_clock=0;
 }
 static void ordinary_timeout_test(esp_transport_handle_t t) {
     char b[8];
+    timeout_select=2; timeout_calls=0;
     int64_t start=esp_timer_get_time(); assert(tls_read(t,b,1,30)==0 && last_network_error==0);
-    assert(esp_timer_get_time()-start>=25000 && esp_timer_get_time()-start<100000);
+    int64_t elapsed=esp_timer_get_time()-start;
+    printf("TLS real socket: %lld us wall time, %d waits requested at most 30000 us\n",(long long)elapsed,timeout_calls);
+    // select's requested budget is bounded above; CI can deschedule the process.
+    assert(timeout_calls>0 && elapsed>=25000);
+    timeout_select=0;
 }
-static bool eintr_only(int argc,char **argv) { return argc==2 && !strcmp(argv[1],"eintr"); }
+static bool selected_test(int argc,char **argv,esp_transport_handle_t t) {
+    if(argc!=2) return false;
+    if(!strcmp(argv[1],"eintr")) interrupted_wait_test(t);
+    else { assert(!strcmp(argv[1],"timeout")); exact_timeout_test(t); }
+    return true;
+}
 int main(int argc,char **argv) {
     esp_transport_handle_t t=connected(false); char b[8];
-    if(eintr_only(argc,argv)) { interrupted_wait_test(t); dispose(t); return 0; }
+    if(selected_test(argc,argv,t)) { dispose(t); return 0; }
+    exact_timeout_test(t);
     ordinary_timeout_test(t);
     interrupted_wait_test(t);
     select_error=1; assert(tls_read(t,b,1,30)==-2 && last_network_error==-2 && last_errno==ECONNRESET); select_error=0;
