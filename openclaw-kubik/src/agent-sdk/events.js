@@ -46,6 +46,7 @@ function validCron(value) {
 export function createActivityRelay({ onChange = () => {}, now = Date.now } = {}) {
   const activities = new Map();
   const timers = new Map();
+  let pendingChange = null;
   const sessionPrefix = 'kubik-agent:';
   const clearEntry = (id) => {
     const timer = timers.get(id);
@@ -53,20 +54,42 @@ export function createActivityRelay({ onChange = () => {}, now = Date.now } = {}
     timers.delete(id);
     return activities.delete(id);
   };
+  const scheduleChange = () => {
+    if (pendingChange) return;
+    const token = Symbol('activity change');
+    pendingChange = token;
+    queueMicrotask(() => {
+      if (pendingChange !== token) return;
+      pendingChange = null;
+      onChange();
+    });
+  };
   const sessionKeyFor = (rawId) => `${sessionPrefix}${validDeviceId(rawId)}`;
   const idForSession = (key) => typeof key === 'string' && key.startsWith(sessionPrefix)
     ? normalizeDeviceId(key.slice(sessionPrefix.length)) : '';
-  const summary = (sessionKey) => {
-    const ownId = idForSession(sessionKey);
-    const current = activities.get(ownId);
-    let other = current?.other ?? '';
-    let newest = current?.other ? current.updatedAt : -1;
+  const summarizeOthers = (ownId, nowAt, initial) => {
+    let { other, newest } = initial;
+    let expired = false;
     for (const [id, item] of activities) {
+      if (item.expiresAt <= nowAt) { clearEntry(id); expired = true; continue; }
       if (id === ownId) continue;
       const value = item.own || item.other;
       if (value && item.updatedAt > newest) { other = value; newest = item.updatedAt; }
     }
-    return { own: current?.own ?? '', other };
+    return { other, expired };
+  };
+  const summary = (sessionKey) => {
+    const nowAt = now();
+    const ownId = idForSession(sessionKey);
+    let expired = false;
+    let current = activities.get(ownId);
+    if (current?.expiresAt <= nowAt) { clearEntry(ownId); current = undefined; expired = true; }
+    const others = summarizeOthers(ownId, nowAt, {
+      other: current?.other ?? '',
+      newest: current?.other ? current.updatedAt : -1,
+    });
+    if (expired || others.expired) scheduleChange();
+    return { own: current?.own ?? '', other: others.other };
   };
 
   return {
@@ -80,12 +103,15 @@ export function createActivityRelay({ onChange = () => {}, now = Date.now } = {}
       if (!activities.has(id) && activities.size >= MAX_ACTIVITY_DEVICES) {
         let oldestId = '';
         let oldestAt = Infinity;
-        for (const [entryId, item] of activities) if (item.updatedAt < oldestAt) { oldestId = entryId; oldestAt = item.updatedAt; }
-        if (oldestId) clearEntry(oldestId);
+        for (const [entryId, item] of activities) {
+          if (item.expiresAt <= nowAt) { clearEntry(entryId); continue; }
+          if (item.updatedAt < oldestAt) { oldestId = entryId; oldestAt = item.updatedAt; }
+        }
+        if (activities.size >= MAX_ACTIVITY_DEVICES && oldestId) clearEntry(oldestId);
       }
       clearEntry(id);
       const token = Symbol(id);
-      activities.set(id, { ...snapshot, updatedAt: nowAt, token });
+      activities.set(id, { ...snapshot, updatedAt: nowAt, expiresAt: nowAt + ttl, token });
       const timer = setTimeout(() => {
         if (activities.get(id)?.token !== token) return;
         clearEntry(id);
@@ -97,6 +123,7 @@ export function createActivityRelay({ onChange = () => {}, now = Date.now } = {}
       return { deviceId: id, ...snapshot, expiresAt: nowAt + ttl };
     },
     close() {
+      pendingChange = null;
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
       activities.clear();
