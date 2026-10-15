@@ -97,6 +97,30 @@ test('activity and cron event relays validate snapshots, expire them, and keep b
   cron.close();
 });
 
+test('activity snapshots respect their absolute expiry before a delayed timer runs', async () => {
+  let now = 1000;
+  let changes = 0;
+  const activity = createActivityRelay({ now: () => now, onChange: () => changes++ });
+  activity.set('kubik-alpha', { own: 'coding', other: '' }, 1000);
+  activity.set('kubik-beta', { own: 'web', other: '' }, 1000);
+
+  changes = 0;
+  now = 2000;
+  assert.deepEqual(activity.summary(activity.sessionKeyFor('kubik-alpha')), { own: '', other: '' });
+  assert.equal(activity.size, 0, 'expired snapshots must not retain bounded relay slots');
+  assert.equal(changes, 0, 'read-side expiry must not refresh sessions recursively');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes, 1, 'read-side expiry must refresh every connected session');
+
+  activity.set('kubik-alpha', { own: 'thinking', other: '' }, 1000);
+  changes = 0;
+  now = 3000;
+  activity.summary(activity.sessionKeyFor('kubik-alpha'));
+  activity.close();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes, 0, 'closing the relay must cancel a queued refresh');
+});
+
 test('pairing requests persist across stores and require explicit approval by their displayed code', async (t) => {
   const stateDir = directory(t);
   const first = await createFilePairingStore(stateDir, { randomCode: () => 'ABCDEFG2' }).ready();
