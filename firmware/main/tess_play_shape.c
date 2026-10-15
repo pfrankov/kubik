@@ -146,12 +146,12 @@ static bool rings(const tess_games_t *g) {
     for (int w = 0; w < TESS_WAVES; w++) any = any || g->wave[w].amp != 0;
     return any;
 }
-void tess_play_frame(face_t *f, const float points[TESS_N][3], float k, float bx, float by, float pc, float ps) {
+bool tess_play_frame(face_t *f, const float points[TESS_N][3], float k, float bx, float by, float pc, float ps) {
     if (!k_slots.ready) map_slots();
     tess_games_t *g = &f->tess_games;
     memset(s_move, 0, sizeof s_move);
     s_moving = false;
-    if (!g->ready || f->tess_fallen) { g->shaping = false; return; }
+    if (!g->ready || f->tess_fallen) { g->shaping = false; return false; }
     float home[16][3], dir[16][2];
     unfold_home(g, points, home);
     if (rings(g)) {
@@ -166,6 +166,7 @@ void tess_play_frame(face_t *f, const float points[TESS_N][3], float k, float bx
     for (int v = 0; v < 16 && !s_moving; v++)
         s_moving = fabsf(s_move[v][0]) + fabsf(s_move[v][1]) + fabsf(s_move[v][2]) > 1e-4f;
     g->shaping = s_moving;
+    return s_moving;
 }
 
 void tess_play_point(int slot, float *x, float *y, float *z) {

@@ -53,7 +53,6 @@ typedef enum { ERR_STT_EMPTY = 0, ERR_STT_FAILED, ERR_AGENT, ERR_VOICE, ERR_BUSY
 extern face_t g_face;
 extern SemaphoreHandle_t g_face_mtx;
 
-extern volatile bool g_perf_flush;  // "sim" "stats": the display task logs its frame statistics now
 extern atomic_bool g_mode_report;  // "sim" "mode": acknowledge the next presented frame, even if unchanged
 void app_start(void);
 void app_post(app_ev_type_t type, int a, int b);

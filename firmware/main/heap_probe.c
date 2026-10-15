@@ -15,9 +15,9 @@ unsigned hp_allocation_failures(void) { return atomic_load(&s_failures); }
 
 static void allocation_failed(size_t bytes, uint32_t caps, const char *function) {
     unsigned failures = atomic_fetch_add(&s_failures, 1) + 1;
-    if (failures <= 16) esp_rom_printf("hp: allocation failed bytes=%u caps=%x free=%u largest=%u in %s\n",
+    if (failures <= 16) esp_rom_printf("hp: allocation failed bytes=%u caps=%x free=%u largest=%u in %s task=%s\n",
         (unsigned)bytes, (unsigned)caps, (unsigned)heap_caps_get_free_size(caps),
-        (unsigned)heap_caps_get_largest_free_block(caps), function);
+        (unsigned)heap_caps_get_largest_free_block(caps), function, xPortInIsrContext() ? "ISR" : pcTaskGetName(NULL));
 }
 
 #define HP_CAPS (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)

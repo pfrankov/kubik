@@ -44,6 +44,8 @@ static const struct { float from_s, length_s, reach; } k_tug[] = {{.04f, .22f, .
 #define PANEL_CENTRE_Y_PX -15.f  // the panel's middle as seen from the cloud's centre
 #define SPOT_DEPTH .9f
 
+#include "tess_scatter_material.h"
+
 // A random number in -32768..32767 of a dot, an axis and a tick of the shiver.
 static int noise(int dot, int axis, int tick) {
     uint32_t x = (uint32_t)(dot * 3 + axis) * 0x9E3779B1u + (uint32_t)tick * 0x85EBCA6Bu;
@@ -61,20 +63,20 @@ static struct {
     float spot[TESS_N][3];
     float spot_px[TESS_N][2];      // where each slot hangs (thrown, then slid), panel px from the cloud's centre
     int16_t slide_v[TESS_N][2];    // its sliding speed, px/s
-    // Each dot's character, a byte each (0..255 over its range, see the accessors): RAM is scarce on the C6.
+    // Quantization is fixed for a burst; immutable float decoding stays in flash.
     struct { uint8_t leaves, out_s, curve, letgo, strength, rings, mass, grip; } dot[TESS_N];
 } given;
-#define Q(field, k) ((float)given.dot[k].field * (1.f / 255))
-static float dot_leaves(int k) { return .12f * Q(leaves, k); }                 // most go at once, a few late
-static float dot_out_s(int k) { return .38f + .32f * Q(out_s, k); }            // and fly for their own time
-static float dot_curve(int k) { return (Q(curve, k) - .5f) * .9f; }            // along their own curve
-static float dot_letgo(int k) { return STRUGGLE_TO_S + RETURN_LAG_S * Q(letgo, k); }
-static float dot_strength(int k) { return .7f + .5f * Q(strength, k); }
+static float dot_leaves(int k) { return k_scatter_material[given.dot[k].leaves].leaves; }
+static float dot_out_s(int k) { return k_scatter_material[given.dot[k].out_s].out_s; }
+static float dot_curve(int k) { return k_scatter_material[given.dot[k].curve].curve; }
+static float dot_letgo(int k) { return k_scatter_material[given.dot[k].letgo].letgo; }
+static float dot_strength(int k) { return k_scatter_material[given.dot[k].strength].strength; }
 static float dot_hold(int k) { return 1 - STRAIN_REACH * dot_strength(k); }
-static float dot_rings(int k) { return 2 * PI * (1.5f + .75f * Q(rings, k)); }  // swings in the settle, in radians
-static float dot_mass(int k) { return .7f + .6f * Q(mass, k); }
-static float dot_grip(int k) { return .2f + .8f * Q(grip, k); }                // friction under the tilt: most slide, some stick
+static float dot_rings(int k) { return k_scatter_material[given.dot[k].rings].rings; }
+static float dot_mass(int k) { return k_scatter_material[given.dot[k].mass].mass; }
+static float dot_grip(int k) { return k_scatter_material[given.dot[k].grip].grip; }
 static uint8_t byte01(float x) { return (uint8_t)(clampf(x, 0, 1) * 255.f + .5f); }
+
 
 static float rand01(uint32_t *seed) { *seed = *seed * 1664525u + 1013904223u; return (float)(*seed >> 8) * (1.f / 16777216); }
 static float bell(uint32_t *seed) { return rand01(seed) + rand01(seed) + rand01(seed) - 1.5f; }  // -1.5..1.5, mostly near 0
@@ -233,6 +235,7 @@ static struct {
 } moment;
 
 void tess_scatter_frame(const face_t *f, float t) {
+    ready_spots();
     moment.t = t;
     float into = t - STRUGGLE_FROM_S, strain = clampf((into - STRAIN_FROM_S) * (1.f / (STRUGGLE_S - STRAIN_FROM_S)), 0, 1);
     moment.pull = STRAIN_REACH * strain * strain;
@@ -289,8 +292,8 @@ static void lean_to_finger(float p[3], int slot, float away) {
 
 // How far of the way to its spot a dot is: 1 there, 0 home. The strain leaves it `hold` of the way when the return
 // begins, and that is where the magnet takes it from.
-static float reach(int dot) {
-    float t = moment.t, letgo = dot_letgo(dot);
+static float reach(int dot, float letgo) {
+    float t = moment.t;
     if (t < STRUGGLE_FROM_S) return 1 - quartic(1 - clampf((t - dot_leaves(dot)) / dot_out_s(dot), 0, 1));
     if (t < letgo) return 1 - dot_strength(dot) * moment.pull;
     float x = (t - letgo) * (1.f / APPROACH_S);
@@ -303,8 +306,8 @@ static float reach(int dot) {
 
 // The dot's tremor, in the plane of the panel: a random push of its own that changes direction about 12 times a second
 // (blended from one to the next, on integers), from the end of the flight to the dot's release.
-static void shiver(int dot, float out[2]) {
-    float size = moment.tremor, letgo = dot_letgo(dot);
+static void shiver(int dot, float letgo, float out[2]) {
+    float size = moment.tremor;
     if (moment.t > letgo) size *= 1 - smooth01((moment.t - letgo) * (1.f / SHIVER_END_S));
     for (int axis = 0; axis < 2; axis++)
         out[axis] = size * (float)((noise(dot, axis, moment.tick) * (256 - moment.blend) + noise(dot, axis, moment.tick + 1) * moment.blend) >> 8);
@@ -318,11 +321,10 @@ static void curve_out(float p[3], int dot, int slot, float away) {
     p[1] += dx * bend;
 }
 void tess_scatter_apply(float p[3], int dot, int slot) {
-    ready_spots();
     if (swept(p, slot)) return;
-    float away = reach(dot), tremor[2] = {0, 0}, weight = away * dot_mass(dot);
-    if (away == 0 && moment.t >= dot_letgo(dot)) return;
-    if (moment.t >= STRUGGLE_FROM_S && moment.t < dot_letgo(dot) + SHIVER_END_S) shiver(dot, tremor);
+    float letgo = dot_letgo(dot), away = reach(dot, letgo), tremor[2] = {0, 0}, weight = away * dot_mass(dot);
+    if (away == 0 && moment.t >= letgo) return;
+    if (moment.t >= STRUGGLE_FROM_S && moment.t < letgo + SHIVER_END_S) shiver(dot, letgo, tremor);
     for (int axis = 0; axis < 3; axis++)
         p[axis] += (given.spot[slot][axis] - p[axis]) * away + (axis < 2 ? tremor[axis] + moment.sag[axis] * weight : 0);
     curve_out(p, dot, slot, away);

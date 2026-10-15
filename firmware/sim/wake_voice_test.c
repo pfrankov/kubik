@@ -38,6 +38,9 @@ static void resample_test(void) {
     assert(wake_resample(&a,input,960,whole)==640);
     for(int i=0;i<4;i++) assert(wake_resample(&b,input+240*i,240,chunked+160*i)==160);
     assert(!memcmp(whole,chunked,sizeof whole));
+    b=(wake_resample_t){0};
+    for(int i=0;i<2;i++) assert(wake_resample(&b,input+480*i,480,chunked+320*i)==320);
+    assert(!memcmp(whole,chunked,sizeof whole));
     for(int i=0;i<960;i++)input[i]=10000;
     a=(wake_resample_t){0};wake_resample(&a,input,960,whole);
     for(int i=32;i<640;i++)assert(abs(whole[i]-10000)<=3);

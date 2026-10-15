@@ -122,6 +122,7 @@ void app_guide_tick(void);
 void app_guide_tap(int hit);
 void app_agent_set_capabilities(bool stt_available, bool tts_available);
 bool app_agent_mic_allowed(void);
+void app_agent_reclaim_catalog(void);
 void app_agent_refresh_if_open(void);
 void app_agent_tick(int64_t now);
 void app_handle(const app_ev_t *e);

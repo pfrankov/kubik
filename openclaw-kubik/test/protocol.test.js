@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SpeechPacer } from '../src/audio.js';
+import { setImmediate as yieldIo } from 'node:timers/promises';
 import { verify } from 'node:crypto';
 import { authMessage, caBind, CLOSE, decodeDeviceKey, ImaEncoder, nextGen, out, parseAudioFrame, parseDeviceMessage, ProtocolError,
   speechFrameIma } from '../src/protocol.js';
@@ -210,12 +211,14 @@ test('fresh consumption after delayed ACKs immediately releases credit despite t
   t.after(() => pacer.clear());
   const settle = () => new Promise(resolve => setImmediate(resolve));
   pacer.startGen(); pacer.push(Buffer.alloc(3000 * 48));
+  for (let batch=0;batch<11;batch++) await yieldIo();
   assert.equal(sent, 1200);
   clock = 1000; pacer.played(100); await settle();
   assert.equal(sent, 1300);
   // A delayed old report followed by a fresh one: the device now has 900 ms more room.
   // The former wall-clock limiter withheld all 900 ms here and could empty its ring.
-  pacer.played(1000); await settle();
+  pacer.played(1000);
+  for (let batch=0;batch<11;batch++) await settle();
   assert.equal(sent, 2200);
   assert.equal(sent - 1000, 1200, 'strict capacity still includes in-flight audio');
   pacer.clear(); await pacer.drained();
@@ -257,11 +260,13 @@ test('slow initial deltas followed by a burst preserve prebuffer and ring capaci
   assert.ok(max <= 1200, `device buffer peaked at ${max} ms`);
 });
 
-test('progress window includes in-flight network audio and a stalled receiver closes within five seconds', async () => {
+test('progress window includes in-flight network audio and a stalled receiver closes within five seconds', async (t) => {
   let clock = 0, sent = 0, stalled = 0;
   const pacer = new SpeechPacer({ progressWindowMs: 1200, now: () => clock,
     sendAudio: pcm => { sent += pcm.length / 48; }, onStall: () => { stalled++; } });
+  t.after(() => pacer.clear());
   pacer.startGen(); pacer.push(Buffer.alloc(3000 * 48));
+  for (let batch=0;batch<11;batch++) await yieldIo();
   assert.equal(sent, 1200);
   clock = 1000; await new Promise(resolve => setTimeout(resolve, 30));
   assert.equal(sent, 1200, 'network delay must not be mistaken for speaker consumption');

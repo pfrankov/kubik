@@ -20,6 +20,7 @@ enum {
 
 typedef struct {
     void (*on_host_hello)(const char *json, size_t len);
+    // json and reply may alias: parse/copy input before writing a complete reply.
     void (*on_config)(const char *json, size_t len, char *reply, size_t cap);
     void (*on_routed)(uint8_t type, uint8_t *data, size_t len);
 } link_usb_handlers_t;

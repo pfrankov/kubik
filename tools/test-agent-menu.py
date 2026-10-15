@@ -23,6 +23,7 @@ def build_test(build, name, test, sources, extra=()):
 
 
 with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
+    build_test(tmp, "catalog-ownership", "firmware/sim/agent_catalog_test.c", [])
     build_test(tmp, "state-ui", "firmware/sim/agent_menu_test.c", [
         "firmware/main/agent_menu.c", "firmware/main/face_agent.c", "firmware/main/ui_kit.c",
         "firmware/main/render.c", "firmware/main/render_dots.c", "firmware/main/render_glass.c",
@@ -50,7 +51,10 @@ with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
     protocol = (ROOT / "firmware/main/app_models.c").read_text()
     helpers = protocol[protocol.index("static void add_agent_models("):]
     models = Path(tmp) / "models.c"
-    models.write_text((ROOT / "firmware/sim/models_reply_test.c").read_text().replace("/* PRODUCTION_MODELS */", helpers))
+    config_source = (ROOT / "firmware/main/app_protocol.c").read_text()
+    config = config_source[config_source.index("static void on_config("):config_source.index("void app_protocol_handlers(")]
+    models.write_text((ROOT / "firmware/sim/models_reply_test.c").read_text()
+                      .replace("/* PRODUCTION_MODELS */", helpers).replace("/* PRODUCTION_CONFIG */", config))
     build_test(tmp, "models-reply", str(models), ["firmware/main/agent_protocol.c", "firmware/main/agent_menu.c", str(CJSON / "cJSON.c")])
 
     build_test(tmp, "hidden-reset", "firmware/sim/menu_service_test.c", [])

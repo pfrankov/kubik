@@ -26,6 +26,7 @@ static void up(bool ready) { events[nevents++]=ready?'U':'D'; }
 static void json(const char *p,size_t n) { events[nevents++]=link_is_welcome(p,n)?'W':'J'; }
 static int config_calls;
 static void config(const char *text,size_t len,char *reply,size_t cap) {
+    assert(text==reply); // Actual USB RX/config reply ownership shares one bounded buffer.
     cJSON *j=cJSON_ParseWithLength(text,len);assert(j);
     if (!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"cmd")),"large")) {
         assert(cap >= 6001); memset(reply,'x',6000); reply[6000]=0; cJSON_Delete(j); return;
@@ -165,7 +166,7 @@ int main(void) {
     feed_status("unavailable",42);assert(!link_up()&&events[3]=='D'&&link_usb_host_present());
     usb_json(42,welcome);assert(!link_up()); // delayed old welcome cannot revive a failed epoch
     atomic_store(&s_host_seen,false);nevents=0;
-    assert(ws_start(g_settings.server_url));assert(s_ws_rx==NULL);assert(!link_up());
+    assert(ws_start(g_settings.server_url));assert(last_ws_buffer==1280);assert(s_ws_rx==NULL);assert(!link_up());
     char hello[1024];assert(link_make_hello(hello,sizeof hello));assert(strstr(hello,"quoted\\\""));check_hello(hello);
     devkey_ok=false;assert(!link_make_hello(hello,sizeof hello));devkey_ok=true; // no key, no hello
     assert(link_make_hello(hello,sizeof hello));
@@ -208,13 +209,26 @@ int main(void) {
     ws_event(s_ws,NULL,WEBSOCKET_EVENT_DATA,&part);
     assert(audio_calls==audio_before+1&&audio_bytes==1203&&s_ws_rx==NULL);
 
+    // The SDK scratch size does not reduce the maximum binary message contract.
+    int fragmented_before=audio_calls;
+    esp_websocket_event_data_t chunk={.op_code=2,.payload_len=LINK_WS_RX_MAX};
+    for(int offset=0;offset<LINK_WS_RX_MAX;offset+=last_ws_buffer) {
+        chunk.payload_offset=offset;chunk.data_ptr=(char*)ws_audio+offset;
+        chunk.data_len=LINK_WS_RX_MAX-offset<last_ws_buffer?LINK_WS_RX_MAX-offset:last_ws_buffer;
+        ws_event(s_ws,NULL,WEBSOCKET_EVENT_DATA,&chunk);
+        if(offset+chunk.data_len<LINK_WS_RX_MAX) assert(audio_calls==fragmented_before&&s_ws_rx);
+    }
+    assert(audio_calls==fragmented_before+1&&audio_bytes==LINK_SPEECH_PCM_MAX&&s_ws_rx==NULL);
+    audio_before++; // Include the additional successful maximum-size message.
+
     // JSON still supports its full 4KiB contract, split across SDK receive callbacks.
     before_json=nevents;
     esp_websocket_event_data_t text_part={.op_code=1,.payload_len=LINK_JSON_MAX,.data_len=1024};
-    for (int offset=0;offset<LINK_JSON_MAX;offset+=1024) {
+    for (int offset=0;offset<LINK_JSON_MAX;offset+=last_ws_buffer) {
         text_part.payload_offset=offset;text_part.data_ptr=big_json+offset;
+        text_part.data_len=LINK_JSON_MAX-offset<last_ws_buffer?LINK_JSON_MAX-offset:last_ws_buffer;
         ws_event(s_ws,NULL,WEBSOCKET_EVENT_DATA,&text_part);
-        if (offset+1024<LINK_JSON_MAX) assert(nevents==before_json&&s_ws_rx&&rx_last_bytes==LINK_JSON_MAX+1);
+        if (offset+text_part.data_len<LINK_JSON_MAX) assert(nevents==before_json&&s_ws_rx&&rx_last_bytes==LINK_JSON_MAX+1);
     }
     assert(nevents==before_json+1&&s_ws_rx==NULL);
 

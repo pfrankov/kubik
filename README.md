@@ -23,7 +23,7 @@ python3 -m venv .venv
 .venv/bin/python flash-device.py
 ```
 
-On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\python.exe` instead. The installer checks image hashes before writing and preserves saved Wi-Fi networks, pairing and settings. For a new device, continue with the steps below; for an existing device, let it reconnect. Current firmware: **0.6.3**. Current channel: **openclaw-kubik 0.6.6**; update the channel from npm with the installation command below.
+On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\python.exe` instead. The installer checks image hashes before writing and preserves saved Wi-Fi networks, pairing and settings. For a new device, continue with the steps below; for an existing device, let it reconnect. Current firmware: **0.6.3**. Current channel: **openclaw-kubik 0.6.7**; update the channel from npm with the installation command below.
 
 ## Get connected
 

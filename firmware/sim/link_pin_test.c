@@ -10,9 +10,13 @@
 #include "settings.h"
 
 settings_t g_settings;
-static int pin_saves;
+static int pin_saves, configuration_leases;
+void app_wake_configuration_busy(bool busy) {
+    configuration_leases += busy ? 1 : -1; assert(configuration_leases >= 0);
+}
 const char *esp_err_to_name(esp_err_t err) { (void)err; return "test"; }
 esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES]) {
+    assert(configuration_leases > 0);
     memcpy(g_settings.server_pin, pin, SETTINGS_PIN_BYTES);
     g_settings.server_pinned = true;
     pin_saves++;
@@ -132,7 +136,7 @@ static void test_wifi_pinning(void) {
     assert(link_pin_bind(false, 0, bind) && !strcmp(bind, ABC));
     assert(!g_settings.server_pinned && !link_pin_take_mismatch());
     link_pin_keep(false, 0);  // after the welcome
-    assert(g_settings.server_pinned && pin_saves == 1);
+    assert(g_settings.server_pinned && pin_saves == 1 && !configuration_leases);
     link_pin_keep(false, 0);
     assert(pin_saves == 1);
     // The same key again is trusted; another one fails the handshake and is reported once.

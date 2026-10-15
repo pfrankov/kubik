@@ -1,5 +1,11 @@
 #include "tess_sound_internal.h"
 #include <math.h>
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#define SOUND_HOT IRAM_ATTR
+#else
+#define SOUND_HOT
+#endif
 #include <string.h>
 
 // One cycle of a sine (a table of 256 and one to interpolate with, 514 bytes), built once.
@@ -312,7 +318,7 @@ static inline bool mix_sample(tess_sound_t *sound, uint32_t clock, int32_t *outp
     return sound->voiced || reverb_active;
 }
 
-bool tess_sound_mix(tess_sound_t *s, int32_t *out, int count) {
+bool SOUND_HOT tess_sound_mix(tess_sound_t *s, int32_t *out, int count) {
     uint32_t clock = s->gate.clock;
     s->gate.clock += (uint32_t)count;
     if (!tess_sound_active(s)) return false;

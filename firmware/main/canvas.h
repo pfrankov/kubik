@@ -19,6 +19,7 @@ typedef struct {
     uint32_t stripe_hash[CANVAS_H][CANVAS_STRIPES];
     uint8_t row_start[CANVAS_H], row_end[CANVAS_H];      // lit (nonblack) extent
     uint8_t changed_x0[CANVAS_H], changed_x1[CANVAS_H];  // this frame's changed columns (empty: none)
+    uint16_t row_lit[CANVAS_H];                         // exact current nonblack stripes, independent of hashes
     uint16_t changed_mask[CANVAS_H];                     // this frame's changed stripes, a bit each (a hull would join far-apart specks)
     bool previous_valid;
 } canvas_t;

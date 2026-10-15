@@ -1,3 +1,4 @@
+#include "app_wake.h"
 #include "link_pin.h"
 
 #include <ctype.h>
@@ -126,7 +127,9 @@ void link_pin_keep(bool usb, uint32_t epoch) {
     const uint8_t *key = usb ? s_usb_key : s_wifi_key;
     bool seen = usb ? s_usb_seen && s_usb_epoch == epoch : atomic_load(&s_wifi_seen);
     if (!seen) return;
+    app_wake_configuration_busy(true);
     esp_err_t err = settings_save_pin(key);
+    app_wake_configuration_busy(false);
     if (err == ESP_OK) ESP_LOGI(TAG, "server key pinned");
     else ESP_LOGW(TAG, "could not keep the server key: %s", esp_err_to_name(err));
 }

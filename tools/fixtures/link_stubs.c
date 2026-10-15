@@ -99,7 +99,7 @@ const char *esp_err_to_name(esp_err_t e) { (void)e; return "mock"; }
 static unsigned char usb_bytes[32768]; static size_t usb_size;
 static unsigned char usb_input[8192]; static size_t usb_input_size, usb_input_pos;
 static bool stop_usb_rx; static jmp_buf usb_rx_jmp;
-static int usb_serial_jtag_write_bytes(const void *p,size_t n,unsigned timeout) { (void)timeout; assert(usb_size+n<=sizeof usb_bytes); memcpy(usb_bytes+usb_size,p,n); usb_size+=n; return n; }
+static int usb_serial_jtag_write_bytes(const void *p,size_t n,unsigned timeout) { (void)timeout; if(n>2048)return 0; assert(usb_size+n<=sizeof usb_bytes); memcpy(usb_bytes+usb_size,p,n); usb_size+=n; return n; }
 static int usb_serial_jtag_read_bytes(void *p,size_t n,unsigned timeout) {
     (void)timeout;
     if (usb_input_pos < usb_input_size) {
@@ -110,7 +110,7 @@ static int usb_serial_jtag_read_bytes(void *p,size_t n,unsigned timeout) {
     return 0;
 }
 typedef struct { int rx_buffer_size,tx_buffer_size; } usb_serial_jtag_driver_config_t;
-static int usb_serial_jtag_driver_install(usb_serial_jtag_driver_config_t *c) { (void)c; return 0; }
+static int usb_serial_jtag_driver_install(usb_serial_jtag_driver_config_t *c) { assert(c->rx_buffer_size==4096 && c->tx_buffer_size==2048); return 0; }
 static void usb_serial_jtag_vfs_use_driver(void) { }
 static void esp_log_set_vprintf(int (*cb)(const char*,va_list)) { (void)cb; }
 static int xTaskCreate(void (*fn)(void*),const char *name,int stack,void *arg,int pri,void *out) { (void)fn;(void)name;(void)stack;(void)arg;(void)pri;(void)out; return 1; }
@@ -121,9 +121,15 @@ typedef enum { WEBSOCKET_ERROR_TYPE_NONE=0,WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,WE
 typedef struct { esp_websocket_error_type_t error_type; int esp_ws_handshake_status_code; } esp_websocket_error_codes_t;
 typedef struct { int op_code,payload_offset,payload_len,data_len; bool fin; const char *data_ptr; esp_websocket_error_codes_t error_handle; } esp_websocket_event_data_t;
 enum { WEBSOCKET_EVENT_CONNECTED,WEBSOCKET_EVENT_ERROR,WEBSOCKET_EVENT_DISCONNECTED,WEBSOCKET_EVENT_CLOSED,WEBSOCKET_EVENT_FINISH,WEBSOCKET_EVENT_DATA,WEBSOCKET_EVENT_ANY };
+typedef void *esp_transport_handle_t;
+static esp_transport_handle_t link_tls_wss(const char *uri, bool pinned, void **parent) {
+    assert(!strncmp(uri,"wss://",6)); (void)pinned; *parent=malloc(1); return malloc(1);
+}
+static void esp_transport_destroy(void *t) { free(t); }
 typedef struct MockWS { void (*cb)(void*,esp_event_base_t,int32_t,void*); void *arg; } *esp_websocket_client_handle_t;
-typedef struct { const char *uri; int buffer_size; bool disable_auto_reconnect; int network_timeout_ms,ping_interval_sec,pingpong_timeout_sec,task_stack,task_prio; esp_err_t (*crt_bundle_attach)(void *); } esp_websocket_client_config_t;
+typedef struct { const char *uri; esp_transport_handle_t ext_transport; int buffer_size; bool disable_auto_reconnect; int network_timeout_ms,ping_interval_sec,pingpong_timeout_sec,task_stack,task_prio; esp_err_t (*crt_bundle_attach)(void *); } esp_websocket_client_config_t;
 static esp_err_t esp_crt_bundle_attach(void *conf) { (void)conf; return 0; }
+static int last_ws_buffer;
 static char last_uri[160]; static esp_err_t (*last_attach)(void *);
 static int fail_init, fail_register, fail_start, allocations, destroys, starts, sends;
 static atomic_bool s_wifi_allowed;
@@ -136,7 +142,7 @@ static uint32_t attempts[64]; static int nattempts;
 static esp_websocket_client_handle_t esp_websocket_client_init(const esp_websocket_client_config_t *c) {
     assert(c->disable_auto_reconnect); assert(c->network_timeout_ms==(!strncmp(c->uri,"wss://",6)?15000:8000)); assert(nattempts<64); attempts[nattempts++]=time_ms;
     snprintf(last_uri,sizeof last_uri,"%s",c->uri); last_attach=c->crt_bundle_attach;
-    if(fail_init)return NULL;
+    last_ws_buffer=c->buffer_size; if(fail_init)return NULL;
     allocations++; return calloc(1,sizeof(struct MockWS));
 }
 static int esp_websocket_register_events(esp_websocket_client_handle_t ws,int event,void(*cb)(void*,esp_event_base_t,int32_t,void*),void *arg) { (void)event; ws->cb=cb; ws->arg=arg; return fail_register?-1:0; }

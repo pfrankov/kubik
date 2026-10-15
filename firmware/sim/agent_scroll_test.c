@@ -40,6 +40,7 @@ static void test_pages_join_into_one_list(void) {
     assert(load(&m, 1, 9, 4) && load(&m, 2, 9, 1));
     assert(m.count == 9 && !strcmp(m.models[8].id, "model-8") && !strcmp(m.models[0].id, "model-0"));
     assert(!agent_menu_next_page(&m, &cursor));
+    agent_menu_clear_catalog(&m);
 }
 
 static void test_cap_gap_and_short_page(void) {
@@ -47,10 +48,11 @@ static void test_cap_gap_and_short_page(void) {
     assert(load(&m, 0, 128, 4) && agent_menu_listed(&m) == AGENT_LIST_MAX);
     assert(load(&m, 2, 128, 1) && m.count == 0 && !m.options_loaded);  // a gap starts over
     assert(!load(&m, 8, 128, 1));                                      // beyond the list cap
-    open_models(&m);
+    agent_menu_clear_catalog(&m); open_models(&m);
     assert(load(&m, 0, 9, 4) && load(&m, 1, 9, 0) && m.total == 4);   // a short page ends the list
     uint8_t cursor;
     assert(!agent_menu_next_page(&m, &cursor));
+    agent_menu_clear_catalog(&m);
 }
 
 static void drag_to(agent_menu_t *m, int from, int to) {

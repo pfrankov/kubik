@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../main/tess_draw.c"
+#include "tess_palette_helpers.h"
 #define DT (1.f / 30)
 
 static face_t start(void) {

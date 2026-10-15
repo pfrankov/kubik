@@ -14,3 +14,5 @@ bool app_speech_end(int gen, uint32_t session);
 bool app_speech_cancel(int gen, uint32_t session);
 void app_speech_stop(bool tell_server);
 bool app_speech_tick(int64_t now_ms, bool progress);
+
+void app_speech_diagnostics(char *reply, size_t capacity);

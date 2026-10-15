@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../main/tess_draw.c"  // (the palette: tess_color)
+#include "tess_palette_helpers.h"
 
 #define DT (1.f / 30)
 #define MOOD_CUES_PER_MINUTE 6

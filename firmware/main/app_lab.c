@@ -48,6 +48,7 @@ void app_lab_close(void) {
     g_face.rub_in = (rub_input_t){0};
     audio_sfx_quiet();  // same face -> SFX lock order as preview submission
     face_unlock();
+    agent_menu_clear_catalog(&lab->face.agent);
     free(lab);
 }
 static bool route(const app_ev_t *e, lab_event_t *event) {

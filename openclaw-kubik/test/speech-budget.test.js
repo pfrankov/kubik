@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { SpeechPacer } from '../src/audio.js';
 import { SPEECH_LEAD_MS } from '../src/protocol.js';
+
+const prebufferMs = Number(readFileSync(new URL('../../firmware/main/audio.c', import.meta.url), 'utf8')
+  .match(/^#define PREBUF_BYTES \((\d+) \* RING_BYTES_PER_MS\)/m)?.[1]);
+assert.equal(prebufferMs, 800, 'Model the actual firmware startup cushion');
 
 // Production credit and packet size, with both directions of the network delayed.
 async function playback(rtt, reportMs, phase) {
@@ -17,7 +22,7 @@ async function playback(rtt, reportMs, phase) {
       await new Promise(resolve => setImmediate(resolve));
       while (packets[0]?.at <= clock) held += packets.shift().ms;
       peak = Math.max(peak, held);
-      if (!started && held >= 600) started = true; // firmware/main/audio.c prebuffer
+      if (!started && held >= prebufferMs) started = true;
       if (started) {
         if (held >= 20) { held -= 20; played += 20; } else gaps++;
       }

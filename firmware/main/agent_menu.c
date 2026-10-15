@@ -42,6 +42,28 @@ bool agent_target_parse(const char *name, agent_target_t *target) {
     return false;
 }
 
+void agent_menu_clear_catalog(agent_menu_t *menu) {
+    free(menu->models); menu->models = NULL;
+    menu->cursor = menu->count = menu->total = 0;
+    menu->options_loaded = false;
+}
+
+void agent_menu_reclaim_hidden(agent_menu_t *menu) {
+    if (menu->open) return;
+    agent_menu_clear_catalog(menu);
+    menu->catalog_reclaimed = true;
+    if (menu->waiting_kind == AGENT_REQUEST_OPTIONS) {
+        menu->request_pending = false;
+        menu->waiting_kind = AGENT_REQUEST_NONE;
+        menu->waiting_rid = menu->wire_rid = 0;
+    }
+}
+
+bool agent_menu_reserve_catalog(agent_menu_t *menu) {
+    if (!menu->models) menu->models = calloc(AGENT_LIST_MAX, sizeof *menu->models);
+    return menu->models != NULL;
+}
+
 void agent_menu_reset(agent_menu_t *menu) {
     if (!menu) return;
     memset(menu, 0, sizeof(*menu));
@@ -170,18 +192,20 @@ static bool reply_is_valid(const agent_menu_reply_t *r) {
     return reply_catalog_valid(r) && mode_catalog_valid(r);
 }
 
-static void accept_catalog(agent_menu_t *menu, const agent_menu_reply_t *reply) {
-    if (!reply->has_catalog) return;
+static bool accept_catalog(agent_menu_t *menu, const agent_menu_reply_t *reply) {
+    if (!reply->has_catalog || menu->catalog_reclaimed) return true;
     unsigned first = (unsigned)reply->cursor * AGENT_PAGE_SIZE;
     menu->cursor = reply->cursor;
     menu->total = reply->total;
-    if (first > menu->count) { menu->count = 0; menu->options_loaded = false; return; }  // gap: load again from the first page
-    memcpy(menu->models + first, reply->models, reply->count * sizeof menu->models[0]);
+    if (first > menu->count) { agent_menu_clear_catalog(menu); return true; }  // gap: load again from the first page
+    if (reply->count && !agent_menu_reserve_catalog(menu)) return false;
+    if (reply->count) memcpy(menu->models + first, reply->models, reply->count * sizeof menu->models[0]);
     if (first + reply->count > menu->count || !first) menu->count = (uint8_t)(first + reply->count);
     // A short page ends the host list even when it announced more.
     if (reply->count < AGENT_PAGE_SIZE && menu->count < menu->total) menu->total = menu->count;
     menu->options_loaded = true;
     if (menu->scroll > agent_menu_scroll_max(menu)) menu->scroll = agent_menu_scroll_max(menu);
+    return true;
 }
 
 static void accept_status(agent_menu_t *menu, const agent_menu_reply_t *reply) {
@@ -227,7 +251,11 @@ bool agent_menu_accept_reply(agent_menu_t *menu, const agent_menu_reply_t *reply
     menu->request_pending = false;
     menu->waiting_kind = AGENT_REQUEST_NONE;
     if (reply->error[0]) { accept_error(menu, reply, answered); return true; }
-    accept_catalog(menu, reply);
+    if (!accept_catalog(menu, reply)) {
+        copy_bounded(menu->error, sizeof menu->error, "unavailable");
+        menu->retry_kind = AGENT_REQUEST_OPTIONS; menu->retry_cursor = reply->cursor;
+        return true;
+    }
     if (reply->has_model) {
         copy_bounded(menu->selected_model, sizeof menu->selected_model, reply->model);
         if (menu->target == AGENT_TARGET_AGENT) copy_bounded(menu->model, sizeof menu->model, reply->model);
@@ -385,8 +413,9 @@ void agent_menu_guide_move(agent_menu_t *menu, int direction) {
 }
 
 void agent_menu_visit(agent_menu_t *m, agent_view_t view, agent_target_t target) {
+    m->catalog_reclaimed = false;
     m->view = view; m->target = target; m->view_elapsed = 0;
-    m->cursor = m->count = m->total = 0;
+    agent_menu_clear_catalog(m);
     m->scroll = m->scroll_v = 0; m->scrolling = false;
     m->selected_model[0] = m->error[0] = 0;
     m->request_pending = m->options_loaded = false;

@@ -64,6 +64,7 @@ static SemaphoreHandle_t xSemaphoreCreateBinaryStatic(StaticSemaphore_t *s) {
 static void xSemaphoreGive(SemaphoreHandle_t s) { sem_post(s); }
 static void xSemaphoreTake(SemaphoreHandle_t s, unsigned timeout) { (void)timeout; assert(!sem_wait(s)); }
 static int alloc_fail=-1, held;
+static size_t largest_internal=1000;
 static void *checked_malloc(size_t n) {
     if (alloc_fail==0) return NULL;
     if (alloc_fail>0) alloc_fail--;
@@ -71,7 +72,7 @@ static void *checked_malloc(size_t n) {
 }
 static void checked_free(void *p) { if(p) { held--; } free(p); }
 static void *heap_caps_malloc(size_t n, unsigned caps) {
-    assert(((n==4096 || n==3072) && caps==(MALLOC_CAP_RTCRAM|MALLOC_CAP_8BIT)) || (n==15552 && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));
+    assert(((n==4096 || n==3072) && caps==(MALLOC_CAP_RTCRAM|MALLOC_CAP_8BIT)) || (n==972 && n<=largest_internal && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));
     return checked_malloc(n);
 }
 static void heap_caps_free(void *p) { checked_free(p); }
@@ -94,7 +95,7 @@ tests = r'''
 #undef malloc
 #undef free
 static sem_t entered, release, processed;
-static bool hold_first, acknowledge;
+static bool hold_first, acknowledge, duplex_sequence;
 static unsigned calls, errors;
 static ima_state_t reference_encoder;
 static void deliver(void *context, const int16_t *pcm, const uint8_t *ima, uint32_t epoch) {
@@ -121,12 +122,18 @@ static void deliver_duplex(void *context,const int16_t *pcm,const uint8_t *ima,u
     int16_t near[960], far[960]; ima_state_t decoder;
     assert(ima_read_header(ima,&decoder)); ima_decode(&decoder,ima+3,480,near);
     assert(ima_read_header(ima+483,&decoder)); ima_decode(&decoder,ima+486,480,far);
-    assert(near[900]>900 && far[900]<-900); calls++;
+    assert(near[900]>900 && far[900]<-900);
+    if (duplex_sequence) {
+        assert(abs(near[900] - (1000 + (int)calls*100)) <= 10);
+        assert(abs(far[900] - (-2000 - (int)calls*100)) <= 10);
+    }
+    calls++;
+    if (duplex_sequence) sem_post(&processed);
     if(hold_first && calls==1) {sem_post(&entered); assert(!sem_wait(&release));}
 }
 static void duplex_proof(void) {
     calls=errors=0;
-    for(int fail=0;fail<2;fail++) {
+    for(int fail=0;fail<17;fail++) {
         alloc_fail=fail; assert(!mic_delivery_start(deliver_duplex,&calls,true)); assert(!held && !s_task);
     }
     alloc_fail=-1;
@@ -142,7 +149,15 @@ static void duplex_proof(void) {
     mic_delivery_push(near,42,reference); assert(!sem_wait(&entered));
     for(int i=1;i<17;i++)mic_delivery_push(near,42,reference);
     sem_post(&release); mic_delivery_stop(); assert(calls==1 && errors==1 && !held);
-    hold_first=false;
+    hold_first=false; calls=errors=0; duplex_sequence=true;
+    assert(mic_delivery_start(deliver_duplex,&calls,true));
+    for(int frame=0;frame<48;frame++) {
+        for(int i=0;i<960;i++){near[i]=1000+frame*100;far[i]=-2000-frame*100;}
+        ima_encode(&ref_encoder,far,960,reference);
+        mic_delivery_push(near,42,reference); assert(!sem_wait(&processed));
+    }
+    mic_delivery_stop(); assert(calls==48 && !errors && !held);
+    duplex_sequence=false;
 }
 int main(void) {
     sem_init(&entered,0,0); sem_init(&release,0,0); sem_init(&processed,0,0);

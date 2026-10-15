@@ -24,7 +24,7 @@ mock = r'''
 #include "audio_output_tail.h"
 #include "audio_output_profile.h"
 #define RING_BYTES @RING_BYTES@
-#define RING_BLOCKS 3
+#define RING_BLOCKS @RING_BLOCKS@
 #define RING_BLOCK_BYTES (RING_BYTES/RING_BLOCKS)
 #define PREBUF_BYTES @PREBUF_BYTES@
 #define REBUF_BYTES @REBUF_BYTES@
@@ -45,15 +45,16 @@ typedef pthread_mutex_t *SemaphoreHandle_t;
 static pthread_mutex_t chunk = PTHREAD_MUTEX_INITIALIZER, gate = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static bool decoding, release_decode, restart_started, restart_done;
-static unsigned allocation_limit = 3, allocations, kicks;
+static unsigned allocation_limit = RING_BLOCKS, allocations, held, kicks;
 static bool probe_kick;
 static int xSemaphoreTake(SemaphoreHandle_t m, int timeout) { return (timeout ? pthread_mutex_lock(m) : pthread_mutex_trylock(m)) == 0; }
 static void xSemaphoreGive(SemaphoreHandle_t m) { assert(!pthread_mutex_unlock(m)); }
 static void *heap_caps_malloc(size_t bytes, int flags) {
-    assert(bytes==3600 && flags==((allocations%3 < 2 ? MALLOC_CAP_RTCRAM : MALLOC_CAP_INTERNAL)|MALLOC_CAP_8BIT));
-    return allocations++ < allocation_limit ? malloc(bytes) : NULL;
+    assert(bytes==RING_BLOCK_BYTES && flags==((allocations%RING_BLOCKS < RING_BLOCKS*2/3 ? MALLOC_CAP_RTCRAM : MALLOC_CAP_INTERNAL)|MALLOC_CAP_8BIT));
+    if (allocations++ >= allocation_limit) return NULL;
+    held++; return malloc(bytes);
 }
-static void heap_caps_free(void *p) { free(p); }
+static void heap_caps_free(void *p) { if(p) { assert(held);held--; } free(p); }
 static void audio_sfx_quiet(void) {}
 static int64_t now;
 static int64_t esp_timer_get_time(void) { return now; }
@@ -116,30 +117,39 @@ int main(void) {
     allocation_limit = 0; allocations = 0; probe_kick = false; audio_stream_begin(); // buffer refusal is explicitly not playback
     assert(!s_active && audio_stream_write_ima(packet, sizeof packet) == 0);
     audio_stream_end(); assert(s_rd == s_wr && s_played_bytes == 0);
-    allocation_limit = 2; allocations = 0; audio_stream_begin();
-    assert(!s_active && !s_ring_cap); // Partial allocation must release all blocks and refuse the whole stream.
-    for(int i=0;i<RING_BLOCKS;i++)assert(!s_ring[i]);
-    allocation_limit = 3; allocations = 0; probe_kick = true; audio_stream_begin();
-    assert(allocations == 3); // three medium reservations, fitting beside Live's LP sender stack
+    for(unsigned failed=0;failed<RING_BLOCKS;failed++) {
+        allocation_limit = failed; allocations = 0; audio_stream_begin();
+        assert(!s_active && !s_ring_cap && !held); // Every partial allocation releases all blocks.
+        for(int i=0;i<RING_BLOCKS;i++)assert(!s_ring[i]);
+    }
+    allocation_limit = RING_BLOCKS; allocations = 0; probe_kick = true; audio_stream_begin();
+    assert(allocations == RING_BLOCKS); // same full capacity beside Live's LP sender stack
     assert(s_active && s_ring_cap == 10800);
     { // Patterned copies crossing the ring end, including a cursor beyond one lap.
         uint8_t input[1301], output[1301];
         for(size_t i=0;i<sizeof input;i++)input[i]=(uint8_t)(i*37+11);
-        const size_t positions[]={RING_BLOCK_BYTES-317,2*RING_BLOCK_BYTES-317,RING_BYTES-317,2*RING_BYTES-317};
-        for(size_t i=0;i<sizeof positions/sizeof positions[0];i++) {
-            ring_copy(positions[i],input,sizeof input,true);
+        for(size_t i=1;i<=2*RING_BLOCKS;i++) {
+            size_t position=i*RING_BLOCK_BYTES-317;
+            ring_copy(position,input,sizeof input,true);
             memset(output,0,sizeof output);
-            ring_copy(positions[i],output,sizeof output,false);
+            ring_copy(position,output,sizeof output,false);
             assert(!memcmp(input,output,sizeof input));
         }
         assert(s_rd==0 && s_wr==0); // copying alone must not move published cursors
     }
     static uint8_t wire_packet[1203]; // 100 ms IMA + predictor header
     int16_t samples[480]; int32_t mix[480] = {0};
-    for (int i = 0; i < 5; i++) assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
-    assert(!read_speech_frame(samples, mix)); // 500 ms cannot start a 600 ms prebuffer.
+    assert(PREBUF_BYTES == 800 * RING_BYTES_PER_MS);
+    for (int i = 0; i < 7; i++) assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
+    assert(!read_speech_frame(samples, mix)); // 700 ms cannot start before the full host credit arrives.
     assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
     assert(read_speech_frame(samples, mix)); output_written();
+    audio_stream_begin();
+    for(int i=0;i<8;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
+    for(int i=0;i<35;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
+    assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
+    assert(read_speech_frame(samples,mix) && !s_gaps && !s_gap_frames); output_written();
+    // Existing capacity now covers a 700 ms gap without hiding real starvation below.
     audio_stream_begin();
     assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
     now = s_start_deadline_us - 1; assert(!read_speech_frame(samples, mix));
@@ -149,15 +159,15 @@ int main(void) {
     assert(!read_speech_frame(samples,mix)); // quiet terminal tail
     audio_stream_end(); assert(!read_speech_frame(samples,mix) && !s_gaps && !s_gap_frames);
     audio_stream_begin();
-    for(int i=0;i<6;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
-    for(int i=0;i<30;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
+    for(int i=0;i<8;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
+    for(int i=0;i<40;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
     for(int i=0;i<5;i++)assert(!read_speech_frame(samples,mix));
     for(int i=0;i<3;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
     assert(read_speech_frame(samples,mix) && s_gaps==1 && s_gap_frames==5); // true mid-speech starvation remains visible
     output_written(); audio_stream_begin();
-    for(int i=0;i<6;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
+    for(int i=0;i<8;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
     assert(audio_stream_write_ima(wire_packet,IMA_HEADER_BYTES+24)==24);
-    for(int i=0;i<30;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
+    for(int i=0;i<40;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
     for(int i=0;i<5;i++)assert(!read_speech_frame(samples,mix));
     audio_stream_end(); assert(read_speech_frame(samples,mix)); output_written();
     assert(!s_gaps && !s_gap_frames); // preexisting partial terminal tail is not new speech
@@ -204,7 +214,7 @@ int main(void) {
     puts("audio ring/output: restart exclusion, capacity, refusal, DMA reserve and silence boundaries");
 }
 '''
-for name in ("RING_BYTES",):
+for name in ("RING_BYTES", "RING_BLOCKS"):
     mock = mock.replace(f"@{name}@", re.search(rf"#define {name} (\d+)", audio)[1])
 for name in ("PREBUF_BYTES", "REBUF_BYTES"):
     mock = mock.replace(f"@{name}@", re.search(rf"#define {name} (\([^\n]+\))", audio)[1])

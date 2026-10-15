@@ -1,4 +1,5 @@
 #include "app_wake.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdatomic.h>
@@ -21,42 +22,66 @@ static bool s_failed;
 static unsigned s_attempts;
 static int64_t s_retry_at;
 static atomic_bool s_transport_busy, s_retry_reset;
+static atomic_uint s_configuration_busy;
 static uint32_t s_epoch;
 static int s_auto_turn;
 static uint32_t s_auto_session;
 static vad_handle_t s_vad;
 static auto_voice_t s_voice;
 static wake_resample_t s_resample;
-static int16_t s_pcm[640];
+static int16_t s_pcm[320]; // One 20 ms VAD frame; process each 40 ms capture in two halves.
 // Keep up to 80 ms captured AFTER detection while the app handles the wake event.
-static int16_t s_postwake[2][MIC_FRAME_SAMPLES];
-static unsigned s_postwake_count, s_postwake_next;
+typedef struct { int16_t pcm[2][MIC_FRAME_SAMPLES]; unsigned count, next; } wake_preroll_t;
+static wake_preroll_t *s_preroll;
+static void preroll_free(wake_preroll_t *preroll) {
+    if (preroll) memset(preroll, 0, sizeof *preroll);
+    heap_caps_free(preroll);
+}
 
 void app_wake_init(void) {
     s_lock = xSemaphoreCreateMutex();
     ESP_ERROR_CHECK(s_lock ? ESP_OK : ESP_ERR_NO_MEM);
 }
+static bool wake_transport_busy(void) {
+    return atomic_load(&s_transport_busy) || atomic_load(&s_configuration_busy);
+}
 static bool eligible(void) {
-    return !app_voice_live_active() && !atomic_load(&s_transport_busy) && power_is_active(s_power) && s_online && app_agent_mic_allowed() &&
+    return !app_voice_live_active() && !wake_transport_busy() && power_is_active(s_power) && s_online && app_agent_mic_allowed() &&
            !s_setup && !s_menu && !s_pair_code[0] && !s_power_off_at &&
            s_talk == TALK_IDLE && s_srv == SS_IDLE && s_gen < 0 && !s_act_own;
 }
-static void suspend_model(void) {
-    if (!s_lock) return;
+static wake_preroll_t *stop_model(bool take_preroll) {
+    if (!s_lock) return NULL;
+    wake_preroll_t *preroll = NULL;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (s_listening) {
         s_listening = false;
         audio_wake_gate(false, NULL); // waits for the sole capture callback to finish
         wake_model_stop();
         s_pending = false;
+        preroll = s_preroll; s_preroll = NULL;
     }
     xSemaphoreGive(s_lock);
+    if (!take_preroll) { preroll_free(preroll); return NULL; }
+    return preroll;
 }
+static void suspend_model(void) { stop_model(false); }
 void app_wake_transport_busy(bool busy) {
     atomic_store(&s_transport_busy, busy);
     if (busy) {
         atomic_store(&s_retry_reset, true); // even a reconnect completed between app ticks
         suspend_model();
+    }
+}
+// USB settings and link pin writes can overlap. Each writer holds one lease;
+// release only the passive model, leaving read-only diagnostics unaffected.
+void app_wake_configuration_busy(bool busy) {
+    if (busy) {
+        atomic_fetch_add(&s_configuration_busy, 1);
+        suspend_model();
+    } else {
+        atomic_fetch_sub(&s_configuration_busy, 1);
+        atomic_store(&s_retry_reset, true);
     }
 }
 void app_wake_suspend(void) {
@@ -71,13 +96,17 @@ static void wake_frame(const int16_t *pcm, int samples, const uint8_t *ima) {
     (void)ima;
     if (!s_listening || samples != MIC_FRAME_SAMPLES) return;
     if (s_pending) {
-        memcpy(s_postwake[s_postwake_next], pcm, sizeof s_postwake[0]);
-        s_postwake_next = (s_postwake_next + 1) % 2;
-        if (s_postwake_count < 2) ++s_postwake_count;
+        memcpy(s_preroll->pcm[s_preroll->next], pcm, sizeof s_preroll->pcm[0]);
+        s_preroll->next = (s_preroll->next + 1) % 2;
+        if (s_preroll->count < 2) ++s_preroll->count;
         return;
     }
-    size_t n = wake_resample(&s_resample, pcm, samples, s_pcm);
-    if (wake_model_feed(s_pcm, n) && !audio_self_audible()) {
+    bool detected = false;
+    for (int offset = 0; offset < samples; offset += MIC_FRAME_SAMPLES / 2) {
+        size_t n = wake_resample(&s_resample, pcm + offset, MIC_FRAME_SAMPLES / 2, s_pcm);
+        detected = wake_model_feed(s_pcm, n) || detected;
+    }
+    if (detected && !audio_self_audible()) {
         s_pending = true;
         app_post(EV_VOICE_WAKE, (int)s_epoch, 0);
     }
@@ -87,12 +116,15 @@ static void start_listening(void) {
     s_failed = s_attempts >= 3; s_retry_at = now_ms() + 5000;
     if (!wake_model_start()) return;
     memset(&s_resample, 0, sizeof s_resample);
-    s_postwake_count = s_postwake_next = 0; s_pending = false;
+    s_preroll = heap_caps_calloc(1, sizeof *s_preroll, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!s_preroll) { wake_model_stop(); return; }
+    s_pending = false;
     s_listening = true;
     s_epoch = audio_capture_epoch() + 1;
     if (!audio_wake_gate(true, wake_frame)) {
         s_listening = false;
         audio_wake_gate(false, NULL); wake_model_stop();
+        preroll_free(s_preroll); s_preroll = NULL;
     }
 }
 static bool recording_tick(void) {
@@ -124,10 +156,11 @@ static void automatic_frame(const int16_t *pcm, int samples, const uint8_t *ima)
     if (!link_send_mic_in_session(s_auto_turn, pcm, samples * 2, s_auto_session, ima)) {
         s_pending = true; app_post(EV_VOICE_END, s_auto_turn, 2); return;
     }
-    size_t n = wake_resample(&s_resample, pcm, samples, s_pcm);
-    for (size_t off = 0; off + 320 <= n; off += 320) {
+    for (int offset = 0; offset < samples; offset += MIC_FRAME_SAMPLES / 2) {
+        size_t n = wake_resample(&s_resample, pcm + offset, MIC_FRAME_SAMPLES / 2, s_pcm);
+        configASSERT(n == 320);
         bool muted = audio_self_audible();
-        bool speech = !muted && vad_process(s_vad, s_pcm + off, 16000, 20) == VAD_SPEECH;
+        bool speech = !muted && vad_process(s_vad, s_pcm, 16000, 20) == VAD_SPEECH;
         auto_voice_result_t result = auto_voice_step(&s_voice, speech, muted, 20);
         if (result == AUTO_CONTINUE) continue;
         s_pending = true;
@@ -141,21 +174,31 @@ void app_wake_recording_stop(void) {
     if (s_vad) { vad_destroy(s_vad); s_vad = NULL; }
     app_voice_recording_stop();
 }
-static bool start_upload(uint32_t capture_epoch) {
+// One owner consumes the exact chronological 80 ms tail, then releases it
+// before allocating the live microphone queue. Failure releases it as well.
+static bool send_preroll(wake_preroll_t *preroll, bool live, int turn, uint32_t session) {
+    bool sent = true;
+    unsigned first = preroll->count == 2 ? preroll->next : 0;
+    for (unsigned i = 0; i < preroll->count && sent; ++i) {
+        const int16_t *pcm = preroll->pcm[(first + i) % 2];
+        if (live) sent = link_send_duplex_in_session(turn, link_mic_duplex_preroll(pcm), session);
+        else sent = link_send_mic_in_session(turn, pcm, sizeof preroll->pcm[0], session, NULL);
+    }
+    preroll_free(preroll);
+    return sent;
+}
+static bool start_upload(uint32_t capture_epoch, wake_preroll_t *preroll) {
     char message[80];
     snprintf(message, sizeof message, "{\"t\":\"ptt\",\"on\":true,\"turn\":%d,\"automatic\":true}", s_turn);
-    if (s_gen >= 0 || !link_send_json_in_session(message, s_auto_session)) return false;
+    if (s_gen >= 0 || !link_send_json_in_session(message, s_auto_session)) { preroll_free(preroll); return false; }
     wifi_set_fast(true); disp_wake();
     // No start chirp: it would mute the start of a command spoken without a pause.
-    unsigned first = s_postwake_count == 2 ? s_postwake_next : 0;
-    for (unsigned i = 0; i < s_postwake_count; i++) {
-        if (!link_send_mic_in_session(s_auto_turn, s_postwake[(first + i) % 2], sizeof s_postwake[0], s_auto_session, NULL)) return false;
-    }
+    if (!send_preroll(preroll, false, s_auto_turn, s_auto_session)) return false;
     bool started = !s_pending && s_gen < 0 && audio_mic_start_epoch(automatic_frame, capture_epoch);
     if (started) app_voice_capture_started(s_turn);
     return started;
 }
-static void start_live_wake(void) {
+static void start_live_wake(wake_preroll_t *preroll) {
     s_last_touch_or_key = now_ms(); wake(false);
     face_lock(); face_card(&g_face, NULL); face_unlock();
     ++s_turn; talk_fire(TE_PRESS); talk_fire(TE_RELEASE_SHORT);
@@ -164,21 +207,19 @@ static void start_live_wake(void) {
     wifi_set_fast(true); disp_wake();
     // Eligible wake capture has no speaker output. Preserve the 80 ms command
     // preroll with a silent reference, then capture both codec channels continuously.
-    unsigned first = s_postwake_count == 2 ? s_postwake_next : 0;
-    for (unsigned i = 0; i < s_postwake_count; ++i) {
-        const uint8_t *ima = link_mic_duplex_preroll(s_postwake[(first + i) % 2]);
-        if (!link_send_duplex_in_session(s_turn, ima, link_session())) { app_voice_live_stop(true); return; }
-    }
+    if (!send_preroll(preroll, true, s_turn, link_session())) { app_voice_live_stop(true); return; }
     if (!app_voice_start_capture()) app_voice_live_stop(true);
 }
 void app_wake_event(uint32_t epoch) {
     if (!s_listening || !s_pending || epoch != s_epoch || epoch != audio_capture_epoch() || !eligible()) return;
-    app_wake_suspend();
+    wake_preroll_t *preroll = stop_model(true);
+    if (!preroll) return;
     uint32_t capture_epoch = audio_capture_epoch();
-    if (!tls_mem_turn(!strcmp(link_via(), "wifi"))) return;
-    if (app_voice_mode() == VOICE_LIVE) { start_live_wake(); return; }
+    app_agent_reclaim_catalog();
+    if (!tls_mem_turn(!strcmp(link_via(), "wifi"))) { preroll_free(preroll); return; }
+    if (app_voice_mode() == VOICE_LIVE) { start_live_wake(preroll); return; }
     s_vad = vad_create_with_param(VAD_MODE_3, 16000, 20, 20, 20);
-    if (!s_vad) { ESP_LOGE("wake", "VAD allocation failed"); return; }
+    if (!s_vad) { preroll_free(preroll); ESP_LOGE("wake", "VAD allocation failed"); return; }
     reset_retries(); // a recognized turn ends this continuous inference interval
     s_last_touch_or_key = now_ms(); wake(false);
     face_lock(); face_card(&g_face, NULL); face_unlock();
@@ -189,7 +230,7 @@ void app_wake_event(uint32_t epoch) {
     s_pending = false; s_automatic = true;
     s_auto_session = link_session();
     app_voice_prepare_capture(s_turn);
-    if (!start_upload(capture_epoch)) { app_wake_abort(true); return; }
+    if (!start_upload(capture_epoch, preroll)) { app_wake_abort(true); return; }
     ESP_LOGI("wake", "automatic turn %d", s_turn);
 }
 void app_wake_abort(bool tell_server) {

@@ -19,6 +19,7 @@ import { F } from './bridge-protocol.mjs';
 import { UsbRoute } from './usb-route.mjs';
 import { PortPolicy, ROM_DOWNLOAD, openQuietly, portBusyReason } from './serial-guard.mjs';
 import { SerialWriter } from './serial-writer.mjs';
+import { DeviceDiagnostics } from './device-diagnostics.mjs';
 
 export { F, UsbRoute };
 
@@ -171,6 +172,7 @@ async function runBridge(opts) {
   let textLine = '';
   let turnPcm = null, turnBytes = 0, dumpTurn = 0;
   const configWaiters = [];
+  const diagnostics = new DeviceDiagnostics();
   const log = (...a) => console.log(ts(), ...a);
   const route = new UsbRoute({ server: opts.server, enabled: opts.usbRoute !== false, log,
     send(type, data) {
@@ -185,7 +187,7 @@ async function runBridge(opts) {
     http
       .createServer(createSetupHandler({
         port: opts.control ?? 18791,
-        config: (command) => new Promise((resolve, reject) => {
+        config: (command) => command.cmd === 'bridge-diagnostics' ? diagnostics.snapshot() : new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             const i = configWaiters.indexOf(done);
             if (i >= 0) configWaiters.splice(i, 1);
@@ -240,6 +242,7 @@ async function runBridge(opts) {
   }
 
   function handleLogFrame(payload) {
+    diagnostics.consume(payload.toString('utf8'));
     if (!opts.quiet) log('[dev]', payload.toString('utf8').replace(/\x1b\[[0-9;]*m/g, ''));
   }
 
@@ -285,6 +288,7 @@ async function runBridge(opts) {
     while ((newline = textLine.indexOf('\n')) >= 0) {
       const line = textLine.slice(0, newline).replace(/\r$/, '').replace(/\x1b\[[0-9;]*m/g, '');
       textLine = textLine.slice(newline + 1);
+      diagnostics.consume(line);
       if (line.trim() && !opts.quiet) log('[dev]', line);
     }
   }
@@ -330,6 +334,7 @@ async function runBridge(opts) {
     port.on('data', (c) => { lastData = Date.now(); deframer.push(c); });
     route.attach();
     port.on('close', () => {
+      diagnostics.disconnects++;
       log('device disconnected');
       writer?.close(); writer = null;
       port = null;

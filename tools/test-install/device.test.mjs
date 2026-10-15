@@ -9,6 +9,23 @@ import { WebSocketServer } from 'ws';
 import { SimDevice, newDeviceKeyPem } from './device.mjs';
 import { loadTlsIdentity } from '../../openclaw-kubik/src/tls-identity.js';
 import { ImaEncoder, parseDeviceMessage, speechFrameIma } from '../../openclaw-kubik/src/protocol.js';
+import { Sandbox } from './sandbox.mjs';
+
+test('clean installer keeps only the explicit npm proxy and isolates account/provider credentials', t => {
+  const names = ['npm_config_https_proxy', 'OPENAI_API_KEY', 'OPENCLAW_AUTH_TOKEN'];
+  const previous = names.map(name => process.env[name]);
+  t.after(() => names.forEach((name, index) => {
+    if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+  }));
+  process.env.npm_config_https_proxy = 'http://127.0.0.1:18892';
+  process.env.OPENAI_API_KEY = 'fixture-secret'; process.env.OPENCLAW_AUTH_TOKEN = 'fixture-secret';
+  const box = new Sandbox(join(tmpdir(), 'kubik-env-fixture'), 41999);
+  assert.equal(box.env.npm_config_https_proxy, process.env.npm_config_https_proxy);
+  assert.equal(box.env.OPENAI_API_KEY, undefined); assert.equal(box.env.OPENCLAW_AUTH_TOKEN, undefined);
+  assert.equal(box.env.HOME, join(tmpdir(), 'kubik-env-fixture', 'home'));
+  delete process.env.npm_config_https_proxy;
+  assert.equal(new Sandbox(join(tmpdir(), 'kubik-env-fixture'), 41999).env.npm_config_https_proxy, undefined);
+});
 
 test('install device reports integer progress for whole and fractional PCM milliseconds', { timeout: 5000 }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kubik-device-progress-'));

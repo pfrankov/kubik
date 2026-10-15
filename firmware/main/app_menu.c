@@ -185,6 +185,12 @@ void app_agent_refresh_if_open(void) {
     if (open) request_agent_options(cursor);
 }
 
+void app_agent_reclaim_catalog(void) {
+    face_lock();
+    agent_menu_reclaim_hidden(&g_face.agent);
+    face_unlock();
+}
+
 bool app_agent_mic_allowed(void) {
     face_lock();
     bool allowed = g_face.agent.capabilities_known && g_face.agent.stt_available;

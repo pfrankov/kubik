@@ -112,6 +112,25 @@ void tess_camera_apply(const float turn[6], float v[3]) {
     v[0] = x * turn[4] - y * turn[5]; v[1] = x * turn[5] + y * turn[4]; v[2] = z;
 }
 
+// Exact binary32 division by four without a soft-float multiply on each
+// edge coordinate. Normal values only change exponent; subnormals keep RNE.
+static float quarter(float value) {
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof bits);
+    unsigned exponent = (bits >> 23) & 255u;
+    if (exponent > 2 && exponent < 255) bits -= 2u << 23;
+    else if (exponent < 3) {
+        unsigned mantissa = (bits & 0x7fffffu) | (exponent ? 0x800000u : 0);
+        unsigned shift = exponent ? 3 - exponent : 2;
+        unsigned result = mantissa >> shift, tail = mantissa & ((1u << shift) - 1);
+        unsigned half = 1u << (shift - 1);
+        result += tail > half || (tail == half && (result & 1));
+        bits = (bits & 0x80000000u) | result;
+    } else if (bits & 0x7fffffu) bits |= 0x400000u;
+    memcpy(&value, &bits, sizeof value);
+    return value;
+}
+
 // The tesseract, point by point in its own order (vertices, then three points along each edge), and the
 // depth of each along the 4th axis.
 static void tess_form(const face_t *f, float points[TESS_N][3], float wd[TESS_N]) {
@@ -126,6 +145,7 @@ static void tess_form(const face_t *f, float points[TESS_N][3], float wd[TESS_N]
         v[i][0] = x; v[i][1] = y; v[i][2] = z;
         tess_camera_apply(turn, v[i]);
     }
+    static const float steps[] = {1, 2, 3, 4};
     int n = 0;
     for (int i = 0; i < 16; i++) {
         wd[n] = vw[i];
@@ -134,9 +154,9 @@ static void tess_form(const face_t *f, float points[TESS_N][3], float wd[TESS_N]
             if (i & bit) continue;
             float edge[3] = {v[i | bit][0] - v[i][0], v[i | bit][1] - v[i][1], v[i | bit][2] - v[i][2]};
             float edge_w = vw[i | bit] - vw[i];
-            for (float k = 1; k < 4; k++, n++) {  // three points along it
-                wd[n] = vw[i] + edge_w * (k + 1) * .25f;  // the depth runs a quarter ahead of the point
-                for (int axis = 0; axis < 3; axis++) points[n][axis] = v[i][axis] + edge[axis] * k * .25f;
+            for (int k = 1; k < 4; k++, n++) {  // integer control; retain the exact float interpolation
+                wd[n] = vw[i] + quarter(edge_w * steps[k]);  // the depth runs a quarter ahead of the point
+                for (int axis = 0; axis < 3; axis++) points[n][axis] = v[i][axis] + quarter(edge[axis] * steps[k - 1]);
             }
         }
     }
@@ -211,6 +231,31 @@ static float mood_pulse(const face_t *f, float time) {
     return 1 + f->style.pulse * beat * beat;
 }
 
+typedef struct {
+    target_effects_t shape;
+    rigid_t body;
+    float drift, time;
+    bool listen, heart, drifting, play, turn, burst;
+    tess_ripple_frame_t ripples[TESS_RIPPLES];
+    unsigned ripple_count;
+} target_frame_t;
+
+// Inactive effects are decided once per frame, instead of per point.
+static void target_point(const face_t *f, float out[3], const float home[3], int i, const target_frame_t *frame) {
+    const float *target = tess_targets[f->tess_shape_of[i]];
+    float x = home[0], y = home[1], z = home[2];
+    if (frame->listen) shape_point(&x, &y, &z, target, i, &frame->shape);
+    if (frame->heart) heart_point(&x, &y, &z, target, i, &frame->shape);
+    if (frame->play) tess_play_point(f->tess_form_of[i], &x, &y, &z);
+    if (frame->turn) { float turn = x * frame->body.pc - y * frame->body.ps; y = x * frame->body.ps + y * frame->body.pc; x = turn; }
+    if (frame->drifting) drift_point(&x, &y, &z, target, i, f->tess_shape_of[i], frame->drift, frame->time);
+    out[0] = x * frame->body.k + frame->body.dx;
+    out[1] = y * frame->body.k + frame->body.dy;
+    out[2] = z * frame->body.k;
+    if (frame->burst) tess_scatter_apply(out, i, f->tess_scatter_of[i]);
+    if (frame->ripple_count) tess_ripple_point(frame->ripples, frame->ripple_count, &out[0], &out[1], &out[2]);
+}
+
 // Targets of the points with (i & 1) == parity (-1: all). The shared tesseract is cheap; the per-point
 // shaping is what costs on a C6 without an FPU, so each point is re-shaped every other frame.
 void tess_point_targets(face_t *f, float out[TESS_N][3], int parity) {
@@ -250,22 +295,14 @@ void tess_point_targets(face_t *f, float out[TESS_N][3], int parity) {
     };
     rigid_t body = rigid_pose(f, time, size * breathe * mood_pulse(f, time));
     apply_game_offset(f, &body);
-    tess_play_frame(f, points, body.k, body.dx, body.dy, body.pc, body.ps);
-    if (burst < TESS_BURST_S) tess_scatter_frame(f, burst);
-    for (int i = parity < 0 ? 0 : parity; i < TESS_N; i += parity < 0 ? 1 : 2) {
-        const float *target = tess_targets[f->tess_shape_of[i]], *home = points[f->tess_form_of[i]];
-        float x = home[0], y = home[1], z = home[2];
-        shape_point(&x, &y, &z, target, i, &shape);
-        heart_point(&x, &y, &z, target, i, &shape);
-        tess_play_point(f->tess_form_of[i], &x, &y, &z);
-        if (body.ps != 0) { float turn = x * body.pc - y * body.ps; y = x * body.ps + y * body.pc; x = turn; }
-        drift_point(&x, &y, &z, target, i, f->tess_shape_of[i], drift, time);
-        out[i][0] = x * body.k + body.dx;
-        out[i][1] = y * body.k + body.dy;
-        out[i][2] = z * body.k;
-        if (burst < TESS_BURST_S) tess_scatter_apply(out[i], i, f->tess_scatter_of[i]);
-        tess_ripple_point(f, &out[i][0], &out[i][1], &out[i][2]);
-    }
+    target_frame_t frame = {.shape=shape, .body=body, .drift=drift, .time=time,
+        .listen=listen>.001f, .heart=heart>.001f, .drifting=drift>.001f, .turn=body.ps!=0,
+        .burst=burst<TESS_BURST_S};
+    frame.play = tess_play_frame(f, points, body.k, body.dx, body.dy, body.pc, body.ps);
+    if (frame.burst) tess_scatter_frame(f, burst);
+    frame.ripple_count = tess_ripple_frame(f, frame.ripples);
+    for (int i = parity < 0 ? 0 : parity; i < TESS_N; i += parity < 0 ? 1 : 2)
+        target_point(f, out[i], points[f->tess_form_of[i]], i, &frame);
 }
 
 // Exact damped spring for every point (four stiffness classes, so the cloud flows rather than moving as

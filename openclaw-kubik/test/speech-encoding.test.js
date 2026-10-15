@@ -33,7 +33,7 @@ test('direct speech encoding preserves wire bytes, state and owned buffers', () 
   assert.deepEqual(direct.encode(pcm(31)), reference.encode(pcm(31)), 'payload API shares the same state');
 });
 
-test('session encodes assembled PCM with one wire allocation and resets state on generation changes', t => {
+test('session encodes assembled PCM with one wire allocation and resets state on generation changes', async t => {
   const sent = [];
   const session = new DeviceSession({ ws: { readyState: 1, send: data => sent.push(data) },
     device: { id: 'kubik-test' }, engine: {}, dispatch: async () => {} });
@@ -43,15 +43,25 @@ test('session encodes assembled PCM with one wire allocation and resets state on
   const expected = [speechFrameIma(255, reference.encode(input)), speechFrameIma(255, reference.encode(input)),
     speechFrameIma(1, new ImaEncoder().encode(input))];
   const allocate = Buffer.allocUnsafe, copy = Buffer.prototype.copy;
+  const encode = ImaEncoder.prototype.encodeSpeech;
+  let encoding = false;
+  t.mock.method(ImaEncoder.prototype, 'encodeSpeech', function (...args) {
+    encoding = true;
+    try { return encode.apply(this, args); } finally { encoding = false; }
+  });
+  // Scope allocations to our encoder: the Node reporter also allocates while
+  // async I/O yields run. Its buffers are unrelated to the speech wire frame.
   const sizes = [];
   let copies = 0;
-  t.mock.method(Buffer, 'allocUnsafe', size => { sizes.push(size); return allocate(size); });
-  t.mock.method(Buffer.prototype, 'copy', function (...args) { copies++; return copy.apply(this, args); });
+  t.mock.method(Buffer, 'allocUnsafe', size => { if (encoding) sizes.push(size); return allocate(size); });
+  t.mock.method(Buffer.prototype, 'copy', function (...args) { if (encoding) copies++; return copy.apply(this, args); });
   session.activeGen = 255;
   session.pacer.startGen();
   session.pacer.push(input); session.pacer.push(input);
+  await session.pacer.drained();
   session.activeGen = 1;
   session.pacer.startGen(); session.pacer.push(input);
+  await session.pacer.drained();
   t.mock.restoreAll();
   assert.deepEqual(sent, expected);
   assert.deepEqual(sizes, [1205, 1205, 1205]);

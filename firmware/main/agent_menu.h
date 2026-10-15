@@ -56,7 +56,7 @@ typedef struct {
 } agent_menu_reply_t;
 
 typedef struct {
-    bool open, online, options_loaded, request_pending;
+    bool open, online, options_loaded, request_pending, catalog_reclaimed;
     agent_view_t view;
     agent_target_t target;
     char selected_model[AGENT_MODEL_ID_MAX + 1];
@@ -69,7 +69,7 @@ typedef struct {
     bool touch_moved;
     bool capabilities_known, stt_available, tts_available;
     uint8_t cursor, total, count;  // cursor: last wire page loaded; count: contiguous models loaded
-    agent_model_t models[AGENT_LIST_MAX];
+    agent_model_t *models;  // owned full-capacity cache, absent until a catalog arrives
     float scroll, scroll_v;  // models list offset (px) and inertial velocity (px/s)
     float scroll_start, scroll_prev;
     int16_t scroll_anchor;
@@ -87,7 +87,11 @@ typedef struct {
     float pressed_t;
 } agent_menu_t;
 
+// Initialize fresh storage; release an existing cache before reinitializing.
 void agent_menu_reset(agent_menu_t *menu);
+void agent_menu_clear_catalog(agent_menu_t *menu);
+void agent_menu_reclaim_hidden(agent_menu_t *menu);
+bool agent_menu_reserve_catalog(agent_menu_t *menu);
 void agent_menu_show(agent_menu_t *menu, bool online);
 void agent_menu_hide(agent_menu_t *menu);
 void agent_menu_set_online(agent_menu_t *menu, bool online);

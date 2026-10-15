@@ -14,6 +14,18 @@ def face_sources(extra=(), omit=()):
     return [source for source in FACE + RENDER if source not in omit] + list(extra)
 
 TESTS = {
+    'render_sqrt': [source for source in RENDER if source != 'render_raster'],
+    'face_math': [],
+    'tess_scene_capacity': face_sources(),
+    'palette_blend': [],
+    'output_flat': ['render_output'],
+    'present_merge': RENDER + ['frame_store', 'canvas'],
+    'window_plan': ['render_output'],
+    'dot_alpha': [],
+    'tess_palette': face_sources(omit=['tess_draw']),
+    'tess_ripple_cache': face_sources(),
+    'tess_target_cache': face_sources(omit=['tess_geometry']),
+    'tess_scatter_cache': face_sources(omit=['tess_scatter']),
     'event_journal': ['event_journal'],
     'lift': ['lift'],
     'viewpoint': ['viewpoint'],
@@ -58,6 +70,8 @@ def compile_object(build, source, flags, objects):
 
 
 def main():
+    subprocess.run(['python3', 'tools/assets/render-sqrt-table.py', '--check'], cwd=ROOT, check=True)
+    subprocess.run(['python3', 'tools/assets/scatter-material-table.py', '--check'], cwd=ROOT, check=True)
     with tempfile.TemporaryDirectory(prefix="kubik-render-") as build:
         objects = {}
         runs = [(name, sources, []) for name, sources in TESTS.items()]

@@ -23,7 +23,7 @@ enum { AFTER_SWING = KICK_COUNT, AFTER_UNTURN, AFTER_PEEK, AFTER_LOOK_AWAY, AFTE
 typedef struct { int x, y, radius, key; uint16_t lit; } tess_projected_t;
 void tess_project_dots(face_t *face, tess_projected_t dots[TESS_N]);
 // Play moves her own structure (tess_play_shape.c): once a frame with her vertices, then each dot by its form slot.
-void tess_play_frame(face_t *face, const float points[TESS_N][3], float scale, float body_dx, float body_dy, float body_cos, float body_sin);
+bool tess_play_frame(face_t *face, const float points[TESS_N][3], float scale, float body_dx, float body_dy, float body_cos, float body_sin);
 int tess_play_vertex_slot(int vertex);
 int tess_play_slot_vertex(int slot);
 void tess_play_point(int slot, float *x, float *y, float *z);
@@ -69,7 +69,9 @@ void tess_touch_update(face_t *face, float dt);          // a finger on it: it l
 float tess_tremble(const face_t *face);                  // the random push each dot gets this frame (units/s), 0 at rest
 // a press's wave is still running (the dots are then left to their springs)
 bool tess_ripple_active(const face_t *face);
-void tess_ripple_point(const face_t *face, float *x, float *y, float *z);  // a press's waves push this point on (tess_touch.c)
+typedef struct { float x, y, ring, near2, far2, fade; } tess_ripple_frame_t;
+unsigned tess_ripple_frame(const face_t *face, tess_ripple_frame_t out[TESS_RIPPLES]);
+void tess_ripple_point(const tess_ripple_frame_t *ripples, unsigned count, float *x, float *y, float *z);
 static inline void tess_let_go(tess_mood_t *mood, float seconds) { if (seconds > mood->free_t) mood->free_t = seconds; }  // the attention lets go of the pose for a while
 void tess_mood_update(face_t *face, float dt);
 // Attention (tess_gaze.c)

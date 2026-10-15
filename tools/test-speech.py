@@ -33,6 +33,8 @@ mock = r'''
 #include "app_speech.h"
 #include "app_voice.h"
 #include "app_mailbox.h"
+#include "status_json.h"
+/* OUTPUT_PROFILE_TYPE */
 #define ESP_OK 0
 #define ESP_ERR_NO_MEM -1
 #define ESP_ERROR_CHECK(x) assert((x) == 0)
@@ -65,6 +67,8 @@ static bool link_send_json_in_session(const char *json, uint32_t session) {
     sent++; snprintf(last, sizeof last, "%s", json); return true;
 }
 static void hp_mark(const char *name) { (void)name; }
+static unsigned hp_allocation_failures(void) { return 0; }
+static audio_output_profile_t audio_output_profile_read(bool reset) { assert(!reset); return (audio_output_profile_t){0}; }
 static void tls_mem_speech(bool active) { (void)active; }
 static void app_wake_suspend(void) { assert(held); wake_suspends++; }
 static void audio_stream_begin(void) { assert(held && wake_suspends == begins + 1); active = true; ended = false; bytes = 0; begins++; }
@@ -153,12 +157,23 @@ int main(void) {
     assert(app_speech_tick(2300, true) && sent == 1 && strstr(last, "\"played\"") && strstr(last, "4000"));
     assert(strstr(diagnostic, "packets=1") && strstr(diagnostic, "gap<=0ms"));
     assert(s_gen == -1 && !active); // completed playback releases codec doze eligibility
+    char reply[1024]; app_speech_diagnostics(reply,sizeof reply);
+    cJSON *snapshot=cJSON_Parse(reply); assert(snapshot);
+    assert(cJSON_GetObjectItem(snapshot,"active")->valueint == -1);
+    assert(cJSON_GetObjectItem(snapshot,"gen")->valueint == 7);
+    assert(cJSON_GetObjectItem(snapshot,"sequence")->valueint == 1);
+    assert(cJSON_GetObjectItem(snapshot,"ms")->valueint == 4000);
+    assert(cJSON_GetObjectItem(snapshot,"rx_packets")->valueint == 1);
+    assert(cJSON_GetObjectItem(snapshot,"rx_rejected")->valueint == 0);
+    assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(snapshot,"reason")),"played"));
+    cJSON_Delete(snapshot);
+    app_speech_diagnostics(reply,32); assert(!strcmp(reply,"{\"ok\":false}"));
     speak(); on_audio(3, 7, pcm, sizeof pcm); app_speech_end(7, current); change_before_send = true;
     assert(app_speech_tick(2400, false) && sent == 1); // route changes between completion and ACK
-    speak(); assert(!app_speech_tick(2099, true) && sent == 1);
-    assert(!app_speech_tick(2100, true) && sent == 2 && strstr(last, "progress"));
-    assert(!app_speech_tick(2199, true) && sent == 2); // bounded feedback, not one write per UI frame
-    assert(!app_speech_tick(2200, true) && sent == 3);
+    speak(); assert(!app_speech_tick(2049, true) && sent == 1);
+    assert(!app_speech_tick(2050, true) && sent == 2 && strstr(last, "progress"));
+    assert(!app_speech_tick(2099, true) && sent == 2); // bounded feedback, not one write per UI frame
+    assert(!app_speech_tick(2100, true) && sent == 3);
     change_before_send = true; app_speech_stop(true); assert(sent == 3 && s_gen == -1);
     speak(); unsigned old_stops = stops; current++; // LINK_DOWN may be dropped from the full ordinary queue
     assert(!app_speech_tick(3000, true) && s_gen == -1 && stops == old_stops + 1 && sent == 3);
@@ -176,7 +191,9 @@ int main(void) {
 '''
 with tempfile.TemporaryDirectory(prefix="kubik-speech-") as tmp:
     source = Path(tmp) / "speech.c"
-    source.write_text(mock + body("app_mailbox.c") + body("app_speech.c") + callbacks + test)
+    profile = body("audio_output_profile.h")
+    profile_type = profile[profile.index("typedef struct {"):profile.index("} audio_output_profile_t;") + len("} audio_output_profile_t;")]
+    source.write_text(mock.replace("/* OUTPUT_PROFILE_TYPE */", profile_type) + body("app_mailbox.c") + body("app_speech.c") + callbacks + test)
     exe = Path(tmp) / "speech"
     cjson_object = Path(tmp) / "cjson.o"
     subprocess.run([os.environ.get("CC", "cc"), "-O1", "-g", "-fsanitize=address,undefined",
@@ -185,5 +202,5 @@ with tempfile.TemporaryDirectory(prefix="kubik-speech-") as tmp:
     subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra",
                     "-Werror", "-Wno-unused-function", "-fsanitize=address,undefined",
                     f"-I{MAIN}", f"-I{IDF}/components/json/cJSON", str(source),
-                    str(cjson_object), "-lm", "-o", str(exe)], check=True)
+                    str(cjson_object), str(MAIN / "status_json.c"), "-lm", "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

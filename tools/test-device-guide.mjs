@@ -3,8 +3,7 @@
 // --reboot proves saved completion survives reboot; --profile measures native Settings/guide frame windows.
 // No voice/inference calls.
 import assert from 'node:assert/strict';
-import { assertIdleCapture } from './test-device/diagnostics.mjs';
-import fs from 'node:fs';
+import { assertIdleCapture, flushStats } from './test-device/diagnostics.mjs';
 import {setTimeout as sleep} from 'node:timers/promises';
 const url=process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
 async function control(body) {
@@ -33,29 +32,15 @@ async function replay() {
   await sim('menu');await sleep(550);await tap(356,308);
   return until(s=>s.agent_open&&s.agent_view==='guide'&&s.guide_step===0,'replayed guide');
 }
-const bridgeLog=process.env.KUBIK_BRIDGE_LOG ?? '/tmp/kubik-bridge.log';
-const logSize=()=>fs.statSync(bridgeLog).size;
-function logSince(offset) {
-  const fd=fs.openSync(bridgeLog,'r'),buffer=Buffer.alloc(logSize()-offset);
-  try {fs.readSync(fd,buffer,0,buffer.length,offset)} finally {fs.closeSync(fd)}
-  return buffer.toString();
-}
-async function flushStats() {
-  const offset=logSize();await sim('stats');
-  for(let n=0;n<100;n++) {
-    if(/main: present:/.test(logSince(offset)))return;
-    await sleep(25);
-  }
-  throw Error('No display stats in bridge log');
-}
 async function frameWindow(label,action) {
-  await flushStats();const offset=logSize();if(action)await action();
-  await sleep(2300);await flushStats();
-  const m=/display: ([\d.]+) fps .*max (\d+), (\d+) over 33.3 ms/.exec(logSince(offset));
-  assert.ok(m,`${label}: missing display stats`);
-  assert.ok(Number(m[1])>=29.5,`${label}: ${m[1]} fps`);
-  assert.equal(Number(m[3]),0,`${label}: ${m[3]} late frames, maximum ${m[2]} us (limit 33333 us)`);
-  console.log(`PASS ${label}: ${m[1]} fps, maximum frame ${m[2]} us, zero late frames`);
+  await flushStats({sim});if(action)await action();
+  await sleep(2300);const sample=await flushStats({sim});
+  console.log(`PROFILE ${label}: ${JSON.stringify(sample)}`);
+  assert.equal(sample.presented,sample.frames,`${label}: unpresented frames`);
+  assert.equal(sample.overflows,0,`${label}: frame storage overflow`);
+  assert.ok(sample.fps>=29.5,`${label}: ${sample.fps} fps`);
+  assert.equal(sample.late,0,`${label}: ${sample.late} late frames, maximum ${sample.maxMs} ms (limit 33.333 ms)`);
+  console.log(`PASS ${label}: ${sample.fps} fps, maximum frame ${sample.maxMs} ms, zero late frames`);
 }
 async function profileGuide(original) {
   let s=await info();if(s.screen_dark){await sim('pwr');await sleep(200)}

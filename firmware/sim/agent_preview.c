@@ -20,6 +20,7 @@ static void read_row(void *ctx, int y, uint16_t *row, int xa, int xb) {
 static void fixture(agent_menu_t *m) {
     agent_menu_reset(m);
     agent_menu_show(m, true);
+    if (!agent_menu_reserve_catalog(m)) { fputs("No memory for preview catalog\n", stderr); exit(1); }
     m->options_loaded = m->capabilities_known = m->stt_available = m->tts_available = true;
     m->total = 19; m->count = 12;
     const char *ids[] = {"openai/gpt-6.1-sol", "openai/gpt-6-luna", "anthropic/claude-sonnet-4.6", "openrouter/very-long-provider/model-name"};
@@ -178,5 +179,6 @@ int main(int argc, char **argv) {
         unsigned char rgb[] = {((p >> 11) & 31) * 255 / 31, ((p >> 5) & 63) * 255 / 63, (p & 31) * 255 / 31};
         fwrite(rgb, 1, 3, stdout);
     }
+    agent_menu_clear_catalog(&menu);
     return 0;
 }

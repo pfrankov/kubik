@@ -15,7 +15,10 @@
 #define STRIPE_WORDS (FRAME_STRIPE / 2)
 #define RUN_FLAG 0x80000000u
 
-void frame_store_begin(frame_store_t *f) { f->used = 0; f->valid = true; }
+void frame_store_begin(frame_store_t *f) {
+    f->used = 0; f->valid = true;
+    memset(f->stripes, 0, sizeof f->stripes);
+}
 
 static HOT unsigned encode_range(const uint32_t *w, int count, uint32_t *out) {
     const uint32_t *p = w, *end = w + count, *triple_stop = end - 2;  // a run of three needs two more words after p
@@ -98,6 +101,7 @@ static HOT const uint32_t *decode_range(const uint32_t *p, uint32_t *out, int co
 
 void HOT frame_store_read(void *ctx, int y, uint16_t *out, int xa, int xb) {
     const frame_store_t *f = ctx;
+    if (!f->stripes[y]) return;
     const uint32_t *p = f->data + f->row[y];
     int lo = xa / 2, hi = (xb + 1) / 2;  // in words (pixel pairs) from the start of the row
     int k = 0;

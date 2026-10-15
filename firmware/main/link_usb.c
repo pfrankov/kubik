@@ -12,10 +12,11 @@
 #include "freertos/task.h"
 #include "link.h"
 
+_Static_assert(LINK_USB_CONFIG_REPLY_CAP > LINK_USB_PAYLOAD_MAX, "shared RX/reply includes input sentinel");
 static SemaphoreHandle_t s_usb_mtx;
 static link_usb_handlers_t s_handlers;
 typedef struct {
-    uint8_t frame[LINK_USB_RX_STORAGE];
+    uint8_t frame[LINK_USB_CONFIG_REPLY_CAP];
     uint8_t type;
     int state;
     size_t len, received;
@@ -39,7 +40,10 @@ uint8_t link_usb_crc8(uint8_t crc, const uint8_t *data, size_t len) {
 
 static bool usb_write_all(const uint8_t *data, size_t len, TickType_t timeout) {
     while (len) {
-        int written = usb_serial_jtag_write_bytes(data, len, timeout);
+        // IDF enqueues each call atomically; an item larger than its TX ring
+        // can never succeed. Stream bounded chunks under the whole-frame lock.
+        size_t chunk = len < 1024 ? len : 1024;
+        int written = usb_serial_jtag_write_bytes(data, chunk, timeout);
         if (written <= 0) return false;
         data += written;
         len -= written;
@@ -101,10 +105,12 @@ static void dispatch_frame(uint8_t type, uint8_t *frame, size_t len) {
     if (type == F_HOST_HELLO) {
         if (s_handlers.on_host_hello) s_handlers.on_host_hello((char *)frame, len);
     } else if (type == F_CONFIG) {
-        static char reply[LINK_USB_CONFIG_REPLY_CAP];
-        reply[0] = 0;
-        if (s_handlers.on_config) s_handlers.on_config((char *)frame, len, reply, sizeof(reply));
-        reply[sizeof(reply) - 1] = 0;
+        if (!s_handlers.on_config) return;
+        // The handler parses/owns the JSON tree before writing; RX and reply
+        // never overlap in time, so one buffer preserves the full 6 KB reply.
+        char *reply = (char *)frame;
+        s_handlers.on_config(reply, len, reply, LINK_USB_CONFIG_REPLY_CAP);
+        reply[LINK_USB_CONFIG_REPLY_CAP - 1] = 0;
         if (reply[0]) link_usb_frame(F_CONFIG_REPLY, reply, strlen(reply), NULL, 0);
     } else if (type == F_JSON || type == F_AUDIO || type == F_BIND) {
         if (s_handlers.on_routed) s_handlers.on_routed(type, frame, len);
@@ -158,7 +164,7 @@ void link_usb_start(const link_usb_handlers_t *handlers) {
     ESP_ERROR_CHECK(s_usb_mtx ? ESP_OK : ESP_ERR_NO_MEM);
     // Finish lazy table setup before the RX task and application senders can race.
     link_usb_crc8(0, NULL, 0);
-    usb_serial_jtag_driver_config_t cfg = {.rx_buffer_size = 4096, .tx_buffer_size = 4096};
+    usb_serial_jtag_driver_config_t cfg = {.rx_buffer_size = 4096, .tx_buffer_size = 2048};
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&cfg));
     usb_serial_jtag_vfs_use_driver();
     ESP_ERROR_CHECK(xTaskCreate(usb_rx_task, "usb_rx", 3584, NULL, 8, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
