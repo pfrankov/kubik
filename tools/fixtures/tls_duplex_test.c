@@ -48,7 +48,11 @@ static void xSemaphoreGive(SemaphoreHandle_t p) {
 static void vSemaphoreDelete(SemaphoreHandle_t p) {
     pthread_cond_destroy(&p->cv); pthread_mutex_destroy(&p->m); free(p);
 }
-static int64_t esp_timer_get_time(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts); return (int64_t)ts.tv_sec*1000000+ts.tv_nsec/1000; }
+static _Thread_local int64_t interrupted_clock;
+static int64_t esp_timer_get_time(void) {
+    if (interrupted_clock) return interrupted_clock;
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts); return (int64_t)ts.tv_sec*1000000+ts.tv_nsec/1000;
+}
 static atomic_int tls_active, destroyed, reads, writes, hold_write, hold_alert;
 static int peer, read_wants, write_wants, write_cross, partial, tls_fail, init_fail, connect_fail;
 static const void *pending_buffer;
@@ -129,14 +133,17 @@ static void esp_transport_set_func(esp_transport_handle_t t,
     int(*pr)(esp_transport_handle_t,int),int(*pw)(esp_transport_handle_t,int),int(*destroy)(esp_transport_handle_t)) {
     assert(t&&conn&&read&&write&&close&&pr&&pw&&destroy);
 }
-static int last_network_error, last_errno, select_error, conservative_writable, select_interrupt;
+static int last_network_error, last_errno, select_error, conservative_writable, select_interrupt, interrupt_count;
 static void capture_tcp_transport_error(esp_transport_handle_t t,int error) { assert(t->foundation); last_network_error=error; }
 static void esp_transport_capture_errno(esp_transport_handle_t t,int error) { assert(t->foundation); last_errno=error; }
 typedef struct { const char *ws_path; bool propagate_control_frames; } esp_transport_ws_config_t;
 static esp_transport_handle_t esp_transport_ws_init(esp_transport_handle_t parent) { assert(parent); return esp_transport_init(); }
 static int esp_transport_ws_set_config(esp_transport_handle_t t,const esp_transport_ws_config_t *c) { assert(t && c->ws_path[0]=='/' && c->propagate_control_frames); return 0; }
 static int checked_select(int n,fd_set *r,fd_set *w,fd_set *e,struct timeval *tv) {
-    if(select_interrupt) { errno=EINTR; return -1; }
+    if(select_interrupt) {
+        assert(interrupted_clock && ++interrupt_count<=100);
+        interrupted_clock+=1000; errno=EINTR; return -1;
+    }
     assert(!locks); if(conservative_writable && w)return 0; if(select_error) { errno=ECONNRESET; return -1; } return select(n,r,w,e,tv);
 }
 #define IPPROTO_TCP 6
@@ -167,7 +174,8 @@ static void pending_output_tests(void) {
     unsigned wc=atomic_load(&writes); before=atomic_load(&reads); pthread_t tx;
     assert(!pthread_create(&tx,NULL,writer,t)); await_write(wc);
     assert(send(peer,"d",1,0)==1); assert(!pthread_create(&rx,NULL,reader,t));
-    for(int i=0;i<20;i++)nap(); assert((unsigned)atomic_load(&reads)==before);
+    for(int i=0;i<20;i++)nap();
+    assert((unsigned)atomic_load(&reads)==before);
     atomic_store(&hold_write,0); pthread_join(tx,&result); assert((intptr_t)result==1);
     pthread_join(rx,&result); assert((intptr_t)result==1); dispose(t);
     t=connected(false); atomic_store(&hold_alert,1); before=atomic_load(&reads); wc=atomic_load(&writes);
@@ -204,16 +212,24 @@ static void large_write_test(esp_transport_handle_t t) {
 }
 static void interrupted_wait_test(esp_transport_handle_t t) {
     char byte;
-    select_interrupt=1;
+    // Advance only the interrupted wait's clock: CI scheduling cannot extend
+    // its logical deadline. Ordinary timeouts and socket peers use real time.
+    select_interrupt=1; interrupt_count=0; interrupted_clock=1000000;
     int64_t start=esp_timer_get_time();
     assert(tls_read(t,&byte,1,30)==0);
-    assert(esp_timer_get_time()-start>=25000 && esp_timer_get_time()-start<100000);
-    select_interrupt=0;
+    assert(interrupt_count==30 && esp_timer_get_time()-start==30000);
+    select_interrupt=0; interrupted_clock=0;
 }
-int main(void) {
-    esp_transport_handle_t t=connected(false); char b[8];
+static void ordinary_timeout_test(esp_transport_handle_t t) {
+    char b[8];
     int64_t start=esp_timer_get_time(); assert(tls_read(t,b,1,30)==0 && last_network_error==0);
     assert(esp_timer_get_time()-start>=25000 && esp_timer_get_time()-start<100000);
+}
+static bool eintr_only(int argc,char **argv) { return argc==2 && !strcmp(argv[1],"eintr"); }
+int main(int argc,char **argv) {
+    esp_transport_handle_t t=connected(false); char b[8];
+    if(eintr_only(argc,argv)) { interrupted_wait_test(t); dispose(t); return 0; }
+    ordinary_timeout_test(t);
     interrupted_wait_test(t);
     select_error=1; assert(tls_read(t,b,1,30)==-2 && last_network_error==-2 && last_errno==ECONNRESET); select_error=0;
     fragmented_header_test(t);

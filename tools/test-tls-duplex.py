@@ -37,6 +37,20 @@ with tempfile.TemporaryDirectory(prefix='kubik-tls-duplex-') as tmp:
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pthread',
                     '-fsanitize=address,undefined', '-g', '-O1', str(src), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=30)
+    # Prove the EINTR test rejects both an early exit and an ignored deadline.
+    bound = 'if (n == -3) {\n            if (esp_timer_get_time() >= end) return 0;'
+    assert source.count(bound) == 1
+    for replacement, diagnostic in (
+        ('return 0;', 'interrupt_count==30'),
+        ('if (0) return 0;', 'interrupt_count<=100'),
+    ):
+        mutated = source.replace(bound, 'if (n == -3) {\n            ' + replacement)
+        src.write_text(fixture.replace('/* ACTUAL_TRANSPORT */', mutated))
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pthread',
+                        '-fsanitize=address,undefined', '-g', '-O1', str(src), '-o', str(exe)], check=True)
+        rejected = subprocess.run([str(exe), 'eintr'], capture_output=True, text=True, timeout=5)
+        assert rejected.returncode and diagnostic in rejected.stderr, 'Broken EINTR deadline was accepted'
+    src.write_text(fixture.replace('/* ACTUAL_TRANSPORT */', source))
     for define, diagnostic in (
         ('ESP_IDF_VERSION=0', 'Review the pinned transport'),
         ('CONFIG_MBEDTLS_SSL_RENEGOTIATION=1', 'Duplex TLS interleaving'),
