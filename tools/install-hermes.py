@@ -138,7 +138,10 @@ def valid_identity(value):
 
 def rollback_plugin(destination, staged, previous, state):
     regular_destination(destination, directory=True)
+    regular_destination(staged, directory=True)
     regular_destination(previous, directory=True)
+    if staged.exists() and not same_identity(staged, state['identity']):
+        raise ValueError('Staged Kubik plugin changed; recovery files retained')
     if previous.exists():
         if not same_identity(previous, state['previous_identity']):
             raise ValueError('Previous Kubik plugin changed; recovery files retained')
@@ -262,16 +265,27 @@ def installation_lock(home):
         os.close(descriptor)
 
 
-def promote(staged, destination, config_path, prepared_config, before, previous):
+def promotion_state(staged, destination, expected):
     had_plugin = destination.exists()
     candidate = staged.stat()
     original = destination.stat() if had_plugin else None
-    state = {'had_plugin': had_plugin, 'identity': [candidate.st_dev, candidate.st_ino],
-             'previous_identity': [original.st_dev, original.st_ino] if original else None}
-    if had_plugin:
+    current = [original.st_dev, original.st_ino] if original else None
+    if expected and (had_plugin != expected['had_plugin'] or current != expected['previous_identity']):
+        raise ValueError('Kubik plugin changed during staging; no plugin was overwritten')
+    if expected and [candidate.st_dev, candidate.st_ino] != expected['identity']:
+        raise ValueError('Staged Kubik plugin changed; recovery files retained')
+    return expected or {'had_plugin': had_plugin, 'identity': [candidate.st_dev, candidate.st_ino],
+                        'previous_identity': current}
+
+
+def promote(staged, destination, config_path, prepared_config, before, previous, expected=None):
+    state = promotion_state(staged, destination, expected)
+    if state['had_plugin']:
         destination.rename(previous)
         sync_directory(destination.parent)
         sync_directory(previous.parent)
+        if not same_identity(previous, state['previous_identity']):
+            raise ValueError('Kubik plugin changed during promotion; recovery files retained')
     observed_config = prepared_config.with_name('observed-config.yaml')
     config_moved = False
     try:
@@ -298,14 +312,14 @@ def promote(staged, destination, config_path, prepared_config, before, previous)
         raise
 
 
-def promote_with_backup(staged, destination, config_path, prepared_config, before, previous, backup):
+def promote_with_backup(staged, destination, config_path, prepared_config, before, previous, backup, expected=None):
     created = not backup.exists()
     if created:
         private_write(backup, before)
     else:
         backup.chmod(0o600)
     try:
-        promote(staged, destination, config_path, prepared_config, before, previous)
+        promote(staged, destination, config_path, prepared_config, before, previous, expected)
     except BaseException:
         observed_config = prepared_config.with_name('observed-config.yaml')
         try:
@@ -353,7 +367,7 @@ def install(source, home, port=None, bind=None, check_only=False):
             sync_directory(destination.parent)
             write_transaction(home, state)
             promote_with_backup(staged, destination, config_path, prepared_config,
-                                before, plugin_work / 'previous', backup)
+                                before, plugin_work / 'previous', backup, state)
             if not (os.path.samefile(prepared_config, config_path) and same_identity(destination, state['identity'])):
                 raise ValueError('config.yaml changed during installation; recovery required')
             write_transaction(home, {**state, 'phase': 'committed'})

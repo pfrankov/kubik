@@ -165,6 +165,49 @@ class RecoveryContractTest(unittest.TestCase):
         self.assertEqual(self.config.read_text(), 'model: external-conflict\n')
         self.assertTrue((self.home / '.kubik-install.json').exists())
 
+    def test_plugin_changed_during_staging_is_not_overwritten(self):
+        for upgrade in (False, True):
+            with self.subTest(upgrade=upgrade):
+                self.setUp()
+                destination = self.old_plugin() if upgrade else self.home / 'plugins/kubik'
+                write = installer.private_write
+
+                def replace_during_staging(path, data):
+                    write(path, data)
+                    if path.name == 'config.yaml':
+                        if destination.exists():
+                            destination.rename(self.home / 'original-plugin')
+                        destination.mkdir()
+                        (destination / 'unrelated.py').write_text('external plugin\n')
+
+                with patch.object(installer, 'private_write', replace_during_staging):
+                    with self.assertRaisesRegex(ValueError, 'plugin changed during staging'):
+                        installer.install(self.source, self.home)
+                self.assertEqual((destination / 'unrelated.py').read_text(), 'external plugin\n')
+                self.assertEqual(self.config.read_text(), self.original)
+                self.assert_clean()
+
+    def test_replaced_prepared_plugin_is_not_promoted_or_deleted(self):
+        destination = self.old_plugin()
+        write = installer.write_transaction
+
+        def replace_prepared(home, state):
+            write(home, state)
+            if state['phase'] == 'prepared':
+                staged = home / 'plugins' / state['plugin'] / 'plugin'
+                staged.rename(home / 'displaced-candidate')
+                staged.mkdir()
+                (staged / 'unrelated.py').write_text('external staged plugin\n')
+
+        with patch.object(installer, 'write_transaction', replace_prepared):
+            with self.assertRaisesRegex(ValueError, 'Staged Kubik plugin changed'):
+                installer.install(self.source, self.home)
+        self.assertTrue((destination / 'original.py').exists())
+        self.assertEqual(self.config.read_text(), self.original)
+        state = json.loads((self.home / '.kubik-install.json').read_text())
+        self.assertEqual((self.home / 'plugins' / state['plugin'] / 'plugin/unrelated.py').read_text(),
+                         'external staged plugin\n')
+
 
 if __name__ == '__main__':
     unittest.main()
