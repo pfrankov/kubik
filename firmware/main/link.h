@@ -28,7 +28,7 @@ typedef struct {
     void (*on_config)(const char *json, size_t len, char *reply, size_t cap);
     // OpenClaw does not know this Kubik yet: show `code` for the owner to approve.
     // Called again while waiting; the same connection then gets its welcome.
-    void (*on_pair)(const char *code);
+    void (*on_pair)(const char *code, bool telegram);
 } link_handlers_t;
 
 // Why the last server connection did not work out (for the screen).

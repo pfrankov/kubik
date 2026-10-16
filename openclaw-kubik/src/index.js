@@ -7,6 +7,7 @@ import { registerCronHooks } from './cron.js';
 import { registerDeviceRoute } from './gateway-route.js';
 import { getServer } from './monitor.js';
 import { setRuntime } from './runtime.js';
+import { registerTelegramPairing } from './telegram-pairing.js';
 export { channelPlugin };
 export const sdkHelpers = { replyPrefix: createReplyPrefixOptions, channelReadyPatch, channelStoppedPatch,
   transportActivityPatch: createTransportActivityStatusPatch };
@@ -15,6 +16,7 @@ export default defineChannelPluginEntry({ id: 'kubik', name: 'Kubik',
   setRuntime: (runtime) => setRuntime(runtime, sdkHelpers),
   registerFull: (api) => {
     registerCronHooks(api);
+    registerTelegramPairing(api);
     registerDeviceRoute(api, getServer, getPluginRuntimeGatewayRequestScope, { isTrusted: isTrustedProxyAddress,
       proxies: () => (api.runtime?.config?.current?.() ?? api.config)?.gateway?.trustedProxies ?? [] });
   } });

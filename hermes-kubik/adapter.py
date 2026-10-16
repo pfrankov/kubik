@@ -105,12 +105,21 @@ class KubikAdapter(BasePlatformAdapter):
         identity = self.security.verify(hello, nonce, auth.get('sig'))
         if not self.security.approved(identity):
             code = self.security.pair(identity)
-            await socket.send_json({'t': 'pair', 'code': code})
-            await self.wait_pair(socket, identity)
+            telegram = getattr(self, 'telegram_pairing', None)
+            delivered = telegram and await telegram.notify(identity, code)
+            await socket.send_json({'t': 'pair', 'code': code, **({'approval': 'telegram'} if delivered else {})})
+            await self.wait_pair(socket, identity, code, delivered)
         return Peer(socket, identity, hello)
-    async def wait_pair(self, socket, identity):
+    async def wait_pair(self, socket, identity, code, telegram):
         deadline = time.monotonic() + 600
+        next_notice = time.monotonic() + 15
         while not self.security.approved(identity):
+            if not telegram and time.monotonic() >= next_notice:
+                next_notice = time.monotonic() + 60
+                notifier = getattr(self, 'telegram_pairing', None)
+                telegram = notifier and await notifier.notify(identity, code)
+                if telegram:
+                    await socket.send_json({'t': 'pair', 'code': code, 'approval': 'telegram'})
             if time.monotonic() >= deadline:
                 raise TimeoutError('Pairing expired')
             try:

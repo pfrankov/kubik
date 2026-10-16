@@ -20,11 +20,13 @@ To update the plugin, repeat the installation command. Preserve the OpenClaw sta
 
 1. Scan Kubik's first QR to join its setup Wi-Fi. Scan the second QR to open the setup page.
 2. Choose your 2.4 GHz Wi-Fi. On the same trusted network, leave the server address blank for discovery. Otherwise enter a reachable address as described below.
-3. Run the **complete command shown on Kubik** on your OpenClaw computer:
+3. If Telegram is configured with an explicit Telegram owner in `commands.ownerAllowFrom` (for example `telegram:123456789`), match the code in your private bot chat and tap **Allow**. Otherwise run the **command shown on Kubik** on your OpenClaw computer:
 
 ```sh
 openclaw pairing approve kubik CODE
 ```
+
+Telegram chat access alone is not pairing authority. Without an eligible owner chat or when delivery fails, server approval remains available. Buttons expire within ten minutes and only the current owner can use them.
 
 Replace `CODE` with the device's current code. You can also approve it in **OpenClaw Web UI → Channels → Pairing requests**. Then follow Kubik's short guide and press **KEY** to talk. A full factory reset creates a new device key and requires approval again.
 

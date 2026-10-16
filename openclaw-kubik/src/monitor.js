@@ -8,6 +8,7 @@ import { routeStatus } from './gateway-route.js';
 import { deviceRoute, dispatchTranscript } from './inbound.js';
 import { LanListener, deviceServerAddresses } from './lan.js';
 import { getRuntime } from './runtime.js';
+import { telegramPairing } from './telegram-pairing.js';
 import { KubikServer } from './server.js';
 import { loadTlsIdentity } from './tls-identity.js';
 
@@ -136,6 +137,7 @@ export function pairingStore(core, accountId) {
   if (typeof api?.upsertPairingRequest !== 'function' || typeof api?.readAllowFromStore !== 'function') return null;
   return {
     upsert: (id, meta) => api.upsertPairingRequest({ channel: CHANNEL_ID, id, accountId, meta }),
+    notify: (id, code) => telegramPairing()?.notify(accountId, id, code),
     allowed: () => api.readAllowFromStore({ channel: CHANNEL_ID, accountId }),
   };
 }

@@ -144,9 +144,10 @@ static void on_json(const char *json, size_t len) {
 static void on_audio(uint8_t kind, uint8_t tag, const uint8_t *pcm, size_t len) {
     if (kind == 0x03) app_speech_write(tag, link_session(), pcm, len);
 }
-static void on_pair(const char *code) {
+static void on_pair(const char *code, bool telegram) {
     portENTER_CRITICAL(&s_pair_mux);
     snprintf(s_pair_rx, sizeof s_pair_rx, "%s", code);
+    s_pair_rx_telegram = telegram;
     portEXIT_CRITICAL(&s_pair_mux);
     app_post(EV_PAIR, 0, 0);
 }
@@ -263,7 +264,7 @@ static bool sim_hook(cJSON *j, const char *event) {
     if (strcmp(event, "pair")) return false;
     const char *code = cJSON_GetStringValue(cJSON_GetObjectItem(j, "code"));  // shown for 20 s unless sent again; an empty code closes it
     if (code && !code[0]) s_pair_code[0] = 0;
-    else on_pair(code ? code : "TEST2345");
+    else on_pair(code ? code : "TEST2345", false);
     return true;
 }
 static void config_sim(cJSON *j, char *reply, size_t cap) {

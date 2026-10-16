@@ -52,6 +52,7 @@ extern setup_reason_t s_setup_reason;
 extern int64_t s_setup_wait_ms;
 extern portMUX_TYPE s_pair_mux;
 extern char s_pair_rx[17], s_pair_code[17];
+extern bool s_pair_rx_telegram, s_pair_telegram;
 extern bool s_pair_hidden;
 extern int64_t s_pair_seen_ms;
 extern int s_offline_icon;

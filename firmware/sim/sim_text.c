@@ -73,6 +73,10 @@ static void cards(void) {
     face_set_pairing(&f, "K7QX4M2R");
     settle(&f, 40);
     shot(&f, "pairing");
+    f.pair_hermes = true;
+    shot(&f, "Hermes pairing");
+    f.pair_telegram = true;
+    shot(&f, "Telegram pairing");
     f = fresh();
     face_card(&f, "Sure. The forecast for tomorrow is 18\xC2\xB0 and clear, with a light wind from the west in the evening.\n"
                   "\xD0\x97\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0 \xD0\xB1\xD1\x83\xD0\xB4\xD0\xB5\xD1\x82 \xD1\x8F\xD1\x81\xD0\xBD\xD0\xBE, +18 \xD0\xB3\xD1\x80\xD0\xB0\xD0\xB4\xD1\x83\xD1\x81\xD0\xBE\xD0\xB2.");

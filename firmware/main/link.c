@@ -29,7 +29,6 @@ static const char *TAG = "link";
 #define USB_PROBE_MS 8000
 #define WSS_ATTEMPT_MS 22000
 #define WS_SEND_MS 1500
-// The receiver fills a 900 ms ADPCM ring; host credit limits in-flight speech to 800 ms.
 #define WS_TASK_PRIO 7
 // Wi-Fi is the primary route; USB is offered (the hello that makes the bridge open its upstream) only after
 // Wi-Fi had this long to come up at boot, or to come back after a session it lost.
@@ -102,7 +101,8 @@ static void handshake_pair(cJSON *j, bool usb) {
     if (!code || !code[0] || strlen(code) > 16) return;
     if (!usb) s_ws_pairing = true;
     atomic_store(&s_problem, LINK_PAIRING);
-    if (s_h.on_pair) s_h.on_pair(code);
+    const char *approval = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(j, "approval"));
+    if (s_h.on_pair) s_h.on_pair(code, approval && !strcmp(approval, "telegram"));
 }
 static void handshake_frame(const char *text, size_t len, bool usb, uint32_t epoch) {
     cJSON *j = cJSON_ParseWithLength(text, len);

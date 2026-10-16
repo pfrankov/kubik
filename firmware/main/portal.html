@@ -41,7 +41,7 @@ openclaw channels status --probe</pre><p class="hint">The last command prints th
 <div class="actions" id="actions"><div><button class="go" id="go" type="submit">Continue to agent</button><p class="err" id="err" role="alert"></p></div></div>
 </form>
 <section class="status" id="status" aria-live="polite"><h2 id="stTitle"></h2><p class="sub" id="stText"></p>
-<ol id="nextSteps" hidden><li id="pairingHint">Look for a pairing code on Kubik.</li><li id="approvalHint">On the OpenClaw server, run the approval command shown on Kubik: openclaw pairing approve kubik CODE.</li><li id="guideHint">Follow the short guide on Kubik. Change options later in Settings → Agent.</li></ol>
+<ol id="nextSteps" hidden><li id="pairingHint">Look for a pairing code on Kubik.</li><li id="approvalHint">Match the code on Kubik. If it says Open Telegram, tap Allow in your agent chat. Otherwise, on the OpenClaw server run the command shown on Kubik: openclaw pairing approve kubik CODE.</li><li id="guideHint">Follow the short guide on Kubik. Change options later in Settings → Agent.</li></ol>
 <button class="link" type="button" id="retry" hidden>Check connection again</button></section>
 <footer class="foot" id="foot"></footer>
 </main>
@@ -268,8 +268,8 @@ function selectAgent(agent) {
   getElement('url').placeholder = agent === 'Hermes' ? 'kubik://HOST:18793' : 'Leave blank for local discovery';
   getElement('pairingHint').textContent = muse ? 'Open Muse on your phone: Settings → Devices → Developer mode → Add device. Choose the MuseGadget shown on Kubik.' : 'Look for a pairing code on Kubik.';
   getElement('approvalHint').textContent = muse ? 'When asked, press KEY on Kubik to confirm. Choose Wi-Fi in the Muse app to finish pairing.'
-    : agent === 'OpenClaw' ? 'On the OpenClaw server, run the approval command shown on Kubik: openclaw pairing approve kubik CODE.'
-    : agent === 'Hermes' ? 'On the Hermes machine, use the approval command printed by the installer, replacing CODE with the code on Kubik. Use the same Hermes profile and Python environment.'
+    : agent === 'OpenClaw' ? 'Match the code on Kubik. If it says Open Telegram, tap Allow in your agent chat. Otherwise, on the OpenClaw server run the command shown on Kubik: openclaw pairing approve kubik CODE.'
+    : agent === 'Hermes' ? 'Match the code on Kubik. If it says Open Telegram, tap Allow in your agent chat. Otherwise, use the approval command printed by the installer in the same Hermes profile and Python environment.'
     : 'On your agent computer, run npx kubik-agent-host pair-list. Only if the displayed code matches, run npx kubik-agent-host approve CODE.';
   getElement('guideHint').textContent = muse ? 'Kubik restarts with Bluetooth off and connects to Muse directly over Wi-Fi. Press KEY to speak; read the reply on its screen.' : 'Follow the short guide on Kubik. Change options later in Settings → Agent.';
 }

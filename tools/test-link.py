@@ -57,8 +57,8 @@ static void usb_bind(unsigned epoch,const char *bind) {
     unsigned char data[80]; epoch_bytes(data,epoch); memcpy(data+4,bind,strlen(bind));
     input_frame(F_BIND,data,strlen(bind)+4,true); run_usb_rx();
 }
-static char pair_code[32]; static int pairs;
-static void pair(const char *code) { snprintf(pair_code,sizeof pair_code,"%s",code); pairs++; }
+static char pair_code[32]; static int pairs; static bool pair_telegram;
+static void pair(const char *code, bool telegram) { snprintf(pair_code,sizeof pair_code,"%s",code); pair_telegram=telegram; pairs++; }
 static void ws_text(const char *text) {
     esp_websocket_event_data_t d={.op_code=1,.payload_len=(int)strlen(text),.data_len=(int)strlen(text),.data_ptr=text};
     ws_event(s_ws,NULL,WEBSOCKET_EVENT_DATA,&d);
@@ -311,10 +311,11 @@ int main(void) {
     manager_run(20);assert(s_ws&&s_ws_hello_sent);
     esp_websocket_client_handle_t pairing_ws=s_ws;n0=nattempts;d0=destroys;nevents=0;
     ws_text("{\"t\":\"pair\",\"code\":\"ABCD2345\"}");
+    assert(!pair_telegram);
     assert(pairs==1&&!strcmp(pair_code,"ABCD2345")&&link_last_problem()==LINK_PAIRING&&!link_up());
     manager_run(WSS_ATTEMPT_MS/200+20);
     assert(s_ws==pairing_ws&&nattempts==n0&&destroys==d0&&!s_ws_failed);
-    ws_text("{\"t\":\"pair\",\"code\":\"ABCD2345\"}");assert(pairs==2); // reminder while waiting
+    ws_text("{\"t\":\"pair\",\"code\":\"ABCD2345\",\"approval\":\"telegram\"}");assert(pairs==2 && pair_telegram); // reminder while waiting
     ws_text("{\"t\":\"welcome\",\"session\":\"paired\"}");
     assert(s_ws==pairing_ws&&!strcmp(link_via(),"wifi")&&link_last_problem()==LINK_OK&&!s_ws_pairing);
     assert(nevents==2&&events[0]=='U'&&events[1]=='W');
