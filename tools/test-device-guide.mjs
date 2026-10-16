@@ -3,7 +3,7 @@
 // --reboot proves saved completion survives reboot; --profile measures native Settings/guide frame windows.
 // No voice/inference calls.
 import assert from 'node:assert/strict';
-import { assertIdleCapture, flushStats } from './test-device/diagnostics.mjs';
+import { assertIdleCapture, flushStats, waitForIdleCapture } from './test-device/diagnostics.mjs';
 import {setTimeout as sleep} from 'node:timers/promises';
 const url=process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
 async function control(body) {
@@ -78,11 +78,12 @@ async function main() {
   if(process.argv.includes('--reboot')) {
     const before=await info();let resetSeen=false;
     await control({cmd:'reboot'});
-    const restored=await until(s=>{
+    await until(s=>{
       if(s.uptime_ms<before.uptime_ms)resetSeen=true;
       return resetSeen&&s.online&&s.key&&s.guide_done;
     },'completion after observed reboot',true);
-    await sleep(1000);assert.equal((await info()).agent_open,false);preserved(restored,original);
+    await sleep(1000);assert.equal((await info()).agent_open,false);
+    preserved(await waitForIdleCapture(info),original);
     console.log('PASS completion survives reboot; guide does not repeat; network/device identity preserved');
   }
   if(process.argv.includes('--profile'))await profileGuide(original);
