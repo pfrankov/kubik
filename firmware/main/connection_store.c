@@ -378,30 +378,32 @@ esp_err_t connection_store_begin_muse(connection_record_t *record, const char *s
     return update(record, mutate_begin_muse, &context, &publish);
 }
 
-typedef struct { network_context_t network; bool muse_selected; const char *sdk_token; } setup_context_t;
+typedef struct { network_context_t network; settings_agent_t agent; const char *sdk_token; } setup_context_t;
 
 static esp_err_t mutate_setup(connection_record_t *record, const void *opaque) {
     const setup_context_t *context = opaque;
     esp_err_t err = mutate_network(record, &context->network);
     if (err != ESP_OK) return err;
-    if (context->sdk_token && context->sdk_token[0]) {
+    if (context->agent != SETTINGS_AGENT_MUSE) record->networks.host_agent = context->agent;
+    bool muse_selected = context->agent == SETTINGS_AGENT_MUSE;
+    if (muse_selected && context->sdk_token && context->sdk_token[0]) {
         begin_context_t begin = {context->sdk_token};
         return mutate_begin_muse(record, &begin);
     }
-    if (!record->muse.magic) return context->muse_selected ? ESP_ERR_NVS_NOT_FOUND : ESP_OK;
-    if (record->muse.enabled != (unsigned)context->muse_selected) {
-        record->muse.enabled = context->muse_selected;
-    }
+    if (!record->muse.magic) return muse_selected ? ESP_ERR_NVS_NOT_FOUND : ESP_OK;
+    record->muse.enabled = muse_selected;
     return ESP_OK;
 }
 
 esp_err_t connection_store_save_setup(connection_record_t *record,
                                       const char *ssid, const char *password, const char *url,
-                                      bool muse_selected, const char *sdk_token) {
+                                      settings_agent_t agent, const char *sdk_token) {
     if (!ssid || !ssid[0] || strlen(ssid) > 32 || !password || strlen(password) > 64 ||
         !connection_store_server_valid(url) ||
         (sdk_token && sdk_token[0] && !muse_sdk_token_valid(sdk_token))) return ESP_ERR_INVALID_ARG;
-    setup_context_t context = {{ssid, password, url}, muse_selected, sdk_token};
+    if ((unsigned)agent > SETTINGS_AGENT_CUSTOM || (agent == SETTINGS_AGENT_HERMES && !url[0]))
+        return ESP_ERR_INVALID_ARG;
+    setup_context_t context = {{ssid, password, url}, agent, sdk_token};
     connection_publish_t publish = CONNECTION_PUBLISH_RECORD;
     return update(record, mutate_setup, &context, &publish);
 }

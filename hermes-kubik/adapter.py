@@ -17,6 +17,7 @@ from gateway.platforms.event import MessageEvent, MessageType
 
 from .codec import decode
 from .security import Security
+from .runtime import listener_options, profile_scope, speech_available
 
 
 class Peer:
@@ -45,7 +46,6 @@ class Peer:
         self.sent_ms = 0
         self.waiting = False
         self.pending_previous = None
-
     async def send(self, message_type, **fields):
         await self.socket.send_json({'t': message_type, **fields})
 
@@ -53,33 +53,39 @@ class Peer:
 class KubikAdapter(BasePlatformAdapter):
     def __init__(self, config):
         super().__init__(config, Platform('kubik'))
-        self.security = Security(os.environ.get('HERMES_HOME', str(Path.home() / '.hermes')))
+        from hermes_constants import get_hermes_home
+        self.home = get_hermes_home()
+        self.security = Security(self.home)
         self.peers = {}
         self.sockets = set()
         self.runner = None
         self.transcriptions = set()
-
     async def connect(self, *, is_reconnect=False):
+        if self.runner is not None:
+            return True
+        with profile_scope(self.home):
+            bind, port = listener_options(self.config)
+            tls = self.security.tls()
         app = web.Application(client_max_size=4096)
         app.router.add_get('/kubik/v1', self.accept)
-        self.runner = web.AppRunner(app, access_log=None, handler_cancellation=True)
-        await self.runner.setup()
-        extra = self.config.extra or {}
-        port = int(os.environ.get('KUBIK_PORT', extra.get('port', 18793)))
-        if not 1024 <= port <= 65535:
-            raise ValueError('Invalid Kubik port')
-        await web.TCPSite(self.runner, extra.get('bind', '0.0.0.0'), port,
-                          ssl_context=self.security.tls(), backlog=32).start()
-        self._running = True
+        runner = web.AppRunner(app, access_log=None, handler_cancellation=True)
+        try:
+            await runner.setup()
+            await web.TCPSite(runner, bind, port, ssl_context=tls, backlog=32).start()
+        except BaseException:
+            await runner.cleanup()
+            self._mark_disconnected()
+            raise
+        self.runner = runner
+        self._mark_connected()
         return True
-
     async def disconnect(self):
-        self._running = False
+        self._mark_disconnected()
+        runner, self.runner = self.runner, None
         for socket in tuple(self.sockets):
             await socket.close(code=1001)
-        if self.runner:
-            await self.runner.cleanup()
-
+        if runner is not None:
+            await runner.cleanup()
     async def receive_json(self, socket):
         message = await socket.receive(timeout=8)
         if message.type != WSMsgType.TEXT:
@@ -88,7 +94,6 @@ class KubikAdapter(BasePlatformAdapter):
         if not isinstance(value, dict):
             raise ValueError('Expected object')
         return value
-
     async def authenticate(self, socket):
         hello = await self.receive_json(socket)
         self.security.identity(hello)
@@ -103,7 +108,6 @@ class KubikAdapter(BasePlatformAdapter):
             await socket.send_json({'t': 'pair', 'code': code})
             await self.wait_pair(socket, identity)
         return Peer(socket, identity, hello)
-
     async def wait_pair(self, socket, identity):
         deadline = time.monotonic() + 600
         while not self.security.approved(identity):
@@ -119,17 +123,12 @@ class KubikAdapter(BasePlatformAdapter):
             if value.get('t') != 'ping':
                 raise ValueError('Pairing only accepts ping')
             await socket.send_json({'t': 'pong', 'ts': value.get('ts')})
-
     def speech_available(self):
-        from tools.transcription_tools import is_stt_enabled, _load_stt_config, _get_provider
-        from tools.tts_tool import check_tts_requirements
-        config = _load_stt_config()
-        return {'available': bool(is_stt_enabled(config) and _get_provider(config) != 'none')}, {'available': bool(check_tts_requirements())}
-
+        return speech_available(self.home)
     async def accept(self, request):
         if len(self.sockets) >= 8:
             return web.Response(status=503)
-        socket = web.WebSocketResponse(max_msg_size=4096, heartbeat=20)
+        socket = web.WebSocketResponse(max_msg_size=4096, heartbeat=20, compress=False)
         self.sockets.add(socket)
         peer = None
         try:
@@ -143,7 +142,7 @@ class KubikAdapter(BasePlatformAdapter):
             if self.peers.get(peer.identity) is not peer or socket.closed:
                 return socket
             await peer.send('welcome', session=secrets.token_hex(8), progress=True)
-            stt, tts = self.speech_available()
+            stt, tts = await asyncio.to_thread(self.speech_available)
             await peer.send('capabilities', stt=stt, tts=tts, voice_mode='classic')
             peer.ready = self.peers.get(peer.identity) is peer and not socket.closed
             async for message in socket:
@@ -159,14 +158,12 @@ class KubikAdapter(BasePlatformAdapter):
         finally:
             await self._remove_peer(socket, peer)
         return socket
-
     async def _handle_frame(self, peer, message):
         if message.type == WSMsgType.TEXT:
             await self.command(peer, json.loads(message.data))
         elif message.type == WSMsgType.BINARY:
             self.microphone(peer, message.data)
         return message.type not in (WSMsgType.CLOSE, WSMsgType.ERROR)
-
     async def _remove_peer(self, socket, peer):
         self.sockets.discard(socket)
         if not peer:
@@ -175,14 +172,12 @@ class KubikAdapter(BasePlatformAdapter):
         if self.peers.get(peer.identity) is peer:
             del self.peers[peer.identity]
         await self.cancel(peer)
-
     def microphone(self, peer, frame):
-        if len(frame) < 6 or frame[0] != 4 or peer.turn != frame[1]:
+        if not 6 <= len(frame) <= 485 or frame[0] != 4 or peer.turn != frame[1]:
             raise ValueError('Invalid microphone turn')
         if len(peer.pcm) + (len(frame) - 5) * 4 > 60 * 24000 * 2:
             raise ValueError('Recording too long')
         peer.pcm.extend(decode(frame[2:]))
-
     async def cancel(self, peer):
         previous = peer.pending_previous
         peer.input_turn = None
@@ -199,7 +194,6 @@ class KubikAdapter(BasePlatformAdapter):
         if peer.socket.closed:
             for receipt in peer.receipts.values():
                 receipt.set()
-
     async def command(self, peer, value):
         if not isinstance(value, dict):
             raise ValueError('Expected object')
@@ -211,7 +205,6 @@ class KubikAdapter(BasePlatformAdapter):
         elif kind in ('agent_options', 'agent_model'):
             await peer.send('agent_options', target=value.get('target'), rid=value.get('rid'),
                             cursor=value.get('cursor', 0), error='unsupported')
-
     async def _control_command(self, peer, kind, value):
         if kind == 'ping':
             await peer.send('pong', ts=value.get('ts'))
@@ -223,7 +216,6 @@ class KubikAdapter(BasePlatformAdapter):
             await self.ptt(peer, value)
         elif kind == 'cancel':
             await self.cancel_request(peer, value)
-
     def _playback_command(self, peer, kind, value):
         if kind == 'progress' and value.get('gen') == peer.gen:
             ms = value.get('ms')
@@ -235,10 +227,9 @@ class KubikAdapter(BasePlatformAdapter):
             full = kind == 'shown' or (type(value.get('ms')) is int and value['ms'] >= peer.sent_ms)
             if full and key in peer.receipts:
                 peer.receipts[key].set()
-
     async def ptt(self, peer, value):
         turn = value.get('turn')
-        if not isinstance(turn, int) or not 0 <= turn <= 255 or type(value.get('on')) is not bool:
+        if type(turn) is not int or not 0 <= turn <= 255 or type(value.get('on')) is not bool:
             raise ValueError('Invalid PTT')
         if not self._is_approved(peer.identity):
             peer.turn = None
@@ -251,7 +242,6 @@ class KubikAdapter(BasePlatformAdapter):
             await self._start_ptt(peer, turn)
         else:
             self._finish_ptt(peer, turn)
-
     async def _start_ptt(self, peer, turn):
         running = peer.task and not peer.task.done()
         if peer.turn is not None or peer.waiting or (running and not peer.muted):
@@ -262,7 +252,6 @@ class KubikAdapter(BasePlatformAdapter):
         if not running:
             peer.muted = False
         peer.pcm.clear()
-
     def _finish_ptt(self, peer, turn):
         if peer.turn != turn:
             return
@@ -273,7 +262,6 @@ class KubikAdapter(BasePlatformAdapter):
             peer.pending_previous = peer.task
             peer.waiting = bool(peer.task and not peer.task.done())
             peer.task = asyncio.create_task(self.dispatch_after(peer, pcm, peer.task))
-
     async def cancel_request(self, peer, value):
         if 'turn' in value:
             if value['turn'] == peer.turn:
@@ -297,7 +285,6 @@ class KubikAdapter(BasePlatformAdapter):
         else:
             await self.cancel(peer)
         await peer.send('state', s='idle')
-
     async def dispatch_after(self, peer, pcm, previous):
         input_turn = peer.input_turn
         try:
@@ -320,8 +307,10 @@ class KubikAdapter(BasePlatformAdapter):
             if not previous or previous.done():
                 peer.stage = 'idle'
                 peer.muted = False
-
     async def dispatch(self, peer, pcm):
+        with profile_scope(self.home):
+            await self._dispatch_scoped(peer, pcm)
+    async def _dispatch_scoped(self, peer, pcm):
         input_turn = peer.input_turn
         session_key = None
         path = None
@@ -349,7 +338,6 @@ class KubikAdapter(BasePlatformAdapter):
                 await peer.send('error', code='agent_failed')
         finally:
             await self._finish_dispatch(peer, input_turn, path, transcription)
-
     async def _finish_dispatch(self, peer, input_turn, path, transcription):
         if path and (transcription is None or transcription.done()):
             Path(path).unlink(missing_ok=True)
@@ -359,7 +347,6 @@ class KubikAdapter(BasePlatformAdapter):
         peer.muted = False
         if not peer.socket.closed:
             await peer.send('state', s='idle')
-
     async def _start_transcription(self, peer, pcm):
         if len(self.transcriptions) >= 2:
             await peer.send('error', code='busy')
@@ -382,7 +369,6 @@ class KubikAdapter(BasePlatformAdapter):
         self.transcriptions.add(task)
         task.add_done_callback(lambda done: self.finish_transcription(done, path))
         return path, task
-
     async def _transcript_text(self, peer, task):
         async with asyncio.timeout(120):
             result = await asyncio.shield(task)
@@ -391,7 +377,6 @@ class KubikAdapter(BasePlatformAdapter):
             await peer.send('error', code='stt_empty' if result.get('success') else 'stt_failed')
             return None
         return text
-
     def _authorized_voice_event(self, peer, text):
         if not self._is_approved(peer.identity):
             return None
@@ -400,7 +385,6 @@ class KubikAdapter(BasePlatformAdapter):
             source=self.build_source(peer.identity, chat_name='Kubik', user_id=peer.identity,
                                      role_authorized=True),
             user_id=peer.identity, message_id=secrets.token_hex(8))
-
     async def _run_voice_event(self, peer, event):
         peer.complete.clear()
         peer.message_id = event.message_id
@@ -410,42 +394,34 @@ class KubikAdapter(BasePlatformAdapter):
             if not event._gateway_accepted:
                 raise ValueError('Hermes rejected voice event')
             await peer.complete.wait()
-
     def finish_transcription(self, task, path):
         self.transcriptions.discard(task)
         Path(path).unlink(missing_ok=True)
         if not task.cancelled():
             task.exception()  # consume a late provider failure after timeout/cancellation
-
     async def on_processing_complete(self, event, outcome):
         peer = self.peers.get(event.source.chat_id)
         if peer and peer.message_id == event.message_id:
             peer.complete.set()
-
-    def _is_sender_authorized(self, user_id, chat_type=None, **kwargs):
-        # A normal gateway session can only be created by this adapter after v5 proof and local approval.
-        return isinstance(user_id, str) and self._is_approved(user_id)
-
+    def _is_sender_authorized(self, user_id, chat_type=None, chat_id=None, *, is_bot=False, thread_id=None):
+        # Native Gateway 0.22.2 passes chat_id positionally; only a locally paired key is trusted.
+        return not is_bot and isinstance(user_id, str) and self._is_approved(user_id)
     def _is_approved(self, identity):
         try:
             return self.security.approved(identity)
         except (OSError, TypeError, ValueError):
             return False
-
     def _ready_peer(self, chat_id):
         peer = self.peers.get(chat_id)
         return peer if (peer and peer.ready and not peer.socket.closed and
                        self._is_approved(peer.identity)) else None
-
     def _should_auto_tts_for_chat(self, chat_id):
         peer = self._ready_peer(chat_id)
         return bool(peer and type(peer.volume) is int and peer.volume >= 20)
-
     async def send_typing(self, chat_id, **kwargs):
         peer = self._ready_peer(chat_id)
         if peer and not peer.muted:
             await peer.send('state', s='thinking')
-
     async def send(self, chat_id, content, reply_to=None, metadata=None, **kwargs):
         peer = self._ready_peer(chat_id)
         if not peer:
@@ -466,13 +442,10 @@ class KubikAdapter(BasePlatformAdapter):
             return SendResult(success=False, error='Kubik did not acknowledge', retryable=True)
         finally:
             peer.receipts.pop(('shown', receipt), None)
-
     async def send_image(self, chat_id, image_url, caption=None, **kwargs):
         return SendResult(success=False, error='Kubik supports text and voice')
-
     async def get_chat_info(self, chat_id):
         return {'name': 'Kubik', 'type': 'dm', 'chat_id': chat_id}
-
     async def send_voice(self, chat_id, audio_path, caption=None, **kwargs):
         from .speech import play_file
         peer = self._ready_peer(chat_id)
@@ -492,6 +465,5 @@ class KubikAdapter(BasePlatformAdapter):
                 raise
             finally:
                 peer.output_task = None
-
     async def play_tts(self, chat_id, audio_path, **kwargs):
         return await self.send_voice(chat_id, audio_path, **kwargs)

@@ -15,15 +15,17 @@
 <dl><dt>Device</dt><dd id="device">—</dd><dt>Wi-Fi</dt><dd><span class="chip" id="wifi" data-state="wait">Checking…</span></dd><dt>Agent</dt><dd><span class="chip" id="server" data-state="wait">Checking…</span></dd><dt>Connected over</dt><dd id="transport">—</dd></dl>
 <button class="link" id="refresh" type="button">Refresh status</button></section>
 <form id="settings">
+<label for="agent">Agent</label><select id="agent" name="agent"><option value="">Keep current agent</option><option value="OpenClaw">OpenClaw</option><option value="Hermes">Hermes</option></select>
+<p class="hint" id="agentHint">Choose an installed agent, or keep the current integration.</p>
 <label for="url">Agent server address</label><input id="url" name="url" maxlength="127" placeholder="kubik://your-computer" autocomplete="url" spellcheck="false" aria-describedby="urlHint">
 <p class="hint" id="urlHint">Leave blank to discover an agent on your Wi-Fi network. Use kubik://your-computer for a local host or a full secure wss:// address for a remote server.</p>
-<p class="hint">To change Wi-Fi, open Settings → Wi-Fi on Kubik and follow its two QR steps with your phone.</p>
+<p class="hint">To change Wi-Fi, open Settings → Status → Network on Kubik and follow its two QR steps with your phone.</p>
 <div class="actions"><div><button class="go" id="save" type="submit">Save and connect</button><p id="message" role="status" aria-live="polite"></p></div></div>
 </form>
 </main>
 <script>
 const $ = id => document.getElementById(id);
-let busy = false, loaded = false;
+let busy = false, loaded = false, displayedAgent = '';
 function message(text, error = false) {
   $('message').textContent = text;
   $('message').dataset.error = String(error);
@@ -49,7 +51,12 @@ function render(info) {
   $('wifi').dataset.state = info.wifi_connected ? 'ok' : 'off';
   $('server').dataset.state = info.online ? 'ok' : 'off';
   $('transport').textContent = info.via === 'usb' ? 'USB' : info.via === 'wifi' ? 'Wi-Fi' : '—';
-  if (!loaded) { $('url').value = typeof info.url === 'string' ? info.url : ''; loaded = true; }
+  if (!loaded) {
+    $('url').value = typeof info.url === 'string' ? info.url : '';
+    $('agent').value = ['OpenClaw', 'Hermes'].includes(info.agent) ? info.agent : '';
+    displayedAgent = $('agent').value;
+    agentHint(); loaded = true;
+  }
 }
 async function refresh() {
   try { render(await request({cmd: 'info'})); return true; }
@@ -57,9 +64,25 @@ async function refresh() {
 }
 function lock(value) {
   busy = value;
-  for (const id of ['save','refresh','url']) $(id).disabled = value;
+  for (const id of ['save','refresh','url','agent']) $(id).disabled = value;
   $('tess').dataset.state = value ? 'trying' : 'idle';
 }
+function agentHint() {
+  const hermes = $('agent').value === 'Hermes';
+  $('url').placeholder = hermes ? 'kubik://HOST:18793' : 'kubik://your-computer';
+  $('agentHint').textContent = hermes
+    ? 'Install the Kubik platform in your existing Hermes Gateway first. Approve the code on Kubik with the command printed by its installer, using the same Hermes profile and Python environment.'
+    : 'Choose an installed agent, or keep the current integration.';
+  $('urlHint').textContent = hermes
+    ? 'Hermes requires kubik://HOST:18793 (or its configured port). Use an address reachable from Kubik’s Wi-Fi, not localhost. Automatic discovery is not supported.'
+    : 'Leave blank to discover OpenClaw on your Wi-Fi. Otherwise use kubik://host or a full secure wss:// address.';
+}
+$('agent').onchange = () => {
+  const agent = $('agent').value;
+  if (loaded && agent && agent !== displayedAgent) $('url').value = '';
+  if (agent) displayedAgent = agent;
+  agentHint();
+};
 function validAddress(value) {
   if (!value) return true;
   try {
@@ -69,15 +92,23 @@ function validAddress(value) {
     return url.protocol === 'wss:' && /^wss:\/\/[^/]+\/.+/.test(value);
   } catch { return false; }
 }
+function validHermesAddress(value) {
+  try {
+    const url = new URL(value);
+    const port = Number(url.port);
+    return url.protocol === 'kubik:' && !!url.hostname && port >= 1024 && port <= 65535 &&
+      !url.username && !url.password && (!url.pathname || url.pathname === '/') && !url.search && !url.hash;
+  } catch { return false; }
+}
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function waitForConnection(url) {
+async function waitForConnection(url, agent) {
   const deadline = Date.now() + 30000;
   await pause(2000);
   while (Date.now() < deadline) {
     try {
       const info = await request({cmd: 'info'});
       render(info);
-      if (info.online && info.url === url) return true;
+      if (info.online && info.url === url && (!agent || info.agent === agent)) return true;
     } catch { /* USB re-enumerates during the requested restart. */ }
     await pause(1500);
   }
@@ -98,13 +129,17 @@ $('settings').onsubmit = async event => {
     $('tess').dataset.state = 'error';
     return message('Use kubik://host or a full wss:// URL, without credentials, query or fragment.', true);
   }
+  const agent = $('agent').value;
+  if (agent === 'Hermes' && !validHermesAddress(url))
+    return message('Enter the Hermes address as kubik://HOST:18793.', true);
   const command = {cmd: 'set', url};
+  if (agent) command.agent = agent;
   lock(true); message('Saving settings…');
   let completion = 'error';
   try {
     await request(command);
     message('Saved. Kubik is restarting and connecting…');
-    const connected = await waitForConnection(url);
+    const connected = await waitForConnection(url, agent);
     completion = connected ? 'done' : 'error';
     message(connected ? 'Connected. Continue on Kubik’s screen.'
       : 'Saved, but connection is not confirmed. Check the server and refresh status. A pairing code may be waiting on Kubik.', !connected);

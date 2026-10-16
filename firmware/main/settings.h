@@ -12,6 +12,12 @@ struct connection_record;
 #define SETTINGS_PIN_BYTES 32
 #define SETTINGS_WIFI_MAX 8
 
+typedef enum {
+    SETTINGS_AGENT_OPENCLAW = 0, SETTINGS_AGENT_MUSE = 1,
+    SETTINGS_AGENT_HERMES = 2, SETTINGS_AGENT_CUSTOM = 3
+} settings_agent_t;
+const char *settings_agent_name(void);
+
 typedef struct {
     char ssid[33];
     char password[65];
@@ -27,6 +33,7 @@ typedef struct {
     // "" finds OpenClaw on this network; kubik://host[:port] names it there;
     // wss://host/kubik/v1 is a TLS-protected public address.
     char server_url[128];
+    settings_agent_t host_agent; // last non-Muse choice, in the atomic connection record
     // LAN mode: SHA-256 of the plugin's TLS key (SPKI), kept after its first welcome.
     uint8_t server_pin[SETTINGS_PIN_BYTES];
     bool server_pinned;
@@ -55,9 +62,9 @@ bool settings_take_provisioning(void);
 // replace its password; an empty password keeps an existing exact match.
 // Saving is the user's explicit choice, so it also forgets the pinned server key.
 esp_err_t settings_save_connection(const char *ssid, const char *password, const char *url);
-// Setup commits the candidate connection and Muse agent selection as one NVS record.
+// Setup commits the candidate connection and agent selection as one NVS record.
 esp_err_t settings_save_setup(const char *ssid, const char *password, const char *url,
-                              bool muse_selected, const char *sdk_token);
+                              settings_agent_t agent, const char *sdk_token);
 void settings_apply_connection_record(const struct connection_record *record);
 void settings_apply_connection_pin(const struct connection_record *record);
 int settings_wifi_find(const char *ssid);

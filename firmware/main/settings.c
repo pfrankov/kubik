@@ -30,6 +30,12 @@ static int get_int(nvs_handle_t h, const char *key, int def) {
 
 bool settings_server_valid(const char *url) { return connection_store_server_valid(url); }
 
+const char *settings_agent_name(void) {
+    if (muse_store_state() != MUSE_OFF) return "Muse";
+    if (g_settings.host_agent == SETTINGS_AGENT_HERMES) return "Hermes";
+    return g_settings.host_agent == SETTINGS_AGENT_CUSTOM ? "Custom" : "OpenClaw";
+}
+
 int settings_wifi_find(const char *ssid) {
     if (!ssid || !ssid[0]) return -1;
     for (int i = 0; i < g_settings.wifi_profile_count; i++)
@@ -89,6 +95,9 @@ void settings_apply_connection_record(const connection_record_t *record) {
     s->wifi_profile_count = record->networks.count;
     memcpy(s->wifi_profiles, record->networks.profiles, sizeof s->wifi_profiles);
     memcpy(s->server_url, record->networks.url, sizeof s->server_url);
+    unsigned agent = record->networks.host_agent;
+    s->host_agent = agent == SETTINGS_AGENT_HERMES || agent == SETTINGS_AGENT_CUSTOM
+        ? (settings_agent_t)agent : SETTINGS_AGENT_OPENCLAW;
     set_active_profile(s, record->networks.active);
     settings_apply_connection_pin(record);
 }
@@ -297,10 +306,10 @@ esp_err_t settings_save_connection(const char *ssid, const char *password, const
 }
 
 esp_err_t settings_save_setup(const char *ssid, const char *password, const char *url,
-                             bool muse_selected, const char *sdk_token) {
+                             settings_agent_t agent, const char *sdk_token) {
     connection_record_t *record = calloc(1, sizeof *record);
     if (!record) return ESP_ERR_NO_MEM;
-    esp_err_t err = connection_store_save_setup(record, ssid, password, url, muse_selected, sdk_token);
+    esp_err_t err = connection_store_save_setup(record, ssid, password, url, agent, sdk_token);
     muse_store_wipe(record, sizeof *record);
     free(record);
     return err;

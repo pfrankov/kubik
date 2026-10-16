@@ -199,9 +199,11 @@ void draw_pair_card(face_t *f, scene_t *s) {
         x += 2 * tw + gap + (i == 3 ? mid : 0);
     }
     // The command uses the exact code shown above; no list lookup is needed.
-    sc_label(s, TXT_CAPTION, "On the OpenClaw server, run:", cx, 360, 0, UI_TEXT, ta);
+    bool hermes = f->pair_hermes;
+    sc_label(s, TXT_CAPTION, hermes ? "On your Hermes server, approve:" : "On the OpenClaw server, run:", cx, 360, 0, UI_TEXT, ta);
     char approval[64];
-    snprintf(approval, sizeof approval, "openclaw pairing approve kubik %.8s", f->pair_code);
+    snprintf(approval, sizeof approval, hermes ? "python <home>/plugins/kubik/pair.py %.8s"
+             : "openclaw pairing approve kubik %.8s", f->pair_code);
     sc_label(s, TXT_CAPTION, approval, cx, 390, 0, UI_ACCENT, ta);
     // Waiting for the approval.
     float da = clampf((t - 0.9f) / 0.4f, 0, 1);

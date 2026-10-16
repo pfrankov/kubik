@@ -318,6 +318,7 @@ typedef struct {
     float qr_t;         // seconds since the card content changed
     char setup_text[2][72];  // title, detail (UTF-8)
     char pair_code[12];      // pairing card (MODE_SETUP) while set
+    bool pair_hermes;        // pairing instructions supplied by the app, never read from settings here
     // System bubble (any mode except the setup card).
     int bub_icon;
     char bub_text[48];

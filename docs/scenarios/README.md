@@ -9,6 +9,7 @@
 - [Разговор и ответы](conversation.md)
 - [Realtime и GPT-Live](native-voice.md)
 - [Muse напрямую с телефона](muse.md)
+- [Нативный Hermes](hermes.md)
 - [Персонажи и реакции](characters.md)
 - [Игры и рост Tess](tess-games.md)
 - [Сеть, питание и уведомления](power-network.md)

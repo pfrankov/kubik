@@ -8,7 +8,7 @@ Kubik is a small Wi-Fi voice companion built on the Waveshare ESP32-C6-Touch-AMO
 
 *Current firmware renderer, with a simulated playback level. This is a UI demonstration, not a recording of response latency.*
 
-Connect **OpenClaw** with the Kubik channel plugin; connect **Hermes** with its [native gateway platform](docs/hermes.md). Custom agents can use the [adapter SDK](docs/agent-sdk.md). Provider credentials stay on the agent host.
+Connect **OpenClaw** with the Kubik channel plugin; connect **Hermes Agent 0.22.2** with its [native gateway platform](docs/hermes.md). Custom agents can use the [adapter SDK](docs/agent-sdk.md). Provider credentials stay on the agent host.
 
 ## Download and update
 

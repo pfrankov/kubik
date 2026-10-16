@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import socket
 import struct
 import sys
 import tempfile
@@ -23,6 +24,22 @@ from hermes_test_support import (DeviceSocket, KubikAdapter, Peer, ProtocolFixtu
 
 
 class Protocol(ProtocolFixture):
+    def test_native_fixture_reserves_distinct_ports(self):
+        spec = importlib.util.spec_from_file_location(
+            'hermes_native_contract', ROOT / 'tools/hermes_native/contract.py')
+        contract = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(contract)
+        reservations = contract.reserve_loopback_ports(2)
+        try:
+            ports = [reservation.getsockname()[1] for reservation in reservations]
+            self.assertEqual(len(set(ports)), 2)
+            for port in ports:
+                with socket.socket() as contender, self.assertRaises(OSError):
+                    contender.bind(('127.0.0.1', port))
+        finally:
+            for reservation in reservations:
+                reservation.close()
+
     def sign(self, nonce, bind=None):
         text = '\n'.join(('kubik-auth-v5', nonce, self.hello['device'], self.hello['key'], bind or self.store.bind))
         return base64.b64encode(self.key.sign(text.encode(), ec.ECDSA(hashes.SHA256()))).decode()
@@ -333,7 +350,8 @@ class Protocol(ProtocolFixture):
         installer.install(ROOT / 'hermes-kubik', home, 18793)
         manifests = list((home / 'plugins').rglob('plugin.yaml'))
         self.assertEqual(manifests, [home / 'plugins/kubik/plugin.yaml'])
-        self.assertTrue((home / 'kubik-plugin.previous/plugin.yaml').exists())
+        self.assertEqual(yaml.safe_load((home / 'config.before-kubik.yaml').read_text()), config)
+        self.assertFalse(list((home / 'plugins').glob('.kubik-install-*')))
 
     def test_volume_boundary(self):
         for volume in ('30', {}, True, -1, 101):

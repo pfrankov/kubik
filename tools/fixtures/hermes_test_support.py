@@ -25,6 +25,12 @@ class Base:
     def __init__(self, config, platform):
         self.config, self.platform = config, platform
 
+    def _mark_connected(self, **kwargs):
+        self._running = True
+
+    def _mark_disconnected(self):
+        self._running = False
+
     def build_source(self, chat_id, **kwargs):
         return SimpleNamespace(chat_id=chat_id, **kwargs)
 
@@ -42,6 +48,22 @@ sys.modules['gateway.platforms.event'].MessageEvent = lambda **kwargs: SimpleNam
 sys.modules['gateway.platforms.event'].MessageType = SimpleNamespace(VOICE='voice')
 sys.modules['tools'] = ModuleType('tools')
 sys.modules['tools.transcription_tools'] = ModuleType('tools.transcription_tools')
+
+from contextvars import ContextVar
+_home = ContextVar('hermes_test_home', default=None)
+_secrets = ContextVar('hermes_test_secrets', default=None)
+homes = ModuleType('hermes_constants')
+homes.get_hermes_home = lambda: Path(_home.get() or os.environ['HERMES_HOME'])
+homes.set_hermes_home_override = _home.set
+homes.reset_hermes_home_override = _home.reset
+sys.modules['hermes_constants'] = homes
+sys.modules['agent'] = ModuleType('agent')
+scopes = ModuleType('agent.secret_scope')
+scopes.build_profile_secret_scope = lambda home: {}
+scopes.set_secret_scope = lambda mapping, **kwargs: _secrets.set(mapping)
+scopes.reset_secret_scope = _secrets.reset
+scopes.get_secret = lambda name, default=None: os.environ.get(name, default)
+sys.modules['agent.secret_scope'] = scopes
 
 from hermes_kubik.security import Security, atomic_json
 from hermes_kubik.codec import decode, encode

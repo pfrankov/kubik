@@ -107,7 +107,9 @@ with zipfile.ZipFile(kit_path) as kit:
                 "openclaw-kubik/README.md", "deploy/cloudflared/README.md",
                 "deploy/cloudflared/probe.mjs", "deploy/cloudflared/install-systemd.sh",
                 "hermes-kubik/adapter.py", "hermes-kubik/plugin.yaml", "hermes-kubik/pair.py",
-                "tools/install-hermes.py", "docs/hermes.md", "docs/events.md"}
+                "hermes-kubik/requirements.txt", "tools/install-hermes.py", "docs/hermes.md",
+                "docs/scenarios/hermes.md", "tools/test-hermes-native.py",
+                "tools/hermes_native/contract.py", "tools/hermes_native/upstream.json", "docs/events.md"}
     assert required <= names, sorted(required - names)
     assert not {"VOICE.html", "CONNECT.html", "ASK-AGENT.txt"} & names, 'Obsolete split buyer flow'
     contents = kit.read("START.html").decode()

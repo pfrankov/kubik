@@ -81,11 +81,17 @@ openclaw channels status --probe</pre><p>A running Gateway applies a managed upd
 <details id="voice-hermes"><summary>Hermes: connect directly and configure speech</summary>
 <p>Install the Kubik platform inside the existing Hermes Gateway. No companion host, Agent API server, second computer or SSH tunnel is needed.</p>
 <ol><li>Install and configure <a href="https://hermes-agent.nousresearch.com/docs/getting-started/installation">Hermes</a> on your agent machine. Check a text reply.</li><li>Download the Kubik GitHub repository and run this as the Hermes service user, using its Python environment:</li></ol>
-<pre data-copy>python tools/install-hermes.py --home ~/.hermes</pre>
+<p>Use Hermes Agent 0.22.2 and its Python 3.14 environment, not system Python. Install ffmpeg on the agent machine for speech playback. Replace the interpreter and home below with the actual paths for the existing agent or profile:</p>
+<pre data-copy>HERMES_PY=/absolute/path/to/hermes-agent/.venv/bin/python
+HERMES_HOME=/absolute/path/to/your/hermes-home
+uv pip install --python "$HERMES_PY" -r hermes-kubik/requirements.txt
+"$HERMES_PY" tools/install-hermes.py --home "$HERMES_HOME" --check
+"$HERMES_PY" tools/install-hermes.py --home "$HERMES_HOME"</pre>
+<p>The installer preserves other settings and does not restart services or weaken plugin isolation. See the <a href="../hermes.md">complete Hermes guide</a> for profiles, listener ports, updates and revocation.</p>
 <p>Use your actual HERMES_HOME if different. When conversations are idle, restart the existing Gateway:</p><pre data-copy>hermes gateway restart</pre>
-<p>Configure STT and TTS providers, models and credentials in Hermes itself using its <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode">voice guide</a>. Ready STT enables voice input; ready TTS and Speech volume 20+ enable spoken replies. Realtime and GPT Live are unavailable in Hermes 0.21.4. Model changes are made in Hermes, not this device's picker.</p>
+<p>Configure STT and TTS providers, models and credentials in Hermes itself using its <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode">voice guide</a>. Ready STT enables voice input; ready TTS and Speech volume 20+ enable spoken replies. This Kubik integration uses Classic only with Hermes 0.22.2; Realtime and GPT Live are not advertised. Model changes are made in Hermes, not this device's picker.</p>
 <p>Enter <strong>kubik://HOST:18793</strong> on Kubik. HOST must be reachable from its Wi-Fi; a public IP works without a domain. Open TCP 18793 on that server as needed. Blank-address discovery is not provided by the Hermes platform.</p>
-<p>Approve only the matching code shown on Kubik:</p><pre data-copy>python ~/.hermes/plugins/kubik/pair.py CODE</pre>
+<p>Select Hermes on the phone or USB setup page. Approve only the matching code shown on Kubik, using the exact command printed by the installer for this profile:</p><pre data-copy>"$HERMES_PY" "$HERMES_HOME/plugins/kubik/pair.py" CODE</pre>
 <p class="result">Keep only Hermes Gateway running. Its plugin handles the device connection, native speech and device conversation.</p>
 </details>
 <details id="voice-models"><summary>Check model availability before setting up voice</summary>

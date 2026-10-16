@@ -52,4 +52,11 @@ test('client requests safe info and does not expose legacy secrets',async()=>{
   for(const element of elements.values()){assert.ok(!element.textContent.includes('must-never-appear'));assert.ok(!element.value.includes('must-never-appear'));}
   assert.match(html,/maxlength="127"/);assert.doesNotMatch(html,/maxlength="79"/);
   assert.match(html,/info.online && info.url === url/);
+  assert.equal(context.validHermesAddress('kubik://hermes.local:18793'),true);
+  assert.equal(context.validHermesAddress('kubik://hermes.local'),false);
+  assert.equal(context.validHermesAddress('kubik://hermes.local:80'),false);
+  elements.get('url').value='kubik://openclaw.local:18790';elements.get('agent').value='Hermes';elements.get('agent').onchange();
+  assert.equal(elements.get('url').value,'');
+  elements.get('url').value='kubik://hermes.local:18793';elements.get('agent').value='OpenClaw';elements.get('agent').onchange();
+  assert.equal(elements.get('url').value,'');
 });

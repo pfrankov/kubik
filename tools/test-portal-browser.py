@@ -73,9 +73,11 @@ def mount(page, usb=False, lose_submit=False):
         elif path == '/config':
             command = req.request.post_data_json
             sent.append(command)
-            if command.get('cmd') == 'set': state['server'] = command.get('url', '')
+            if command.get('cmd') == 'set':
+                state['server'] = command.get('url', '')
+                if 'agent' in command: state['agent'] = command['agent']
             req.fulfill(json={'ok': True, 'device': 'kubik-test', 'wifi_connected': True,
-                             'online': True, 'via': 'wifi', 'url': state['server']})
+                             'online': True, 'via': 'wifi', 'url': state['server'], 'agent': state.get('agent')})
         else:
             req.continue_()
     page.route(ORIGIN + '/**', route)
@@ -135,7 +137,24 @@ def check_page(page, width, height, output):
     assert hint and bar and hint['y'] + hint['height'] <= bar['y'] + 1, (hint, bar)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.locator('#serverDetails summary').click()
-    assert page.locator('[data-agent=Hermes]').is_hidden()
+    assert page.locator('[data-agent=Hermes]').is_visible()
+    page.locator('[data-agent=Hermes]').click()
+    assert page.locator('#pluginSetup').is_hidden() and page.locator('#openclawApproval').is_hidden()
+    assert page.locator('#hermesSetup').is_visible()
+    assert page.locator('#serverDetails').get_attribute('open') is not None
+    assert 'required' in page.locator('#serverAddressHint').inner_text()
+    page.locator('#url').fill('kubik://hermes.lan')
+    page.locator('#go').click()
+    assert not sent and 'Hermes address' in page.locator('#err').inner_text()
+    page.locator('#url').fill('kubik://hermes.lan:18793')
+    page.locator('#back').click(); page.locator('#go').click()
+    assert page.locator('[data-agent=Hermes]').get_attribute('aria-pressed') == 'true'
+    assert page.locator('#url').input_value() == 'kubik://hermes.lan:18793'
+    assert 'same Hermes profile' in page.locator('#approvalHint').text_content()
+    page.screenshot(path=str(output / f'portal-{width}-hermes.png'))
+    page.locator('[data-agent=OpenClaw]').click()
+    assert page.locator('#url').input_value() == '', 'Changing agent must not reuse a Hermes endpoint'
+    assert page.locator('#hermesSetup').is_hidden() and page.locator('#pluginSetup').is_visible()
     assert page.locator('[data-agent=Muse]').is_hidden()
     assert page.locator('[data-agent=Custom]').is_hidden()
     page.locator('#serverDetails summary').click()
@@ -339,8 +358,13 @@ def check_usb(page, output):
     assert page.locator('html').get_attribute('lang') == 'en'
     page.locator('#url').fill('ws://insecure.example/kubik/v1')
     page.locator('#save').click()
-    assert page.get_by_text('Use kubik://host', exact=False).is_visible()
+    assert page.locator('#message').is_visible() and 'Use kubik://host' in page.locator('#message').inner_text()
     assert len(sent) == 1
+    page.locator('#url').fill('kubik://computer')
+    page.locator('#agent').select_option('Hermes')
+    assert page.locator('#url').input_value() == '', 'Changing agent must clear the previous endpoint'
+    page.locator('#agent').select_option('OpenClaw')
+    assert page.locator('#url').input_value() == '', 'Changing back must clear the Hermes endpoint too'
     page.locator('#url').fill('kubik://computer')
     page.locator('#save').click()
     page.get_by_text('Connected. Continue on Kubik’s screen.', exact=True).wait_for()
@@ -348,7 +372,7 @@ def check_usb(page, output):
     assert page.locator('#save').is_enabled()
     page.wait_for_timeout(150)
     assert page.locator('#tess').get_attribute('data-state') == 'done'
-    assert sent[1] == {'cmd': 'set', 'url': 'kubik://computer'}
+    assert sent[1] == {'cmd': 'set', 'url': 'kubik://computer', 'agent': 'OpenClaw'}
     assert not errors, errors
     page.screenshot(path=str(output / 'usb-setup.png'))
     before = len(sent)
@@ -357,7 +381,22 @@ def check_usb(page, output):
     assert page.locator('#message').get_attribute('data-error') == 'true'
     assert page.locator('#tess').get_attribute('data-state') == 'error'
     assert len(sent) == before, 'Invalid retry must not write after a successful setup'
-    print('USB: English, shared Tess/style, secure validation, submit and invalid retry passed')
+    page.locator('#agent').select_option('Hermes')
+    page.locator('#url').fill('')
+    page.locator('#save').click()
+    assert 'Hermes address' in page.locator('#message').inner_text() and len(sent) == before
+    page.locator('#url').fill('kubik://hermes.lan')
+    page.locator('#save').click()
+    assert 'Hermes address' in page.locator('#message').inner_text() and len(sent) == before
+    page.locator('#url').fill('kubik://hermes.lan:18793')
+    page.locator('#save').click()
+    page.get_by_text('Connected. Continue on Kubik’s screen.', exact=True).wait_for()
+    assert {'cmd': 'set', 'agent': 'Hermes', 'url': 'kubik://hermes.lan:18793'} in sent
+    assert state['agent'] == 'Hermes'
+    assert 'same Hermes profile' in page.locator('#agentHint').inner_text()
+    page.screenshot(path=str(output / 'usb-hermes-setup.png'))
+    assert not errors, errors
+    print('USB: secure validation, native Hermes selection/approval and legacy URL-only preservation passed')
 
 
 

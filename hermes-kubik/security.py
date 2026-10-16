@@ -98,7 +98,8 @@ class Security:
     def approved(self, identity):
         if not self.allow_path.exists():
             return False
-        return identity in json.loads(self.allow_path.read_text())
+        value = json.loads(self.allow_path.read_text())
+        return isinstance(value, list) and all(isinstance(item, str) for item in value) and identity in value
 
     def pair(self, identity):
         self.pending = {key: value for key, value in self.pending.items() if value['expires'] > time.time()}
