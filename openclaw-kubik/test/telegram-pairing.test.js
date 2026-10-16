@@ -261,6 +261,41 @@ test('named Telegram accounts inherit parent owners and direct-message policy', 
   assert.deepEqual(telegramOwners(f.cfg), []);
 });
 
+test('an empty account map retains the implicit root Telegram account', async () => {
+  const f = fixture();
+  Object.assign(f.cfg.channels.telegram, { botToken: 'unused', accounts: {} });
+  assert.deepEqual(telegramOwners(f.cfg), [{ owner: '123', accountId: 'default' }]);
+  assert.equal(await notify(f), true);
+  await f.pairing.handle(f.ctx);
+  assert.equal(f.approvals.length, 1);
+});
+
+test('case-preserved account config delivers and approves with the native normalized account ID', async () => {
+  const f = fixture();
+  f.cfg.channels.telegram.accounts = { Office: { botToken: 'unused', allowFrom: [123] } };
+  assert.deepEqual(telegramOwners(f.cfg), [{ owner: '123', accountId: 'office' }]);
+  assert.equal(await notify(f), true);
+  assert.equal(f.calls[0].accountId, 'office');
+  await f.pairing.handle({ ...f.ctx, accountId: 'office' });
+  assert.equal(f.approvals.length, 1);
+  f.cfg.channels.telegram.accounts.Office.allowFrom = [];
+  assert.deepEqual(telegramOwners(f.cfg), []);
+});
+
+test('native account listing retains the root bot alongside named and bound accounts', () => {
+  const f = fixture();
+  Object.assign(f.cfg.channels.telegram, { botToken: 'unused', accounts: { Office: {} } });
+  assert.deepEqual(telegramOwners(f.cfg), [
+    { owner: '123', accountId: 'default' }, { owner: '123', accountId: 'office' },
+  ]);
+  f.cfg.bindings = [{ match: { channel: 'telegram', accountId: 'Office' } },
+    { match: { channel: 'telegram', accountId: 'Backup' } },
+    { match: { channel: 'telegram', accountId: '*' } }, { match: { channel: 'other', accountId: 'other' } }];
+  assert.deepEqual(telegramOwners(f.cfg), [
+    { owner: '123', accountId: 'backup' }, { owner: '123', accountId: 'default' }, { owner: '123', accountId: 'office' },
+  ]);
+});
+
 test('native capability arrays enable inlineButtons and reject other nonempty capabilities', () => {
   const f = fixture();
   for (const capabilities of [['inlineButtons'], [' INLINEBUTTONS '], []]) {

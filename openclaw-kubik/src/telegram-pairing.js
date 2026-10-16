@@ -1,24 +1,22 @@
 import { out } from './protocol.js';
 import { randomBytes } from 'node:crypto';
+import { createAccountListHelpers, normalizeAccountId, resolveMergedAccountConfig } from 'openclaw/plugin-sdk/account-core';
 
 const KEY = Symbol.for('openclaw.kubik.telegram-pairing');
 const TTL = 10 * 60_000;
 const LIMIT = 4;
 const numeric = (value) => /^[1-9]\d{0,19}$/.test(String(value));
 
-// Match OpenClaw's Telegram account-config/inline-buttons policy. Empty account
-// capability arrays inherit; account wildcards must not widen a restrictive root.
-function telegramPolicy(telegram, account) {
-  const policy = { ...telegram, ...account };
-  if (Array.isArray(account.capabilities) && !account.capabilities.length) policy.capabilities = telegram.capabilities;
-  const root = telegram.allowFrom ?? [], allowed = account.allowFrom;
-  if (Array.isArray(allowed) && root.some((id) => String(id).trim() && String(id).trim() !== '*') &&
-      allowed.some((id) => String(id).trim() === '*')) {
-    const explicit = allowed.filter((id) => String(id).trim() !== '*');
-    policy.allowFrom = explicit.length ? explicit : root;
-  }
-  return policy;
-}
+// Use the same generic SDK account primitives as the native Telegram channel.
+// Resolve policy without loading a bot token or a channel's internal modules.
+const { listAccountIds } = createAccountListHelpers('telegram', {
+  normalizeAccountId,
+  implicitDefaultAccount: { channelKeys: ['botToken', 'tokenFile'], envVars: ['TELEGRAM_BOT_TOKEN'] },
+  additionalAccountIds: (cfg) => (cfg.bindings ?? []).flatMap(({ match }) =>
+    String(match?.channel ?? '').trim().toLowerCase() === 'telegram' &&
+    typeof match.accountId === 'string' && match.accountId.trim() && match.accountId.trim() !== '*'
+      ? [normalizeAccountId(match.accountId)] : []),
+});
 
 function privateButtons(capabilities) {
   if (Array.isArray(capabilities)) {
@@ -34,9 +32,10 @@ export function telegramOwners(cfg) {
   if (!telegram || telegram.enabled === false) return [];
   const owners = (cfg.commands?.ownerAllowFrom ?? []).map(String)
     .filter((id) => /^telegram:[1-9]\d{0,19}$/.test(id)).map((id) => id.slice(9));
-  const accounts = telegram.accounts ? Object.entries(telegram.accounts) : [['default', {}]];
-  return accounts.flatMap(([accountId, account]) => {
-    const policy = telegramPolicy(telegram, account);
+  return listAccountIds(cfg).flatMap((accountId) => {
+    const policy = resolveMergedAccountConfig({ channelConfig: telegram, accounts: telegram.accounts,
+      accountId, normalizeAccountId, omitKeys: ['defaultAccount'],
+      inheritEmptyKeys: { capabilities: 'array' }, preserveRootAllowFrom: true });
     if (policy.enabled === false || policy.dmPolicy === 'disabled' || !privateButtons(policy.capabilities)) return [];
     const allowed = (policy.allowFrom ?? []).map((id) => String(id).trim().replace(/^(telegram:|tg:)/, ''));
     return [...new Set(owners)].filter((owner) => allowed.includes(owner) || allowed.includes('*'))

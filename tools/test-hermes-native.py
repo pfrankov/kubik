@@ -20,7 +20,7 @@ def prepare_source(destination):
                     PIN['repository'], str(destination)], check=True)
     verify_source(destination)
     subprocess.run(['uv', '--no-config', 'sync', '--directory', str(destination), '--frozen',
-                    '--no-dev', '--python', PIN['python']], check=True)
+                    '--no-dev', '--extra', 'telegram', '--python', PIN['python']], check=True)
     python = destination / '.venv/bin/python'
     subprocess.run(['uv', 'pip', 'install', '--python', str(python),
                     '-r', str(ROOT / 'hermes-kubik/requirements.txt')], check=True)

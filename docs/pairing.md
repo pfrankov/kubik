@@ -21,6 +21,8 @@ cannot widen a restrictive parent allowlist. Inline buttons must be enabled for
 owner DMs: the `inlineButtons` capability or an `allowlist`, `dm` or `all` scope.
 An empty per-account capability array inherits the parent configuration. With
 multiple bot accounts, the request remains bound to the bot that delivered it.
+Account IDs follow OpenClaw's normalization; an empty `accounts` map keeps the
+root bot available.
 
 **Hermes:** enable its existing Telegram platform and configure a private
 `TELEGRAM_HOME_CHANNEL` / Telegram `home_channel` belonging to its authorized
