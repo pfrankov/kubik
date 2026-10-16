@@ -3,7 +3,30 @@ import { randomBytes } from 'node:crypto';
 
 const KEY = Symbol.for('openclaw.kubik.telegram-pairing');
 const TTL = 10 * 60_000;
+const LIMIT = 4;
 const numeric = (value) => /^[1-9]\d{0,19}$/.test(String(value));
+
+// Match OpenClaw's Telegram account-config/inline-buttons policy. Empty account
+// capability arrays inherit; account wildcards must not widen a restrictive root.
+function telegramPolicy(telegram, account) {
+  const policy = { ...telegram, ...account };
+  if (Array.isArray(account.capabilities) && !account.capabilities.length) policy.capabilities = telegram.capabilities;
+  const root = telegram.allowFrom ?? [], allowed = account.allowFrom;
+  if (Array.isArray(allowed) && root.some((id) => String(id).trim() && String(id).trim() !== '*') &&
+      allowed.some((id) => String(id).trim() === '*')) {
+    const explicit = allowed.filter((id) => String(id).trim() !== '*');
+    policy.allowFrom = explicit.length ? explicit : root;
+  }
+  return policy;
+}
+
+function privateButtons(capabilities) {
+  if (Array.isArray(capabilities)) {
+    return !capabilities.length || capabilities.some((item) => String(item).trim().toLowerCase() === 'inlinebuttons');
+  }
+  const scope = String(capabilities?.inlineButtons ?? 'allowlist').trim().toLowerCase();
+  return ['allowlist', 'dm', 'all'].includes(scope);
+}
 
 /** Only explicitly configured Telegram owners receive private security prompts. */
 export function telegramOwners(cfg) {
@@ -12,58 +35,90 @@ export function telegramOwners(cfg) {
   const owners = (cfg.commands?.ownerAllowFrom ?? []).map(String)
     .filter((id) => /^telegram:[1-9]\d{0,19}$/.test(id)).map((id) => id.slice(9));
   const accounts = telegram.accounts ? Object.entries(telegram.accounts) : [['default', {}]];
-  return accounts.filter(([, account]) => account.enabled !== false).flatMap(([accountId, account]) => {
-    if ((account.dmPolicy ?? telegram.dmPolicy) === 'disabled') return [];
-    const scope = (account.capabilities ?? telegram.capabilities)?.inlineButtons ?? 'allowlist';
-    if (!['allowlist', 'dm', 'all'].includes(scope)) return [];
-    const allowed = account.allowFrom ?? telegram.allowFrom ?? [];
-    return [...new Set(owners)].filter((owner) => allowed.map(String).some((id) =>
-      id === owner || id === `telegram:${owner}` || id === '*')).map((owner) => ({ owner, accountId }));
-  }).slice(0, 4);
+  return accounts.flatMap(([accountId, account]) => {
+    const policy = telegramPolicy(telegram, account);
+    if (policy.enabled === false || policy.dmPolicy === 'disabled' || !privateButtons(policy.capabilities)) return [];
+    const allowed = (policy.allowFrom ?? []).map((id) => String(id).trim().replace(/^(telegram:|tg:)/, ''));
+    return [...new Set(owners)].filter((owner) => allowed.includes(owner) || allowed.includes('*'))
+      .map((owner) => ({ owner, accountId }));
+  }).slice(0, LIMIT);
 }
 
+// Adapters may ignore signal. Bound our wait as well as requesting cancellation;
+// a late resolution must never publish delivery state outside this operation.
+async function bounded(operation, timeoutMs) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => operation(controller.signal)),
+      new Promise((_, reject) => { timer = setTimeout(() => {
+        controller.abort();
+        reject(Error('Telegram pairing operation timed out'));
+      }, timeoutMs); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+const shellWord = (value) => /^[a-zA-Z0-9_-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+const approvalCommand = ({ accountId, code }) => accountId === 'default'
+  ? `openclaw pairing approve kubik ${code}`
+  : `openclaw pairing approve --channel kubik --account ${shellWord(accountId)} ${code}`;
+
 export class TelegramPairing {
-  constructor(api, { now = Date.now, token = () => randomBytes(12).toString('hex'), command } = {}) {
-    Object.assign(this, { api, now, token, command });
+  constructor(api, { now = Date.now, token = () => randomBytes(12).toString('hex'), command, timeoutMs = 5000 } = {}) {
+    Object.assign(this, { api, now, token, command, timeoutMs });
     this.requests = new Map();
     this.inFlight = new Map();
   }
   config() { return this.api.runtime.config?.current?.() ?? this.api.config; }
-  async notify(accountId, identity, code) {
-    const key = `${accountId}:${code}`;
-    if (this.inFlight.has(key)) return this.inFlight.get(key);
-    const task = this.deliver(key, accountId, identity, code).catch(() => false);
-    this.inFlight.set(key, task);
-    try { return await task; } finally { this.inFlight.delete(key); }
+  authorized(target) {
+    return telegramOwners(this.config()).some((item) => item.owner === target.owner && item.accountId === target.accountId);
   }
-  async deliver(key, accountId, identity, code) {
+  live(key, request) { return this.requests.get(key) === request && request.expires > this.now(); }
+  delivered(key, request) { return this.live(key, request) && request.targets.some((target) => this.authorized(target)); }
+  async notify(accountId, identity, code) {
     if (!/^[A-Z2-9]{8}$/.test(code)) return false;
+    const key = `${accountId}:${code}`;
     const now = this.now();
     for (const [id, request] of this.requests) if (request.expires <= now) this.requests.delete(id);
     const existing = this.requests.get(key);
-    if (existing) return existing.delivered;
-    if (this.requests.size >= 4) return false;
-    const cfg = this.config();
-    const targets = telegramOwners(cfg);
-    if (!targets.length) return false;
-    const adapter = await this.api.runtime.channel.outbound.loadAdapter('telegram');
-    if (!adapter?.sendPayload) return false;
-    const request = { accountId, identity, code, token: this.token(), expires: now + TTL, delivered: false, targets: [] };
-    this.requests.set(key, request); // also deduplicates failed delivery, avoiding reconnect spam
-    for (const target of targets) {
-      const text = `Connect ${identity.split(':')[0]}?\nMatch this code on Kubik: ${code}\nExpires in 10 minutes.`;
-      try {
-        const delivery = await adapter.sendPayload({ cfg, to: target.owner, accountId: target.accountId, text,
-          payload: { text, presentation: { blocks: [{ type: 'buttons', buttons: [
-            { label: 'Allow', action: { type: 'callback', value: `kubik-pair:${request.token}` } },
-          ] }] } },
-          signal: AbortSignal.timeout(5000) });
-        if (!delivery?.messageId) throw Error('Telegram did not return a message identity');
-        request.targets.push({ ...target, messageId: String(delivery.messageId) });
-        request.delivered = true;
-      } catch { this.api.logger?.warn?.('kubik: Telegram pairing delivery unavailable; use server approval'); }
+    if (existing) {
+      if (existing.identity !== identity) return false;
+      return this.inFlight.get(key) ?? this.delivered(key, existing);
     }
-    return request.delivered;
+    if (this.requests.size >= LIMIT || this.inFlight.size >= LIMIT) return false;
+    const targets = telegramOwners(this.config());
+    if (!targets.length) return false;
+    const request = { accountId, identity, code, token: this.token(), expires: now + TTL, targets: [] };
+    this.requests.set(key, request); // reserve before any await; failures also deduplicate reconnects
+    const task = Promise.resolve().then(() => this.deliver(key, request, targets)).catch(() => false);
+    this.inFlight.set(key, task);
+    try { return await task; } finally { if (this.inFlight.get(key) === task) this.inFlight.delete(key); }
+  }
+  async deliver(key, request, targets) {
+    const adapter = await bounded(() => this.api.runtime.channel.outbound.loadAdapter('telegram'), this.timeoutMs);
+    if (!adapter?.sendPayload) return false;
+    for (const target of targets) {
+      if (!this.live(key, request)) break;
+      if (this.authorized(target)) await this.send(adapter, key, request, target);
+    }
+    return this.delivered(key, request);
+  }
+  async send(adapter, key, request, target) {
+    const text = `Connect ${request.identity.split(':')[0]}?\nMatch this code on Kubik: ${request.code}\nExpires within 10 minutes.`;
+    try {
+      const delivery = await bounded((signal) => adapter.sendPayload({ cfg: this.config(), to: target.owner,
+        accountId: target.accountId, text, signal,
+        payload: { text, presentation: { blocks: [{ type: 'buttons', buttons: [
+          { label: 'Allow', action: { type: 'callback', value: `kubik-pair:${request.token}` } },
+        ] }] } },
+      }), this.timeoutMs);
+      if (!numeric(delivery?.messageId)) throw Error('Telegram did not return a message identity');
+      if (this.live(key, request) && this.authorized(target)) {
+        request.targets.push({ ...target, messageId: String(delivery.messageId) });
+      }
+    } catch { this.api.logger?.warn?.('kubik: Telegram pairing delivery unavailable; use server approval'); }
   }
   rejectReason(ctx, request, owner, target) {
     if (!request || !target) return 'request';
@@ -71,8 +126,12 @@ export class TelegramPairing {
     if (ctx.isGroup || ctx.isForum || ctx.threadId != null || String(ctx.callback.chatId) !== owner) return 'private-chat';
     if (String(ctx.callback.messageId) !== target.messageId) return 'message';
     if (request.expires <= this.now()) return 'expired';
-    if (!telegramOwners(this.config()).some((item) => item.owner === owner && item.accountId === target.accountId)) return 'owner-revoked';
+    if (!this.authorized(target)) return 'owner-revoked';
     return null;
+  }
+  async respond(ctx, method, payload) {
+    try { await bounded(() => ctx.respond[method](payload), this.timeoutMs); }
+    catch { this.api.logger?.warn?.('kubik: Telegram pairing feedback unavailable'); }
   }
   async handle(ctx) {
     const token = String(ctx.callback?.payload ?? '');
@@ -82,19 +141,19 @@ export class TelegramPairing {
     const rejected = this.rejectReason(ctx, request, owner, target);
     if (rejected) {
       this.api.logger?.warn?.(`kubik: Telegram approval rejected (${rejected})`);
-      await ctx.respond.reply({ text: 'This request is expired or is not yours.' });
+      await this.respond(ctx, 'reply', { text: 'This request is expired or is not yours.' });
       return { handled: true };
     }
     this.requests.delete(found[0]); // consume before any awaited effect
-    const result = await this.command(request).catch(() => ({ code: null }));
-    if (result.code !== 0) {
-      await ctx.respond.reply({ text: `Pairing was not approved. On your OpenClaw server run: openclaw pairing approve kubik ${request.code}` });
+    let result;
+    try { result = await this.command(request); } catch { /* Never expose command diagnostics. */ }
+    if (result?.code !== 0) {
+      await this.respond(ctx, 'reply', { text: `Pairing was not approved. On your OpenClaw server run: ${approvalCommand(request)}` });
     } else {
-      await ctx.respond.editMessage({ text: `Kubik approved. Code: ${request.code}`, buttons: [] });
+      await this.respond(ctx, 'editMessage', { text: `Kubik approved. Code: ${request.code}`, buttons: [] });
     }
-    return { handled: true }; // never submit text to the agent
+    return { handled: true }; // feedback failure must not turn a security callback into an agent message
   }
-
 }
 
 export function registerTelegramPairing(api) {

@@ -120,12 +120,12 @@ class Security:
             return {}
         return json.loads(self.pending_path.read_text())
 
-    def approve(self, code):
+    def approve(self, code, *, identity=None):
         with self.pairing_lock():
             pending = self.read_pending()
             matches = [key for key, value in pending.items()
                        if value['code'] == code and value['expires'] > time.time()]
-            if len(matches) != 1:
+            if len(matches) != 1 or (identity is not None and matches[0] != identity):
                 raise ValueError('Unknown or expired pairing code')
             approved = json.loads(self.allow_path.read_text()) if self.allow_path.exists() else []
             if not isinstance(approved, list) or any(not isinstance(item, str) for item in approved):

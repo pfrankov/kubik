@@ -16,6 +16,7 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
 from .codec import decode
+from .pairing_wait import wait_pairing
 from .security import Security
 from .runtime import listener_options, profile_scope, speech_available
 
@@ -105,33 +106,11 @@ class KubikAdapter(BasePlatformAdapter):
         identity = self.security.verify(hello, nonce, auth.get('sig'))
         if not self.security.approved(identity):
             code = self.security.pair(identity)
-            telegram = getattr(self, 'telegram_pairing', None)
-            delivered = telegram and await telegram.notify(identity, code)
-            await socket.send_json({'t': 'pair', 'code': code, **({'approval': 'telegram'} if delivered else {})})
-            await self.wait_pair(socket, identity, code, delivered)
+            await socket.send_json({'t': 'pair', 'code': code})
+            await self.wait_pair(socket, identity, code, False)
         return Peer(socket, identity, hello)
     async def wait_pair(self, socket, identity, code, telegram):
-        deadline = time.monotonic() + 600
-        next_notice = time.monotonic() + 15
-        while not self.security.approved(identity):
-            if not telegram and time.monotonic() >= next_notice:
-                next_notice = time.monotonic() + 60
-                notifier = getattr(self, 'telegram_pairing', None)
-                telegram = notifier and await notifier.notify(identity, code)
-                if telegram:
-                    await socket.send_json({'t': 'pair', 'code': code, 'approval': 'telegram'})
-            if time.monotonic() >= deadline:
-                raise TimeoutError('Pairing expired')
-            try:
-                message = await socket.receive(timeout=2)
-            except asyncio.TimeoutError:
-                continue
-            if message.type != WSMsgType.TEXT:
-                raise ValueError('Pairing closed')
-            value = json.loads(message.data)
-            if value.get('t') != 'ping':
-                raise ValueError('Pairing only accepts ping')
-            await socket.send_json({'t': 'pong', 'ts': value.get('ts')})
+        await wait_pairing(self, socket, identity, code, telegram)
     def speech_available(self):
         return speech_available(self.home)
     async def accept(self, request):

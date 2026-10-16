@@ -15,8 +15,12 @@ and cannot be reused. Requests do not repeat on every Wi-Fi reconnect.
 **OpenClaw:** Telegram must be enabled. Add your private Telegram user ID explicitly
 to `commands.ownerAllowFrom`, e.g. `"telegram:123456789"`, preserving other owners.
 A Telegram `allowFrom` entry alone grants chat access, not pairing administration.
-The same owner ID must also be explicitly allowed by that Telegram account’s `allowFrom`. Inline buttons must be enabled for owner DMs. With multiple bot accounts, the
-request remains bound to the bot account that delivered it.
+The same owner ID must also pass that Telegram account's effective `allowFrom`.
+Named accounts inherit channel policy unless overridden; a per-account wildcard
+cannot widen a restrictive parent allowlist. Inline buttons must be enabled for
+owner DMs: the `inlineButtons` capability or an `allowlist`, `dm` or `all` scope.
+An empty per-account capability array inherits the parent configuration. With
+multiple bot accounts, the request remains bound to the bot that delivered it.
 
 **Hermes:** enable its existing Telegram platform and configure a private
 `TELEGRAM_HOME_CHANNEL` / Telegram `home_channel` belonging to its authorized
@@ -29,13 +33,23 @@ request is pending, reconnect Kubik to obtain a fresh actionable prompt.
 
 ## Without Telegram
 
-Telegram is optional. If no eligible owner chat exists or sending fails, Kubik
-shows server approval instructions instead of claiming a Telegram request exists.
+Telegram is optional. Kubik displays the code and server approval instructions
+before waiting for Telegram. It switches to Telegram instructions only after a
+valid delivery. A stalled bot does not block ping replies or server/CLI approval.
+Hermes cancels notification work on disconnect, approval or expiry; reconnecting
+does not extend the pending code's deadline. A button delivered after expiry or a
+change of owner/bot cannot approve the request.
 
 On the OpenClaw server:
 
 ```sh
 openclaw pairing approve kubik CODE
+```
+
+For a non-default Kubik account, include its account ID (not the Telegram bot ID):
+
+```sh
+openclaw pairing approve --channel kubik --account ACCOUNT CODE
 ```
 
 The OpenClaw Web UI also has **Channels → Pairing requests**.
