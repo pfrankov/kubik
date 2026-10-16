@@ -400,6 +400,28 @@ def check_usb(page, output):
 
 
 
+def check_delayed_state(page):
+    pending = []
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.route(ORIGIN + '/api/state', lambda route: pending.append(route))
+    page.goto(ORIGIN)
+    page.wait_for_function('typeof showStep === "function"')
+    page.locator('#manual').click()
+    page.locator('#ssid').fill('Home')
+    page.locator('#pass').fill('test-password')
+    page.locator('#go').click()
+    page.locator('#serverDetails summary').click()
+    page.locator('#url').fill('my-openclaw.example')
+    assert pending, 'Initial state request must still be pending'
+    pending.pop(0).fulfill(json={**STATE, 'agent': 'Hermes', 'server': 'kubik://old-hermes:18793'})
+    page.wait_for_function('setupState.device === "kubik-test"')
+    assert page.locator('[data-agent=OpenClaw]').get_attribute('aria-pressed') == 'true'
+    assert page.locator('#url').input_value() == 'my-openclaw.example'
+    assert not errors, errors
+    print('Delayed initial state preserves the integration of a manually entered endpoint')
+
+
 def main():
     global ORIGIN
     with tempfile.TemporaryDirectory(prefix='kubik-portal-') as temporary:
@@ -409,6 +431,7 @@ def main():
             for width, height in [(390, 844), (320, 568), (1024, 768)]:
                 page = browser.new_page(); check_page(page, width, height, output); page.close()
             page = browser.new_page(); check_recovery(page); page.close()
+            page = browser.new_page(); check_delayed_state(page); page.close()
             page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3, reduced_motion='no-preference')
             check_tess(page, output); page.close()
             page = browser.new_page(viewport={'width': 320, 'height': 568}, device_scale_factor=3, reduced_motion='reduce')

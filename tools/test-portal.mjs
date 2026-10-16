@@ -88,6 +88,21 @@ assert.equal(getElement('url').value, '', 'Запоздалое состояни
 assert.equal(vm.runInContext('selectedAgent', context), 'Hermes', 'Ручной выбор агента имеет приоритет над состоянием');
 vm.runInContext("agentChosen = false; selectAgent('OpenClaw')", context);
 
+// Typing an endpoint is also an implicit choice of the visible integration.
+for (const entered of ['my-openclaw.example', '']) {
+  vm.runInContext("setupState = {phase: 'idle'}; agentChosen = false; selectAgent('OpenClaw')", context);
+  getElement('url').value = entered;
+  getElement('url').oninput();
+  context.applySetupState({...state, device: 'K-3', agent: 'Hermes', server: 'kubik://old-hermes:18793'});
+  assert.equal(getElement('url').value, entered, 'Запоздалое состояние сохраняет введённый или очищенный адрес');
+  assert.equal(vm.runInContext('selectedAgent', context), 'OpenClaw', 'Ввод адреса фиксирует видимый выбор интеграции');
+}
+vm.runInContext("setupState = {phase: 'idle'}; agentChosen = false", context);
+context.applySetupState({...state, device: 'K-4', agent: 'Hermes', server: 'kubik://saved-hermes:18793'});
+assert.equal(getElement('url').value, 'kubik://saved-hermes:18793');
+assert.equal(vm.runInContext('selectedAgent', context), 'Hermes', 'Без ручного ввода загружается сохранённая интеграция');
+vm.runInContext("agentChosen = false; selectAgent('OpenClaw')", context);
+
 assert.match(portalHtml, /id="urlHint">On the same trusted network, leave blank to find OpenClaw/, 'Подсказка объясняет поиск в доверенной сети');
 assert.match(portalHtml, /id="url"[^>]*aria-describedby="urlHint"/, 'Подсказка связана с полем адреса');
 assert.doesNotMatch(portalHtml, /server_required/, 'Адрес сервера больше не обязателен');

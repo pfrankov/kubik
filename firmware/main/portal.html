@@ -236,6 +236,8 @@ function revealAboveActions(element) {
   if (overlap > 0) scrollBy(0, overlap);
 }
 getElement('back').onclick = () => showStep('wifi');
+// Editing the endpoint also commits the currently selected integration.
+getElement('url').oninput = () => { agentChosen = true; };
 getElement('serverDetails').ontoggle = () => {
   if (!getElement('serverDetails').open) return;
   // Focus scroll runs after this event and would cover the hint again.

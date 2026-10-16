@@ -43,6 +43,13 @@ the configuration restores the previous plugin. A concurrent installer or change
 configuration is rejected instead of overwriting it. If another writer occupies
 `config.yaml` during commit, its version remains active and the pre-install version
 remains in the private backup. `--check` writes nothing.
+If installation was forcibly interrupted, run the same installer again without
+`--check` before restarting the Gateway. Its private transaction journal restores
+the preceding plugin/configuration or finalizes a completed commit. A configuration
+created by another writer is preserved; when the first-install backup is older,
+the displaced configuration is saved as `config.before-kubik-conflict.yaml`.
+An occupied conflicting backup or an unrecognized replacement plugin stops recovery
+and retains its journal and files for inspection instead of overwriting them.
 The installer does not start/stop services, change providers or make model calls.
 The printed approval command is shell-quoted and remains safe to paste when the
 interpreter or Hermes home path contains spaces or shell metacharacters.
@@ -95,6 +102,8 @@ silently for Hermes or vice versa. Choosing OpenClaw again restores its
 discovery/approval path without deleting saved Wi-Fi networks
 or Muse credentials. The choice survives restart in the existing atomic NVS
 record; firmware storage layout and record size are unchanged.
+Typing or clearing an address also fixes the visible agent choice: a delayed
+initial device response cannot switch that choice or restore an old endpoint.
 
 HOST must be reachable from Kubik, never `localhost`. Use **`kubik://`**, not raw
 `wss://`: this listener uses key-pinned TLS rather than a publicly trusted
