@@ -5,6 +5,7 @@
 #include "app_journal.h"
 #include "app_game_probe.h"
 #include "app_internal.h"
+#include "setup_request.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -160,13 +161,13 @@ static bool config_save_connection(cJSON *j, bool *connection_change, char *repl
     cJSON *url = cJSON_GetObjectItem(j, "url");
     cJSON *ssid = cJSON_GetObjectItem(j, "ssid");
     cJSON *pass = cJSON_GetObjectItem(j, "pass");
-    *connection_change = url || ssid || pass;
+    *connection_change = url || ssid || pass || cJSON_GetObjectItem(j, "agent");
     if (!*connection_change) return true;
     if (!config_connection_is_valid(url, ssid, pass)) {
         snprintf(reply, cap, "{\"ok\":false,\"error\":\"invalid connection settings\"}");
         return false;
     }
-    esp_err_t err = settings_save_connection(ssid ? ssid->valuestring : g_settings.wifi_ssid,
+    esp_err_t err = setup_host_connection_save(j, ssid ? ssid->valuestring : g_settings.wifi_ssid,
                                              pass ? pass->valuestring : g_settings.wifi_pass,
                                              url ? url->valuestring : g_settings.server_url);
     if (err == ESP_OK) return true;
@@ -379,6 +380,7 @@ static void config_info(char *reply, size_t cap) {
     status_json_integer(info, "uptime_ms", esp_timer_get_time() / 1000);
     status_json_string(info, "ssid", g_settings.wifi_ssid);
     status_json_string(info, "url", g_settings.server_url);
+    status_json_string(info, "agent", settings_agent_name());
     status_json_string(info, "key", devkey_public());
     if (setup_active()) {
         setup_labels_t labels;

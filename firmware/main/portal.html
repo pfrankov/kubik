@@ -24,8 +24,8 @@
 </section>
 <section id="agentStep" aria-labelledby="agentTitle" hidden>
 <div class="connection">Wi-Fi: <strong id="chosenNetwork"></strong><button class="link" type="button" id="back">Change</button></div>
-<h2 id="agentTitle" tabindex="-1">Connect your agent</h2><p class="hint">OpenClaw needs the Kubik plugin installed on its server before you connect.</p>
-<div class="agent-options" id="agents"><button type="button" data-agent="OpenClaw" aria-pressed="true">OpenClaw <span>Kubik channel</span></button><button type="button" hidden data-agent="Hermes" aria-pressed="false">Hermes <span>Direct Wi-Fi</span></button><button type="button" hidden data-agent="Muse" aria-pressed="false">Muse <span>Direct Wi-Fi</span></button><button type="button" hidden data-agent="Custom" aria-pressed="false">Another agent <span>Your adapter</span></button></div>
+<h2 id="agentTitle" tabindex="-1">Connect your agent</h2><p class="hint">Choose the agent running on your computer. Install its Kubik integration before connecting.</p>
+<div class="agent-options" id="agents"><button type="button" data-agent="OpenClaw" aria-pressed="true">OpenClaw <span>Kubik channel</span></button><button type="button" data-agent="Hermes" aria-pressed="false">Hermes <span>Native Gateway</span></button><button type="button" hidden data-agent="Muse" aria-pressed="false">Muse <span>Direct Wi-Fi</span></button><button type="button" hidden data-agent="Custom" aria-pressed="false">Another agent <span>Your adapter</span></button></div>
 <p class="hint" id="agentHint">Install the Kubik plugin from npm on your OpenClaw computer first. It also prints the address Kubik needs when OpenClaw is not on this Wi-Fi.</p>
 <div id="pluginSetup"><p class="hint">Open on your computer: <a href="https://github.com/pfrankov/kubik#get-connected" target="_blank" rel="noopener noreferrer">github.com/pfrankov/kubik</a></p><p class="hint">On that computer, install and enable the channel:</p><pre>openclaw plugins install openclaw-kubik
 openclaw channels add --channel kubik --enable
@@ -33,7 +33,8 @@ openclaw channels status --probe</pre><p class="hint">The last command prints th
 <div id="openclawApproval"><p class="hint">When Kubik shows a pairing code, run the approval command on its screen on your OpenClaw computer.</p></div>
 <div id="museDetails" hidden><label for="sdkToken">Muse SDK key</label><input id="sdkToken" type="password" maxlength="48" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="sdkHint" placeholder="mgst_…">
 <p class="hint" id="sdkHint">Create your personal key at <a href="https://gadgets.muse.ai/settings/sdk-tokens" target="_blank" rel="noopener noreferrer">Muse Gadgets</a>. After Wi-Fi connects, pair in the Muse app on your phone. No computer or server needed. Replies appear as text.</p></div>
-<details id="serverDetails"><summary>Server address <span class="hint">· blank on the same Wi-Fi</span></summary>
+<div id="hermesSetup" hidden><p class="hint">Hermes Agent 0.22.2 uses its existing Gateway and Python 3.14 environment. Open the <a href="https://github.com/pfrankov/kubik/blob/main/docs/hermes.md" target="_blank" rel="noopener noreferrer">Hermes installation guide</a> on that computer. Install the platform, configure speech in Hermes, then restart its idle Gateway.</p></div>
+<details id="serverDetails"><summary>Server address <span class="hint" id="serverAddressHint">· blank on the same Wi-Fi</span></summary>
 <label for="url">Agent server address</label><input id="url" maxlength="127" inputmode="url" aria-describedby="urlHint" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="kubik://your-computer">
 <p class="hint" id="urlHint">On the same trusted network, leave blank to find OpenClaw. Otherwise run openclaw channels status --probe on the OpenClaw computer and copy the kubik://… address from its “lan” line. Do not use localhost.</p></details>
 </section>
@@ -48,7 +49,7 @@ openclaw channels status --probe</pre><p class="hint">The last command prints th
 const getElement = id => document.getElementById(id);
 let setupState = {}, selectedNetworkName = null, manualNetworkSelected = false;
 let connectionSubmitted = false, submitting = false, lostPollCount = 0;
-let selectedAgent = 'OpenClaw', activeStep = 'wifi', pollTimer;
+let selectedAgent = 'OpenClaw', activeStep = 'wifi', pollTimer, agentChosen = false;
 let polling = false, uncertainSubmission = false, passwordNetworkName = null;
 const DEFAULT_DEVICE_PATH = '/kubik/v1';
 const ERROR_MESSAGES = {
@@ -93,6 +94,14 @@ function normalizeServerAddress(value) {
   if (!/^[a-z]+:\/\//i.test(value)) value = 'wss://' + value;
   if (/^wss:\/\/[^/]+\/?$/i.test(value)) value = value.replace(/\/?$/, DEFAULT_DEVICE_PATH);
   return value;
+}
+function validHermesAddress(value) {
+  try {
+    const url = new URL(value);
+    const port = Number(url.port);
+    return url.protocol === 'kubik:' && !!url.hostname && port >= 1024 && port <= 65535 &&
+      !url.username && !url.password && !url.pathname && !url.search && !url.hash;
+  } catch { return false; }
 }
 function isSavedSsid(ssid) { return (setupState.saved_nets || []).includes(ssid); }
 function currentSsid() { return manualNetworkSelected ? getElement('ssid').value : selectedNetworkName; }
@@ -162,11 +171,11 @@ function applySetupState(state) {
   lostPollCount = 0;
   if (first) {
     // Do not overwrite an address or network already entered while the initial read was delayed.
-    if (!getElement('url').value) getElement('url').value = friendlyServerAddress(state.server);
+    if (!agentChosen && !getElement('url').value) getElement('url').value = friendlyServerAddress(state.server);
     getElement('serverDetails').open = Boolean(getElement('url').value);
     if (!selectedNetworkName && !manualNetworkSelected) selectedNetworkName = state.saved_nets?.[0] || null;
     getElement('foot').textContent = state.device;
-    if (state.agent === 'Muse') selectAgent('Muse');
+    if (!agentChosen && ['OpenClaw', 'Hermes', 'Muse', 'Custom'].includes(state.agent)) selectAgent(state.agent);
     updatePasswordHint();
   }
   if (state.phase === 'trying') {
@@ -227,6 +236,8 @@ function revealAboveActions(element) {
   if (overlap > 0) scrollBy(0, overlap);
 }
 getElement('back').onclick = () => showStep('wifi');
+// Editing the endpoint also commits the currently selected integration.
+getElement('url').oninput = () => { agentChosen = true; };
 getElement('serverDetails').ontoggle = () => {
   if (!getElement('serverDetails').open) return;
   // Focus scroll runs after this event and would cover the hint again.
@@ -238,6 +249,12 @@ function selectAgent(agent) {
   getElement('agents').querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.agent === agent)));
   getElement('serverDetails').hidden = muse;
   getElement('openclawApproval').hidden = agent !== 'OpenClaw';
+  getElement('pluginSetup').hidden = agent !== 'OpenClaw';
+  getElement('hermesSetup').hidden = agent !== 'Hermes';
+  getElement('serverAddressHint').textContent = agent === 'Hermes' ? '· address required' : '· blank on the same Wi-Fi';
+  getElement('urlHint').textContent = agent === 'Hermes'
+    ? 'Enter kubik://HOST:18793 using the Hermes computer’s reachable LAN or VPN address. Use its configured port if different. Hermes has no automatic discovery. Do not use localhost.'
+    : 'On the same trusted network, leave blank to find OpenClaw. Otherwise copy the kubik:// address printed by openclaw channels status --probe. Do not use localhost.';
   getElement('serverDetails').open = agent === 'Hermes';
   getElement('museDetails').hidden = !muse;
   getElement('sdkToken').placeholder = setupState.muse_saved ? 'Keep saved account (optional)' : 'mgst_…';
@@ -252,12 +269,15 @@ function selectAgent(agent) {
   getElement('pairingHint').textContent = muse ? 'Open Muse on your phone: Settings → Devices → Developer mode → Add device. Choose the MuseGadget shown on Kubik.' : 'Look for a pairing code on Kubik.';
   getElement('approvalHint').textContent = muse ? 'When asked, press KEY on Kubik to confirm. Choose Wi-Fi in the Muse app to finish pairing.'
     : agent === 'OpenClaw' ? 'On the OpenClaw server, run the approval command shown on Kubik: openclaw pairing approve kubik CODE.'
-    : agent === 'Hermes' ? 'On the Hermes machine, approve the matching code with python ~/.hermes/plugins/kubik/pair.py CODE.'
+    : agent === 'Hermes' ? 'On the Hermes machine, use the approval command printed by the installer, replacing CODE with the code on Kubik. Use the same Hermes profile and Python environment.'
     : 'On your agent computer, run npx kubik-agent-host pair-list. Only if the displayed code matches, run npx kubik-agent-host approve CODE.';
   getElement('guideHint').textContent = muse ? 'Kubik restarts with Bluetooth off and connects to Muse directly over Wi-Fi. Press KEY to speak; read the reply on its screen.' : 'Follow the short guide on Kubik. Change options later in Settings → Agent.';
 }
 getElement('agents').querySelectorAll('button').forEach(button => {
-  button.onclick = () => selectAgent(button.dataset.agent);
+  button.onclick = () => {
+    if (button.dataset.agent !== selectedAgent) getElement('url').value = '';
+    agentChosen = true; selectAgent(button.dataset.agent);
+  };
 });
 getElement('rescan').onclick = async () => {
   const button = getElement('rescan');
@@ -286,7 +306,7 @@ getElement('form').onsubmit = async event => {
   const body = {ssid: currentSsid() || '', pass: getElement('pass').value, agent: selectedAgent};
   if (selectedAgent === 'Muse') body.sdk_token = getElement('sdkToken').value.trim();
   else body.url = normalizeServerAddress(getElement('url').value);
-  if (activeStep === 'agent' && selectedAgent === 'Hermes' && !body.url) {
+  if (activeStep === 'agent' && selectedAgent === 'Hermes' && !validHermesAddress(body.url)) {
     getElement('err').textContent = 'Enter your Hermes address: kubik://HOST:18793'; return;
   }
   if (!body.ssid) { getElement('err').textContent = ERROR_MESSAGES.ssid; return; }

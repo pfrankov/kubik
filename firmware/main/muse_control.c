@@ -28,7 +28,7 @@ static bool equals(const char *value, const char *expected) { return value && !s
 static uint32_t length(const uint8_t *bytes) {
     return bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24;
 }
-static bool send(cJSON *object) {
+static bool control_send(cJSON *object) {
     char *json = cJSON_PrintUnformatted(object); cJSON_Delete(object);
     if (!json) return false;
     size_t size = strlen(json); uint8_t *framed = malloc(size + 4);
@@ -50,7 +50,7 @@ static void invoke(const cJSON *request) {
     cJSON_AddBoolToObject(response, "ok", accepted);
     if (accepted) cJSON_AddObjectToObject(response, "payload");
     else cJSON_AddStringToObject(response, "error", "Only device.notify with short text is supported");
-    if (!send(response)) failed = true;
+    if (!control_send(response)) failed = true;
 }
 static void message(const char *bytes, size_t size) {
     cJSON *object = muse_json_parse(bytes, size);
@@ -119,7 +119,7 @@ bool muse_control_start(void (*notification)(const char *)) {
     stream = muse_link_req_open("POST", "/link-control", NULL, false, on_frame, NULL);
     if (!stream) { failed = true; return false; }
     started = esp_timer_get_time();
-    if (!send(register_request())) { failed = true; return false; }
+    if (!control_send(register_request())) { failed = true; return false; }
     return true;
 }
 bool muse_control_ready(void) { return ready && !failed; }

@@ -12,7 +12,7 @@
 
 typedef struct {
     uint32_t magic;
-    uint8_t version, count, active, reserved;
+    uint8_t version, count, active, host_agent; // formerly reserved; zero means OpenClaw
     wifi_profile_t profiles[SETTINGS_WIFI_MAX];
     char url[128];
 } connection_networks_t;

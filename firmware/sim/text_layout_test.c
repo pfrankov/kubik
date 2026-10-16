@@ -213,7 +213,31 @@ static void live_recording_meter(void) {
     assert(live_meter(1, true, false) == 0);
 }
 
+static void pairing_instructions(void) {
+    face_t f; face_init(&f); face_set_mode(&f, MODE_SETUP);
+    scene_t scene;
+    for (int hermes = 0; hermes < 2; hermes++) {
+        face_set_pairing(&f, NULL);
+        f.pair_hermes = hermes;
+        face_set_pairing(&f, "K7QX4M2R");
+        assert(f.qr_t == 0);
+        f.qr_t = 1;
+        face_set_pairing(&f, "K7QX4M2R");
+        assert(f.qr_t == 1); // Identical snapshots must not restart the entrance.
+        face_draw(&f, &scene);
+        for (int i = 0; i < scene.n; i++) {
+            const prim_t *p = &scene.p[i];
+            if (p->kind != PK_TEXT) continue;
+            assert(p->bx0 >= 0 && p->bx1 < 480 && p->by0 >= 0 && p->by1 < 480);
+        }
+    }
+    face_set_pairing(&f, NULL);
+    assert(!f.pair_code[0] && f.qr_t == 0);
+    puts("pairing: pure renderer, agent switch, retained entrance and both instruction layouts passed");
+}
+
 int main(void) {
+    pairing_instructions();
     live_card_controls();
     live_recording_meter();
     prefix_fitting();

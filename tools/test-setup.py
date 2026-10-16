@@ -20,6 +20,8 @@ MOCKS = r'''
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <strings.h>
 #include <unistd.h>
 #include "setup.h"
 #include "wifi.h"
@@ -32,7 +34,9 @@ typedef int esp_err_t;
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 typedef struct cJSON cJSON;
-typedef struct { bool muse; char sdk_token[96]; } setup_agent_choice_t;
+typedef enum { SETTINGS_AGENT_OPENCLAW=0, SETTINGS_AGENT_MUSE=1,
+               SETTINGS_AGENT_HERMES=2, SETTINGS_AGENT_CUSTOM=3 } settings_agent_t;
+typedef struct { bool muse; settings_agent_t host_agent; char sdk_token[96]; } setup_agent_choice_t;
 esp_err_t setup_connection_save(const setup_agent_choice_t *choice,
                                const char *ssid, const char *password, const char *url);
 static int muse_store_saved_state(void) { return 0; }
@@ -165,7 +169,9 @@ typedef struct {
     wifi_profile_t wifi_profiles[8];
     uint8_t wifi_profile_count;
     char wifi_ssid[33], wifi_pass[65], server_url[128], name[32];
+    settings_agent_t host_agent;
 } settings_t;
+static const char *settings_agent_name(void) { return "OpenClaw"; }
 settings_t g_settings = {.server_url = "ws://server/kubik/v1"};
 char g_device_id[20] = "kubik-abcdef";
 static bool settings_server_valid(const char *url) { return url && (!url[0] || !strncmp(url, "ws://", 5)); }
@@ -177,8 +183,9 @@ static int settings_wifi_find(const char *ssid) {
 static esp_err_t save_result = ESP_OK;
 static bool saved_muse_selected = true;
 static char saved_muse_sdk_token[96] = "existing-sdk-token";
+static esp_err_t settings_save_connection(const char *ssid, const char *pass, const char *url);
 static esp_err_t settings_save_setup(const char *ssid, const char *pass, const char *url,
-                                     bool muse_selected, const char *sdk_token) {
+                                     settings_agent_t agent, const char *sdk_token) {
     if (save_result != ESP_OK) return save_result;
     int index = settings_wifi_find(ssid);
     if (index < 0) index = g_settings.wifi_profile_count++;
@@ -188,7 +195,7 @@ static esp_err_t settings_save_setup(const char *ssid, const char *pass, const c
     snprintf(g_settings.wifi_ssid, sizeof g_settings.wifi_ssid, "%s", ssid);
     snprintf(g_settings.wifi_pass, sizeof g_settings.wifi_pass, "%s", pass);
     snprintf(g_settings.server_url, sizeof g_settings.server_url, "%s", url);
-    saved_muse_selected = muse_selected;
+    saved_muse_selected = agent == SETTINGS_AGENT_MUSE;
     if (sdk_token && sdk_token[0]) snprintf(saved_muse_sdk_token, sizeof saved_muse_sdk_token, "%s", sdk_token);
     return save_result;
 }

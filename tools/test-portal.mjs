@@ -48,7 +48,7 @@ const context = {
     scrollTo(x, y) { assert.equal(x, 0); assert.equal(y, 0); },
     visualViewport: { height: 500, offsetTop: 0, addEventListener() {} }
   },
-  Math, innerHeight: 844, AbortController, clearTimeout() {},
+  Math, URL, innerHeight: 844, AbortController, clearTimeout() {},
   fetch(path, options) {
     requests.push({ path, options });
     const response = path === '/api/state' ? state : { ok: true };
@@ -74,6 +74,35 @@ assert.equal(context.normalizeServerAddress('kubik://mac-mini.local/'), 'kubik:/
 assert.equal(context.normalizeServerAddress('KUBIK://192.168.1.20:18790'), 'kubik://192.168.1.20:18790');
 assert.equal(context.friendlyServerAddress('kubik://mac-mini.local'), 'kubik://mac-mini.local');
 assert.equal(context.friendlyServerAddress(''), '');
+assert.equal(context.validHermesAddress('kubik://hermes.local:18793'), true);
+assert.equal(context.validHermesAddress('kubik://hermes.local'), false, 'Hermes address requires an explicit port');
+assert.equal(context.validHermesAddress('kubik://hermes.local:80'), false, 'Hermes listener ports start at 1024');
+assert.equal(context.validHermesAddress('wss://hermes.local:18793/kubik/v1'), false);
+
+// A delayed initial state response must not restore the previous agent endpoint
+// after the user has already chosen a different agent.
+getElement('url').value = '';
+vm.runInContext("setupState = {phase: 'idle'}; agentChosen = true; selectAgent('Hermes')", context);
+context.applySetupState({...state, device: 'K-2', agent: 'OpenClaw'});
+assert.equal(getElement('url').value, '', 'Запоздалое состояние не возвращает endpoint предыдущего агента');
+assert.equal(vm.runInContext('selectedAgent', context), 'Hermes', 'Ручной выбор агента имеет приоритет над состоянием');
+vm.runInContext("agentChosen = false; selectAgent('OpenClaw')", context);
+
+// Typing an endpoint is also an implicit choice of the visible integration.
+for (const entered of ['my-openclaw.example', '']) {
+  vm.runInContext("setupState = {phase: 'idle'}; agentChosen = false; selectAgent('OpenClaw')", context);
+  getElement('url').value = entered;
+  getElement('url').oninput();
+  context.applySetupState({...state, device: 'K-3', agent: 'Hermes', server: 'kubik://old-hermes:18793'});
+  assert.equal(getElement('url').value, entered, 'Запоздалое состояние сохраняет введённый или очищенный адрес');
+  assert.equal(vm.runInContext('selectedAgent', context), 'OpenClaw', 'Ввод адреса фиксирует видимый выбор интеграции');
+}
+vm.runInContext("setupState = {phase: 'idle'}; agentChosen = false", context);
+context.applySetupState({...state, device: 'K-4', agent: 'Hermes', server: 'kubik://saved-hermes:18793'});
+assert.equal(getElement('url').value, 'kubik://saved-hermes:18793');
+assert.equal(vm.runInContext('selectedAgent', context), 'Hermes', 'Без ручного ввода загружается сохранённая интеграция');
+vm.runInContext("agentChosen = false; selectAgent('OpenClaw')", context);
+
 assert.match(portalHtml, /id="urlHint">On the same trusted network, leave blank to find OpenClaw/, 'Подсказка объясняет поиск в доверенной сети');
 assert.match(portalHtml, /id="url"[^>]*aria-describedby="urlHint"/, 'Подсказка связана с полем адреса');
 assert.doesNotMatch(portalHtml, /server_required/, 'Адрес сервера больше не обязателен');

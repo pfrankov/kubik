@@ -85,7 +85,11 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         for item in items:
             write_member(bundle, item.name, item.read_bytes())
         buyer = root / "docs/buyer"
-        content = (buyer / "START.html").read_text().replace("../agent-sdk.md", "agent-sdk.md").replace("../../docs/agent-sdk.md", "agent-sdk.md").replace("../../deploy/", "deploy/")
+        content = ((buyer / "START.html").read_text()
+                   .replace("../agent-sdk.md", "agent-sdk.md")
+                   .replace("../hermes.md", "docs/hermes.md")
+                   .replace("../../docs/agent-sdk.md", "agent-sdk.md")
+                   .replace("../../deploy/", "deploy/"))
         write_member(bundle, "START.html", content.encode())
         write_member(bundle, "start.js", (buyer / "start.js").read_bytes())
         css = (buyer / "start.css").read_text().replace("../../tools/font/sources/", "assets/")
@@ -110,8 +114,15 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
                 content = rewrite_acceptance_links(content, revision)
             content = content.replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
             write_member(bundle, f"docs/{document}", content.encode("utf-8"))
+        write_member(bundle, "docs/scenarios/hermes.md", (root / "docs/scenarios/hermes.md").read_bytes())
+        write_member(bundle, "tools/test-hermes-native.py",
+                     (root / "tools/test-hermes-native.py").read_bytes())
+        write_member(bundle, "tools/hermes_native/contract.py",
+                     (root / "tools/hermes_native/contract.py").read_bytes())
+        write_member(bundle, "tools/hermes_native/upstream.json",
+                     (root / "tools/hermes_native/upstream.json").read_bytes())
         for path in sorted((root / "hermes-kubik").iterdir()):
-            if path.is_file() and path.suffix in (".py", ".yaml"):
+            if path.is_file() and path.suffix in (".py", ".yaml", ".txt"):
                 write_member(bundle, path.relative_to(root).as_posix(), path.read_bytes())
         write_member(bundle, "tools/install-hermes.py", (root / "tools/install-hermes.py").read_bytes())
         for notice in (root / "LICENSE", root / "NOTICE", *sorted((root / "licenses").iterdir())):

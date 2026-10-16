@@ -1,11 +1,14 @@
 name: kubik-platform
 label: Kubik
 kind: platform
-version: 0.1.0
-description: Direct TLS WebSocket connection from Kubik to the existing Hermes gateway.
+manifest_version: 2
+version: 0.2.0
+description: Native Kubik voice and text platform for Hermes Gateway; tested with Hermes 0.22.2.
 author: Kubik
+python_dependencies:
+  - aiohttp==3.14.3
 requires_env: []
 optional_env:
   - name: KUBIK_PORT
-    description: TLS listener port (default 18793).
+    description: Profile-scoped TLS listener override; otherwise platforms.kubik.extra.port (18793).
     password: false

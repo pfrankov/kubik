@@ -206,7 +206,40 @@ static void test_pairing_selects_known_inactive_network(void) {
     muse_store_wipe(&record, sizeof record);
 }
 
+static void test_native_agent_selection(void) {
+    extern const char *fail_write;
+    nvs_flash_erase(); settings_load();
+    assert(!strcmp(settings_agent_name(), "OpenClaw"));
+    assert(settings_save_setup("HermesWiFi", "password123", "kubik://hermes:18793",
+                               SETTINGS_AGENT_HERMES, NULL) == ESP_OK);
+    settings_load();
+    assert(g_settings.host_agent == SETTINGS_AGENT_HERMES && !strcmp(settings_agent_name(), "Hermes"));
+    assert(settings_save_connection("HermesWiFi", "password123", "kubik://hermes:28793") == ESP_OK);
+    settings_load();
+    assert(g_settings.host_agent == SETTINGS_AGENT_HERMES);
+    uint8_t pin[SETTINGS_PIN_BYTES] = {0x7a};
+    assert(settings_save_pin(pin) == ESP_OK);
+    fail_write = !strcmp(latest_record_key(), CONNECTION_RECORD_KEY_A)
+        ? CONNECTION_RECORD_KEY_B : CONNECTION_RECORD_KEY_A;
+    assert(settings_save_setup("OtherWiFi", "otherpass", "", SETTINGS_AGENT_OPENCLAW, NULL) != ESP_OK);
+    fail_write = NULL; settings_load();
+    assert(g_settings.host_agent == SETTINGS_AGENT_HERMES && g_settings.server_pinned);
+    assert(!strcmp(g_settings.wifi_ssid, "HermesWiFi") && !strcmp(g_settings.server_url, "kubik://hermes:28793"));
+    assert(settings_save_setup("HermesWiFi", "password123", "", SETTINGS_AGENT_OPENCLAW, NULL) == ESP_OK);
+    settings_load();
+    assert(!strcmp(settings_agent_name(), "OpenClaw") && !g_settings.server_pinned);
+    connection_record_t record;
+    size_t size = sizeof record;
+    assert(nvs_get_blob(1, latest_record_key(), &record, &size) == ESP_OK);
+    record.networks.host_agent = 255;
+    assert(nvs_set_blob(1, latest_record_key(), &record, sizeof record) == ESP_OK);
+    settings_load();
+    assert(!strcmp(settings_agent_name(), "OpenClaw") && !strcmp(g_settings.wifi_ssid, "HermesWiFi"));
+    muse_store_wipe(&record, sizeof record);
+}
+
 void settings_test_connection_runtime(void) {
+    test_native_agent_selection();
     test_runtime_fallback_reads_and_writes();
     test_refresh_after_setup_agent_switch();
     test_pairing_preserves_newer_intent();

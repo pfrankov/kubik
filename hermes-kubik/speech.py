@@ -22,8 +22,10 @@ async def pcm_file(path):
                 result.extend(block)
                 if len(result) > MAX_BYTES:
                     raise ValueError('Speech exceeds 120 seconds')
-            if await process.wait() or not result or len(result) % 4:
+            if await process.wait() or not result or len(result) % 2:
                 raise ValueError('Invalid speech PCM')
+            if len(result) % 4:
+                result.extend(b'\0\0')  # IMA packs two samples per byte.
             return result
     finally:
         if process.returncode is None:

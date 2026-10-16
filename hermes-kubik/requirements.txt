@@ -1,0 +1,2 @@
+# Additional transport dependency; install with the existing Hermes Python, never system Python.
+aiohttp==3.14.3

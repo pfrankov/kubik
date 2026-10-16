@@ -191,7 +191,7 @@ static esp_err_t state_get(httpd_req_t *r) {
     cJSON_AddStringToObject(j, "trying", s_try.ssid);
     cJSON_AddBoolToObject(j, "scanning", s_scan_wanted);
     cJSON_AddBoolToObject(j, "muse_saved", muse_store_saved_state() != MUSE_OFF);
-    cJSON_AddStringToObject(j, "agent", muse_store_state() != MUSE_OFF ? "Muse" : "OpenClaw");
+    cJSON_AddStringToObject(j, "agent", settings_agent_name());
     cJSON *saved_nets = cJSON_AddArrayToObject(j, "saved_nets");
     for (int i = 0; i < g_settings.wifi_profile_count; i++)
         cJSON_AddItemToArray(saved_nets, cJSON_CreateString(g_settings.wifi_profiles[i].ssid));

@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
+#include <strings.h>
 #include "cJSON.h"
 #include "muse_store.h"
 #include "muse_json.h"
@@ -137,7 +139,7 @@ esp_err_t connection_store_commit_muse_pairing(connection_record_t *record,
 }
 esp_err_t connection_store_save_setup(connection_record_t *record, const char *ssid,
                                       const char *password, const char *url,
-                                      bool muse_selected, const char *sdk_token) {
+                                      settings_agent_t agent, const char *sdk_token) {
     if (!record || !ssid || !password || !url) return ESP_ERR_INVALID_ARG;
     mock_load_record(record);
     esp_err_t err = mock_upsert_network(&record->networks, ssid, password);
@@ -145,20 +147,23 @@ esp_err_t connection_store_save_setup(connection_record_t *record, const char *s
     snprintf(record->networks.url, sizeof record->networks.url, "%s", url);
     record->flags &= ~CONNECTION_RECORD_PIN_SET;
     memset(record->server_pin, 0, sizeof record->server_pin);
-    if (sdk_token && sdk_token[0]) {
+    bool muse_selected = agent == SETTINGS_AGENT_MUSE;
+    if (!muse_selected) record->networks.host_agent = agent;
+    if (muse_selected && sdk_token && sdk_token[0]) {
         memset(&record->muse, 0, sizeof record->muse);
         record->muse.magic = MUSE_STORE_MAGIC; record->muse.state = MUSE_PAIRING; record->muse.enabled = 1;
         snprintf(record->muse.sdk_token, sizeof record->muse.sdk_token, "%s", sdk_token);
         record->muse_generation = next_store_generation(record->muse_generation);
     } else if (!record->muse.magic && muse_selected) {
         return ESP_ERR_NVS_NOT_FOUND;
-    } else if (record->muse.magic && record->muse.enabled != (unsigned)muse_selected) {
+    } else if (record->muse.magic) {
         record->muse.enabled = muse_selected;
     }
     return mock_commit_record(record, true);
 }
 void settings_apply_connection_record(const connection_record_t *record) {
     if (!record) return;
+    g_settings.host_agent = record->networks.host_agent;
     g_settings.wifi_profile_count = record->networks.count;
     memcpy(g_settings.wifi_profiles, record->networks.profiles, sizeof g_settings.wifi_profiles);
     snprintf(g_settings.server_url, sizeof g_settings.server_url, "%s", record->networks.url);
@@ -170,11 +175,14 @@ void settings_apply_connection_record(const connection_record_t *record) {
         snprintf(g_settings.wifi_pass, sizeof g_settings.wifi_pass, "%s", record->networks.profiles[active].password);
     }
 }
+esp_err_t settings_save_connection(const char *ssid, const char *password, const char *url) {
+    return settings_save_setup(ssid, password, url, g_settings.host_agent, NULL);
+}
 esp_err_t settings_save_setup(const char *ssid, const char *password, const char *url,
-                              bool muse_selected, const char *sdk_token) {
+                              settings_agent_t agent, const char *sdk_token) {
     connection_record_t *record = calloc(1, sizeof *record);
     if (!record) return ESP_ERR_NO_MEM;
-    esp_err_t err = connection_store_save_setup(record, ssid, password, url, muse_selected, sdk_token);
+    esp_err_t err = connection_store_save_setup(record, ssid, password, url, agent, sdk_token);
     if (err == ESP_OK) settings_apply_connection_record(record);
     muse_store_wipe(record, sizeof *record);
     free(record);
@@ -321,6 +329,57 @@ static void check_json(void) {
     cJSON *o=parse("{\"key\":\"a\\\\u0000b\"}  ");assert(!strcmp(str(o,"key"),"a\\u0000b"));muse_json_clear(o);
     o=parse("{\"text\":\"Tess \\u263a\"}");muse_json_clear(o);
 }
+static void check_hermes_local_addresses(void) {
+    static const char *invalid[] = {
+        "hermes.local", "hermes.local:", "hermes.local:0", "hermes.local:65536",
+        "hermes.local:18793/path", "[fd00::1]", "[fd00::1]:",
+        "localhost", "LOCALHOST:18793", "host.localhost:18793", "127.0.0.1:18793",
+        "127.2.3.4", "127.1", "2130706433", "0.0.0.0", "[::1]:18793",
+        "[0:0:0:0:0:0:0:1]", "[::]", "[::ffff:127.0.0.1]"
+    };
+    for (unsigned i = 0; i < sizeof invalid / sizeof invalid[0]; i++) {
+        char url[128], json[180];
+        snprintf(url, sizeof url, "kubik://%s", invalid[i]);
+        snprintf(json, sizeof json, "{\"agent\":\"Hermes\",\"url\":\"%s\"}", url);
+        cJSON *o = parse(json);
+        setup_agent_choice_t choice;
+        connection_record_t before = persisted_record;
+        assert(!strcmp(setup_agent_choice(o, &choice), "server_format"));
+        assert(setup_host_connection_save(o, "Home", "validpass", url) == ESP_ERR_INVALID_ARG);
+        assert(!memcmp(&before, &persisted_record, sizeof before));
+        muse_json_clear(o);
+    }
+    assert(hermes_address_valid("kubik://192.168.1.20:18793"));
+    assert(hermes_address_valid("kubik://[fd00::1]:18793"));
+    assert(hermes_address_valid("kubik://hermes.local:28793"));
+}
+static void check_hermes_setup(void) {
+    check_hermes_local_addresses();
+    setup_agent_choice_t choice;
+    cJSON *o;
+    o=parse("{\"agent\":\"Hermes\"}");assert(!strcmp(setup_agent_choice(o,&choice),"server_format"));muse_json_clear(o);
+    o=parse("{\"agent\":\"Hermes\",\"url\":\"kubik://host:18793\"}");assert(!setup_agent_choice(o,&choice)&&!choice.muse&&choice.host_agent==SETTINGS_AGENT_HERMES);
+    assert(setup_connection_save(&choice,"Home","validpass","kubik://host:18793")==ESP_OK&&
+           muse_store_state()==MUSE_OFF&&muse_store_saved_state()==MUSE_PAIRING);muse_json_clear(o);
+    assert(g_settings.host_agent == SETTINGS_AGENT_HERMES);
+    o=parse("{}");
+    connection_record_t before = persisted_record;
+    assert(setup_host_connection_save(o,"Home","validpass","kubik://host")==ESP_ERR_INVALID_ARG);
+    assert(setup_host_connection_save(o,"Home","validpass","")==ESP_ERR_INVALID_ARG);
+    assert(!memcmp(&before,&persisted_record,sizeof before));
+    assert(setup_host_connection_save(o,"Home","validpass","kubik://host:18793")==ESP_OK);
+    assert(g_settings.host_agent==SETTINGS_AGENT_HERMES);muse_json_clear(o);
+    o=parse("{\"agent\":\"Hermes\",\"url\":\"wss://host:18793/kubik/v1\"}");
+    assert(!strcmp(setup_agent_choice(o,&choice),"server_format"));muse_json_clear(o);
+    o=parse("{\"agent\":\"Hermes\",\"url\":\"kubik://host:28793\"}");
+    assert(setup_host_connection_save(o,"Home","validpass","kubik://host:28793")==ESP_OK);
+    assert(g_settings.host_agent==SETTINGS_AGENT_HERMES);muse_json_clear(o);
+    o=parse("{\"agent\":\"OpenClaw\"}");
+    assert(setup_host_connection_save(o,"Home","validpass",g_settings.server_url)==ESP_OK);
+    assert(g_settings.host_agent==SETTINGS_AGENT_OPENCLAW&&!g_settings.server_url[0]);muse_json_clear(o);
+    o=parse("{\"agent\":\"Muse\"}");
+    assert(setup_host_connection_save(o,"Home","validpass","")==ESP_ERR_INVALID_ARG);muse_json_clear(o);
+}
 static void check_setup(void) {
     setup_agent_choice_t choice;
     cJSON *o=parse("{\"agent\":\"Muse\"}");assert(!setup_agent_choice(o,&choice)&&choice.muse&&!choice.sdk_token[0]);muse_json_clear(o);
@@ -328,10 +387,6 @@ static void check_setup(void) {
     o=cJSON_CreateObject();cJSON_AddStringToObject(o,"agent","Muse");cJSON_AddStringToObject(o,"sdk_token",token);
     assert(!setup_agent_choice(o,&choice)&&!strcmp(choice.sdk_token,token));muse_json_clear(o);
     assert(setup_connection_save(&choice,"Home","validpass","")==ESP_OK&&muse_store_state()==MUSE_PAIRING);
-    o=parse("{\"agent\":\"Hermes\"}");assert(!strcmp(setup_agent_choice(o,&choice),"url"));muse_json_clear(o);
-    o=parse("{\"agent\":\"Hermes\",\"url\":\"kubik://host:18793\"}");assert(!setup_agent_choice(o,&choice)&&!choice.muse);
-    assert(setup_connection_save(&choice,"Home","validpass","kubik://host:18793")==ESP_OK&&
-           muse_store_state()==MUSE_OFF&&muse_store_saved_state()==MUSE_PAIRING);muse_json_clear(o);
     assert(!setup_validate_credentials("Home","validpass"));assert(!strcmp(setup_validate_credentials("Home","short"),"password_format"));
     const char *body="{\"agent\":\"Muse\"}";httpd_req_t req={.content_len=(int)strlen(body),.body=body};
     unsigned before=wipes;o=setup_read_request(&req);assert(o&&wipes>before);muse_json_clear(o);
@@ -419,6 +474,6 @@ static void check_pair(void) {
     check_provision();
 }
 int main(void) {
-    strcpy(g_settings.name,"Kubik");check_store();check_refresh_after_setup_switch();check_json();check_setup();check_options();check_control();check_pair();
+    strcpy(g_settings.name,"Kubik");check_store();check_refresh_after_setup_switch();check_json();check_setup();check_hermes_setup();check_options();check_control();check_pair();
     puts("muse: credential isolation, strict JSON, phone setup, capabilities, fragmented control and pairing Wi-Fi/status flow passed");
 }
