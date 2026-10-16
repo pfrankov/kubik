@@ -92,6 +92,11 @@ provide blank-address automatic discovery.
 
 ## Choose Hermes and pair
 
+With an authorized private Telegram home chat, the bot sends a code and **Allow**
+button. Match the code on Kubik and tap it. Without Telegram, a private owner chat
+or successful delivery, use the installer command below. See [approval methods](pairing.md).
+
+
 In the phone setup, select **Hermes**, then enter **`kubik://HOST:18793`** or the
 configured alternative port. The page shows only Hermes installation and approval
 instructions. The USB setup page offers the same explicit choice and address;

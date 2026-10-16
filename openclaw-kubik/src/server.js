@@ -4,12 +4,12 @@ import { isDeviceId, normalizeDeviceId } from './config.js';
 import { HttpEngine } from './engines/http.js';
 import { authMessage, CLOSE, decodeDeviceKey, out, ProtocolError } from './protocol.js';
 import { attachDeviceMessages } from './server-connection.js';
+import { sendPairingChallenge } from './telegram-pairing.js';
 import { guardSessionFrames, readAllowed, withPairingTimeout } from './pairing-access.js';
 import { DeviceSession } from './session.js';
 import { NotificationError, NotificationQueue } from './notification-queue.js';
 import { refreshSessionActivity, sendSessionCron } from './server-status.js';
 import { sanitizeForDisplay, speakableText } from './speech.js';
-
 const HELLO_TIMEOUT_MS = 3000; // until the hello arrives, then again until the auth arrives: a slot is never held longer
 const HEARTBEAT_MS = 15_000;
 const DEAD_AFTER_MS = 45_000;
@@ -325,7 +325,7 @@ export class KubikServer {
     if (result.created) this.log(`kubik: new device ${deviceId} wants to pair — approve with: openclaw pairing approve kubik ${code}`);
     else this.log(`kubik: device ${deviceId} is waiting for pairing approval — approve with: openclaw pairing approve kubik ${code}`);
     conn.phase = 'pending';
-    conn.ws.send(JSON.stringify(out.pair(code)));
+    sendPairingChallenge(this.pairing, conn, code);
     conn.pendingTimer = setTimeout(() => {
       if (this.#pending.get(conn.ws) !== conn) return;
       this.#pending.delete(conn.ws);

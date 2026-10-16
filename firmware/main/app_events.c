@@ -145,10 +145,12 @@ static void handle_pair_event(void) {
     char code[sizeof s_pair_rx];
     portENTER_CRITICAL(&s_pair_mux);
     memcpy(code, s_pair_rx, sizeof code);
+    bool telegram = s_pair_rx_telegram;
     portEXIT_CRITICAL(&s_pair_mux);
     s_pair_seen_ms = now_ms();
-    if (s_setup || !code[0] || !strcmp(code, s_pair_code)) return;
-    ESP_LOGI(TAG, "pairing code %s: approve with `openclaw pairing approve kubik %s`", code, code);
+    if (s_setup || !code[0] || (!strcmp(code, s_pair_code) && telegram == s_pair_telegram)) return;
+    ESP_LOGI(TAG, "pairing code %s (%s)", code, telegram ? "Telegram" : "server approval");
+    s_pair_telegram = telegram;
     bool first = !s_pair_code[0];
     memcpy(s_pair_code, code, sizeof s_pair_code);
     s_pair_hidden = false;

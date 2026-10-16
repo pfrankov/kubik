@@ -4,9 +4,16 @@
 def register(ctx):
     from .runtime import dependencies_available
 
+    from hermes_constants import get_hermes_home
+    from .telegram_pairing import TelegramPairing
+    pairing = TelegramPairing(get_hermes_home())
+    ctx.register_telegram_handler(pairing.install)
+
     def create_adapter(config):
         from .adapter import KubikAdapter
-        return KubikAdapter(config)
+        adapter = KubikAdapter(config)
+        adapter.telegram_pairing = pairing
+        return adapter
 
     ctx.register_platform(
         name='kubik', label='Kubik', adapter_factory=create_adapter,

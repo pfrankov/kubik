@@ -194,7 +194,7 @@ def configure(home, backend_port):
     with (home / 'config.yaml').open('w') as stream:
         YAML().dump(data, stream)
     (home / '.env').write_text(f'OPENAI_API_KEY=kubik-test-only\nOPENAI_BASE_URL={url}\n')
-    os.environ.update(OPENAI_API_KEY='kubik-test-only', OPENAI_BASE_URL=url)
+    os.environ.update(OPENAI_API_KEY='kubik-test-only', OPENAI_BASE_URL=url, TELEGRAM_ALLOWED_USERS='123')
 
 
 
@@ -247,6 +247,8 @@ async def main():
         assert await asyncio.wait_for(gateway.start(), 60), 'Native Gateway did not start'
         adapter = gateway.adapters[Platform('kubik')]
         assert adapter._running
+        from telegram_contract import check_telegram_callbacks
+        await check_telegram_callbacks(adapter, gateway, providers)
         await check_profile_scopes(adapter, home)
         codec = importlib.import_module(adapter.__class__.__module__.rsplit('.', 1)[0] + '.codec')
         private_key = ec.generate_private_key(ec.SECP256R1())

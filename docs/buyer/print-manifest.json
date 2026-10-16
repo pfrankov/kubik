@@ -1,13 +1,13 @@
 {
   "inputs": {
-    "docs/buyer/START.html": "c1a256f0683db31bf364e7e461d67d9a8368da8066a083bf008ff46e80d8647d",
+    "docs/buyer/START.html": "ee0b59a63d6bea459658d819bf0ffc3acdc9a058eb14089ab07816dc41048489",
     "docs/buyer/assets/first-conversation.png": "48668b0e94f61f6e8f0136d5ded895f3c75269c220868713c2227541dcdae13e",
     "docs/buyer/assets/hello-tess.png": "4e5c546627c831b7e4aebf2c2e3bf237ee4372bef733e5b005b42f89f9192a9d",
     "docs/buyer/assets/prepare-agent.png": "f7ebfdf99fafd0b15f00250c8aecc9d715ff6bc2472df76928645e2c6574c50d",
     "docs/buyer/assets/scan-setup-next.png": "435369cbf59cd8d62becb2b3374d0a00684416b5bd5e5ff732b8f130ceeb4553",
     "docs/buyer/assets/scan-setup.png": "9b1545801fae2660ef3cfad44240d1c2ddbd2a18653122aa63e85133c89067ec",
     "docs/buyer/booklet.css": "f6f3673f709e1eb91fef6ace92b8da057082d21e15d5cc03e8fc2cd5bd129e5a",
-    "docs/buyer/booklet.html": "5b74da2bf7cdbcea43551ad0d804e07136656c15e65f055a8d74fa52f42902d3",
+    "docs/buyer/booklet.html": "63f00fc3c10e593ad791e323104cc763f0d297b15c4205a20648d3ff9a9fef0e",
     "docs/buyer/start.css": "f2c1a4a4db73ae5f00bca30efc99d2e05941cb4e5cccfc03fe722d09b3c01d7d",
     "docs/buyer/start.js": "bf9922e2d512d306549e3fb3cf73335ba56aafb07d09c126312157584a42c6f4",
     "tools/build-buyer-guide.py": "5f4e104d69916ffd5e667c183968c2acaa39f433a924b55307e708615ebb4996",
@@ -15,7 +15,7 @@
     "tools/font/sources/PT_Sans-Web-Regular.ttf": "9cc831490532009bae2b3ce0d39c62adfc889060beb421593bfd9d2396d0f10a"
   },
   "outputs": {
-    "kubik-getting-started-A6.pdf": "32135ae66675df371c72f131f6ed6e9837e004f1bf4eb86c0691f45a79789764",
-    "kubik-booklet-A5-duplex.pdf": "99ec1e46e87471f5a31149e341af14ba011ce9f15ea6d9c058786a5be1bb1c53"
+    "kubik-getting-started-A6.pdf": "5f8359b993cebfb649e4401af6c8f6aab5a0b5f22058b9d9cfc2d9c46140cb74",
+    "kubik-booklet-A5-duplex.pdf": "f4959c3cfe801071df4811f9f6ebb9c902165dff686bee0e3273d51e181819c7"
   }
 }

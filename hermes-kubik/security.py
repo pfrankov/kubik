@@ -1,5 +1,7 @@
 """Device identity, TLS pinning and explicit local pairing approval (protocol v5)."""
 import base64
+import contextlib
+import fcntl
 import datetime
 import hashlib
 import json
@@ -101,12 +103,51 @@ class Security:
         value = json.loads(self.allow_path.read_text())
         return isinstance(value, list) and all(isinstance(item, str) for item in value) and identity in value
 
+    @contextlib.contextmanager
+    def pairing_lock(self):
+        path = self.home / 'pairing.lock'
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'a') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise ValueError('Pairing update is busy; try again') from error
+            yield
+
+    def read_pending(self):
+        if not self.pending_path.exists():
+            return {}
+        return json.loads(self.pending_path.read_text())
+
+    def approve(self, code, *, identity=None):
+        with self.pairing_lock():
+            pending = self.read_pending()
+            matches = [key for key, value in pending.items()
+                       if value['code'] == code and value['expires'] > time.time()]
+            if len(matches) != 1 or (identity is not None and matches[0] != identity):
+                raise ValueError('Unknown or expired pairing code')
+            approved = json.loads(self.allow_path.read_text()) if self.allow_path.exists() else []
+            if not isinstance(approved, list) or any(not isinstance(item, str) for item in approved):
+                raise ValueError('Invalid approval store; no approvals changed')
+            # Consuming before granting fails closed after interruption, preventing replay after revocation.
+            del pending[matches[0]]
+            atomic_json(self.pending_path, pending)
+            atomic_json(self.allow_path, sorted(set(approved + matches)))
+
     def pair(self, identity):
-        self.pending = {key: value for key, value in self.pending.items() if value['expires'] > time.time()}
-        if identity not in self.pending:
-            if len(self.pending) >= 3:
-                raise ValueError('pairing busy')
-            code = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(8))
-            self.pending[identity] = {'code': code, 'expires': time.time() + 600}
-        atomic_json(self.pending_path, self.pending)
-        return self.pending[identity]['code']
+        with self.pairing_lock():
+            self.pending = {key: value for key, value in self.read_pending().items() if value['expires'] > time.time()}
+            if identity not in self.pending:
+                if len(self.pending) >= 3:
+                    raise ValueError('pairing busy')
+                used = {value['code'] for value in self.pending.values()}
+                for _ in range(8):
+                    code = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(8))
+                    if code not in used:
+                        break
+                else:
+                    raise ValueError('pairing busy')
+                self.pending[identity] = {'code': code, 'expires': time.time() + 600}
+            atomic_json(self.pending_path, self.pending)
+            return self.pending[identity]['code']

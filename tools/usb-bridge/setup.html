@@ -71,7 +71,7 @@ function agentHint() {
   const hermes = $('agent').value === 'Hermes';
   $('url').placeholder = hermes ? 'kubik://HOST:18793' : 'kubik://your-computer';
   $('agentHint').textContent = hermes
-    ? 'Install the Kubik platform in your existing Hermes Gateway first. Approve the code on Kubik with the command printed by its installer, using the same Hermes profile and Python environment.'
+    ? 'Install the Kubik platform in your existing Hermes Gateway first. Match the code on Kubik and tap Allow if it says Open Telegram. Otherwise use the installer command in the same Hermes profile and Python environment.'
     : 'Choose an installed agent, or keep the current integration.';
   $('urlHint').textContent = hermes
     ? 'Hermes requires kubik://HOST:18793 (or its configured port). Use an address reachable from Kubik’s Wi-Fi, not localhost. Automatic discovery is not supported.'

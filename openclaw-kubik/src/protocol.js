@@ -288,9 +288,9 @@ export const out = {
   activity: (own, other) => ({ t: 'activity', own, other }),
   pong: (ts) => ({ t: 'pong', ...(ts !== undefined ? { ts } : {}) }),
   challenge: (nonce) => ({ t: 'challenge', nonce }),
-  pair: (code) => {
+  pair: (code, telegram = false) => {
     if (!/^[A-Z0-9]{0,16}$/.test(code)) throw new RangeError('bad pairing code');
-    return { t: 'pair', code };
+    return { t: 'pair', code, ...(telegram ? { approval: 'telegram' } : {}) };
   },
 };
 

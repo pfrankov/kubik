@@ -100,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
             write_member(bundle, f"assets/{name}", (root / "tools/font/sources" / name).read_bytes())
         if character == "TESS":
             write_member(bundle, "Getting-started.pdf", (buyer / "kubik-getting-started-A6.pdf").read_bytes())
-        write_member(bundle, "README.md", (root / "docs/KIT.ru.md").read_text().replace("(../deploy/", "(deploy/").replace("(native-voice.md)", "(docs/native-voice.md)").replace("(hermes.md)", "(docs/hermes.md)").replace("(buyer/", "(").encode("utf-8"))
+        write_member(bundle, "README.md", (root / "docs/KIT.ru.md").read_text().replace("(../deploy/", "(deploy/").replace("(native-voice.md)", "(docs/native-voice.md)").replace("(hermes.md)", "(docs/hermes.md)").replace("(pairing.md)", "(docs/pairing.md)").replace("(buyer/", "(").encode("utf-8"))
         sdk = re.sub(r"\(protocol\.md(?=[)#])", "(docs/protocol.md",
                      (root / "docs/agent-sdk.md").read_text()).replace("(../openclaw-kubik/", "(openclaw-kubik/").replace("(buyer/", "(").replace("(muse.md)", "(docs/muse.md)").replace("(hermes.md)", "(docs/hermes.md)")
         write_member(bundle, "agent-sdk.md", sdk.encode("utf-8"))
@@ -108,7 +108,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         write_member(bundle, "docs/agent-controls.md", controls.encode("utf-8"))
         native = (root / "docs/native-voice.md").read_text().replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
         write_member(bundle, "docs/native-voice.md", native.encode("utf-8"))
-        for document in ("protocol.md", "acceptance.md", "muse.md", "hermes.md", "events.md"):
+        for document in ("protocol.md", "acceptance.md", "muse.md", "hermes.md", "events.md", "pairing.md"):
             content = (root / "docs" / document).read_text()
             if document == "acceptance.md":
                 content = rewrite_acceptance_links(content, revision)

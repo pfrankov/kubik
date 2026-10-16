@@ -179,7 +179,7 @@ void draw_pair_card(face_t *f, scene_t *s) {
     float ta = clampf((t - 0.15f) / 0.3f, 0, 1);
     sc_label(s, TXT_HEADING, "PAIR WITH AGENT", cx, 157, 0, UI_TEXT, ta);
     // The command, as it is typed.
-    const char *cmd = "Approve this code on the server";
+    const char *cmd = f->pair_telegram ? "Match this code in Telegram" : "Approve this code on the server";
     float w = label_width(TXT_CAPTION, cmd);
     sc_rbox(s, cx, 214, w * 0.5f + 18, 19, 19, 0, COL_CHIP, ta);
     sc_label(s, TXT_CAPTION, cmd, cx, 214, 0, UI_ACCENT, ta);
@@ -198,13 +198,18 @@ void draw_pair_card(face_t *f, scene_t *s) {
         sc_label(s, TXT_CODE, ch, x, ty, 0, UI_INK, clampf((k - 0.3f) / 0.7f, 0, 1));
         x += 2 * tw + gap + (i == 3 ? mid : 0);
     }
-    // The command uses the exact code shown above; no list lookup is needed.
+    // Keep each shell line within the panel; Telegram is advertised only after delivery.
     bool hermes = f->pair_hermes;
-    sc_label(s, TXT_CAPTION, hermes ? "On your Hermes server, approve:" : "On the OpenClaw server, run:", cx, 360, 0, UI_TEXT, ta);
-    char approval[64];
-    snprintf(approval, sizeof approval, hermes ? "python <home>/plugins/kubik/pair.py %.8s"
-             : "openclaw pairing approve kubik %.8s", f->pair_code);
-    sc_label(s, TXT_CAPTION, approval, cx, 390, 0, UI_ACCENT, ta);
+    char approval[48];
+    if (f->pair_telegram) {
+        sc_label(s, TXT_CAPTION, "Open your agent's Telegram chat", cx, 364, 0, UI_TEXT, ta);
+        sc_label(s, TXT_CAPTION, "Match this code, then tap Allow", cx, 398, 0, UI_ACCENT, ta);
+    } else {
+        sc_label(s, TXT_CAPTION, hermes ? "In your Hermes environment:" : "On your OpenClaw server:", cx, 350, 0, UI_TEXT, ta);
+        sc_label(s, TXT_CAPTION, hermes ? "cd <home>/plugins/kubik" : "openclaw pairing approve \\", cx, 382, 0, UI_ACCENT, ta);
+        snprintf(approval, sizeof approval, hermes ? "python pair.py %.8s" : "  kubik %.8s", f->pair_code);
+        sc_label(s, TXT_CAPTION, approval, cx, 410, 0, UI_ACCENT, ta);
+    }
     // Waiting for the approval.
     float da = clampf((t - 0.9f) / 0.4f, 0, 1);
     for (int i = 0; i < 3; i++) {

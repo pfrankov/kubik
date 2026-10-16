@@ -331,7 +331,7 @@ auth {sig}                    ──────▶    verify signature
    the server continues as for any authenticated device (`welcome`, `4003`
    replacement, …).
 6. Otherwise the server creates (or refreshes) a pairing request and sends
-   `{"t":"pair","code":"ABCD2345"}`. The device shows the code; the owner
+   `{"t":"pair","code":"ABCD2345"}`. After delivering an owner Telegram prompt the server may send the same code with `"approval":"telegram"`; the device then shows Telegram instructions. Without that field it shows server approval instructions. The device shows the code; the owner
    approves it on the Gateway host:
 
    ```sh

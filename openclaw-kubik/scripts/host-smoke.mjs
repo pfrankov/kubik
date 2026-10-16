@@ -35,10 +35,15 @@ try {
   const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry] });
   const { core, seen } = installRuntime({ payloads: [{ text: '[[happy]] Привет! **Я** Кубик 🙂' }], pairing: pairing.api });
   let registered;
-  const routes = [];
-  await entry.default.register({ runtime: core, config: cfg, registrationMode: 'full', registerHttpRoute: (route) => routes.push(route),
+  const routes = [], interactive = [];
+  await entry.default.register({ runtime: core, config: cfg, registrationMode: 'full', registerInteractiveHandler: (handler) => interactive.push(handler), registerHttpRoute: (route) => routes.push(route),
     registerChannel: (value) => { registered = value.plugin ?? value; }, logger: { info() {}, warn() {}, error() {}, debug() {} } });
   assert.equal(registered.id, 'kubik');
+  assert.equal(interactive[0].namespace, 'kubik-pair');
+  assert.equal(interactive[0].channel, 'telegram');
+  let denied;
+  await interactive[0].handler({ callback: { payload: 'invalid' }, respond: { reply: async (value) => { denied = value; } } });
+  assert.match(denied.text, /not yours/);
   assert.deepEqual(routes.map((r) => [r.path, r.auth, typeof r.handleUpgrade]), [['/kubik/v1', 'plugin', 'function']]);
   assert.equal(setup.default.plugin?.id ?? setup.setupPlugin.id, 'kubik');
   const metadata = JSON.parse(await readFile(join(base, 'openclaw.plugin.json'), 'utf8'));

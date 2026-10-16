@@ -16,6 +16,7 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
 from .codec import decode
+from .pairing_wait import wait_pairing
 from .security import Security
 from .runtime import listener_options, profile_scope, speech_available
 
@@ -106,23 +107,10 @@ class KubikAdapter(BasePlatformAdapter):
         if not self.security.approved(identity):
             code = self.security.pair(identity)
             await socket.send_json({'t': 'pair', 'code': code})
-            await self.wait_pair(socket, identity)
+            await self.wait_pair(socket, identity, code, False)
         return Peer(socket, identity, hello)
-    async def wait_pair(self, socket, identity):
-        deadline = time.monotonic() + 600
-        while not self.security.approved(identity):
-            if time.monotonic() >= deadline:
-                raise TimeoutError('Pairing expired')
-            try:
-                message = await socket.receive(timeout=2)
-            except asyncio.TimeoutError:
-                continue
-            if message.type != WSMsgType.TEXT:
-                raise ValueError('Pairing closed')
-            value = json.loads(message.data)
-            if value.get('t') != 'ping':
-                raise ValueError('Pairing only accepts ping')
-            await socket.send_json({'t': 'pong', 'ts': value.get('ts')})
+    async def wait_pair(self, socket, identity, code, telegram):
+        await wait_pairing(self, socket, identity, code, telegram)
     def speech_available(self):
         return speech_available(self.home)
     async def accept(self, request):

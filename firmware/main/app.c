@@ -109,6 +109,7 @@ setup_reason_t s_setup_reason;
 int64_t s_setup_wait_ms;  // last connecting ping
 // Pairing: OpenClaw does not know this Kubik yet and showed a code to approve.
 portMUX_TYPE s_pair_mux = portMUX_INITIALIZER_UNLOCKED;
+bool s_pair_rx_telegram, s_pair_telegram;
 char s_pair_rx[17];       // written by the link task
 char s_pair_code[17];     // pending pairing (app task)
 bool s_pair_hidden;

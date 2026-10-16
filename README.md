@@ -31,7 +31,7 @@ You need a flashed Kubik, a phone and a 2.4 GHz Wi-Fi network. For **Muse**, fol
 
 1. **Prepare your agent.** Follow the [setup page](docs/buyer/START.html) for OpenClaw or Hermes: install the integration and configure speech. OpenClaw supports local discovery with Server address left blank; Hermes uses `kubik://<server-address>:18793`. The guide explains remote addresses; a domain is optional.
 2. **Connect Wi-Fi.** Scan the first QR to join Kubik’s setup Wi-Fi, then the second to open its setup page. Choose your home network, enter its password, select OpenClaw and enter a server address if needed. Tap **Connect Kubik**; the device shows a pairing code when it reaches the host.
-3. **Approve and talk.** Match the pairing code on the device and host, approve the request, and follow the on-device guide. Press **KEY** to start talking.
+3. **Approve and talk.** Match the pairing code on the device and host, tap **Allow** in the configured owner Telegram chat (or approve on the server), and follow the on-device guide. Press **KEY** to start talking.
 
 Install the OpenClaw channel from npm on your agent computer:
 
@@ -40,7 +40,7 @@ openclaw plugins install openclaw-kubik --force --accept-capabilities
 openclaw channels add --channel kubik --enable
 ```
 
-See the [English package guide](openclaw-kubik/README.md) for the server address, pairing and voice setup.
+See [approval methods](docs/pairing.md) and the [English package guide](openclaw-kubik/README.md) for the server address, pairing and voice setup.
 
 ## Muse without a host
 

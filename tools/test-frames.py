@@ -82,7 +82,7 @@ STREAMS = [
     (SHEET_REFERENCE, "tess", "tess", ("sheet", "tiles"), None),
     (RUB_REFERENCE, "plush", "plush", ("rub",), 30 * 30),  # petting scripts (sim_rub.c): swipe, slow, vigorous, stop
     (RUB_REFERENCE, "tess", "tess", ("rub",), 30 * 30),
-    (TEXT_REFERENCE, "plush", "plush", ("text",), 18),  # every screen with text (sim_text.c), one frame each
+    (TEXT_REFERENCE, "plush", "plush", ("text",), 20),  # every screen with text (sim_text.c), one frame each
     # The neutral Tess (SIM_MOOD_OFF: no moods) plays the same scripts as before there were moods: what every mood is a change of.
     (CALM_REFERENCE, "motion", "tess", ("tess", "motion"), 25 * 3 * 30, {"SIM_MOOD_OFF": "1"}),
     (CALM_REFERENCE, "rub", "tess", ("rub",), 30 * 30, {"SIM_MOOD_OFF": "1"}),

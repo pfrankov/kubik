@@ -386,6 +386,7 @@ static face_mode_t awake_face_mode(int64_t t) {
 }
 
 static face_mode_t select_face_mode(face_t *f, int64_t t, bool *debug) {
+    f->pair_telegram = s_pair_telegram;
     f->pair_hermes = g_settings.host_agent == SETTINGS_AGENT_HERMES;
     face_mode_t mode;
     if (s_pair_code[0] && !s_pair_hidden && !s_setup) {
