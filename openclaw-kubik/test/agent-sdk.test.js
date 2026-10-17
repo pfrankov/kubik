@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { createServer } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +27,14 @@ async function freePort() {
   const { port } = socket.address();
   await new Promise((resolve, reject) => socket.close((error) => error ? reject(error) : resolve()));
   return port;
+}
+
+function portAcceptsConnections(port) {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: '127.0.0.1', port });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => resolve(false));
+  });
 }
 
 test('custom native ESM adapter declares validated setup fields and only stores environment references for secrets', async (t) => {
@@ -264,6 +272,30 @@ test('failed adapter startup closes its retained event surface', async (t) => {
   assert.throws(() => retained.activity(DEFAULT_DEVICE_KEY.device, { own: 'coding' }), /host is closed/);
   assert.throws(() => retained.cron({ running: 1, next: 5 }), /host is closed/);
   assert.throws(() => retained.notify(DEFAULT_DEVICE_KEY.device, 'После ошибки'), /host is closed/);
+});
+
+test('standalone host does not accept devices before adapter startup completes', async (t) => {
+  const stateDir = directory(t);
+  const port = await freePort();
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const adapter = validateAdapter({
+    id: 'starting-host', label: 'Starting host', setup: [],
+    async connect() {}, async dispatch() {}, async close() {},
+    async start() { entered.resolve(); await release.promise; },
+  });
+  const config = normalizeHostConfig({ version: 2, listener: { host: '127.0.0.1', port },
+    voice: { baseUrl: 'https://api.openai.com/v1' }, adapter: { id: adapter.id, setup: {} } });
+  const creating = createAgentHost({ stateDir, config, adapter, env: adapterEnv,
+    lanOptions: { host: '127.0.0.1', discoveryHost: '127.0.0.1', discoveryPort: 0 } });
+  await entered.promise;
+  const acceptedDuringStart = await portAcceptsConnections(port);
+  release.resolve();
+  const host = await creating;
+  t.after(() => host.close());
+  assert.equal(acceptedDuringStart, false,
+    'a device must not reach an adapter whose start hook is still pending');
+  assert.equal(await portAcceptsConnections(port), true);
 });
 
 test('defineAdapter speaks a reply or ordered fragments and reports a bad reply', async () => {
