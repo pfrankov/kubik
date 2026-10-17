@@ -221,6 +221,8 @@ async def check_profile_scopes(adapter, home):
 
 
 async def main():
+    import tornado
+    assert (6, 5, 9) <= tornado.version_info[:3] < (7, 0, 0), 'Install hermes-kubik/requirements.txt before native acceptance'
     sys.addaudithook(network_guard)
     home = Path(os.environ['HERMES_HOME'])
     home.mkdir(mode=0o700, parents=True, exist_ok=False)

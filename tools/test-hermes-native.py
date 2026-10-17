@@ -24,6 +24,8 @@ def prepare_source(destination):
     python = destination / '.venv/bin/python'
     subprocess.run(['uv', 'pip', 'install', '--python', str(python),
                     '-r', str(ROOT / 'hermes-kubik/requirements.txt')], check=True)
+    subprocess.run([str(python), str(ROOT / 'tools/hermes_native/dependencies.py'),
+                    '--source', str(destination)], timeout=660, check=True)
 
 
 def verify_source(source):

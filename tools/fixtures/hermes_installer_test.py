@@ -40,7 +40,7 @@ class InstallerContractTest(unittest.TestCase):
         self.assertEqual(self.config.read_bytes(), first)
         saved = self.read()
         self.assertEqual(saved['platforms']['kubik']['extra'], {'port': 28793, 'bind': '127.0.0.1'})
-        self.assertEqual(saved['plugins']['enabled'], ['another-plugin', 'kubik-platform'])
+        self.assertEqual(saved['plugins']['enabled'], ['another-plugin', 'kubik'])
         self.assertEqual(saved['plugins']['disabled'], ['unrelated'])
         self.assertEqual(saved['stt']['openai']['api_key'], 'user-secret')
         self.assertIn('# Keep my providers and comments', first.decode())
@@ -58,6 +58,13 @@ class InstallerContractTest(unittest.TestCase):
                  for path in self.home.rglob('*') if path.is_file()}
         self.assertEqual(after, before)
         self.assertFalse((self.home / 'plugins').exists())
+
+    def test_upgrade_migrates_legacy_enablement_to_the_directory_key_used_by_pm(self):
+        self.config.write_text('plugins:\n  enabled: [other, kubik-platform, kubik]\n'
+                               '  disabled: [kubik, kubik-platform, unrelated]\n')
+        installer.install(self.source, self.home)
+        self.assertEqual(self.read()['plugins']['enabled'], ['other', 'kubik'])
+        self.assertEqual(self.read()['plugins']['disabled'], ['unrelated'])
 
     def test_invalid_configuration_does_not_install_or_weaken_isolation(self):
         cases = ['[]\n', 'plugins: []\n', 'plugins: {enabled: all}\n',

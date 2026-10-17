@@ -117,10 +117,9 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         write_member(bundle, "docs/scenarios/hermes.md", (root / "docs/scenarios/hermes.md").read_bytes())
         write_member(bundle, "tools/test-hermes-native.py",
                      (root / "tools/test-hermes-native.py").read_bytes())
-        write_member(bundle, "tools/hermes_native/contract.py",
-                     (root / "tools/hermes_native/contract.py").read_bytes())
-        write_member(bundle, "tools/hermes_native/upstream.json",
-                     (root / "tools/hermes_native/upstream.json").read_bytes())
+        for path in sorted((root / "tools/hermes_native").iterdir()):
+            if path.is_file() and path.suffix in (".py", ".json"):
+                write_member(bundle, path.relative_to(root).as_posix(), path.read_bytes())
         for path in sorted((root / "hermes-kubik").iterdir()):
             if path.is_file() and path.suffix in (".py", ".yaml", ".txt"):
                 write_member(bundle, path.relative_to(root).as_posix(), path.read_bytes())

@@ -31,7 +31,7 @@ class BotTransport(BaseRequest):
         elif action in ('sendMessage', 'editMessageText'):
             result = {'message_id': 7, 'date': int(time.time()),
                       'chat': {'id': int(data['chat_id']), 'type': 'private'}, 'text': data['text']}
-        elif action == 'answerCallbackQuery':
+        elif action in ('answerCallbackQuery', 'deleteWebhook', 'setWebhook'):
             result = True
         else:
             raise AssertionError(f'Unexpected Bot API method: {action}')
@@ -107,6 +107,9 @@ async def check_telegram_callbacks(kubik, gateway, providers):
         await click(7, data='ea:deny:424242')
         assert transport.calls[-1][0] == 'answerCallbackQuery'
         assert not transport.calls[-1][1].get('show_alert'), 'Kubik swallowed a core callback'
+        from webhook_contract import check_webhook
+        await check_webhook(application, pairing, kubik.security)
+        assert not errors and not turns and len(providers.calls) == before, 'Webhook started an agent turn'
         print('PASS: native Hermes plugin registration, TelegramApplication/PTB callback routing, '
               'owner approval, foreign/group/message/replay rejection, core callback and no agent turn', flush=True)
     finally:
