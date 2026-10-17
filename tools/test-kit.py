@@ -102,7 +102,6 @@ def check_hermes_native(kit):
     paths += ['tools/hermes_native/upstream.json', 'tools/test-hermes-native.py']
     for name in paths:
         assert kit.read(name) == (source_root / name).read_bytes(), name
-    python_version = json.loads(kit.read('tools/hermes_native/upstream.json'))['python']
     with tempfile.TemporaryDirectory(prefix='kubik-kit-hermes-') as temporary:
         destination = Path(temporary)
         for name in paths:
@@ -119,7 +118,9 @@ for name in ('tools/test-hermes-native.py', 'tools/hermes_native/dependencies.py
     subprocess.run([sys.executable, '-I', str(root / name), '--help'],
                    cwd=root, capture_output=True, timeout=10, check=True)
 '''
-        subprocess.run(['uv', 'run', '--python', python_version,
+        # Import/help fixture only: use the same isolated runtime as test-hermes.py.
+        # The separate native Gateway contract enforces upstream.json's exact Python.
+        subprocess.run(['uv', 'run', '--python', '3.11',
                         '--with', 'aiohttp==3.14.3', '--with', 'cryptography==50.0.0',
                         '--with', 'python-telegram-bot==22.8', 'python', '-I', '-c', script,
                         str(destination), *modules], cwd=destination, timeout=120, check=True)
