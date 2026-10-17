@@ -55,6 +55,11 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
                         "firmware/main/tess_games.c", "firmware/main/tess_gather.c", "firmware/main/tess_sky.c", "firmware/main/tess_sky_melody.c", "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c", "firmware/main/tess_sky_touch.c", "firmware/main/tess_sky_summon.c", "firmware/main/tess_sky_sound.c", "firmware/main/tess_play_shape.c", "firmware/main/tess_stretch.c", "firmware/main/tess_temper.c", str(support), "firmware/main/app_state.c", "-lm", "-o", str(exe)],
                        cwd=ROOT, check=True)
         subprocess.run([str(exe)], cwd=ROOT, check=True)
+    physics = temp / "physics"
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-g", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-Ifirmware/main", "firmware/sim/tess_sky_physics_test.c",
+                    "firmware/main/tess_sky_stream.c", "-lm", "-o", str(physics)], cwd=ROOT, check=True)
+    subprocess.run([str(physics)], cwd=ROOT, check=True)
     # Skies: every composed sky is deterministic, on the scale, solvable by its own solution, and scrambled.
     sky = temp / "sky"
     subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-Ifirmware/main",

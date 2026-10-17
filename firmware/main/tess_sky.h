@@ -7,7 +7,7 @@
 //   tess_sky_stream.c   the stream: 112 particles on integers
 //   tess_sky_compose.c  a sky from a seed: harmony, layout, a solution proven by tracing, the scramble
 //   tess_sky_plan.c     what a sky holds; tess_sky_melody.c its ending melody
-//   tess_sky_summon.c   how she asks: a wandering star with its own motif
+//   tess_sky_summon.c   how she asks: a departing gold light with her motif
 //   tess_sky_touch.c    the finger: tools, relays, the aimed source
 //   tess_sky_draw.c     the picture
 // The state lives in a block taken when a sky starts and returned when it ends.

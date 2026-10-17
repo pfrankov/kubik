@@ -351,14 +351,14 @@ static void a_rolled_corner_pulls_towards_the_screen_finger(void) {
         assert(fabsf(x * ps + y * pc) < .001f);
     }
 }
-// ---- Skies: invited, answered, played and resolved; left at once for anything that matters more
 static tess_sky_t *sky(void) { return face.tess_games.sky; }
 static void invite(void) {
     fresh(TESS_PROGRESS_MASK);
-    face.tess_games.sky_call[0] = 408; face.tess_games.sky_call[1] = 255; face.tess_games.sky_call[2] = 0; face.tess_games.sky_invite_t = 7.f;
+    for (int n = 0; n < 32 && !tess_sky_invite(&face); n++) {}
+    assert(face.tess_games.sky_invite_t > 0);
 }
 static void answer(void) {
-    invite();
+    invite(); run(1.2f);
     const float *v = face.tess_games.sky_call;
     tap(v[0] - 30, v[1] + 20);
     assert(face.tess_games.game == TESS_GAME_SKY && sky() && sky()->phase == SKY_UNRAVEL);
@@ -368,7 +368,7 @@ static void until_phase(sky_phase_t phase, float seconds) {
     assert(sky() && sky()->phase == phase);
 }
 static void an_ignored_invitation_asks_nothing(void) {
-    float x, y; invite(); run(1); assert(tess_sky_calling(&face, &x, &y) && y > 255);   // the star wanders round her
+    float x, y; invite(); run(1); assert(tess_sky_calling(&face, &x, &y));
     tap(480 - x, 510 - y);   // a tap away from the star is only a tap
     tap(240, 255);
     assert(face.tess_games.game != TESS_GAME_SKY && !sky());

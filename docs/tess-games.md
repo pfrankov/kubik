@@ -113,10 +113,10 @@ earlier versions keep their places in the same six steps.
 
 ## Skies
 
-Lay the cube nearly flat. Now and then a small gold star leaves Tess and circles her
-for a few seconds, singing her motif; standing up, she never asks. To ask her yourself,
+Lay the cube nearly flat. Now and then a small gold light peels from one of Tess’s visible corners, leaving a short thread,
+then gently sways beside her for a few seconds, singing her motif; standing up, she never asks. To ask her yourself,
 rock the flat cube three times, quickly, side to side. That only summons her. Ignore it
-and nothing happens. Touch the star, or simply lift the cube upright while it circles,
+and nothing happens. Touch the gold light, or simply lift the cube upright while it is visible,
 and she unravels into a stream of her own dots; stars float in the dark. Hold a finger
 near a star and the stream bends into it: the star fills, brightens and sings.
 

@@ -1,14 +1,11 @@
 #include "tess_sky_play.h"
 
-// How she asks for Skies. A star of gold comes out of her and wanders slowly round her, trailing a little comet tail,
-// while her dots nearest it light up; it sings her motif: up the last sky's chord from its root, four struck notes over
-// a soft swell, and their echo. It is the only melody she has outside a sky, so it is hers alone. A tap on the star,
-// or lifting the flat cube, answers it; ignored, it fades. She asks only while lying flat (a slight tilt at most) and
-// free to play; rocking the flat cube three times calls the star at once (that is not the game itself).
+// A gold thread peels from one of her visible corners, slows beside her and gently sways.
+// Touch its head or lift the flat device to answer; ignored, it quietly fades. The
+// starting corner is sampled once from the last drawn body, never projected on input.
 #define INVITE_CHANCE .55f
 #define CALL_S 7.f             // how long the star stays
-#define CALL_ORBIT 168.f       // px from her centre
-#define CALL_SPIN .42f         // rad/s
+#define CALL_REACH 168.f       // px from her centre
 #define CALL_R 64.f            // a tap this near the star answers it
 #define LYING_G .45f           // she is lying down when gravity along the glass is under this (a slight tilt of the flat cube)
 #define ROCK_G .15f            // a rocking swing crosses this on either side of level
@@ -18,12 +15,31 @@
 
 static bool inviting(const tess_games_t *g) { return g->sky_invite_t > 0; }
 static bool lying(const face_t *f) { return hypotf(f->grav_x, f->grav_y) < LYING_G; }
+static bool available(const face_t *f) { return tess_games_eligible(f) && !f->tess_games.game && !f->dimmed; }
 static bool free_to_ask(const face_t *f) {
-    return tess_games_eligible(f) && !f->tess_games.game && !f->dimmed && f->tess_hold[TR_SCATTER] <= 0 && f->tess_points_ready && lying(f);
+    return available(f) && f->tess_hold[TR_SCATTER] <= 0 && f->tess_points_ready && lying(f);
 }
-static void place_call(tess_games_t *g) {
-    g->sky_call[0] = SKY_CX + CALL_ORBIT * cosf(g->sky_call[2]);
-    g->sky_call[1] = SKY_CY + CALL_ORBIT * .92f * sinf(g->sky_call[2]);
+void sky_summon_point(const face_t *f, float behind, float *x, float *y) {
+    const tess_games_t *g = &f->tess_games;
+    float age = fmaxf(0, CALL_S - g->sky_invite_t - behind);
+    float u = clampf(age / 1.1f, 0, 1), ease = 1.f - (1.f - u) * (1.f - u) * (1.f - u);
+    float c = cosf(g->sky_call[2]), sn = sinf(g->sky_call[2]);
+    float tx = SKY_CX + CALL_REACH * c + 10.f * tess_sin(age * 1.2f);
+    float ty = SKY_CY + CALL_REACH * .86f * sn + 8.f * tess_sin(age * .85f);
+    float bow = 18.f * tess_sin(u * PI);
+    *x = g->sky_call_from[0] + (tx - g->sky_call_from[0]) * ease - sn * bow;
+    *y = g->sky_call_from[1] + (ty - g->sky_call_from[1]) * ease + c * bow;
+}
+static void call_origin(tess_games_t *g) {
+    float c = cosf(g->sky_call[2]), sn = sinf(g->sky_call[2]), best = -1e9f;
+    g->sky_call_from[0] = SKY_CX; g->sky_call_from[1] = SKY_CY;
+    for (int i = 0; i < 16; i++) {
+        float x = g->vertex_px[i][0], y = g->vertex_px[i][1];
+        if (x < 24 || x > 456 || y < 24 || y > 456) continue;
+        float out = (x - SKY_CX) * c + (y - SKY_CY) * sn;
+        if (out <= best) continue;
+        best = out; g->sky_call_from[0] = x; g->sky_call_from[1] = y;
+    }
 }
 // Her motif: root, third, fifth, sixth of the sky's scale an octave up, struck, over a swell on the root; then the last
 // two again, softly, as an echo.
@@ -39,8 +55,9 @@ static void sing_call(face_t *f) {
 static void call(face_t *f) {
     tess_games_t *g = &f->tess_games;
     g->sky_call[2] = frand(f) * 6.2831853f;
-    place_call(g);
+    call_origin(g);
     g->sky_invite_t = CALL_S;
+    sky_summon_point(f, 0, &g->sky_call[0], &g->sky_call[1]);
     sing_call(f);
 }
 bool tess_sky_invite(face_t *f) {
@@ -72,19 +89,19 @@ bool tess_sky_calling(const face_t *f, float *x, float *y) {
 }
 bool tess_sky_tap(face_t *f, float x, float y) {
     tess_games_t *g = &f->tess_games;
-    if (!inviting(g) || !tess_games_eligible(f)) return false;
+    if (!inviting(g) || !available(f)) return false;
     return hypotf(x - g->sky_call[0], y - g->sky_call[1]) < CALL_R && tess_sky_start(f);
 }
-// (every frame) lifting answers the star; rocking calls it; it wanders and runs out. True when a sky has started.
+// (every frame) lifting answers the star; rocking calls it; it sways and runs out. True when a sky has started.
 bool sky_summon_tick(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
-    if (inviting(g) && !g->game && hypotf(f->grav_x, f->grav_y) > RAISED_G && tess_sky_start(f)) return true;
+    if (!available(f)) g->sky_invite_t = 0; // invalidate before a lift or new input can answer it
+    if (inviting(g) && hypotf(f->grav_x, f->grav_y) > RAISED_G && tess_sky_start(f)) return true;
     if (free_to_ask(f)) rock(f, dt);
     else g->rock_n[0] = g->rock_n[1] = (uint8_t)(g->rock_side[0] = g->rock_side[1] = 0);
     if (!inviting(g)) return false;
-    g->sky_invite_t = tess_games_eligible(f) && !g->game ? fmaxf(0, g->sky_invite_t - dt) : 0;
-    g->sky_call[2] += CALL_SPIN * dt;
-    place_call(g);
+    g->sky_invite_t = fmaxf(0, g->sky_invite_t - dt);
+    sky_summon_point(f, 0, &g->sky_call[0], &g->sky_call[1]);
     return false;
 }
 // How far the star has come and how far it has gone: 0..1, for the picture.

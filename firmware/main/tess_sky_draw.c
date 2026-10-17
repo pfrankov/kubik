@@ -6,7 +6,7 @@
 // resolving, a line of dots that joins the stars as the melody reaches each. The stream itself is her own dots, drawn by
 // the cloud (tess_draw.c) at the places the sky gives them. Movable things shimmer a little; the one that is hinted
 // trembles towards where it is wanted (a relay or the source shows a faint ghost of its right way). Before a sky, the
-// summoning star wanders round her with its comet tail.
+// invitation peels from her corner as a short thread of gold.
 #define GLOW_ALPHA 255
 #define MAX_LINE_DOTS 36
 #define LINE_GAP 17.f
@@ -109,23 +109,23 @@ static void draw_constellation(scene_t *s, const tess_sky_t *k) {
     }
 }
 
-// The summoning star: a gold glow with a ring of beads turning about it and a comet tail behind it on its way.
-#define CALL_COLOUR 0xFFE3A0
+// One leading bead and a short fading thread: the same light that becomes the stream.
+#define CALL_COLOUR 0xFFD66E
 static void draw_call(const face_t *f, scene_t *s) {
     float x, y, shown = sky_summon_shown(f);
     if (!tess_sky_calling(f, &x, &y) || shown <= 0) return;
-    float t = f->t, pulse = .5f + .5f * tess_sin(t * 3.1f), turn = t * 1.3f, a = f->tess_games.sky_call[2];
-    sc_glow_dot(s, x, y, 4.5f + 2.f * pulse, CALL_COLOUR, (uint8_t)(255.f * shown));
-    for (int b = 0; b < BEADS; b++) {
-        float c = cosf(turn + 1.0472f * (float)b), sn = sinf(turn + 1.0472f * (float)b), r = 20.f + 3.f * pulse;
-        sc_glow_dot(s, x + c * r, y + sn * r, 1.6f, CALL_COLOUR, (uint8_t)(200.f * shown * (.5f + .5f * pulse)));
+    float pulse = .5f + .5f * tess_sin(f->t * 2.7f);
+    for (int i = 5; i >= 1; i--) {
+        float tx, ty;
+        sky_summon_point(f, .065f * (float)i, &tx, &ty);
+        float tail = 1.f - (float)i / 6.f;
+        sc_glow_dot(s, tx, ty, 1.1f + 1.2f * tail, CALL_COLOUR, (uint8_t)(175.f * shown * tail));
     }
-    for (int i = 1; i <= 4; i++) {   // the tail, along the way it came
-        float back = a - .075f * (float)i;
-        float tx = SKY_CX + (x - SKY_CX) * cosf(back - a) - (y - SKY_CY) / .92f * sinf(back - a);
-        float ty = SKY_CY + ((x - SKY_CX) * sinf(back - a) + (y - SKY_CY) / .92f * cosf(back - a)) * .92f;
-        sc_glow_dot(s, tx, ty, 3.2f - .5f * (float)i, CALL_COLOUR, (uint8_t)(170.f * shown * (1.f - .2f * (float)i)));
-    }
+    sc_glow_dot(s, x, y, 3.5f + .7f * pulse, CALL_COLOUR, (uint8_t)(255.f * shown));
+    sc_glow_dot(s, x, y, 1.4f, 0xFFF4D6, (uint8_t)(245.f * shown));
+    float spread = 7.f + 2.f * pulse;
+    sc_glow_dot(s, x - spread, y + spread * .6f, 1.2f, CALL_COLOUR, (uint8_t)(125.f * shown));
+    sc_glow_dot(s, x + spread * .6f, y - spread, 1.f, CALL_COLOUR, (uint8_t)(95.f * shown));
 }
 
 void tess_sky_draw(const face_t *f, scene_t *s) {

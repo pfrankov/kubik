@@ -80,7 +80,13 @@ async function summons() {
   await rock(.1);
   const s = await until(sky, v=>v.invite>0, 'a rock summons her', 3000);
   assert.equal(s.active, false, 'a summon is not the game');
-  await sleep(6000);
+  await sleep(900);
+  const settled = await sky();
+  assert.ok(settled.call_x>=24&&settled.call_x<=456&&settled.call_y>=24&&settled.call_y<=456,'invitation remains on the glass');
+  await sleep(350);
+  const moved = await sky();
+  assert.ok(Math.hypot(moved.call_x-settled.call_x,moved.call_y-settled.call_y)<10,'invitation settles into a gentle sway');
+  await sleep(4750);
   await until(sky, v=>v.invite===0, 'ignored, it fades', 3000);
   await rock(.1);                                    // summoned again; lifting the cube answers it like a touch
   await until(sky, v=>v.invite>0, 'summoned again', 3000);
@@ -105,6 +111,7 @@ async function main() {
       const r = await solve(elements, 100);
       const frames = r.played.frames + r.resolved.frames, late = r.played.late + r.resolved.late;
       report.push({elements, kind:r.first.kind, stars:r.first.stars, tools:r.first.tools, relays:r.first.relays, aim:r.first.aim, phase:r.phase, sung:`${r.sung}/${r.melody}`, frames, late, lateIn:`${r.played.late}+${r.resolved.late}`,
+        faceUs:`${r.played.face}+${r.resolved.face}`, shapesUs:`${r.played.shapes}+${r.resolved.shapes}`, sendUs:`${r.played.send}+${r.resolved.send}`,
         maxMs:+Math.max(r.played.maxMs, r.resolved.maxMs).toFixed(1), meanMs:+((r.played.meanMs+r.resolved.meanMs)/2).toFixed(1)});
       console.log(JSON.stringify(report.at(-1)));
       await sim('menu'); await until(info,s=>s.menu,'menu',4000); await sim('menu'); await until(info,s=>!s.menu,'home',4000);

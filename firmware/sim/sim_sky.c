@@ -1,4 +1,4 @@
-// Simulator scenario for Skies: the invitation, the tap on a lit corner, the unravelling, a first sky solved with a
+// Simulator scenario for Skies: the invitation, the tap on its gold light, the unravelling, a first sky solved with a
 // finger, the resolution and the next sky solved by putting its tools where its composer says (a player's moves are
 // not scripted). Frames go to stdout, the sky's timeline to stderr.
 //   sim sky [seconds]
@@ -79,7 +79,7 @@ static void begin(face_t *f) {
     face_init(f);
     face_set_character(f, CHARACTER_TESS);
     face_set_mode(f, MODE_IDLE);
-    tess_games_restore(f, 0);
+    tess_games_restore(f, getenv("SKY_PROGRESS") ? (uint8_t)atoi(getenv("SKY_PROGRESS")) : 0);
     if (getenv("SKY_ELEMENTS")) f->tess_games.sky_elements = (uint8_t)atoi(getenv("SKY_ELEMENTS"));   // start deeper in the ladder
     if (getenv("SKY_SKILL")) f->tess_games.sky_skill = (uint8_t)atoi(getenv("SKY_SKILL"));
     for (int i = 0; i < 8 * R_FPS; i++) face_update(f, 1.f / R_FPS);
@@ -97,7 +97,7 @@ void sim_sky(float seconds) {
         const tess_sky_t *k = g->sky;
         bool playing = k && k->phase == SKY_PLAY;
         feed(&f, false, 0, 0);
-        if (!tapped && t > 1.5f) tapped = tap_corner(&f, t);
+        if (!getenv("SKY_INVITE_ONLY") && !tapped && t > 1.5f) tapped = tap_corner(&f, t);
         if (!(playing && k->w.kind == SKY_POUR)) { f.grav_x = g->tilt_rest[0]; f.grav_y = g->tilt_rest[1]; }
         if (playing) play_it(&f, g);
         step(&f, t, "sky");

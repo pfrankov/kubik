@@ -19,7 +19,7 @@
 #define SETTLE_Q8 720    // 2.8 /s of drag at the centre of a pull
 #define FILL_RATE .06f   // fill per second per particle inside a star
 #define DRAIN .10f       // fill lost per second
-#define RESTITUTION 256  // /256
+#define RESTITUTION 244  // normal-speed retention /256; grazing motion keeps its tangent
 #define MAX_AGE 240      // frames a particle lives (8 s)
 #define SPLIT_C 3797     // cos and sin of 22 deg, Q12
 #define SPLIT_S 1534
@@ -28,9 +28,10 @@
 #define RELAY_SPEED 150.f
 
 typedef struct { int32_t x, y, r; uint8_t color; int8_t idx; } circ_t;
-typedef struct { int32_t ax, ay, bx, by, nx, ny; int8_t idx; } seg_t;
+typedef struct { int32_t ax, ay, bx, by, nx, ny, xmin, xmax, ymin, ymax; int8_t idx; } seg_t;
 typedef struct {
-    int32_t dt, gx, gy, fx, fy, finger_r;
+    int32_t dt, gx, gy, fx, fy, finger_r, well_drag;
+    int32_t well_spring[SKY_TOOLS];
     bool finger;
     int ns, nsplit, nstr, nwell, nprism, nhungry, nrelay;
     circ_t star[SKY_STARS], well[SKY_TOOLS], prism[SKY_TOOLS], hungry[SKY_TOOLS], relay[SKY_STARS];
@@ -68,6 +69,8 @@ static void load_segment(seg_t *s, const sky_tool_t *t, int idx) {
     s->ax = q3(t->x - t->dx); s->ay = q3(t->y - t->dy);
     s->bx = q3(t->x + t->dx); s->by = q3(t->y + t->dy);
     s->nx = (int32_t)lrintf(-t->dy / len * 4096.f); s->ny = (int32_t)lrintf(t->dx / len * 4096.f);
+    s->xmin = s->ax < s->bx ? s->ax : s->bx; s->xmax = s->ax > s->bx ? s->ax : s->bx;
+    s->ymin = s->ay < s->by ? s->ay : s->by; s->ymax = s->ay > s->by ? s->ay : s->by;
     s->idx = (int8_t)idx;
 }
 static void load_tool(field_t *F, const sky_tool_t *t, int idx) {
@@ -75,7 +78,9 @@ static void load_tool(field_t *F, const sky_tool_t *t, int idx) {
     switch (t->kind) {
     case TOOL_STRING: load_segment(&F->str[F->nstr++], t, idx); break;
     case TOOL_SPLIT: load_segment(&F->split[F->nsplit++], t, idx); break;
-    case TOOL_WELL: F->well[F->nwell++] = c; break;
+    case TOOL_WELL:
+        F->well_spring[F->nwell] = c.r > 0 ? (int32_t)(2.f * WELL_A * SKY_Q3 * 65536.f / (float)c.r) : 0;
+        F->well[F->nwell++] = c; break;
     case TOOL_PRISM: F->prism[F->nprism++] = c; break;
     case TOOL_HUNGRY: F->hungry[F->nhungry++] = c; break;
     default: break;
@@ -96,6 +101,7 @@ static void load_relay(field_t *F, const sky_star_t *s) {
 static void load_field(field_t *F, const sky_world_t *k, float dt, const sky_force_t *force, bool open_relays) {
     memset(F, 0, sizeof *F);
     F->dt = (int32_t)(dt * 65536.f);
+    F->well_drag = 65536 - F->dt * 75 / 128; // 251/256 at 30 Hz, same drag per elapsed second
     F->gx = q3(force->gx * G_PX); F->gy = q3(force->gy * G_PX);
     F->finger = force->finger;
     F->fx = q3(force->fx); F->fy = q3(force->fy); F->finger_r = q3(SKY_FINGER_R);
@@ -121,12 +127,14 @@ static void settle(const sky_particle_t *p, int32_t cx, int32_t cy, int32_t reac
     int32_t k = rate_q8 * (reach - d) / reach;   // /256 per second
     *ax -= p->vx * k / 256; *ay -= p->vy * k / 256;
 }
-static void pull_well(const sky_particle_t *p, const circ_t *w, int32_t *ax, int32_t *ay) {
+static void pull_well(const sky_particle_t *p, const circ_t *w, int32_t spring, int32_t *ax, int32_t *ay) {
     int32_t dx = w->x - p->x, dy = w->y - p->y, d = dist_approx(dx, dy);
-    if (d >= w->r || d < 8) return;
-    int32_t near = (w->r - d) * 256 / w->r;                        // 0..256
-    int32_t mag = (int32_t)(WELL_A * SKY_Q3) * near / 256 * near / 256;   // strongest in the middle, nothing at the rim
-    *ax += mag * dx / d; *ay += mag * dy / d;
+    if (d >= w->r) return;
+    int32_t near = (w->r - d) * 256 / w->r;
+    int32_t k = (int32_t)((int64_t)spring * near / 256);
+    // A soft radial spring: zero at the centre and rim, no undefined direction or central kick.
+    *ax += (int32_t)((int64_t)dx * k / 65536);
+    *ay += (int32_t)((int64_t)dy * k / 65536);
 }
 static void accelerate(const field_t *F, const sky_particle_t *p, int32_t *ax, int32_t *ay) {
     *ax = F->gx; *ay = F->gy;
@@ -134,7 +142,7 @@ static void accelerate(const field_t *F, const sky_particle_t *p, int32_t *ax, i
         pull(p, F->fx, F->fy, F->finger_r, (int32_t)(FINGER_A * SKY_Q3), ax, ay);
         settle(p, F->fx, F->fy, F->finger_r, SETTLE_Q8, ax, ay);
     }
-    for (int i = 0; i < F->nwell; i++) pull_well(p, &F->well[i], ax, ay);
+    for (int i = 0; i < F->nwell; i++) pull_well(p, &F->well[i], F->well_spring[i], ax, ay);
     for (int i = 0; i < F->nhungry; i++) pull(p, F->hungry[i].x, F->hungry[i].y, F->hungry[i].r, (int32_t)(HUNGRY_A * SKY_Q3), ax, ay);
     for (int i = 0; i < F->ns; i++) {
         if (F->star[i].color != p->color) continue;
@@ -147,7 +155,10 @@ static int64_t side(const seg_t *s, int32_t x, int32_t y) {
     return (int64_t)(s->bx - s->ax) * (y - s->ay) - (int64_t)(s->by - s->ay) * (x - s->ax);
 }
 // Whether the step from (x0,y0) to (x1,y1) crosses the segment, and where.
-static bool crosses(const seg_t *s, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t *cx, int32_t *cy, int *from_positive) {
+static bool crosses(const seg_t *s, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t *cx, int32_t *cy, int *from_positive, int32_t *fraction) {
+    // Exact broad phase: disjoint bounding boxes cannot meet, including during a reflected leg.
+    if ((x0 < s->xmin && x1 < s->xmin) || (x0 > s->xmax && x1 > s->xmax) ||
+        (y0 < s->ymin && y1 < s->ymin) || (y0 > s->ymax && y1 > s->ymax)) return false;
     int64_t d0 = side(s, x0, y0), d1 = side(s, x1, y1);
     if ((d0 > 0) == (d1 > 0) || d0 == d1) return false;
     int64_t span = d0 - d1;
@@ -156,24 +167,58 @@ static bool crosses(const seg_t *s, int32_t x0, int32_t y0, int32_t x1, int32_t 
     int64_t length2 = (int64_t)(s->bx - s->ax) * (s->bx - s->ax) + (int64_t)(s->by - s->ay) * (s->by - s->ay);
     if (along < 0 || along > length2) return false;
     *cx = px; *cy = py; *from_positive = d0 > 0;
+    *fraction = (int32_t)(d0 * 65536 / span);
     return true;
-}
-static void bounce(sky_particle_t *p, const seg_t *s, int32_t cx, int32_t cy, int from_positive, sky_hits_t *hits) {
-    int sign = from_positive ? 1 : -1;
-    int32_t nx = s->nx * sign, ny = s->ny * sign;              // the side it came from, Q12
-    int32_t into = (p->vx * nx + p->vy * ny) >> 12;            // speed against the string (negative: towards it)
-    if (into < 0) {
-        p->vx = (int16_t)(((p->vx - ((2 * into * nx) >> 12)) * RESTITUTION) >> 8);
-        p->vy = (int16_t)(((p->vy - ((2 * into * ny) >> 12)) * RESTITUTION) >> 8);
-    }
-    p->x = (int16_t)(cx + (nx >> 9)); p->y = (int16_t)(cy + (ny >> 9));  // 8/8 px off the string
-    float strike = (float)(-into) / (SKY_Q3 * 300.f);
-    if (hits && strike > hits->strike[s->idx]) hits->strike[s->idx] = strike > 1.f ? 1.f : strike;
 }
 static void split(sky_particle_t *p, int parity) {
     int32_t c = SPLIT_C, sn = parity ? SPLIT_S : -SPLIT_S;
-    int32_t vx = (p->vx * c - p->vy * sn) >> 12, vy = (p->vx * sn + p->vy * c) >> 12;
+    int32_t vx = (p->vx * c - p->vy * sn) / 4096, vy = (p->vx * sn + p->vy * c) / 4096;
     p->vx = (int16_t)vx; p->vy = (int16_t)vy;
+}
+
+typedef struct { int32_t x, y, fraction; int from, index; bool split; } contact_t;
+static bool first_contact(const field_t *F, int32_t x0, int32_t y0, int32_t x1, int32_t y1, contact_t *hit) {
+    hit->fraction = 65537;
+    for (int i = 0; i < F->nstr + F->nsplit; i++) {
+        bool splitting = i >= F->nstr;
+        int index = splitting ? i - F->nstr : i;
+        const seg_t *line = splitting ? &F->split[index] : &F->str[index];
+        contact_t c = {.index = index, .split = splitting};
+        if (crosses(line, x0, y0, x1, y1, &c.x, &c.y, &c.from, &c.fraction) && c.fraction < hit->fraction) *hit = c;
+    }
+    return hit->fraction <= 65536;
+}
+static void bounce(sky_particle_t *p, const seg_t *s, const contact_t *c, sky_hits_t *hits) {
+    int sign = c->from ? 1 : -1;
+    int32_t nx = s->nx * sign, ny = s->ny * sign;
+    int32_t into = (p->vx * nx + p->vy * ny) / 4096;
+    if (into < 0) {
+        p->vx -= (int16_t)(((into * nx / 4096) * (256 + RESTITUTION)) / 256);
+        p->vy -= (int16_t)(((into * ny / 4096) * (256 + RESTITUTION)) / 256);
+    }
+    p->x = (int16_t)(c->x + nx * 2 / 4096); p->y = (int16_t)(c->y + ny * 2 / 4096);
+    float strike = (float)(-into) / (SKY_Q3 * 300.f);
+    if (hits && strike > hits->strike[s->idx]) hits->strike[s->idx] = strike > 1.f ? 1.f : strike;
+}
+static void advance_contacts(const field_t *F, sky_particle_t *p, int parity, int32_t x0, int32_t y0, sky_hits_t *hits) {
+    int32_t left = F->dt;
+    // Follow the actual piecewise path, including splitters before/after a reflection.
+    for (int n = 0; n < 4; n++) {
+        contact_t c;
+        if (!first_contact(F, x0, y0, p->x, p->y, &c)) return;
+        left = (int32_t)((int64_t)left * (65536 - c.fraction) / 65536);
+        if (c.split) {
+            const seg_t *s = &F->split[c.index];
+            split(p, parity);
+            int side = p->vx * s->nx + p->vy * s->ny < 0 ? -1 : 1;
+            p->x = (int16_t)(c.x + side * s->nx * 2 / 4096);
+            p->y = (int16_t)(c.y + side * s->ny * 2 / 4096);
+        } else bounce(p, &F->str[c.index], &c, hits);
+        if (n == 3) return; // At the budget, stay at this safe contact; never tunnel through an unchecked wall.
+        x0 = p->x; y0 = p->y;
+        p->x += (int16_t)(p->vx * left / 65536);
+        p->y += (int16_t)(p->vy * left / 65536);
+    }
 }
 
 static void respawn(sky_world_t *k, sky_particle_t *p) {
@@ -198,17 +243,12 @@ static void hold_in_wells(const field_t *F, sky_particle_t *p, sky_world_t *k) {
     for (int i = 0; i < F->nwell; i++) {
         const circ_t *w = &F->well[i];
         if (dist_approx(p->x - w->x, p->y - w->y) >= (int32_t)(w->r * HOLD_K)) continue;
-        p->vx = (int16_t)(p->vx * 251 >> 8); p->vy = (int16_t)(p->vy * 251 >> 8);  // it lingers and circles
+        p->vx = (int16_t)(p->vx * F->well_drag / 65536); p->vy = (int16_t)(p->vy * F->well_drag / 65536);  // it lingers and circles
         if (k && k->tool[w->idx].held < 100) k->tool[w->idx].held++;
     }
 }
 static void touch_tools(const field_t *F, sky_world_t *k, sky_particle_t *p, int parity, int32_t x0, int32_t y0, sky_hits_t *hits) {
-    int32_t cx, cy;
-    int from;
-    for (int i = 0; i < F->nstr; i++)
-        if (crosses(&F->str[i], x0, y0, p->x, p->y, &cx, &cy, &from)) { bounce(p, &F->str[i], cx, cy, from, hits); break; }
-    for (int i = 0; i < F->nsplit; i++)
-        if (crosses(&F->split[i], x0, y0, p->x, p->y, &cx, &cy, &from)) { split(p, parity); break; }
+    advance_contacts(F, p, parity, x0, y0, hits);
     for (int i = 0; i < F->nprism; i++)
         if (dist_approx(p->x - F->prism[i].x, p->y - F->prism[i].y) < F->prism[i].r) p->color = F->prism[i].color;
     hold_in_wells(F, p, k);
@@ -227,8 +267,8 @@ static bool move_particle(const field_t *F, sky_world_t *k, sky_particle_t *p, i
     int32_t ax, ay;
     accelerate(F, p, &ax, &ay);
     int32_t limit = (int32_t)(SKY_MAX_SPEED * SKY_Q3);
-    int32_t vx = clamp32(p->vx + (int32_t)((int64_t)ax * F->dt >> 16), -limit, limit);
-    int32_t vy = clamp32(p->vy + (int32_t)((int64_t)ay * F->dt >> 16), -limit, limit);
+    int32_t vx = clamp32(p->vx + (int32_t)((int64_t)ax * F->dt / 65536), -limit, limit);
+    int32_t vy = clamp32(p->vy + (int32_t)((int64_t)ay * F->dt / 65536), -limit, limit);
     int32_t x0 = p->x, y0 = p->y;
     p->vx = (int16_t)vx; p->vy = (int16_t)vy;
     p->x = (int16_t)clamp32(x0 + vx * F->dt / 65536, -4000, 7000);
@@ -261,6 +301,7 @@ static void update_stars(sky_world_t *k, float dt, sky_hits_t *hits) {
 }
 
 void sky_stream_step(sky_world_t *k, sky_particle_t *ps, int n, float dt, const sky_force_t *force, sky_hits_t *hits) {
+    if (!(dt > 0)) return;
     field_t F;
     dt = dt > .1f ? .1f : dt;
     load_field(&F, k, dt, force, false);

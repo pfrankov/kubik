@@ -106,9 +106,9 @@ static void sky_state(char *reply, size_t cap) {
     const tess_sky_t *k = g->sky;
     bool settled;
     unsigned long packed = tess_games_sky_progress(&g_face, &settled);
-    int n = snprintf(reply, cap, "{\"ok\":true,\"active\":%s,\"elements\":%u,\"skill\":%u,\"solved\":%u,\"root\":%u,\"invite\":%.1f,"
+    int n = snprintf(reply, cap, "{\"ok\":true,\"active\":%s,\"elements\":%u,\"skill\":%u,\"solved\":%u,\"root\":%u,\"invite\":%.1f,\"call_x\":%.1f,\"call_y\":%.1f,"
                      "\"packed\":%lu,\"saved\":%lu",
-                     k ? "true" : "false", g->sky_elements, g->sky_skill, g->sky_solved, g->sky_root, g->sky_invite_t,
+                     k ? "true" : "false", g->sky_elements, g->sky_skill, g->sky_solved, g->sky_root, g->sky_invite_t, g->sky_call[0], g->sky_call[1],
                      packed, (unsigned long)g_settings.sky_progress);
     if (k && n > 0 && (size_t)n < cap) {
         int full = 0, relays = 0;

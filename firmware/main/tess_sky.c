@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Skies, the rounds. She asks with a wandering star and her motif (tess_sky_summon.c); answered, she unravels: the burst
+// Skies, the rounds. She asks with light from her corner and her motif (tess_sky_summon.c); answered, she unravels: the burst
 // throws her dots out, and where they hang the stream takes them. From then on the sky is a puzzle of light
 // (tess_sky_stream.c, tess_sky_compose.c). All stars full for 1.6 s resolves it: the sky sings its own melody, star by
 // star as a line of dots joins them, closes on its chord, and the next sky grows from it with one thing more. Her dots are the

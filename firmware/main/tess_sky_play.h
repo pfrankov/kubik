@@ -12,7 +12,7 @@
 
 // tess_sky_summon.c: (every frame) the summoning star; true when lifting the cube has answered it with a sky
 bool sky_summon_tick(face_t *f, float dt);
-float sky_summon_shown(const face_t *f);           // 0..1 how far the star has appeared
+void sky_summon_point(const face_t *f, float behind, float *x, float *y); // shared head/trail trajectory
 // tess_sky_touch.c: a finger either takes hold of a tool or bends the stream. True while one is on the glass.
 bool sky_touch(const face_t *f, tess_sky_t *k, sky_force_t *force, float dt);
 // tess_sky_sound.c

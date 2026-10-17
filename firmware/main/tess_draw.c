@@ -299,12 +299,14 @@ static const uint32_t k_sky_ramp[3][3] = {{0}, {0x170D04, 0xB8861C, 0xFFD66E}, {
 static void light_invited(const face_t *f, dot_t dots[TESS_N]) {
     float x, y;
     if (!tess_sky_calling(f, &x, &y)) return;
+    int shown = (int)(sky_summon_shown(f) * 256.f);
     int cx = (int)(x * 8.f), cy = (int)(y * 8.f);
     for (int i = 0; i < TESS_N; i++) {
         int dx = dots[i].x - cx, dy = dots[i].y - cy, near = CALL_LIGHT_Q3 - (abs(dx) > abs(dy) ? abs(dx) + 3 * abs(dy) / 8 : abs(dy) + 3 * abs(dx) / 8);
         if (near <= 0) continue;
-        dots[i].radius = (dots[i].radius * (256 + near * 256 / CALL_LIGHT_Q3) + 128) >> 8;
-        if (near > CALL_LIGHT_Q3 / 3) dots[i].key = 65535;
+        dots[i].radius = (dots[i].radius * (256 + near * shown / (3 * CALL_LIGHT_Q3)) + 128) >> 8;
+        int light = near * shown / CALL_LIGHT_Q3;
+        dots[i].key += (uint16_t)(((65535 - dots[i].key) * light) >> 8);
     }
 }
 

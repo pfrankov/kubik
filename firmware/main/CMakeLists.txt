@@ -79,7 +79,7 @@ target_compile_options(${COMPONENT_LIB} PRIVATE -O2 -Wno-format-truncation -Wno-
 # Tess's point loops dominate interactive frames on the software-float C6.
 # Let the compiler inline/unroll them without fast-math or changed arithmetic.
 if(KUBIK_CHARACTER STREQUAL "TESS")
-    set_source_files_properties(tess_geometry.c tess_play_shape.c tess_draw.c render_dots.c
+    set_source_files_properties(tess_geometry.c tess_play_shape.c tess_draw.c tess_scatter.c render_dots.c
         tess_sky_stream.c tess_sky_compose.c tess_sky_draw.c
         PROPERTIES COMPILE_OPTIONS "-O3")
 endif()

@@ -108,7 +108,8 @@ void sky_sound_frame(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt)
         bool on = send(f, TT_SKY_PAD, i, s->hz, pad_level(s->fill) * fade, s->color * .5f, &k->pad_gain[i], &k->pad_sent[i], dt, g->sky_lit & PAD_BIT(i));
         g->sky_lit = (uint16_t)(on ? g->sky_lit | PAD_BIT(i) : g->sky_lit & ~PAD_BIT(i));
     }
-    float hum_hz = sky_degree_hz(w->root) * .5f;
+    float hum_hz = 0;
+    bool hum_ready = false;
     for (int i = 0; i < w->count_tools; i++) {
         sky_tool_t *t = &w->tool[i];
         k->strike_wait[i] -= dt;
@@ -118,6 +119,7 @@ void sky_sound_frame(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt)
             k->strike_wait[i] = STRIKE_GAP_S;
         }
         if (t->kind != TOOL_WELL) continue;
+        if (!hum_ready) { hum_hz = sky_degree_hz(w->root) * .5f; hum_ready = true; }
         bool on = send(f, TT_SKY_HUM, i, hum_hz, fminf(1.f, (float)t->held / HUM_FULL) * fade, 0, &k->hum_gain[i], &k->hum_sent[i], dt, g->sky_lit & HUM_BIT(i));
         g->sky_lit = (uint16_t)(on ? g->sky_lit | HUM_BIT(i) : g->sky_lit & ~HUM_BIT(i));
     }

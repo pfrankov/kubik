@@ -66,7 +66,8 @@ typedef struct {
     uint8_t sky_elements, sky_skill, sky_root;  // elements met; how much she is asked, 0..255; the last chord's root
     uint16_t sky_lit;            // a bit per held voice still sounding: the pads, then the wells
     uint16_t sky_solved;
-    float sky_call[3];           // the summoning star: where it is (panel px), and its angle about her
+    float sky_call[3];           // invitation head (panel px), and its resting direction
+    float sky_call_from[2];      // the actual visible corner it peeled away from
     float rock_t[2];             // per screen axis: s since its last swing across the level (a rocking flat cube summons Skies)
     int8_t rock_side[2];
     uint8_t rock_n[2];

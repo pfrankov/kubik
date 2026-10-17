@@ -116,9 +116,10 @@ void tess_touch_resume(face_t *face, float x, float y, float age);
 void tess_touch_waves_step(face_t *face, float dt);
 
 // Skies (tess_sky.c, tess_sky_draw.c)
-bool tess_sky_invite(face_t *face);                      // she asks with a wandering star, now and then
+bool tess_sky_invite(face_t *face);                      // she asks with a gold light, now and then
+float sky_summon_shown(const face_t *face); // invitation visibility, 0..1
 bool tess_sky_calling(const face_t *face, float *x, float *y);   // that star is out, and where (panel px)
-bool tess_sky_tap(face_t *face, float x, float y);       // a tap on a lit corner starts a sky
+bool tess_sky_tap(face_t *face, float x, float y);       // a tap on the invitation starts a sky
 bool tess_sky_start(face_t *face);
 void tess_sky_release(tess_games_t *games);              // the sky's memory goes back
 void tess_sky_stop(face_t *face);                        // its voices let go
