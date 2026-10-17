@@ -67,6 +67,7 @@ export async function createAgentHost({ stateDir, config, adapter, env = process
       dispatch: (turn) => adapter.dispatch({ ...turn, events }),
     });
     server.start();
+    await adapter.start?.({ events, log });
     listener = new LanListener({
       ...lanOptions,
       identity: loadTlsIdentity(stateDir, { log }),
@@ -77,7 +78,6 @@ export async function createAgentHost({ stateDir, config, adapter, env = process
     });
     await listener.start();
     server.lan = { listener };
-    await adapter.start?.({ events, log });
     return {
       account, config: ready, adapter, pairing, server, listener, events,
       close() {
