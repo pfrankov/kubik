@@ -128,7 +128,11 @@ static bool pointer(cJSON *j) {
         input_probe_sample(cJSON_IsTrue(down), x, y);
 }
 static bool sky_event(cJSON *j, const char *event, char *reply, size_t cap) {
-    if (!strcmp(event, "sky-state")) { sky_state(reply, cap); return true; }
+    if (!strcmp(event, "sky-state")) {
+        if (KUBIK_CHARACTER == CHARACTER_TESS) sky_state(reply, cap);
+        else snprintf(reply, cap, "{\"ok\":true,\"active\":false}");
+        return true;
+    }
     if (strcmp(event, "sky-start") && strcmp(event, "sky-solve") && strcmp(event, "sky-restore")) return false;
     bool ok = KUBIK_CHARACTER == CHARACTER_TESS &&   // (Plush has no Skies, and links none of it)
         (!strcmp(event, "sky-start") ? sky_start(j) : !strcmp(event, "sky-solve") ? sky_solve() : sky_restore());
