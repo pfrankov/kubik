@@ -17,7 +17,7 @@ PAGE_COUNT = 8
 def inputs():
     paths = [*SOURCE.glob('*.html'), *SOURCE.glob('*.css'), *SOURCE.glob('*.js'), *SOURCE.glob('*.txt'),
              *SOURCE.glob('assets/*.png'), ROOT / 'tools/build-buyer-guide.py',
-             *[ROOT / 'tools/font/sources' / f'PT_Sans-Web-{style}.ttf' for style in ('Regular', 'Bold')]]
+             ROOT / 'firmware/main/version.h', *[ROOT / 'tools/font/sources' / f'PT_Sans-Web-{style}.ttf' for style in ('Regular', 'Bold')]]
     return {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(paths)}
 
 
@@ -60,6 +60,11 @@ def render(path):
         browser.close()
 
 
+def firmware_version():
+    header = (ROOT / 'firmware/main/version.h').read_text()
+    return re.search(r'#define KUBIK_FW_VERSION "([^"]+)"', header).group(1)
+
+
 def normalize_pdf(path):
     import fitz
     with fitz.open(path) as pdf:
@@ -67,7 +72,7 @@ def normalize_pdf(path):
         for page in pdf:
             page.set_mediabox(fitz.Rect(0, 0, 105 * 72 / 25.4, 148 * 72 / 25.4))
         pdf.set_metadata({'title': 'Kubik · Getting started', 'author': 'Kubik',
-                          'subject': 'English A6 guide · Tess · software 0.6.3'})
+                          'subject': 'English A6 guide · Tess · software ' + firmware_version()})
         data = pdf.tobytes(garbage=4, deflate=True, no_new_id=True)
     path.write_bytes(data)
 

@@ -174,16 +174,20 @@ static void begin_resolve(face_t *f, tess_sky_t *k) {
 }
 
 static bool hint_due(const tess_games_t *g, const tess_sky_t *k) { return k->struggle > hint_delay_s(g->sky_skill) && k->hints < 3; }
-static void play(face_t *f, tess_sky_t *k, float dt) {
-    tess_games_t *g = &f->tess_games;
-    sky_force_t force = {0};
-    bool touched = sky_touch(f, k, &force, dt);
+static bool gravity_force(const face_t *f, const tess_sky_t *k, sky_force_t *force) {
+    const tess_games_t *g = &f->tess_games;
     bool pouring = k->w.kind == SKY_POUR;
     float tilt = pouring ? POUR_TILT : PUZZLE_TILT;
     // Pouring follows gravity on the glass, not the body's slowly adapting rest pose.
     float gx = pouring ? f->grav_x : g->tilt[0], gy = pouring ? f->grav_y : g->tilt[1];
-    force.gx = gx * tilt; force.gy = gy * tilt;
-    bool tilted = fabsf(gx) + fabsf(gy) > TILT_QUIET;
+    force->gx = gx * tilt; force->gy = gy * tilt;
+    return fabsf(gx) + fabsf(gy) > TILT_QUIET;
+}
+static void play(face_t *f, tess_sky_t *k, float dt) {
+    tess_games_t *g = &f->tess_games;
+    sky_force_t force = {0};
+    bool touched = sky_touch(f, k, &force, dt);
+    bool tilted = gravity_force(f, k, &force);
     k->calm = touched || tilted ? 0.f : k->calm + dt;
     k->struggle += dt;
     sky_hits_t hits;
