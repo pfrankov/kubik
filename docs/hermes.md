@@ -175,6 +175,8 @@ errors, inspect the Gateway log and native provider settings; missing ffmpeg
 makes speech output unavailable. Do not share secrets or private conversations
 in diagnostic reports.
 
+Updating `openclaw-kubik` from npm does not update Hermes's Python environment.
+
 For an update, rerun `uv pip install --python "$HERMES_PY" -r hermes-kubik/requirements.txt`
 with the interpreter used by Hermes, then repeat installation from the new Kubik
 checkout using the same home. For a PM-managed environment, run
