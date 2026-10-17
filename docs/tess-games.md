@@ -152,3 +152,12 @@ tesseract; recording keeps its sphere.
 
 Screen Lab has a preview of each behaviour for development. Previews never
 change saved progress. See [the Screen Lab guide](screen-lab.md).
+
+## Playing without a connection
+
+When Tess has fallen into offline points, press **BOOT briefly** to bring her back
+for local play. Touch games and Skies work without Wi-Fi or an agent. The network
+indicator stays visible and reconnection continues in the background. In Skies,
+BOOT ends the current game; press it again to return to the offline points.
+KEY cannot record while disconnected. Reconnection restores normal agent use;
+your pairing and preferences stay unchanged.

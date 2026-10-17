@@ -7,7 +7,7 @@
 #include "character.h"
 
 static bool s_online, s_setup, s_menu, lab, live, playing, mic_open;
-static bool listening, mic_played;
+static bool listening, mic_played, s_offline_play;
 static talk_state_t s_talk;
 static power_state_t s_power;
 static int s_srv, s_gen, s_act_own;
@@ -44,14 +44,17 @@ static void tess_games_restore_sky(face_t *face, uint32_t packed) { face->sky = 
 /* PRODUCTION_HOME_FACE_INIT */
 
 static void reset_availability(void) {
-    s_online = true; s_setup = s_menu = lab = live = playing = mic_open = listening = mic_played = false;
+    s_offline_play = false; s_online = true; s_setup = s_menu = lab = live = playing = mic_open = listening = mic_played = false;
     s_pair_code[0] = 0;
     s_talk = TALK_IDLE; s_power = PWR_AWAKE; s_srv = SS_IDLE; s_gen = -1; s_act_own = 0;
 }
 
 static void test_game_availability_is_live_and_preemptible(void) {
     reset_availability(); assert(app_games_available());
-    s_online = false; assert(!app_games_available()); s_online = true;
+    s_online = false; assert(!app_games_available());
+    s_offline_play = true; assert(app_games_available());
+    mic_open = true; assert(!app_games_available()); mic_open = false;
+    s_online = true; s_offline_play = false;
     s_power = PWR_DARK_MANUAL; assert(!app_games_available()); s_power = PWR_DIMMED;
     s_setup = true; assert(!app_games_available()); s_setup = false;
     s_pair_code[0] = '1'; assert(!app_games_available()); s_pair_code[0] = 0;

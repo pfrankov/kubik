@@ -14,6 +14,7 @@ def section(name, start, end):
 
 source = section('input.c', 'static void update_boot_key(', 'static void update_power_key(')
 source += section('input.c', 'static void refresh_touch_activity(', 'static void update_touch(')
+source += section('app_control.c', 'bool app_offline_play_button(', 'static bool fallen_character(')
 source += section('app_events.c', 'static void handle_boot_short(', 'static void handle_boot_long(')
 mocks = r'''
 #include <assert.h>
@@ -21,9 +22,10 @@ mocks = r'''
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-enum { PIN_BOOT, EV_BOOT_SHORT, EV_BOOT_LONG, EV_TOUCH_DOWN, SFX_MENU_CLOSE, SFX_DISMISS };
+enum { PIN_BOOT, EV_BOOT_SHORT, EV_BOOT_LONG, EV_TOUCH_DOWN, SFX_MENU_CLOSE, SFX_DISMISS, BUB_OK };
 typedef struct { bool boot, boot_long_sent; int boot_count; int64_t boot_started_ms, touch_activity_ms; } input_state_t;
-static bool down, s_menu, s_setup, s_pair_hidden;
+static bool down, s_menu, s_setup, s_pair_hidden, s_offline_play;
+static bool s_online = true;
 static char s_pair_code[17];
 static int short_events, long_events, contacts, backs, closes, wakes, dismissals, s_power;
 static int g_face;
@@ -47,6 +49,7 @@ static void face_card(int *face, const char *text) { assert(face == &g_face && !
 static bool sky_playing;
 static bool tess_games_end_sky(int *face) { assert(face == &g_face); bool was = sky_playing; sky_playing = false; return was; }
 static void disp_wake(void) {}
+static void bubble_raw(int kind,const char *text,float seconds) { assert(kind==BUB_OK && strstr(text,"Offline play") && seconds>0); }
 '''
 tests = r'''
 static void edge(input_state_t *state, bool pressed, int64_t at) {
@@ -79,6 +82,12 @@ static void routes(void) {
     s_menu = false; handle_boot_short(); assert(dismissals == 1);
     handle_boot_short(); assert(dismissals == 2); // no volume mutation or network request
     sky_playing = true; handle_boot_short(); assert(dismissals == 2 && !sky_playing); // a short BOOT ends a sky instead of opening a card
+    s_pair_code[0]=0; s_online=false;
+    handle_boot_short(); assert(s_offline_play);
+    sky_playing=true; handle_boot_short(); assert(!sky_playing && s_offline_play);
+    handle_boot_short(); assert(!s_offline_play);
+    strcpy(s_pair_code,"PENDING"); assert(!app_offline_play_button());
+    s_pair_code[0]=0; s_online=true; assert(!app_offline_play_button());
 }
 int main(void) {
     input_state_t touching = {0};

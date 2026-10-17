@@ -9,7 +9,7 @@
 #define ESP_LOGI(...) ((void)0)
 enum { SFX_SETUP_OK, SFX_HELLO, SFX_CONNECT };
 typedef struct { int a, b; } app_ev_t;
-static bool s_online, s_pair_hidden, s_outage, s_ever_online;
+static bool s_online, s_pair_hidden, s_outage, s_ever_online, s_offline_play;
 static int s_srv_progress, s_offline_icon, displayed;
 static char s_pair_code[17];
 static int64_t s_boot_ms, clock_ms;

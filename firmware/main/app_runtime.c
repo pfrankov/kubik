@@ -359,7 +359,7 @@ static bool waiting_for_reply(void) {
 }
 
 bool app_games_available(void) {
-    return KUBIK_CHARACTER == CHARACTER_TESS && s_online && power_is_active(s_power) && !s_setup && !s_pair_code[0] && !s_menu &&
+    return KUBIK_CHARACTER == CHARACTER_TESS && (s_online || s_offline_play) && power_is_active(s_power) && !s_setup && !s_pair_code[0] && !s_menu &&
         !app_lab_active() && app_games_flush_safe();
 }
 
@@ -381,7 +381,7 @@ static face_mode_t awake_face_mode(int64_t t) {
     // Pauses in one reply keep its pose; the real PCM envelope still falls to zero.
     if (speech_pose_active()) return MODE_SPEAKING;
     if (waiting_for_reply()) return MODE_THINKING;
-    if (show_offline(t)) return MODE_OFFLINE;
+    if (show_offline(t) && !s_offline_play) return MODE_OFFLINE;
     return MODE_IDLE;
 }
 

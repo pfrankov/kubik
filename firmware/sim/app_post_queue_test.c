@@ -46,7 +46,7 @@ static void *s_app_task;
 static portMUX_TYPE s_mailbox_mux = 0;
 static app_mailbox_t s_mailbox;
 static fake_queue_t s_queue;
-static bool s_online, s_pair_hidden, s_outage, s_ever_online;
+static bool s_online, s_pair_hidden, s_outage, s_ever_online, s_offline_play;
 static int s_srv_progress, s_offline_icon, displayed;
 static char s_pair_code[17];
 static int64_t s_boot_ms;

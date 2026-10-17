@@ -396,6 +396,7 @@ static void config_info(char *reply, size_t cap) {
     status_json_string(info, "character", character_name(KUBIK_CHARACTER));
     status_json_string(info, "via", link_via());
     status_json_bool(info, "online", s_online);
+    status_json_bool(info, "offline_play", s_offline_play);
     status_json_bool(info, "menu", s_menu);
     status_json_bool(info, "screen_lab", app_lab_active());
     status_json_string(info, "lab_screen", app_lab_screen());

@@ -16,6 +16,19 @@
 
 static const char *TAG = "app";
 
+bool app_offline_play_button(void) {
+    if (KUBIK_CHARACTER != CHARACTER_TESS || s_online || s_setup || s_pair_code[0]) return false;
+    face_lock();
+    bool sky_ended = tess_games_end_sky(&g_face);
+    if (!sky_ended) {
+        s_offline_play = !s_offline_play;
+        face_card(&g_face, NULL);
+    }
+    face_unlock();
+    if (s_offline_play && !sky_ended) bubble_raw(BUB_OK, "Offline play  |  BOOT to leave", 3.f);
+    return true;
+}
+
 static bool fallen_character(void) {
     face_lock();
     bool fallen = face_character(&g_face) == CHARACTER_TESS &&
@@ -43,6 +56,7 @@ void ptt_down(void) {
     }
     face_lock();
     face_card(&g_face, NULL);  // talking again: the old card goes
+    if (!s_online) tess_games_end_sky(&g_face);
     face_unlock();
     if (!s_online) {
         audio_sfx(SFX_ERROR);

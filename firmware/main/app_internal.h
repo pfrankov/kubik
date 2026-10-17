@@ -58,6 +58,8 @@ extern int64_t s_pair_seen_ms;
 extern int s_offline_icon;
 extern int64_t s_down_ms;
 extern bool s_outage;
+extern bool s_offline_play;
+bool app_offline_play_button(void);
 extern portMUX_TYPE s_text_mux;
 extern char s_text_rx[1024];
 extern uint32_t s_text_receipt, s_text_session, s_text_revision;

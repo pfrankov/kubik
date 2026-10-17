@@ -90,6 +90,7 @@ static bool take_critical_event(app_ev_t *event) {
 // ------------------------------------------------------------------ state
 bool s_online;           // welcome received on the current link
 bool s_ever_online;
+bool s_offline_play;     // explicit local play while the network recovers
 uint8_t s_turn;
 talk_state_t s_talk;     // the turn: idle, key held, latched, waiting for the reply
 bool s_ignore_up;        // the release of the press that stopped a latched turn

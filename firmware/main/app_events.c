@@ -25,6 +25,8 @@ static void handle_boot_short(void) {
         audio_sfx(SFX_DISMISS);
     } else if (s_menu) {
         menu_back();
+    } else if (app_offline_play_button()) {
+        // BOOT assembles offline points into an explicit, interactive local toy.
     } else {
         face_lock();
         if (KUBIK_CHARACTER != CHARACTER_TESS || !tess_games_end_sky(&g_face)) face_card(&g_face, NULL);
@@ -190,6 +192,7 @@ static void handle_cron_event(const app_ev_t *e) {
 static void handle_welcome_event(const app_ev_t *e) {
     ESP_LOGI(TAG, "online via %s", link_via());
     s_online = true;
+    s_offline_play = false;
     s_srv_progress = e->b;
     bool paired_now = s_pair_code[0] != 0;
     s_pair_code[0] = 0;

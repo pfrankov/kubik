@@ -61,6 +61,8 @@ Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
 
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
 
+No connection? Press **BOOT briefly** on the offline points to bring Tess back for local play. Press BOOT again outside Skies to return to the points.
+
 Her body is a toy: tap her and a wave rings through her edges, swipe her a few
 times and she spins open, press beside her and pull to stretch her or sling her
 into the rim, throw her hard and sweep her shattered dots home. Left alone, she
