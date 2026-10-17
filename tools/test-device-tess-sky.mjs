@@ -118,8 +118,8 @@ async function main() {
     assert.ok(kept.solved>0&&kept.saved>0, 'solved skies are remembered');
     const audio = await sim('audio-stats'); console.log(JSON.stringify(audio));
     for (const row of report) {
-      assert.ok(row.phase===PHASE.resolve||row.phase===PHASE.fade, `depth ${row.elements}: the sky resolved (phase ${row.phase})`);
-      assert.ok(row.phase!==PHASE.resolve||/^(\d+)\/\1$/.test(row.sung)&&row.sung!=='0/0', `depth ${row.elements}: its melody was sung (${row.sung})`);
+      assert.equal(row.phase,PHASE.resolve, `depth ${row.elements}: the sky resolved rather than fading from inactivity`);
+      assert.ok(/^(\d+)\/\1$/.test(row.sung)&&row.sung!=='0/0', `depth ${row.elements}: its melody was sung (${row.sung})`);
       assert.ok(row.late <= Math.max(row.frames*LATE_SHARE, LATE_FLOOR), `depth ${row.elements}: ${row.late} of ${row.frames} frames late`);
     }
     assert.equal(audio.late_feeds,0,'speaker feed stays within its reserve');

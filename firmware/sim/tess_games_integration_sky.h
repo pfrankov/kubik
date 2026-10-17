@@ -64,6 +64,23 @@ static void skies_summon_play_and_sing(void) {
     every_sky_sings_its_own_melody();
 }
 
+static void pouring_uses_gravity_without_rest_pose_drift(void) {
+    answer(); until_phase(SKY_PLAY, 4);
+    tess_sky_t *k = sky();
+    k->w.kind = SKY_POUR;
+    face.grav_x = .3f; face.grav_y = -.2f;
+    face.tess_games.tilt[0] = -.6f; face.tess_games.tilt[1] = .8f;
+    sky_world_t expected = k->w;
+    sky_particle_t particles[SKY_PARTICLES];
+    memcpy(particles, k->p, sizeof particles);
+    sky_force_t force = {.gx = face.grav_x, .gy = face.grav_y};
+    sky_stream_step(&expected, particles, SKY_PARTICLES, 1.f / 30, &force, NULL);
+    tess_sky_update(&face, 1.f / 30);
+    assert(!memcmp(particles, k->p, sizeof particles));
+    assert(k->calm == 0);
+    face_card(&face, "end"); frame();
+}
+
 static void quiet_releases_survive_a_full_queue(void) {
     fresh(63);
     face.tess_play.tone_n = 0;

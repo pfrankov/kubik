@@ -43,7 +43,6 @@ static float reach_x(void) {
     float far=0; for (int i=0;i<TESS_N;i++) far=fmaxf(far,dots[i].x/8.f);
     return far;
 }
-
 static void a_tap_plucks_a_wave_through_her_edges(void) {
     fresh(0);
     float rest=extent();
@@ -465,6 +464,7 @@ static void what_was_learnt_is_kept_and_restored(void) {
 #include "tess_games_integration_sky.h"
 int main(void) {
     quiet_releases_survive_a_full_queue();
+    pouring_uses_gravity_without_rest_pose_drift();
     an_ignored_invitation_asks_nothing();
     skies_summon_play_and_sing();
     the_first_sky_is_answered_by_a_finger_and_resolves_into_the_next();

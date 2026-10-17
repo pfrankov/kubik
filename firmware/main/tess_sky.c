@@ -178,9 +178,12 @@ static void play(face_t *f, tess_sky_t *k, float dt) {
     tess_games_t *g = &f->tess_games;
     sky_force_t force = {0};
     bool touched = sky_touch(f, k, &force, dt);
-    float tilt = k->w.kind == SKY_POUR ? POUR_TILT : PUZZLE_TILT;
-    force.gx = g->tilt[0] * tilt; force.gy = g->tilt[1] * tilt;
-    bool tilted = fabsf(g->tilt[0]) + fabsf(g->tilt[1]) > TILT_QUIET;
+    bool pouring = k->w.kind == SKY_POUR;
+    float tilt = pouring ? POUR_TILT : PUZZLE_TILT;
+    // Pouring follows gravity on the glass, not the body's slowly adapting rest pose.
+    float gx = pouring ? f->grav_x : g->tilt[0], gy = pouring ? f->grav_y : g->tilt[1];
+    force.gx = gx * tilt; force.gy = gy * tilt;
+    bool tilted = fabsf(gx) + fabsf(gy) > TILT_QUIET;
     k->calm = touched || tilted ? 0.f : k->calm + dt;
     k->struggle += dt;
     sky_hits_t hits;
