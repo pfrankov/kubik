@@ -129,6 +129,10 @@ static void apply_screen(screen_lab_t *lab, int screen) {
     else character_screen(lab, screen);
 }
 
+void screen_lab_dispose(screen_lab_t *lab) {
+    agent_menu_clear_catalog(&lab->face.agent);
+    tess_games_set_available(&lab->face, false);
+}
 void screen_lab_init(screen_lab_t *lab, int character) {
     memset(lab, 0, sizeof *lab);
     lab->character = character;
@@ -142,7 +146,7 @@ void screen_lab_select(screen_lab_t *lab, int screen) {
     lab->selected = screen; lab->signal = true; lab->overlay = true;
     lab->finger = (rub_track_t){0};
     face_t *f = &lab->face;
-    agent_menu_clear_catalog(&f->agent);
+    screen_lab_dispose(lab);
     face_init(f);
 #ifndef ESP_PLATFORM
     face_set_character(f, lab->character);

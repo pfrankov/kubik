@@ -20,6 +20,7 @@ static void frame(void) {
 }
 static void run(float seconds) { for (int i=0;i<(int)(seconds*30);i++) frame(); }
 static void fresh(unsigned progress) {
+    tess_games_set_available(&face, false);  // Release the preceding fixture through the real exit path.
     face_init(&face);
     face_set_character(&face, CHARACTER_TESS);
     tess_games_restore(&face, progress);
@@ -350,7 +351,6 @@ static void a_rolled_corner_pulls_towards_the_screen_finger(void) {
         assert(fabsf(x * ps + y * pc) < .001f);
     }
 }
-
 // ---- Skies: invited, answered, played and resolved; left at once for anything that matters more
 static tess_sky_t *sky(void) { return face.tess_games.sky; }
 static void invite(void) {

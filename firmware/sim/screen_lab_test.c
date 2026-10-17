@@ -1,6 +1,7 @@
 #include "../main/screen_lab.h"
 #include "../main/face_agent.h"
 #include "../main/tess.h"
+#include "../main/tess_sky_play.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -118,6 +119,7 @@ static void motion(void) {
     tap(240, 240); assert(lab.face.mode == MODE_OFFLINE && lab.face.rub_in.path == 0);
 }
 static void screens(int character) {
+    screen_lab_dispose(&lab);
     screen_lab_init(&lab, character);
     for (int screen = 0; screen < LAB_COUNT; screen++) {
         screen_lab_select(&lab, screen);
@@ -177,6 +179,7 @@ static void events(void) {
     screen_lab_select(&lab, LAB_REMINDER); assert(lab.face.cron_due == 90);
 }
 static void collision_audio(void) {
+    screen_lab_dispose(&lab);
     screen_lab_init(&lab, CHARACTER_TESS);
     screen_lab_select(&lab, LAB_OFFLINE);
     lab.face.grav_y = 1;
@@ -268,6 +271,7 @@ static void game_previews(void) {
     lab.face.dark = false;
 
     // These fixtures are developer-only, but must remain inert in a Plush build.
+    screen_lab_dispose(&lab);
     screen_lab_init(&lab, CHARACTER_PLUSH);
     for (int screen = LAB_GROW_POINT; screen <= LAB_PLAY_SELF; screen++) {
         screen_lab_select(&lab, screen);
@@ -275,13 +279,30 @@ static void game_previews(void) {
         assert(lab.face.card_n > 0);
     }
 }
+static void changing_a_preview_releases_its_sky(void) {
+    screen_lab_dispose(&lab);
+    screen_lab_init(&lab, CHARACTER_TESS);
+    for (int visit = 0; visit < 20; visit++) {
+        screen_lab_select(&lab, LAB_GROW_TESSERACT);
+        for (int frame = 0; frame < 90; frame++) screen_lab_update(&lab, 1.f / 30);
+        assert(tess_sky_start(&lab.face) && lab.face.tess_games.sky);
+        if (visit & 1) {
+            screen_lab_dispose(&lab);
+            screen_lab_init(&lab, CHARACTER_TESS);
+        } else screen_lab_select(&lab, LAB_HOME);
+        assert(!lab.face.tess_games.sky && !tess_games_active(&lab.face));
+    }
+}
 int main(void) {
+    changing_a_preview_releases_its_sky();
     entry(); collision_audio();
     for (int character = 0; character < 2; character++) {
         screens(character); catalog(); qr(); settings(); voice(); motion(); events();
     }
+    screen_lab_dispose(&lab);
     screen_lab_init(&lab, CHARACTER_TESS);
     growth_previews_accept_natural_taps();
     game_previews();
+    screen_lab_dispose(&lab);
     puts("Screen Lab: hidden entry, native QR, menus, guide, voice, gestures and bounded scenes passed");
 }
