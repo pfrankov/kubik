@@ -427,6 +427,7 @@ static void update_face_motion(face_t *f, int64_t t) {
     input_slide(&f->slide_x, &f->slide_y);
     input_gravity(&f->grav_x, &f->grav_y);
     app_game_probe_gravity(&f->grav_x, &f->grav_y);  // (a USB test tilt, while it lasts)
+    app_game_probe_poll(f);
     static bool scripted_rub;
     bool scripting = t < s_debug_rub_until;
     if (scripting || scripted_rub) input_rub_script(fmodf(t / 1000.f, 10.f), face_character(f) == CHARACTER_TESS, scripting);

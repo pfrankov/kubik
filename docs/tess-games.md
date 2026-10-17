@@ -111,6 +111,34 @@ she is growing into. Repeats add nothing, and progress never decays. It
 survives restarts, and only a full factory reset clears it. Finds saved by
 earlier versions keep their places in the same six steps.
 
+## Skies
+
+Lay the cube nearly flat. Now and then a small gold star leaves Tess and circles her
+for a few seconds, singing her motif; standing up, she never asks. To ask her yourself,
+rock the flat cube three times, quickly, side to side. That only summons her. Ignore it
+and nothing happens. Touch the star, or simply lift the cube upright while it circles,
+and she unravels into a stream of her own dots; stars float in the dark. Hold a finger
+near a star and the stream bends into it: the star fills, brightens and sings.
+
+The music grows with what you do. A filling star sparkles softly; a full star holds its
+note and pulses it whenever light flows through it, so every full star adds a voice.
+Light striking a string sounds one of the sky's own notes. When every star is full
+together the sky sings back how you played it: a melody through the stars in the order
+you filled them, the slow ones held longer, each star flashing as a constellation line
+reaches it, closing on its chord. Then the next sky grows from it.
+
+Each solved sky teaches one new thing: tilting the cube to pour the stream,
+strings that bounce it, relay stars that send the light on along their arrow (tap one
+to turn it), a source you can turn by pulling from it, wells that bend and hold it,
+prisms that colour it, splitters, a hungry dark star, and stars that drift. Movable
+parts follow a finger and click into place when brought close to where they belong;
+fixed ones stay still. There is no score, text or beat and nothing can
+be lost. If a sky stays unsolved, the useful part quivers. After 15 seconds
+without touch or tilt it fades and she comes home. A visit lasts up to six
+skies; every sky is new and has a solution. What she has met is remembered, and
+her motif starts from your last chord. Skies is Tess only and obeys
+the same rules as the rest of play, below. A short BOOT also ends it.
+
 ## The agent comes first
 
 Play never gets in the way. Pressing KEY, saying Hi Tessa, starting voice

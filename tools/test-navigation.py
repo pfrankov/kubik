@@ -42,6 +42,10 @@ static void menu_back(void) { backs++; }
 static void face_lock(void) {}
 static void face_unlock(void) {}
 static void face_card(int *face, const char *text) { assert(face == &g_face && !text); dismissals++; }
+#define KUBIK_CHARACTER 1
+#define CHARACTER_TESS 1
+static bool sky_playing;
+static bool tess_games_end_sky(int *face) { assert(face == &g_face); bool was = sky_playing; sky_playing = false; return was; }
 static void disp_wake(void) {}
 '''
 tests = r'''
@@ -74,6 +78,7 @@ static void routes(void) {
     handle_boot_short(); assert(backs == 2); // dismissed pairing no longer blocks Settings
     s_menu = false; handle_boot_short(); assert(dismissals == 1);
     handle_boot_short(); assert(dismissals == 2); // no volume mutation or network request
+    sky_playing = true; handle_boot_short(); assert(dismissals == 2 && !sky_playing); // a short BOOT ends a sky instead of opening a card
 }
 int main(void) {
     input_state_t touching = {0};

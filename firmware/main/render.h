@@ -59,7 +59,7 @@ typedef struct {
     int16_t bx0, by0, bx1, by1;  // bounding box in pixels (inclusive)
 } prim_t;
 
-#define R_MAX_DOTS 160  // tesseract + recording orbit + touch wave
+#define R_MAX_DOTS 192  // tesseract + recording orbit + touch wave; Skies: stars, relays, the melody's lines
 typedef struct { int16_t x, y, radius; uint16_t color; uint8_t glow, reserved; } render_dot_t;
 typedef struct {
     render_dot_t dots[R_MAX_DOTS];  // native Q4, an independent background layer

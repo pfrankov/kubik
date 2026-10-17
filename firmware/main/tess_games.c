@@ -37,6 +37,7 @@ static float grown_form(uint8_t progress) {
 void tess_games_restore(face_t *f, uint8_t progress) {
     tess_games_t *g = &f->tess_games;
     uint32_t round = g->round + 1;
+    tess_sky_release(g);
     memset(g, 0, sizeof *g);
     g->round = round ? round : 1;
     g->ready = g->available = true;
@@ -52,6 +53,8 @@ void tess_games_leave(tess_games_t *g) {
     g->game = TESS_GAME_NONE;
     g->phase = TESS_GAME_REST;
     g->streak = 0;
+    g->sky_invite_t = 0;
+    tess_sky_release(g);
     g->pull_k = 0;  // (her body keeps where it is and how it moves: a round never teleports her)
     tess_self_end(g);
 }
@@ -124,6 +127,7 @@ bool tess_games_start(face_t *f, tess_preview_t play, unsigned tier) {
         tess_gather_track(f, 0);
         return tess_gather_try_start(f);
     case TESS_PLAY_SELF: g->self_wait = 0; return true;
+    case TESS_PLAY_SKY: return KUBIK_CHARACTER == CHARACTER_TESS && tess_sky_start(f);
     default: return false;
     }
 }
@@ -153,6 +157,13 @@ static bool round_event(face_t *f, face_event_t event, float x, float y) {
 static bool agent_event(face_event_t event) {
     return event == FEV_NOTIFY || event == FEV_NOT_HEARD || event == FEV_FAIL || event == FEV_TALK_START;
 }
+// With no round going: a tap may answer her invitation or pluck her; petting soothes her.
+static bool idle_event(face_t *f, face_event_t event, float x, float y) {
+    if (KUBIK_CHARACTER == CHARACTER_TESS && event == FEV_TAP && tess_sky_tap(f, x, y)) return true;
+    if (event == FEV_TAP) pluck_tap(f, x, y);
+    if (event == FEV_PET) tess_temper_feel(f, 0, -.25f, -.25f, .15f);
+    return false;
+}
 bool tess_games_event(face_t *f, face_event_t event, float x, float y) {
     tess_games_t *g = &f->tess_games;
     bool allowed = tess_games_eligible(f);
@@ -163,9 +174,7 @@ bool tess_games_event(face_t *f, face_event_t event, float x, float y) {
         g->finger_owned = g->pressed = false;  // the release of a finger whose round has ended
         return true;
     }
-    if (allowed && event == FEV_TAP) pluck_tap(f, x, y);
-    if (allowed && event == FEV_PET) tess_temper_feel(f, 0, -.25f, -.25f, .15f);  // petting soothes her
-    return false;
+    return allowed && idle_event(f, event, x, y);
 }
 
 static void finger_lands(face_t *f, const rub_input_t *in) {
@@ -230,6 +239,7 @@ static void advance(face_t *f, float dt) {
     tess_play_waves(f, dt);
     if (g->game == TESS_GAME_STRETCH) tess_stretch_update(f, dt);
     else if (g->game == TESS_GAME_GATHER) tess_gather_update(f, dt);
+    else if (KUBIK_CHARACTER == CHARACTER_TESS && g->game == TESS_GAME_SKY) tess_sky_update(f, dt);
     else if (!g->game && quiet(f)) tess_self_update(f, dt);
 }
 void tess_games_update(face_t *f, float dt) {
@@ -239,6 +249,7 @@ void tess_games_update(face_t *f, float dt) {
     bool allowed = tess_games_eligible(f);
     if (!allowed) stop_all(g);
     if (!f->rub_in.down && !allowed) g->finger_down = false;
+    if (KUBIK_CHARACTER == CHARACTER_TESS) tess_sky_tick(f, dt);
     if (!visible(f)) return;  // preemption above still runs when rendering is paused
     g->pulse = fmaxf(0, g->pulse - dt * 3.f);
     if (allowed) advance(f, dt);

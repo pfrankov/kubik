@@ -33,6 +33,10 @@ typedef struct {
     bool bright;  // dry collision sparkle; all character/UI voices retain the warm filter
     bool harmony; // accompaniment rather than the word's syllabic lead
     bool body;    // a sound of her body (tess_sound_body.c)
+    bool held;    // a game's pad (tess_sound_sky.c): sustains until its goal is 0 or nobody tends it for ~0.8 s
+    uint8_t slot; // held: which pad
+    uint16_t idle;  // held: voice steps since it was last tended
+    int32_t goal; // held: the gain (Q15) it glides to
     uint8_t stage;  // 0 off, 1 attack, 2 decay (and hold), 3 release
 } tess_voice_t;
 
@@ -72,5 +76,7 @@ bool tess_sound_cue_is_utterance(tess_cue_t cue);
 // A sound of her body (tess_sound_body.c): one note shaped by the physical event. False when it was not playable.
 bool tess_sound_tone(tess_sound_t *s, const tess_tone_t *tone);
 bool tess_sound_event_is_utterance(sfx_t event);
+// A sound of her game (tess_sound_sky.c): a held pad, a struck celesta note or a swell. False when it stayed silent.
+bool tess_sound_sky(tess_sound_t *s, const tess_tone_t *tone);
 bool tess_sound_active(const tess_sound_t *s);
 bool tess_sound_mix(tess_sound_t *s, int32_t *out, int count);

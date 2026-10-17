@@ -134,6 +134,8 @@ esp_err_t nvs_set_i32(nvs_handle_t h, const char *key, int32_t v) { return nvs_s
 esp_err_t nvs_get_i32(nvs_handle_t h, const char *key, int32_t *v) { size_t n = sizeof *v; return nvs_get_blob(h, key, v, &n); }
 esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t v) { return nvs_set_blob(h, key, &v, sizeof v); }
 esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *v) { size_t n = sizeof *v; return nvs_get_blob(h, key, v, &n); }
+esp_err_t nvs_set_u32(nvs_handle_t h, const char *key, uint32_t v) { return nvs_set_blob(h, key, &v, sizeof v); }
+esp_err_t nvs_get_u32(nvs_handle_t h, const char *key, uint32_t *v) { size_t n = sizeof *v; return nvs_get_blob(h, key, v, &n); }
 const char *esp_err_to_name(esp_err_t err) { (void)err; return "mock"; }
 void mbedtls_platform_zeroize(void *data, size_t size) { volatile unsigned char *p = data; while (size--) *p++ = 0; }
 int mbedtls_sha256(const unsigned char *input, size_t length, unsigned char output[32], int is224) {

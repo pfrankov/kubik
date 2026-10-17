@@ -30,6 +30,8 @@ enum { OFF, ATTACK, DECAY, RELEASE };  // envelope stages
 #define UNIT_Q24 (1 << 24)
 #define QUICK_RELEASE_MS 12   // time constant of the fade-out when a new sound takes over
 #define PHASE_PER_RADIAN_Q8 2670177  // one radian in phase units (2^32 / 2 pi), per 1/256 of it
+#define HOLD_GLIDE_SHIFT 10   // a held pad's gain closes 1/1024 of the way per voice step (12 kHz)
+#define HOLD_IDLE_STEPS 10000 // 0.83 s of voice steps
 #define INDEX_FLOOR (1 << 20)        // an FM depth below this (.0015 rad) is gone
 
 // The voices run at half the sample rate (a voice makes one value for two output samples; the ones between are
@@ -95,9 +97,7 @@ void tess_sound_fade_reverb(tess_sound_t *s) {
     s->reverb_hold = 4800;
 }
 
-void tess_sound_note(tess_sound_t *s, const tess_note_t *n) {
-    initialize_sine_table();  // (a sound can never start before the table exists, whatever was called first)
-    if (s->pending_count >= TESS_PENDING) return;
+static tess_voice_t make_voice(const tess_sound_t *s, const tess_note_t *n) {
     int32_t glide_samples = n->glide_ms ? voice_steps_from_ms(n->glide_ms) : 0, pitch_change = (int32_t)(n->end_step - n->step);
     int32_t glide = glide_samples ? pitch_change / glide_samples : 0;
     uint32_t chorus = n->step + (n->step >> 10) * (uint32_t)(int32_t)n->chorus_detune;
@@ -119,9 +119,45 @@ void tess_sound_note(tess_sound_t *s, const tess_note_t *n) {
         v.rise_decay = decay_factor(n->attack_ms);
         v.partial_decay = decay_factor(n->ring_ms);
     }
+    return v;
+}
+
+void tess_sound_note(tess_sound_t *s, const tess_note_t *n) {
+    initialize_sine_table();  // (a sound can never start before the table exists, whatever was called first)
+    if (s->pending_count >= TESS_PENDING) return;
+    tess_voice_t v = make_voice(s, n);
     int at = s->pending_count++;  // kept in the order they begin
     for (; at > s->pending_head && (int32_t)(s->pending[at - 1].start - v.start) > 0; at--) s->pending[at] = s->pending[at - 1];
     s->pending[at] = v;
+}
+
+// A pad takes any free voice, the spare ones first; with none free it stays silent rather than cut a word.
+static void start_held(tess_sound_t *s, const tess_voice_t *v) {
+    for (int n = 0; n < TESS_VOICES; n++) {
+        int i = (TESS_WORD_VOICES + n) % TESS_VOICES;
+        if (s->voices[i].stage) continue;
+        s->active_voices++;
+        s->voices[i] = *v;
+        return;
+    }
+}
+
+void tess_sound_hold(tess_sound_t *s, unsigned slot, const tess_note_t *n, int goal) {
+    initialize_sine_table();
+    for (int i = 0; i < TESS_VOICES; i++) {
+        tess_voice_t *v = &s->voices[i];
+        if (!v->held || v->slot != slot || v->stage == OFF || v->stage == RELEASE) continue;
+        v->idle = 0;
+        if (goal > 0) { v->goal = goal; return; }
+        v->held = false;  // let go: its release is the end of the pad, and the slot is free for the next one
+        v->stage = RELEASE;
+        return;
+    }
+    if (goal <= 0) return;
+    tess_voice_t v = make_voice(s, n);
+    v.held = true; v.slot = (uint8_t)slot; v.goal = goal; v.gain = 0;
+    v.hold_left = UINT32_MAX; v.sustain = ENV_ONE;
+    start_held(s, &v);
 }
 
 bool tess_sound_active(const tess_sound_t *s) {
@@ -212,6 +248,12 @@ static inline int32_t celesta_sample(tess_sound_t *s, tess_voice_t *v) {
 // octave down, a fifth or an octave up). Nothing in it is noise and nothing wobbles.
 static inline int32_t voice_sample(tess_sound_t *s, tess_voice_t *v) {
     if (v->bright) return celesta_sample(s, v);
+    if (v->held) {  // a pad follows the star: its gain glides (about 85 ms), and untended it lets go
+        int32_t delta = v->goal - v->gain, step = delta >> HOLD_GLIDE_SHIFT;
+        // A quiet target is smaller than the divider; do not strand it at zero.
+        v->gain += step ? step : delta > 0 ? 1 : 0;
+        if (++v->idle > HOLD_IDLE_STEPS && v->stage != RELEASE) { v->held = false; v->stage = RELEASE; }
+    }
     if (!step_envelope(s, v)) return 0;
     int32_t level = v->env >> 15;
     if (v->glide_left) {

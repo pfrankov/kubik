@@ -40,18 +40,45 @@ void tess_cue(face_t *f, tess_cue_t cue, float strength, float position) {
 // A sound of her body: queued like a cue, and silent when cues are (dark, asleep, drowsy).
 void tess_tone(face_t *f, tess_tone_kind_t kind, float hz, float gain, float shade) { tess_tone_later(f, kind, hz, gain, shade, 0); }
 void tess_tone_later(face_t *f, tess_tone_kind_t kind, float hz, float gain, float shade, float delay_s) {
+    tess_tone_slot(f, kind, 0, hz, gain, shade, delay_s);
+}
+// A tone for one of a game's held voices (slot): gain 0 lets it go. The only tone that may carry a zero gain.
+static bool held_tone(unsigned kind) { return kind == TT_SKY_PAD || kind == TT_SKY_HUM; }
+static bool update_held(tess_play_t *p, unsigned kind, unsigned slot, float hz, float gain) {
+    if (!held_tone(kind)) return false;
+    for (int i = 0; i < p->tone_n; i++) if (p->tone[i].kind == kind && p->tone[i].slot == slot) {
+        p->tone[i].gain = clampf(gain, 0, 1);
+        p->tone[i].hz = clampf(hz, 40, 3000);
+        return true;
+    }
+    return false;
+}
+static bool tone_room(tess_play_t *p, bool release) {
+    if (p->tone_n < TESS_TONES) return true;
+    if (!release) return false;
+    // An end-of-note must survive a full queue of decorative strikes.
+    int i = p->tone_n - 1;
+    while (i >= 0 && held_tone(p->tone[i].kind) && p->tone[i].gain <= 0) i--;
+    if (i < 0) return false;
+    memmove(p->tone + i, p->tone + i + 1, (--p->tone_n - i) * sizeof p->tone[0]);
+    return true;
+}
+void tess_tone_slot(face_t *f, tess_tone_kind_t kind, unsigned slot, float hz, float gain, float shade, float delay_s) {
     tess_play_t *p = &f->tess_play;
-    if (cues_quiet(f) || p->tone_n >= TESS_TONES || !isfinite(hz) || !isfinite(gain) || gain <= 0) return;
-    p->tone[p->tone_n++] = (tess_tone_t){(uint8_t)kind, clampf(hz, 40.f, 3000.f), clampf(gain, 0, 1), clampf(shade, 0, 1), clampf(delay_s, 0, 1)};
+    bool release = gain <= 0 && held_tone(kind);
+    if ((cues_quiet(f) && !release) || !isfinite(hz) || !isfinite(gain) || (gain <= 0 && !release)) return;
+    if (update_held(p, kind, slot, hz, gain) || !tone_room(p, release)) return;
+    p->tone[p->tone_n++] = (tess_tone_t){(uint8_t)kind, clampf(hz, 40.f, 3000.f), clampf(gain, 0, 1), clampf(shade, 0, 1), clampf(delay_s, 0, 1), (uint8_t)slot};
     f->tess_games.tone_kinds |= (uint16_t)(1u << kind);
 }
 bool face_take_tone(face_t *f, tess_tone_t *tone) {
     tess_play_t *p = &f->tess_play;
-    if (cues_quiet(f)) p->tone_n = 0;
-    if (!p->tone_n) return false;
-    *tone = p->tone[0];
-    memmove(p->tone, p->tone + 1, --p->tone_n * sizeof p->tone[0]);
-    return true;
+    while (p->tone_n) {
+        *tone = p->tone[0];
+        memmove(p->tone, p->tone + 1, --p->tone_n * sizeof p->tone[0]);
+        if (!cues_quiet(f) || (held_tone(tone->kind) && tone->gain <= 0)) return true;
+    }
+    return false;
 }
 
 bool face_take_cue(face_t *f, tess_cue_t *cue, float *strength, float *position) {
@@ -162,6 +189,11 @@ static void run_queue(face_t *f, float dt) {
 static void invite(face_t *f) {
     tess_play_t *p = &f->tess_play;
     float vigour = 1 - .4f * tess_quiet(p->alone, SLEEPY_SPAN), side = frand(f) < .5f ? -1.f : 1.f;
+    if (tess_sky_invite(f)) {  // the other way to ask: two lit corners and a soft chord; a tap on one starts a sky
+        tess_gaze_notice(f, WAIT_S + 2.f);
+        p->waiting = WAIT_S;
+        return;
+    }
     tess_cue(f, TC_INVITE, vigour, side);
     tess_gaze_notice(f, WAIT_S + 2.f);
     switch ((int)(frand(f) * 3) % 3) {

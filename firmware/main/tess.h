@@ -12,6 +12,10 @@ void tess_draw(face_t *face, scene_t *scene);
 // render fixtures that do not restore it keep their established adult baseline.
 void tess_games_restore(face_t *face, uint8_t progress);
 void tess_games_set_available(face_t *face, bool available);
+// Tess Skies' progress, as one number kept on the device (0: a fresh start); `settled` is false while a sky is being played.
+void tess_games_restore_sky(face_t *face, uint32_t packed);
+uint32_t tess_games_sky_progress(const face_t *face, bool *settled);
+bool tess_games_end_sky(face_t *face);  // a short BOOT: the stars fade and she folds back; false when no sky is on
 void tess_games_update(face_t *face, float dt);
 bool tess_games_event(face_t *face, face_event_t event, float x, float y);
 bool tess_games_active(const face_t *face);

@@ -59,7 +59,7 @@ int main(void) {
     mic_open = false; speaking = true; audio_tess_cue(TC_LOVE, 1, 0); assert(kicks == 2 && queued == 2);
     speaking = false;
     // Her body's sounds never play over the microphone or a spoken reply either.
-    tess_tone_t ring = {TT_RING, 440, .5f, .5f, 0};
+    tess_tone_t ring = {TT_RING, 440, .5f, .5f, 0, 0};
     mic_open = true; audio_tess_tone(&ring); assert(kicks == 2 && queued == 2);
     mic_open = false; speaking = true; audio_tess_tone(&ring); assert(kicks == 2 && queued == 2);
     speaking = false;

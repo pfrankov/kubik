@@ -165,6 +165,8 @@ void settings_load(void) {
         uint8_t tess_progress = 0;
         if (nvs_get_u8(h, "tess_progress", &tess_progress) == ESP_OK &&
             !(tess_progress & (uint8_t)~TESS_PROGRESS_MASK)) s->tess_progress = tess_progress;
+        uint32_t sky_progress = 0;
+        if (nvs_get_u32(h, "sky_prog", &sky_progress) == ESP_OK) s->sky_progress = sky_progress;
         nvs_close(h);
         }
     }
@@ -263,6 +265,31 @@ esp_err_t settings_save_tess_progress(uint8_t progress) {
     uint8_t saved = g_settings.tess_progress;
     err = app_nvs_ready_locked() ? save_tess_progress_locked(progress, &saved) : ESP_ERR_INVALID_STATE;
     if (err == ESP_OK) g_settings.tess_progress = saved;
+    app_nvs_unlock();
+    return err;
+}
+
+// Skies' progress is the latest state (skill falls as well as rises), so it replaces rather than merges.
+esp_err_t settings_save_sky_progress(uint32_t progress) {
+    esp_err_t err = app_nvs_lock();
+    if (err != ESP_OK) return err;
+    if (s_tess_progress_reset) {
+        app_nvs_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (progress == g_settings.sky_progress) {
+        app_nvs_unlock();
+        return ESP_OK;
+    }
+    nvs_handle_t h;
+    err = app_nvs_ready_locked() ? nvs_open("kubik", NVS_READWRITE, &h) : ESP_ERR_INVALID_STATE;
+    if (err == ESP_OK) {
+        err = nvs_set_u32(h, "sky_prog", progress);
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+        recover_tess_progress_error(err);
+    }
+    if (err == ESP_OK) g_settings.sky_progress = progress;
     app_nvs_unlock();
     return err;
 }

@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-state-") as tmp:
     post_c.write_text(post_fixture)
     post_exe = str(Path(tmp) / "post-queue-test")
     subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",
-                    "-fsanitize=address,undefined", "-Ifirmware/main", "-Ifirmware/sim/settings_stubs", str(post_c),
+                    "-fsanitize=address,undefined", "-Ifirmware/main", "-Ifirmware/sim", "-Ifirmware/sim/settings_stubs", str(post_c),
                     "firmware/main/app_mailbox.c", "-o", post_exe], cwd=ROOT, check=True)
     subprocess.run([post_exe], cwd=ROOT, check=True)
 

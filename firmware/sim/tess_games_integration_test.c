@@ -6,7 +6,7 @@
 #include <string.h>
 #include "../main/tess_internal.h"
 #include "../main/tess_games_internal.h"
-
+#include "../main/tess_sky_play.h"
 static face_t face;
 static scene_t scene;
 static unsigned most_dots, tones_heard;  // tones_heard: one bit per tone kind the speaker was given
@@ -15,7 +15,7 @@ static void frame(void) {
     face_update(&face, 1.f / 30); face_draw(&face, &scene);
     if ((unsigned)scene.dots_n > most_dots) most_dots = (unsigned)scene.dots_n;
     tess_tone_t tone;
-    while (face_take_tone(&face, &tone)) { assert(tone.hz >= 40 && tone.hz <= 3000 && tone.gain > 0 && tone.gain <= 1); tones_heard |= 1u << tone.kind;
+    while (face_take_tone(&face, &tone)) { assert(tone.hz >= 40 && tone.hz <= 3000 && (tone.gain > 0 || tone.kind == TT_SKY_PAD || tone.kind == TT_SKY_HUM) && tone.gain <= 1); tones_heard |= 1u << tone.kind;
         if (tone.kind == TT_RING) { ring_low = fminf(ring_low, tone.hz); ring_high = fmaxf(ring_high, tone.hz); } }
 }
 static void run(float seconds) { for (int i=0;i<(int)(seconds*30);i++) frame(); }
@@ -351,7 +351,127 @@ static void a_rolled_corner_pulls_towards_the_screen_finger(void) {
         assert(fabsf(x * ps + y * pc) < .001f);
     }
 }
+
+// ---- Skies: invited, answered, played and resolved; left at once for anything that matters more
+static tess_sky_t *sky(void) { return face.tess_games.sky; }
+static void invite(void) {
+    fresh(TESS_PROGRESS_MASK);
+    face.tess_games.sky_call[0] = 408; face.tess_games.sky_call[1] = 255; face.tess_games.sky_call[2] = 0; face.tess_games.sky_invite_t = 7.f;
+}
+static void answer(void) {
+    invite();
+    const float *v = face.tess_games.sky_call;
+    tap(v[0] - 30, v[1] + 20);
+    assert(face.tess_games.game == TESS_GAME_SKY && sky() && sky()->phase == SKY_UNRAVEL);
+}
+static void until_phase(sky_phase_t phase, float seconds) {
+    for (int i = 0; i < (int)(seconds * 30) && sky() && sky()->phase != phase; i++) frame();
+    assert(sky() && sky()->phase == phase);
+}
+static void an_ignored_invitation_asks_nothing(void) {
+    float x, y; invite(); run(1); assert(tess_sky_calling(&face, &x, &y) && y > 255);   // the star wanders round her
+    tap(480 - x, 510 - y);   // a tap away from the star is only a tap
+    tap(240, 255);
+    assert(face.tess_games.game != TESS_GAME_SKY && !sky());
+    run(6.5f);
+    assert(face.tess_games.sky_invite_t == 0 && !tess_sky_calling(&face, &x, &y) && face.tess_games.game != TESS_GAME_SKY && !sky());
+    tap(x, y);
+    assert(face.tess_games.game != TESS_GAME_SKY);   // and where it was, once it has gone, starts nothing
+}
+// A rocking swing: the pull on the glass goes to one side of level, then the other, within a second or so.
+static void rock_cube(float lean, int swings, float wait_s) {
+    for (int i = 0; i < swings; i++) {
+        face.grav_x = i % 2 ? -lean : lean;
+        run(wait_s);
+    }
+    face.grav_x = 0;
+}
+static void she_asks_only_when_lying_down_and_a_rock_summons_her(void) {
+    fresh(TESS_PROGRESS_MASK); run(2);
+    face.grav_x = 0; face.grav_y = 1.f;   // standing upright: she never asks, however often
+    int asked = 0;
+    for (int i = 0; i < 200; i++) asked += tess_sky_invite(&face);
+    assert(!asked && !face.tess_games.sky_invite_t);
+    face.grav_y = .25f;                   // a slight tilt of the flat cube
+    for (int i = 0; i < 200 && !asked; i++) asked += tess_sky_invite(&face);
+    assert(asked && face.tess_games.sky_invite_t > 0);
+    fresh(TESS_PROGRESS_MASK); run(2);
+    face.grav_y = 1.f; rock_cube(.3f, 4, .3f); run(.5f);   // rocked while standing: nothing
+    face.grav_y = .1f; rock_cube(.3f, 2, .3f); run(1.6f);  // two swings are not yet a rock
+    assert(!face.tess_games.sky_invite_t);
+    rock_cube(.3f, 3, 2.f); run(.5f);                      // slow swings are not a rock either
+    assert(!face.tess_games.sky_invite_t);
+    face.grav_y = .1f; rock_cube(.3f, 3, .3f);             // three quick swings summon, and only summon
+    assert(face.tess_games.sky_invite_t > 0 && face.tess_games.game != TESS_GAME_SKY && !sky());
+    face.grav_y = 0;
+}
+static void raising_the_cube_answers_an_invitation_like_a_touch(void) {
+    fresh(TESS_PROGRESS_MASK); face.grav_x = 0; face.grav_y = .1f; run(1);
+    invite(); face.grav_y = .6f; run(.5f);                 // tipped, not raised
+    assert(face.tess_games.game != TESS_GAME_SKY && face.tess_games.sky_invite_t > 0);
+    face.grav_y = 1.f; frame();                            // raised
+    assert(face.tess_games.game == TESS_GAME_SKY && sky() && sky()->phase == SKY_UNRAVEL);
+    fresh(TESS_PROGRESS_MASK); face.grav_y = 1.f; run(1);  // raised with no invitation: nothing
+    face.grav_y = .1f; run(.5f); invite(); run(7.5f); face.grav_y = 1.f; run(.5f);   // or after it has faded
+    assert(face.tess_games.game != TESS_GAME_SKY); face.grav_y = 0;
+}
+static void the_first_sky_is_answered_by_a_finger_and_resolves_into_the_next(void) {
+    answer();
+    until_phase(SKY_PLAY, 4);
+    assert(sky()->w.count_stars == 1 && sky()->w.count_tools == 0 && face.tess_games.sky_elements == 1);
+    const sky_star_t *star = &sky()->w.star[0];
+    for (int i = 0; i < 40 * 30 && sky()->phase == SKY_PLAY; i++) { face.rub_in = (rub_input_t){.down = true, .x = star->x, .y = star->y}; frame(); }
+    face.rub_in = (rub_input_t){0};
+    assert(sky()->phase == SKY_RESOLVE && face.tess_games.sky_solved == 1 && face.tess_games.sky_elements == 2);
+    until_phase(SKY_PLAY, 8);   // the next sky has grown, with one thing more
+    assert(sky()->w.kind == SKY_POUR && sky()->solved_here == 1 && sky()->compose == 0);
+}
+static void every_exit_ends_a_sky_at_once(void) {
+    for (int exit = 0; exit < 6; exit++) {
+        answer(); until_phase(SKY_PLAY, 4); run(1);
+        switch (exit) {
+        case 0: face_card(&face, "An incoming agent reply"); break;
+        case 1: face.menu.open = true; break;
+        case 2: face.dark = true; break;
+        case 3: face_event(&face, FEV_NOTIFY, 0, 0); break;
+        case 4: tess_games_set_available(&face, false); break;
+        default: break;
+        }
+        if (exit == 5) {   // a short BOOT: the stars fade and she folds back
+            assert(tess_games_end_sky(&face));
+            run(.5f); assert(face.tess_games.game == TESS_GAME_SKY && sky()->phase == SKY_FADE);
+            run(2.5f);
+        } else frame();
+        assert(!face.tess_games.game && !sky());
+        run(1); assert(face.tess_games.sky_lit == 0);   // no voice is left sounding
+        face.dark = false; face.menu.open = false;
+    }
+    fresh(TESS_PROGRESS_MASK); assert(!tess_games_end_sky(&face));   // BOOT with no sky is the ordinary BOOT
+}
+static void what_was_learnt_is_kept_and_restored(void) {
+    fresh(TESS_PROGRESS_MASK);
+    face.tess_games.sky_elements = 5; face.tess_games.sky_skill = 173; face.tess_games.sky_root = 3; face.tess_games.sky_solved = 4021;
+    bool settled; uint32_t kept = tess_games_sky_progress(&face, &settled);
+    assert(settled && kept);
+    fresh(TESS_PROGRESS_MASK);
+    assert(face.tess_games.sky_elements == 0);
+    tess_games_restore_sky(&face, kept);
+    assert(face.tess_games.sky_elements == 5 && face.tess_games.sky_skill == 173 && face.tess_games.sky_root == 3 && face.tess_games.sky_solved == 4021);
+    tess_games_restore_sky(&face, 15u | 7u << 12);   // nonsense is not taken
+    assert(face.tess_games.sky_elements == 5 && face.tess_games.sky_root == 3);
+    tess_games_restore(&face, TESS_PROGRESS_MASK);   // a reset forgets it
+    assert(face.tess_games.sky_elements == 0 && face.tess_games.sky_solved == 0);
+}
+#include "tess_games_integration_sky.h"
 int main(void) {
+    quiet_releases_survive_a_full_queue();
+    an_ignored_invitation_asks_nothing();
+    skies_summon_play_and_sing();
+    the_first_sky_is_answered_by_a_finger_and_resolves_into_the_next();
+    she_asks_only_when_lying_down_and_a_rock_summons_her();
+    raising_the_cube_answers_an_invitation_like_a_touch();
+    every_exit_ends_a_sky_at_once();
+    what_was_learnt_is_kept_and_restored();
     a_rolled_corner_pulls_towards_the_screen_finger();
     visible_corners_are_the_touch_targets();
     background_events_preserve_a_round();
@@ -376,5 +496,5 @@ int main(void) {
     priority_stops_play_at_once();
     invalid_taps_never_poison_native_touch_state();
     assert(most_dots >= TESS_N && most_dots <= (unsigned)R_MAX_DOTS);
-    puts("native Tess play: tilt, pour, organic bursts, temper, rattle, body sounds, pluck, echo, bloom, stretch, sling, catch, shatter, gather, self-play and priority ok");
+    puts("native Tess play: skies, tilt, pour, organic bursts, temper, rattle, body sounds, pluck, echo, bloom, stretch, sling, catch, shatter, gather, self-play and priority ok");
 }

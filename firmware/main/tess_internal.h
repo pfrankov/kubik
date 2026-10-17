@@ -57,6 +57,7 @@ void tess_react(face_t *face, tess_reaction_t reaction, float seconds);  // a sh
 void tess_cue(face_t *face, tess_cue_t cue, float strength, float position);  // asks the speaker for a sound (face_take_cue)
 void tess_tone(face_t *face, tess_tone_kind_t kind, float hz, float gain, float shade);  // a sound of her body (face_take_tone)
 void tess_tone_later(face_t *face, tess_tone_kind_t kind, float hz, float gain, float shade, float delay_s);
+void tess_tone_slot(face_t *face, tess_tone_kind_t kind, unsigned slot, float hz, float gain, float shade, float delay_s);  // a held voice of a game (tess_sky.c)
 float tess_tone_hz(const face_t *face, float height);  // her resonance: continuous, mood sets its rest, size its register
 void tess_after(face_t *face, float seconds, int what, float strength);       // a reaction that follows on later (KICK_* or AFTER_*)
 void tess_play_reset(face_t *face);
@@ -90,6 +91,7 @@ void tess_scatter_spot_px(int slot, float *x, float *y);   // and where that is 
 void tess_scatter_frame(const face_t *face, float seconds);                // what the whole cloud does seconds into the burst: once a frame, before the dots
 void tess_scatter_apply(float point[3], int dot, int slot);  // the dot's place in that moment
 void tess_scatter_finish(face_t *face);                   // every dot is home already: the burst ends now
+void tess_scatter_hang_at(int slot, float x, float y);    // a game that holds the burst places a slot (panel px)
 void tess_scatter_reset(void);                            // a fresh Tess: the next spreads are laid out from the start
 // Gather's hold on the burst (tess_gather.c): whether it hangs, and whether a slot was swept home (and how long ago).
 bool tess_games_holds_burst(const face_t *face);
@@ -112,3 +114,16 @@ void tess_transform_point(const float matrix[3][3], const float source[3], float
 void tess_touch_wave(face_t *face, float x, float y);
 void tess_touch_resume(face_t *face, float x, float y, float age);
 void tess_touch_waves_step(face_t *face, float dt);
+
+// Skies (tess_sky.c, tess_sky_draw.c)
+bool tess_sky_invite(face_t *face);                      // she asks with a wandering star, now and then
+bool tess_sky_calling(const face_t *face, float *x, float *y);   // that star is out, and where (panel px)
+bool tess_sky_tap(face_t *face, float x, float y);       // a tap on a lit corner starts a sky
+bool tess_sky_start(face_t *face);
+void tess_sky_release(tess_games_t *games);              // the sky's memory goes back
+void tess_sky_stop(face_t *face);                        // its voices let go
+void tess_sky_tick(face_t *face, float dt);              // every frame: stray voices, the invitation's clock
+bool tess_sky_holds_burst(const face_t *face);
+void tess_sky_update(face_t *face, float dt);
+void tess_sky_draw(const face_t *face, scene_t *scene);
+int tess_sky_dot_colour(const face_t *face, int point);

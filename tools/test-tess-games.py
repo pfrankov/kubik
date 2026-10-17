@@ -40,7 +40,9 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
                        'void tess_scatter_begin(face_t *f){(void)f;}\n'
                        'void tess_scatter_finish(face_t *f){f->tess_hold[TR_SCATTER]=0;}\n'
                        'void tess_scatter_spot_px(int k,float *x,float *y){*x=(float)(k%12)*40;*y=(float)(k/12)*48;}\n'
+                       'void tess_scatter_hang_at(int k,float x,float y){(void)k;(void)x;(void)y;}\n'
                        'float tess_sin(float x){return sinf(x);}\n'
+                       'void tess_tone_slot(face_t *f,tess_tone_kind_t k,unsigned s,float h,float g,float sh,float d){(void)f;(void)k;(void)s;(void)h;(void)g;(void)sh;(void)d;}\n'
                        'void tess_tone(face_t *f,tess_tone_kind_t k,float h,float g,float s){(void)f;(void)k;(void)h;(void)g;(void)s;}\n'
                        'void tess_tone_later(face_t *f,tess_tone_kind_t k,float h,float g,float s,float d){(void)f;(void)k;(void)h;(void)g;(void)s;(void)d;}\n'
                        'void tess_feel_event(face_t *f,mood_event_t e,float s,float d){(void)f;(void)e;(void)s;(void)d;}\n'
@@ -50,6 +52,19 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
         exe = temp / name
         subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra",
                         "-fsanitize=address,undefined", "-Ifirmware/main", *defines, str(source),
-                        "firmware/main/tess_games.c", "firmware/main/tess_gather.c", "firmware/main/tess_play_shape.c", "firmware/main/tess_stretch.c", "firmware/main/tess_temper.c", str(support), "firmware/main/app_state.c", "-lm", "-o", str(exe)],
+                        "firmware/main/tess_games.c", "firmware/main/tess_gather.c", "firmware/main/tess_sky.c", "firmware/main/tess_sky_melody.c", "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c", "firmware/main/tess_sky_touch.c", "firmware/main/tess_sky_summon.c", "firmware/main/tess_sky_sound.c", "firmware/main/tess_play_shape.c", "firmware/main/tess_stretch.c", "firmware/main/tess_temper.c", str(support), "firmware/main/app_state.c", "-lm", "-o", str(exe)],
                        cwd=ROOT, check=True)
         subprocess.run([str(exe)], cwd=ROOT, check=True)
+    # Skies: every composed sky is deterministic, on the scale, solvable by its own solution, and scrambled.
+    sky = temp / "sky"
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-Ifirmware/main",
+                    "firmware/sim/tess_sky_test.c", "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",
+                    "-lm", "-o", str(sky)], cwd=ROOT, check=True)
+    subprocess.run([str(sky), "40"], cwd=ROOT, check=True)
+    # Skies: the ending melody visits every star, stays singable and comes home to the tonic.
+    melody = temp / "melody"
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-Ifirmware/main", "firmware/sim/tess_sky_melody_test.c",
+                    "firmware/main/tess_sky_melody.c", "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",
+                    "-lm", "-o", str(melody)], cwd=ROOT, check=True)
+    subprocess.run([str(melody)], cwd=ROOT, check=True)

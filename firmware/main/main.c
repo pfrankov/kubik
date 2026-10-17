@@ -384,7 +384,10 @@ static void display_task(void *arg) {
 
 static void initialize_home_face(void) {
     face_init(&g_face);
-    if (KUBIK_CHARACTER == CHARACTER_TESS) tess_games_restore(&g_face, g_settings.tess_progress);
+    if (KUBIK_CHARACTER == CHARACTER_TESS) {
+        tess_games_restore(&g_face, g_settings.tess_progress);
+        tess_games_restore_sky(&g_face, g_settings.sky_progress);
+    }
 }
 
 void app_main(void) {

@@ -12,6 +12,7 @@
 - [Нативный Hermes](hermes.md)
 - [Персонажи и реакции](characters.md)
 - [Игры и рост Tess](tess-games.md)
+- [Tess Skies](tess-skies.md)
 - [Сеть, питание и уведомления](power-network.md)
 - [Обновление, безопасность и сброс](maintenance.md)
 - [Скрытый просмотр экранов и эмулятор](debug.md)

@@ -118,6 +118,17 @@ static void test_corrupt_progress_is_recoverable(void) {
     assert(g_settings.tess_progress == 0x01);
 }
 
+// Skies' progress replaces rather than merges, survives a reload, and is refused after a reset.
+static void test_sky_progress_round_trip(void) {
+    assert(g_settings.sky_progress == 0);
+    assert(settings_save_sky_progress(0x12345) == ESP_OK && g_settings.sky_progress == 0x12345);
+    assert(settings_save_sky_progress(0x00021) == ESP_OK && g_settings.sky_progress == 0x21);  // skill may fall
+    settings_load();
+    assert(g_settings.sky_progress == 0x21);
+    reset_between_snapshot_and_save();
+    assert(!settings_test_has("sky_prog") && g_settings.sky_progress == 0);
+}
+
 void settings_test_tess_progress_storage(void) {
     nvs_flash_erase();
     assert(nvs_set_str(1, "name", "Existing") == ESP_OK);
@@ -134,4 +145,5 @@ void settings_test_tess_progress_storage(void) {
     unsigned reads = read_calls, writes = write_calls;
     assert(settings_read_tess_progress(&saved) == ESP_OK && saved == 1);
     assert(reads == read_calls && writes == write_calls); // cached snapshot, no flash I/O
+    test_sky_progress_round_trip();
 }

@@ -66,13 +66,17 @@ void app_post(app_ev_type_t type, int a, int b) { app_post_in_session(type, a, b
 static void flush_tess_progress(void) {
     if (KUBIK_CHARACTER != CHARACTER_TESS) return;
     if (!app_games_flush_safe()) return;
+    bool settled;
     face_lock();
     uint8_t progress = g_face.tess_games.progress;
+    uint32_t sky = tess_games_sky_progress(&g_face, &settled);
     face_unlock();
-    if (progress == g_settings.tess_progress) return;
+    bool discoveries = progress != g_settings.tess_progress, skies = settled && sky != g_settings.sky_progress;  // (a write is not made while a sky plays)
+    if (!discoveries && !skies) return;
     int64_t t = now_ms();
     if (t < s_tess_flush_retry_at) return;
-    esp_err_t err = settings_save_tess_progress(progress);
+    esp_err_t err = discoveries ? settings_save_tess_progress(progress) : ESP_OK;
+    if (err == ESP_OK && skies) err = settings_save_sky_progress(sky);
     s_tess_flush_retry_at = err == ESP_OK ? 0 : t + 10000;
 }
 

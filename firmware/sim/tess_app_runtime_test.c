@@ -25,8 +25,8 @@ bool app_games_flush_safe(void);
 
 /* PRODUCTION_GAMES_AVAILABLE */
 
-typedef struct { unsigned init_calls; uint8_t progress; } face_t;
-typedef struct { uint8_t tess_progress; } settings_t;
+typedef struct { unsigned init_calls; uint8_t progress; uint32_t sky; } face_t;
+typedef struct { uint8_t tess_progress; uint32_t sky_progress; } settings_t;
 static face_t g_face;
 static settings_t g_settings;
 static unsigned sequence;
@@ -38,6 +38,8 @@ static void tess_games_restore(face_t *face, uint8_t progress) {
     face->progress = progress;
     restored_at = ++sequence;
 }
+
+static void tess_games_restore_sky(face_t *face, uint32_t packed) { face->sky = packed; }
 
 /* PRODUCTION_HOME_FACE_INIT */
 
@@ -81,13 +83,13 @@ static void test_flush_waits_for_live_audio_and_agent_reply(void) {
 }
 
 static void test_startup_restores_after_face_initialization(void) {
-    g_face = (face_t){0}; g_settings.tess_progress = 0x2d;
+    g_face = (face_t){0}; g_settings.tess_progress = 0x2d; g_settings.sky_progress = 0x777;
     sequence = initialized_at = restored_at = 0;
     initialize_home_face();
     assert(g_face.init_calls == 1 && initialized_at == 1);
     if (KUBIK_CHARACTER == CHARACTER_TESS)
-        assert(g_face.progress == 0x2d && restored_at == 2 && restored_at > initialized_at);
-    else assert(g_face.progress == 0 && restored_at == 0);
+        assert(g_face.progress == 0x2d && g_face.sky == 0x777 && restored_at == 2 && restored_at > initialized_at);
+    else assert(g_face.progress == 0 && g_face.sky == 0 && restored_at == 0);
 }
 
 int main(void) {

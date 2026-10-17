@@ -159,7 +159,7 @@ typedef enum { TP_YAW = 0, TP_PITCH, TP_ROLL, TP_COUNT } tess_pose_t;
 // What Tess does with a finger and with nobody (tess_touch.c, tess_play.c).
 #define TESS_QUEUE 6
 #define TESS_CUES 6
-#define TESS_TONES 8
+#define TESS_TONES 12
 #define TESS_RIPPLES 3
 typedef struct { float x, y, age; } tess_ripple_t;  // the wave of a press: where it began (units, as the points), seconds ago
 typedef struct {

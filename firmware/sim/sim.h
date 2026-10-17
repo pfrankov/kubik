@@ -21,6 +21,7 @@ void sim_jitter(void);          // Tess under uneven frame times, checked for sa
 void sim_gaze(const char *name);  // Tess's attention, one phase forced at a time; `list` names them
 void sim_mood(const char *name);  // Tess's idle moves and reactions; NULL: all of them
 void sim_feel(const char *name);  // Tess's moods: a clip each, a sheet of all of them, the changes between them; NULL: every clip
+void sim_sky(float seconds);       // Skies: the invitation, a first sky, a resolution, the next sky
 void sim_play(const char *name);  // what a finger does to Tess, and what it does alone; `list` names them
 void sim_rub(const char *name, int character);  // petting scripts; NULL: all of the reference stream
 void sim_text(void);  // every screen with text, one settled frame each

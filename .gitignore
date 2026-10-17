@@ -55,3 +55,4 @@ htmlcov/
 **/.claude/settings.local.json
 # CI download and compiler caches are not repository inputs.
 .ci-cache/
+firmware/.cache/

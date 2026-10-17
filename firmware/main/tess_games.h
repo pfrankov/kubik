@@ -8,12 +8,14 @@
 #include "tess_progress.h"
 
 // Rounds that own the finger while they last. Plucks, spin and self-play are not rounds: they never take input.
-typedef enum { TESS_GAME_NONE, TESS_GAME_STRETCH, TESS_GAME_FLY, TESS_GAME_GATHER } tess_game_t;
+typedef enum { TESS_GAME_NONE, TESS_GAME_STRETCH, TESS_GAME_FLY, TESS_GAME_GATHER, TESS_GAME_SKY } tess_game_t;
 typedef enum { TESS_GAME_REST, TESS_GAME_SHOW, TESS_GAME_WAIT, TESS_GAME_CELEBRATE } tess_game_phase_t;
 // Developer previews (Screen Lab), one per behaviour.
-typedef enum { TESS_PLAY_PLUCK, TESS_PLAY_BLOOM, TESS_PLAY_STRETCH, TESS_PLAY_FLY, TESS_PLAY_GATHER, TESS_PLAY_SELF, TESS_PLAY_COUNT } tess_preview_t;
+typedef enum { TESS_PLAY_PLUCK, TESS_PLAY_BLOOM, TESS_PLAY_STRETCH, TESS_PLAY_FLY, TESS_PLAY_GATHER, TESS_PLAY_SELF, TESS_PLAY_SKY, TESS_PLAY_COUNT } tess_preview_t;
 // What she does by herself when left alone.
 typedef enum { SELF_NONE, SELF_PLUCK, SELF_REACH, SELF_SPIN, SELF_WRESTLE } tess_self_t;
+
+struct tess_sky;  // tess_sky.h
 
 #define TESS_WAVES 4
 #define TESS_GATHER_SLOTS 112  // the burst slots; face.h: TESS_N
@@ -59,4 +61,24 @@ typedef struct {
     bool hit_valid;
     uint8_t trail_n;             // the point's fading positions, newest first, sampled at 18 Hz
     float trail[6][2], trail_at;
+    // Skies (tess_sky.c): the sky is heap, only while it lasts; what she has met and how she is doing outlives it.
+    struct tess_sky *sky;
+    uint8_t sky_elements, sky_skill, sky_root;  // elements met; how much she is asked, 0..255; the last chord's root
+    uint16_t sky_lit;            // a bit per held voice still sounding: the pads, then the wells
+    uint16_t sky_solved;
+    float sky_call[3];           // the summoning star: where it is (panel px), and its angle about her
+    float rock_t[2];             // per screen axis: s since its last swing across the level (a rocking flat cube summons Skies)
+    int8_t rock_side[2];
+    uint8_t rock_n[2];
+    float sky_invite_t;          // s the star stays; 0: no invitation (it is only offered while she waits for an answer)
 } tess_games_t;
+
+// What the game probe reports of her games: a few numbers, so the small USB task never holds her whole state.
+typedef struct {
+    bool preview, available, shaping;
+    uint8_t progress, game, phase, self_act;
+    uint16_t streak, tone_kinds;
+    uint32_t round;
+    unsigned waves;
+    float x, y, bloom, spin, tilt_x, tilt_y, excite, annoy, fear, fond, pull, speed, squash, burst, form;
+} tess_games_view_t;

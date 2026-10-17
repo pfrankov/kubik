@@ -45,6 +45,7 @@ typedef struct {
     bool event_overlay; // show recent agent events above the home character
     bool guide_done; // first-use tour completed or explicitly skipped
     uint8_t tess_progress; // six one-time Tess game discoveries, TESS_PROGRESS_MASK
+    uint32_t sky_progress; // Tess Skies: elements met, skill, chord root, skies solved (tess_sky_pack); 0 is a fresh start
 } settings_t;
 
 extern settings_t g_settings;
@@ -57,6 +58,7 @@ esp_err_t settings_complete_guide(void);
 // cumulative snapshot; stale subsets never clear discoveries already saved.
 esp_err_t settings_save_tess_progress(uint8_t progress);
 esp_err_t settings_read_tess_progress(uint8_t *progress);
+esp_err_t settings_save_sky_progress(uint32_t progress);
 bool settings_take_provisioning(void);
 // Saved networks and endpoint are one durable record. Exact SSID upserts
 // replace its password; an empty password keeps an existing exact match.

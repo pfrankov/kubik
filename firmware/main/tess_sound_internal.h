@@ -20,3 +20,7 @@ unsigned tess_sound_random(tess_sound_t *s);  // 0..65535, from the seed
 void tess_sound_note(tess_sound_t *s, const tess_note_t *note);  // queue a note (it plays at its delay, whatever was queued before)
 void tess_sound_release(tess_sound_t *s);  // everything still sounding lets go within ~60 ms, what has not begun never will
 void tess_sound_fade_reverb(tess_sound_t *s);  // the tail follows in 200 ms instead of its full length
+// Held voices (a game's pads): one per slot, gliding to `goal` (Q15). A goal of 0 lets it go; it also lets go by itself
+// when not tended for about 0.8 s, so a lost sender never leaves a pad ringing.
+void tess_sound_hold(tess_sound_t *s, unsigned slot, const tess_note_t *note, int goal);
+tess_note_t tess_sound_ensemble(int timbre, float hz, float strength, int gain);  // a note of the palette at a pitch and a level

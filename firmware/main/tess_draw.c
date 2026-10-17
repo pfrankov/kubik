@@ -291,6 +291,23 @@ static void pulse_game_dots(const face_t *f, dot_t dots[TESS_N]) {
     }
 }
 
+// The colours a prism gives the stream in Skies (far, mid, near): her own turquoise is the palette's.
+static const uint32_t k_sky_ramp[3][3] = {{0}, {0x170D04, 0xB8861C, 0xFFD66E}, {0x2E0B28, 0xC23C7E, 0xFF9CCB}};
+
+// Her dots nearest the summoning star swell and brighten as it passes them.
+#define CALL_LIGHT_Q3 (110 * 8)
+static void light_invited(const face_t *f, dot_t dots[TESS_N]) {
+    float x, y;
+    if (!tess_sky_calling(f, &x, &y)) return;
+    int cx = (int)(x * 8.f), cy = (int)(y * 8.f);
+    for (int i = 0; i < TESS_N; i++) {
+        int dx = dots[i].x - cx, dy = dots[i].y - cy, near = CALL_LIGHT_Q3 - (abs(dx) > abs(dy) ? abs(dx) + 3 * abs(dy) / 8 : abs(dy) + 3 * abs(dx) / 8);
+        if (near <= 0) continue;
+        dots[i].radius = (dots[i].radius * (256 + near * 256 / CALL_LIGHT_Q3) + 128) >> 8;
+        if (near > CALL_LIGHT_Q3 / 3) dots[i].key = 65535;
+    }
+}
+
 static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
     uint8_t order[TESS_N];
     int count = cloud_order(f, dots, order);
@@ -318,7 +335,10 @@ static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
         int q = dot->key * TESS_SHADES >> 16;
         // The halo grows with nearness too: far points are bare specks, near ones glow.
         uint8_t glow = (uint8_t)(q * q * glow_q8 / ((TESS_SHADES - 1) * (TESS_SHADES - 1)));
-        sc_glow_dot_q3(s, dot->x, dot->y, dot->radius, shade[q], glow);
+        uint32_t color = shade[q];
+        int tint = tess_sky_dot_colour(f, order[i]);
+        if (tint) color = palette_mix(color, ramp(k_sky_ramp[tint][0], k_sky_ramp[tint][1], k_sky_ramp[tint][2], dot->key * (1.f / 65535)), .85f);
+        sc_glow_dot_q3(s, dot->x, dot->y, dot->radius, color, glow);
     }
 }
 
@@ -431,8 +451,10 @@ void tess_draw(face_t *f, scene_t *s) {
     tess_project_dots(f, dots);
     pulse_game_dots(f, dots);
     shimmer_point(f, dots);
+    light_invited(f, dots);
     if (f->tess_fallen) shade_fallen(f, dots);
     draw_point_trail(f, s, dots);
     draw_cloud(f, s, dots);
+    tess_sky_draw(f, s);
     draw_recording(f, s);
 }

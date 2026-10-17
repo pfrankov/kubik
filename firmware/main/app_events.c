@@ -1,6 +1,7 @@
 #include "app_lab.h"
 #include "app_journal.h"
 #include "app_internal.h"
+#include "tess.h"
 
 #include <string.h>
 
@@ -26,7 +27,7 @@ static void handle_boot_short(void) {
         menu_back();
     } else {
         face_lock();
-        face_card(&g_face, NULL);
+        if (KUBIK_CHARACTER != CHARACTER_TESS || !tess_games_end_sky(&g_face)) face_card(&g_face, NULL);
         face_unlock();
     }
     disp_wake();

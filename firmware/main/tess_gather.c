@@ -25,6 +25,7 @@ static float burst_time(const face_t *f) { return TESS_BURST_S - f->tess_hold[TR
 bool tess_games_holds_burst(const face_t *f) {
     const tess_games_t *g = &f->tess_games;
     if (!g->ready || f->tess_hold[TR_SCATTER] <= 0 || !tess_games_eligible(f)) return false;
+    if (g->game == TESS_GAME_SKY) return tess_sky_holds_burst(f);
     if (g->game == TESS_GAME_GATHER) return g->phase == TESS_GAME_WAIT;
     bool tilted = fabsf(g->tilt[0]) + fabsf(g->tilt[1]) > .12f;  // held tilted, she waits to be poured (a while)
     return g->game == TESS_GAME_NONE && g->gather_clock < TESS_HANG_S + (tilted ? POUR_WAIT_S : WAIT_S);

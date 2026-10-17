@@ -6,7 +6,8 @@
 
 static tess_sound_t s_body;
 static int32_t s_pcm[PROBE_MAX_SAMPLES];
-static const char *const k_kind[TT_COUNT] = {"ring", "creak", "twang", "thud", "grain", "whoosh", "chirp", "wobble"};
+// (the Skies kinds, TT_SKY_*, are held voices, measured with the sky sounds)
+static const char *const k_kind[TT_SKY_PAD] = {"ring", "creak", "twang", "thud", "grain", "whoosh", "chirp", "wobble"};
 
 static probe_t play(tess_tone_kind_t kind, float hz, float gain, float shade) {
     probe_rest(&s_body);
@@ -18,8 +19,8 @@ static probe_t play(tess_tone_kind_t kind, float hz, float gain, float shade) {
     return p;
 }
 static void each_kind_is_clean(void) {
-    static const float k_hz[TT_COUNT] = {294, 330, 440, 230, 330, 400, 440, 555};  // the registers tess_tone_hz gives
-    for (int kind = 0; kind < TT_COUNT; kind++) {
+    static const float k_hz[TT_SKY_PAD] = {294, 330, 440, 230, 330, 400, 440, 555};  // the registers tess_tone_hz gives
+    for (int kind = 0; kind < TT_SKY_PAD; kind++) {
         probe_t loud = play((tess_tone_kind_t)kind, k_hz[kind], 1, .6f);
         double level = probe_weighted_100ms(&loud, true), high = probe_high_share(&loud, 2500), flat = probe_flatness(&loud);
         int peak = probe_peak(&loud), ms = probe_sounding_ms(&loud), onset = probe_onset_ms(&loud);
@@ -47,7 +48,7 @@ static void a_flood_stays_gentle(void) {
     memset(s_pcm, 0, sizeof s_pcm);
     assert(tess_sound_cue(&s_body, TC_RUB, 1, 0));  // her loudest word (-21.5 dB) at the same time
     for (int i = 0; i < 40; i++) {
-        tess_tone_t tone = {(uint8_t)(i % TT_COUNT), 200.f + 15 * i, 1, .5f, .02f * i};
+        tess_tone_t tone = {(uint8_t)(i % TT_SKY_PAD), 200.f + 15 * i, 1, .5f, .02f * i};
         tess_sound_tone(&s_body, &tone);
         if (i % 4 == 3) { probe_mix(&s_body, p.pcm + p.length, &p.peak_voices); p.length += PROBE_FRAME; }
     }
@@ -76,11 +77,34 @@ static void words_keep_their_voices(void) {
     }
     probe_rest(&s_body);
 }
+static void held_tones_reach_small_targets(void) {
+    const tess_tone_kind_t kinds[] = {TT_SKY_PAD, TT_SKY_HUM};
+    for (unsigned k = 0; k < sizeof kinds / sizeof kinds[0]; k++) {
+        tess_sound_reset(&s_body);
+        tess_tone_t tone = {(uint8_t)kinds[k], 440, .5f, 0, 0};
+        assert(tess_sound_tone(&s_body, &tone));
+        probe_silence(&s_body, 20);
+        tess_voice_t *voice = NULL;
+        for (int i = 0; i < TESS_VOICES; i++) if (s_body.voices[i].held) voice = &s_body.voices[i];
+        assert(voice && voice->goal > 0 && voice->goal < 1024);
+        assert(voice->gain == voice->goal);
+        tone.gain = .15f;
+        assert(tess_sound_tone(&s_body, &tone));
+        probe_silence(&s_body, 20);
+        assert(voice->gain == voice->goal && voice->gain > 0);
+        tone.gain = 0;
+        tess_sound_tone(&s_body, &tone);
+        assert(!voice->held);  // release begins immediately; its envelope has a 700 ms time constant
+        probe_silence(&s_body, 300);
+        assert(!voice->held && !voice->stage);
+    }
+}
 void check_body_tones(void) {
     tess_sound_seed(&s_body, 7);
     each_kind_is_clean();
     a_tauter_pull_sits_higher();
     a_flood_stays_gentle();
     words_keep_their_voices();
+    held_tones_reach_small_targets();
     fprintf(stderr, "body tones: her palette, under her words, gentle in a flood, never taking a word's voice\n");
 }

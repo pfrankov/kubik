@@ -198,6 +198,13 @@ void tess_scatter_spot_px(int k, float *x, float *y) {
     *y = 255.f + given.spot_px[k][1];
 }
 
+void tess_scatter_hang_at(int k, float x, float y) {
+    ready_spots();
+    given.spot_px[k][0] = x - 240.f;
+    given.spot_px[k][1] = y - 255.f;
+    place_spot(k);
+}
+
 void tess_scatter_spot(int k, float out[3]) {
     ready_spots();
     memcpy(out, given.spot[k], sizeof given.spot[k]);
@@ -368,6 +375,7 @@ static void slide(face_t *f, float dt) {
     static bool sliding;      // some dot still moved last frame
     float gx = f->tess_games.tilt[0], gy = f->tess_games.tilt[1];
     knock_wait -= dt;
+    if (f->tess_games.game == TESS_GAME_SKY) return;   // a sky places its own dots
     if (gx == 0 && gy == 0 && !sliding) return;  // level and at rest: nothing to move (most of a hang)
     sliding = false;
     for (int k = 0; k < TESS_N; k++) {

@@ -43,6 +43,11 @@ typedef enum {
     TT_WHOOSH,  // spin: air past her edges
     TT_CHIRP,   // her voice: shade > .5 asks (up), < .5 sighs or grumbles (down)
     TT_WOBBLE,  // a scared tremble
+    // Skies (tess_sky.c): her game of light and harmony. A pad is held until its gain goes to 0 or its sender stops.
+    TT_SKY_PAD,    // a star sings: slot = the star, gain = how full it is, shade = its colour
+    TT_SKY_PLUCK,  // light strikes a string, or a star fills: a celesta note at hz
+    TT_SKY_CHIME,  // a soft swell that rings by itself: the invitation, a sky resolving
+    TT_SKY_HUM,    // a well holds light: slot = the well, gain = how much
     TT_COUNT
 } tess_tone_kind_t;
-typedef struct { uint8_t kind; float hz, gain, shade, delay_s; } tess_tone_t;
+typedef struct { uint8_t kind; float hz, gain, shade, delay_s; uint8_t slot; } tess_tone_t;

@@ -50,7 +50,7 @@ static bool s_online, s_pair_hidden, s_outage, s_ever_online;
 static int s_srv_progress, s_offline_icon, displayed;
 static char s_pair_code[17];
 static int64_t s_boot_ms;
-static struct { int volume; bool greeted; uint8_t tess_progress; } g_settings;
+static struct { int volume; bool greeted; uint8_t tess_progress; uint32_t sky_progress; } g_settings;
 static bool s_power_off_failed;
 static int64_t s_power_off_at;
 typedef struct { uint8_t progress, game; bool available, finger_owned, pressed; uint32_t round; } fake_games_t;
@@ -116,6 +116,7 @@ void tess_games_set_available(fake_face_t *f, bool available) {
     f->tess_games.available = available;
     if (!available) f->tess_games.game = TESS_GAME_NONE;
 }
+#include "app_post_queue_sky.h"
 static esp_err_t settings_save_tess_progress(uint8_t progress) {
     progress_save_calls++;
     progress_save_mask = progress;
@@ -489,7 +490,7 @@ int main(void) {
     test_replacement_route_ignores_queued_disconnect();
     test_welcome_survives_full_queue_and_keeps_session_fence();
     test_reserved_slots_keep_key_speech_order_and_coalesce();
-    test_progress_flush_is_coalesced_retryable_and_independent_of_queue();
+    test_progress_flush_is_coalesced_retryable_and_independent_of_queue(); test_sky_progress_flush_waits_for_the_sky_to_settle();
     test_factory_reset_cannot_resurrect_progress_before_queued_reboot();
     test_game_taps_defer_across_priority_events();
     test_only_effective_preemption_cancels_game_taps();

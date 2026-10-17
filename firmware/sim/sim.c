@@ -347,6 +347,7 @@ static void run_rotate(int argc,char **argv) { (void)argc; (void)argv; sim_rotat
 static void run_mood(int argc,char **argv) { sim_mood(argc>2?argv[2]:NULL); }
 static void run_gaze(int argc,char **argv) { sim_gaze(argc>2?argv[2]:NULL); }
 static void run_feel(int argc,char **argv) { sim_feel(argc>2?argv[2]:NULL); }
+static void run_sky(int argc,char **argv) { sim_sky(argc>2?(float)atof(argv[2]):40.f); }
 static void run_play(int argc,char **argv) { sim_play(argc>2?argv[2]:NULL); }
 static void run_rub(int argc,char **argv) { sim_rub(argc>2?argv[2]:NULL, getenv("SIM_CHARACTER") && !strcmp(getenv("SIM_CHARACTER"), "tess") ? CHARACTER_TESS : CHARACTER_PLUSH); }
 static void run_text(int argc,char **argv) { (void)argc; (void)argv; sim_text(); }
@@ -360,7 +361,7 @@ static void run_dialogue(int argc, char **argv) {
 static void run_command(int argc, char **argv) {
     static const command_t commands[] = {
         {"dialogue",2,run_dialogue}, {"character",4,run_character}, {"track",3,run_track}, {"tess",2,run_tess},
-        {"sheet",2,run_sheet}, {"gravity",2,run_gravity}, {"jitter",2,run_jitter}, {"mood",2,run_mood}, {"gaze",2,run_gaze}, {"rub",2,run_rub}, {"feel",2,run_feel}, {"play",3,run_play}, {"text",2,run_text}, {"rotate",2,run_rotate}, {"bench",2,run_bench}, {"busy",2,run_busy}
+        {"sheet",2,run_sheet}, {"gravity",2,run_gravity}, {"jitter",2,run_jitter}, {"mood",2,run_mood}, {"gaze",2,run_gaze}, {"rub",2,run_rub}, {"feel",2,run_feel}, {"play",3,run_play}, {"sky",2,run_sky}, {"text",2,run_text}, {"rotate",2,run_rotate}, {"bench",2,run_bench}, {"busy",2,run_busy}
     };
     for (unsigned i=0;i<sizeof commands/sizeof commands[0];i++)
         if (argc>=commands[i].min_args && !strcmp(argv[1],commands[i].name)) { commands[i].run(argc,argv); return; }
