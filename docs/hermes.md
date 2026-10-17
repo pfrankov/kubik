@@ -28,7 +28,14 @@ uv pip install --python "$HERMES_PY" -r hermes-kubik/requirements.txt
 "$HERMES_PY" tools/install-hermes.py --home "$HERMES_HOME"
 ```
 
-The additional transport dependency is aiohttp. The installer uses the existing
+The additional dependencies are aiohttp and Tornado `>=6.5.9,<7`. The Tornado
+floor fixes the pre-authentication query-field denial of service in Telegram's
+webhook listener ([GHSA-3hv7-mjh2-fv65](https://github.com/tornadoweb/tornado/security/advisories/GHSA-3hv7-mjh2-fv65)).
+The same floor also includes fixes for
+[CurlAsyncHTTPClient decompression](https://github.com/tornadoweb/tornado/security/advisories/GHSA-chx6-46f5-w4vp)
+and [StaticFileHandler symlinks](https://github.com/tornadoweb/tornado/security/advisories/GHSA-c2m8-h5v5-343r);
+those uses are not established for the Kubik webhook path.
+The installer uses the existing
 Hermes `ruamel.yaml` and cryptography libraries, not an assumed system PyYAML.
 It fails before writing when run in the wrong interpreter or an incomplete
 Hermes environment. Install **ffmpeg on the agent machine** for speech playback:
@@ -36,7 +43,8 @@ Hermes environment. Install **ffmpeg on the agent machine** for speech playback:
 The read-only `--check` reports whether ffmpeg is available.
 
 Installation preserves other platforms, models, credentials, YAML comments and
-an already configured Kubik port/bind address. It enables `kubik-platform`, keeps
+an already configured Kubik port/bind address. It enables the directory key `kubik`
+(migrating the old `kubik-platform` selection so Hermes PM includes its dependencies), keeps
 other enabled/disabled plugins unchanged, and creates the private first-install
 backup `config.before-kubik.yaml`. Writes are staged; a normal failure replacing
 the configuration restores the previous plugin. A concurrent installer or changed
@@ -50,7 +58,7 @@ created by another writer is preserved; when the first-install backup is older,
 the displaced configuration is saved as `config.before-kubik-conflict.yaml`.
 An occupied conflicting backup or an unrecognized replacement plugin stops recovery
 and retains its journal and files for inspection instead of overwriting them.
-The installer does not start/stop services, change providers or make model calls.
+The installer does not install Python packages, start/stop services, change providers or make model calls.
 The printed approval command is shell-quoted and remains safe to paste when the
 interpreter or Hermes home path contains spaces or shell metacharacters.
 
@@ -167,9 +175,14 @@ errors, inspect the Gateway log and native provider settings; missing ffmpeg
 makes speech output unavailable. Do not share secrets or private conversations
 in diagnostic reports.
 
-Repeat installation from the new Kubik checkout using the same home/interpreter,
-then restart the idle existing service. To remove the integration, disable
-`kubik-platform` in that profile and restart its Gateway; preserve state for a
+For an update, rerun `uv pip install --python "$HERMES_PY" -r hermes-kubik/requirements.txt`
+with the interpreter used by Hermes, then repeat installation from the new Kubik
+checkout using the same home. For a PM-managed environment, run
+`hermes pm install --extra telegram` after reinstalling the plugin to adopt its
+updated dependency declaration; `hermes pm repair` only replays the recorded graph.
+Restart the idle existing Gateway to load the updated packages. Neither the installer
+nor plugin discovery installs them automatically.
+To remove the integration, disable `kubik` in that profile and restart its Gateway; preserve state for a
 possible reinstall. Do not restore an old whole configuration over newer unrelated
 Hermes changes. Physical device testing is separate from the automated contract.
 

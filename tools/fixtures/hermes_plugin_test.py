@@ -345,7 +345,7 @@ class Protocol(ProtocolFixture):
         saved = yaml.safe_load((home / 'config.yaml').read_text())
         self.assertEqual(saved['model'], config['model'])
         self.assertEqual(saved['platforms']['telegram'], config['platforms']['telegram'])
-        self.assertEqual(saved['plugins']['enabled'], ['existing-plugin', 'kubik-platform'])
+        self.assertEqual(saved['plugins']['enabled'], ['existing-plugin', 'kubik'])
         self.assertTrue((home / 'plugins/kubik/plugin.yaml').exists())
         installer.install(ROOT / 'hermes-kubik', home, 18793)
         manifests = list((home / 'plugins').rglob('plugin.yaml'))

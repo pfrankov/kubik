@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import tempfile
 import zipfile
 
 
@@ -95,6 +96,35 @@ def check_acceptance_links(contents):
     assert restored == source, "packaged acceptance content or source links changed"
 
 
+def check_hermes_native(kit):
+    modules = ('contract', 'dependencies', 'telegram_contract', 'webhook_contract')
+    paths = [f'tools/hermes_native/{name}.py' for name in modules]
+    paths += ['tools/hermes_native/upstream.json', 'tools/test-hermes-native.py']
+    for name in paths:
+        assert kit.read(name) == (source_root / name).read_bytes(), name
+    with tempfile.TemporaryDirectory(prefix='kubik-kit-hermes-') as temporary:
+        destination = Path(temporary)
+        for name in paths:
+            kit.extract(name, destination)
+        script = '''import importlib, subprocess, sys
+from pathlib import Path
+root = Path(sys.argv[1]).resolve()
+native = root / 'tools/hermes_native'
+sys.path.insert(0, str(native))
+for name in sys.argv[2:]:
+    module = importlib.import_module(name)
+    assert Path(module.__file__).resolve() == native / (name + '.py'), module.__file__
+for name in ('tools/test-hermes-native.py', 'tools/hermes_native/dependencies.py'):
+    subprocess.run([sys.executable, '-I', str(root / name), '--help'],
+                   cwd=root, capture_output=True, timeout=10, check=True)
+'''
+        subprocess.run(['uv', 'run', '--python', sys.executable,
+                        '--with', 'aiohttp==3.14.3', '--with', 'cryptography==50.0.0',
+                        '--with', 'python-telegram-bot==22.8', 'python', '-I', '-c', script,
+                        str(destination), *modules], cwd=destination, timeout=120, check=True)
+    print('kit: extracted Hermes native modules import with real PTB; entrypoint help works', flush=True)
+
+
 first_hashes = package_hashes()
 second_hashes = package_hashes()
 assert first_hashes == second_hashes, ("release packaging changed without source changes: "
@@ -111,6 +141,7 @@ with zipfile.ZipFile(kit_path) as kit:
                 "docs/scenarios/hermes.md", "tools/test-hermes-native.py",
                 "tools/hermes_native/contract.py", "tools/hermes_native/upstream.json", "docs/events.md"}
     assert required <= names, sorted(required - names)
+    check_hermes_native(kit)
     assert not {"VOICE.html", "CONNECT.html", "ASK-AGENT.txt"} & names, 'Obsolete split buyer flow'
     contents = kit.read("START.html").decode()
     assert 'lang="en"' in contents and not re.search('[А-Яа-яЁё]', contents)

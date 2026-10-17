@@ -77,9 +77,10 @@ def configuration(path, port, bind):
     if plugins.get('isolation', 'in_process') != 'in_process':
         raise ValueError('Kubik requires native in-process platform plugins; plugins.isolation was not changed')
     enabled, disabled = plugin_list(plugins, 'enabled'), plugin_list(plugins, 'disabled')
-    if 'kubik-platform' not in enabled:
-        enabled.append('kubik-platform')
-    plugins['disabled'] = [name for name in disabled if name != 'kubik-platform']
+    enabled[:] = [name for name in enabled if name != 'kubik-platform']
+    if 'kubik' not in enabled:
+        enabled.append('kubik')
+    plugins['disabled'] = [name for name in disabled if name not in ('kubik', 'kubik-platform')]
     platform = mapping(mapping(config, 'platforms'), 'kubik')
     extra = mapping(platform, 'extra')
     chosen_port = configure_listener(extra, port, bind)

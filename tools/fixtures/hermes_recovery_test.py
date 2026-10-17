@@ -94,7 +94,7 @@ class RecoveryContractTest(unittest.TestCase):
                     self.recover()
                     committed = point in ('config_linked', 'committed', 'cleanup')
                     if committed:
-                        self.assertIn('kubik-platform', self.config.read_text())
+                        self.assertIn('kubik', shared.YAML().load(self.config.read_text())['plugins']['enabled'])
                         self.assertTrue((destination / 'adapter.py').exists())
                     else:
                         self.assertEqual(self.config.read_text(), self.original)
