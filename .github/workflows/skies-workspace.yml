@@ -1,0 +1,21 @@
+name: Skies validation workspace
+on:
+  push:
+    branches: [work/skies-gravity-validation]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Export pinned source for offline validation
+        run: git archive --format=tar.gz --output=kubik-source.tar.gz 151b480d66b6a47edb2d6a2761084970055c59a5
+      - uses: actions/upload-artifact@v7
+        with:
+          name: skies-source
+          path: kubik-source.tar.gz
+          retention-days: 1
