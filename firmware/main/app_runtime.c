@@ -433,7 +433,7 @@ static void update_face_motion(face_t *f, int64_t t) {
     if (scripting || scripted_rub) input_rub_script(fmodf(t / 1000.f, 10.f), face_character(f) == CHARACTER_TESS, scripting);
     scripted_rub = scripting;
     rub_input_t rub;
-    input_rub(&rub);  // the face takes the finger's stroke (petting with effort)
+    input_rub(&rub, &f->touch_in);  // the face takes a coherent stroke and complete contact frame
     f->rub_in.path += rub.path;
     f->rub_in.turns += rub.turns;
     f->rub_in.x = rub.x;

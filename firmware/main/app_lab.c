@@ -41,6 +41,7 @@ bool app_lab_open(void) {
     if (s_lab) { face_unlock(); free(lab); return false; }
     s_lab = lab;
     g_face.rub_in = (rub_input_t){0};
+    g_face.touch_in = (touch_frame_t){0};
     atomic_store(&s_active, true);
     face_unlock();
     s_menu_touch_ms = now_ms();
@@ -54,6 +55,7 @@ void app_lab_close(void) {
     s_lab = NULL;
     atomic_store(&s_active, false);
     g_face.rub_in = (rub_input_t){0};
+    g_face.touch_in = (touch_frame_t){0};
     audio_sfx_quiet();  // same face -> SFX lock order as preview submission
     face_unlock();
     screen_lab_dispose(lab);
@@ -117,6 +119,7 @@ bool app_lab_frame(scene_t *scene, float dt, bool powered) {
     g_face.jolt_dvx = g_face.jolt_dvy = 0;
     memcpy(f->view_q, g_face.view_q, sizeof f->view_q);
     s_lab->face.rub_in = g_face.rub_in;
+    s_lab->face.touch_in = g_face.touch_in;
     g_face.rub_in.path = 0; g_face.rub_in.turns = 0;
     if (s_lab->face.menu.open && !s_lab->face.agent.open && !s_lab->face.journal.open)
         screen_lab_pointer(s_lab, s_lab->face.rub_in.down, s_lab->face.rub_in.x, s_lab->face.rub_in.y);
@@ -134,7 +137,7 @@ bool app_lab_take_tone(tess_tone_t *tone) {
 }
 void app_lab_play_tone(const tess_tone_t *tone) {
     face_lock();  // (as cues: a copied frame cannot sound after the Lab closed)
-    if (s_lab && screen_lab_tones_allowed(s_lab)) audio_tess_tone(tone);
+    if (s_lab && screen_lab_tone_allowed(s_lab, tone)) audio_tess_tone(tone);
     face_unlock();
 }
 

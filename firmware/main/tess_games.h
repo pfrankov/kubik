@@ -64,7 +64,8 @@ typedef struct {
     // Skies (tess_sky.c): the sky is heap, only while it lasts; what she has met and how she is doing outlives it.
     struct tess_sky *sky;
     uint8_t sky_elements, sky_skill, sky_root;  // elements met; how much she is asked, 0..255; the last chord's root
-    uint16_t sky_lit;            // a bit per held voice still sounding: the pads, then the wells
+    uint16_t sky_lit;            // a bit per held voice still sounding: the pads, then the black holes
+    bool sky_audio;             // survives leaving the round until its transient and held voices are released
     uint16_t sky_solved;
     float sky_call[3];           // invitation head (panel px), and its resting direction
     float sky_call_from[2];      // the actual visible corner it peeled away from

@@ -9,7 +9,7 @@ static const char *const names[LAB_COUNT] = {
     "Agent", "Voice modes", "Models", "Guide", "Recording", "Thinking", "Speaking",
     "GPT Live", "Text reply", "Offline points", "Error", "Background work", "Reminder", "Agent events", "Event log",
     "Growth: point", "Growth: square", "Growth: cube", "Growth: tesseract",
-    "Play: pluck", "Play: bloom", "Play: stretch", "Play: slingshot", "Play: gather", "Play: alone"
+    "Play: pluck", "Play: bloom", "Play: stretch", "Play: slingshot", "Play: gather", "Play: alone", "Play: skies"
 };
 const char *screen_lab_name(int screen) { return screen >= 0 && screen < LAB_COUNT ? names[screen] : "Screen Lab"; }
 bool screen_lab_unlock_tap(screen_lab_unlock_t *s, int x, int y, int64_t now) {
@@ -21,7 +21,7 @@ bool screen_lab_unlock_tap(screen_lab_unlock_t *s, int x, int y, int64_t now) {
 bool screen_lab_entry(bool unlocked, int x, int y) { return unlocked && x >= 20 && x <= 260 && y >= 12 && y <= 56; }
 
 static bool growth_preview(int screen) { return screen >= LAB_GROW_POINT && screen <= LAB_GROW_TESSERACT; }
-static bool game_preview(int screen) { return screen >= LAB_PLAY_PLUCK && screen <= LAB_PLAY_SELF; }
+static bool game_preview(int screen) { return screen >= LAB_PLAY_PLUCK && screen <= LAB_PLAY_SKY; }
 static bool tess_preview_only(screen_lab_t *lab) {
     if (face_character(&lab->face) == CHARACTER_TESS) return true;
     face_card(&lab->face, "Tess game preview only. Use a Tess build to inspect this screen.");
@@ -132,6 +132,9 @@ static void apply_screen(screen_lab_t *lab, int screen) {
 void screen_lab_dispose(screen_lab_t *lab) {
     agent_menu_clear_catalog(&lab->face.agent);
     tess_games_set_available(&lab->face, false);
+    tess_tone_t tone;
+    while (face_take_tone(&lab->face, &tone))
+        lab->sky_release |= tone.kind == TT_SKY_RELEASE;
 }
 void screen_lab_init(screen_lab_t *lab, int character) {
     memset(lab, 0, sizeof *lab);
@@ -145,6 +148,7 @@ void screen_lab_select(screen_lab_t *lab, int screen) {
     lab->service = (menu_service_t){0};
     lab->selected = screen; lab->signal = true; lab->overlay = true;
     lab->finger = (rub_track_t){0};
+    lab->primary = (touch_primary_t){0};
     face_t *f = &lab->face;
     screen_lab_dispose(lab);
     face_init(f);

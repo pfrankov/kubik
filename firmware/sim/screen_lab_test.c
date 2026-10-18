@@ -34,7 +34,7 @@ static void entry(void) {
     assert(!state.ready);
 }
 static void catalog(void) {
-    assert(LAB_HOME == 0 && LAB_EVENT_LOG == 21 && LAB_GROW_POINT == 22 && LAB_COUNT == 32);
+    assert(LAB_HOME == 0 && LAB_EVENT_LOG == 21 && LAB_GROW_POINT == 22 && LAB_COUNT == 33);
     screen_lab_select(&lab, -1);
     tap(350, 428); assert(lab.page == 1);
     tap(240, 144); assert(lab.selected == LAB_SETUP_QR);
@@ -246,7 +246,7 @@ static void game_previews(void) {
         assert(!screen_lab_take_cue(&lab, &cue, &strength, &position));
     }
 
-    for (int screen = LAB_PLAY_PLUCK; screen <= LAB_PLAY_SELF; screen++) {
+    for (int screen = LAB_PLAY_PLUCK; screen <= LAB_PLAY_SKY; screen++) {
         screen_lab_select(&lab, screen);
         assert(lab.character == CHARACTER_TESS);
         assert(lab.face.tess_games.progress == TESS_PROGRESS_MASK);
@@ -262,18 +262,19 @@ static void game_previews(void) {
     }
     // A pluck preview sounds its shells as her body's tones; only previews may sound them, never in the dark.
     screen_lab_select(&lab, LAB_PLAY_PLUCK);
-    for (int frame = 0; frame < 20; frame++) screen_lab_update(&lab, 1.f / 30);
     tess_tone_t tone;
+    assert(screen_lab_take_tone(&lab, &tone) && tone.kind == TT_SKY_RELEASE);
+    for (int frame = 0; frame < 20; frame++) screen_lab_update(&lab, 1.f / 30);
     assert(screen_lab_take_tone(&lab, &tone) && tone.kind == TT_RING);
     lab.face.dark = true;
     lab.face.tess_play.tone[lab.face.tess_play.tone_n++] = (tess_tone_t){TT_RING, 440, .5f, .5f, 0};
-    assert(!screen_lab_tones_allowed(&lab) && !screen_lab_take_tone(&lab, &tone));
+    assert(!screen_lab_tone_allowed(&lab, &tone) && !screen_lab_take_tone(&lab, &tone));
     lab.face.dark = false;
 
     // These fixtures are developer-only, but must remain inert in a Plush build.
     screen_lab_dispose(&lab);
     screen_lab_init(&lab, CHARACTER_PLUSH);
-    for (int screen = LAB_GROW_POINT; screen <= LAB_PLAY_SELF; screen++) {
+    for (int screen = LAB_GROW_POINT; screen <= LAB_PLAY_SKY; screen++) {
         screen_lab_select(&lab, screen);
         assert(!tess_games_active(&lab.face));
         assert(lab.face.card_n > 0);
@@ -293,8 +294,76 @@ static void changing_a_preview_releases_its_sky(void) {
         assert(!lab.face.tess_games.sky && !tess_games_active(&lab.face));
     }
 }
+static void no_old_sky_tones(void) {
+    tess_tone_t tone;
+    while (screen_lab_take_tone(&lab, &tone)) {
+        assert(tone.kind != TT_SKY_RELEASE);
+        assert(tone.kind != TT_SKY_GAME_CHIME);
+    }
+}
+static void change_sky_preview(int route) {
+    if (route == 0) boot();
+    else if (route == 1) screen_lab_event(&lab, LAB_KEY, 0, 0);
+    else if (route == 2) screen_lab_select(&lab, LAB_HOME);
+    else if (route == 3) screen_lab_event(&lab, LAB_MENU, 0, 0);
+    else {
+        // Preserve a release already queued by the game; disposing again cannot duplicate it.
+        tess_games_set_available(&lab.face, false);
+        screen_lab_dispose(&lab); screen_lab_dispose(&lab);
+        screen_lab_select(&lab, LAB_HOME);
+    }
+}
+static void changing_a_preview_releases_its_music(void) {
+    for (int route = 0; route < 5; route++) {
+        screen_lab_select(&lab, LAB_PLAY_SKY);
+        for (int frame = 0; frame < 180 && lab.face.tess_games.sky->phase != SKY_PLAY; frame++)
+            screen_lab_update(&lab, 1.f / 30);
+        assert(lab.face.tess_games.sky->phase == SKY_PLAY && lab.face.tess_games.sky_audio);
+        tess_tone_t tone;
+        while (screen_lab_take_tone(&lab, &tone)) {}
+        tess_tone_later(&lab.face, TT_SKY_GAME_CHIME, 440, .4f, .6f, .06f);
+        change_sky_preview(route);
+        // The old face is already gone. Its release must survive quiet screens and a new preview.
+        if (route >= 2) lab.face.dark = true;
+        assert(screen_lab_take_tone(&lab, &tone) && tone.kind == TT_SKY_RELEASE);
+        assert(tone.gain == 0 && tone.delay_s == 0);
+        no_old_sky_tones();
+        screen_lab_update(&lab, 1.f / 30);
+        no_old_sky_tones();
+    }
+}
+static void independent_contacts_and_primary_menu(void) {
+    screen_lab_select(&lab, LAB_SETTINGS);
+    touch_frame_t frame = {.point={{72,200,true,15},{348,350,true,2}}};
+    screen_lab_contacts(&lab, &frame);
+    assert(lab.face.rub_in.down); assert(lab.face.rub_in.x == 72); assert(touch_count(&lab.face.touch_in) == 2);
+    frame.point[0].down = false;
+    screen_lab_contacts(&lab, &frame);
+    assert(!lab.face.rub_in.down); assert(touch_count(&lab.face.touch_in) == 1);
+    int volume = lab.face.menu.volume;
+    frame.point[1].x = 72; frame.point[1].y = 300;
+    screen_lab_contacts(&lab, &frame);
+    assert(!lab.face.rub_in.down); assert(lab.face.menu.volume == volume);
+    screen_lab_select(&lab, LAB_PLAY_SKY);
+    assert(!touch_count(&lab.face.touch_in)); assert(!lab.primary.active); assert(!lab.primary.blocked);
+    for (int i = 0; i < 60; i++) screen_lab_update(&lab, 1.f / 30);
+    tess_sky_t *sky = lab.face.tess_games.sky;
+    assert(sky); assert(!sky->finger_down);
+    frame = (touch_frame_t){.point={{150,250,true,15},{350,300,true,2}}};
+    screen_lab_contacts(&lab, &frame); screen_lab_update(&lab, .1f);
+    assert(sky->touch[0].down); assert(sky->touch[1].down);
+    frame.point[0].down = false; frame.point[1].x = 320;
+    screen_lab_contacts(&lab, &frame); screen_lab_update(&lab, .1f);
+    assert(!sky->touch[0].down); assert(sky->touch[1].down); assert(sky->touch[1].x == 320);
+    frame = (touch_frame_t){0}; screen_lab_contacts(&lab, &frame);
+    for (int i = 0; i < 3; i++) screen_lab_update(&lab, .1f);
+    assert(sky->touch[0].shown == 0); assert(sky->touch[1].shown == 0);
+    screen_lab_select(&lab, LAB_HOME);
+    assert(!lab.face.tess_games.sky); assert(!touch_count(&lab.face.touch_in));
+}
 int main(void) {
     changing_a_preview_releases_its_sky();
+    changing_a_preview_releases_its_music();
     entry(); collision_audio();
     for (int character = 0; character < 2; character++) {
         screens(character); catalog(); qr(); settings(); voice(); motion(); events();
@@ -302,6 +371,7 @@ int main(void) {
     screen_lab_dispose(&lab);
     screen_lab_init(&lab, CHARACTER_TESS);
     growth_previews_accept_natural_taps();
+    independent_contacts_and_primary_menu();
     game_previews();
     screen_lab_dispose(&lab);
     puts("Screen Lab: hidden entry, native QR, menus, guide, voice, gestures and bounded scenes passed");

@@ -306,14 +306,24 @@ static void touch_init(void) {
     }
 }
 
-bool touch_read(int *x, int *y) {
+bool touch_read(touch_frame_t *frame) {
+    static touch_tracker_t tracker;
+    *frame = (touch_frame_t){0};
     if (!s_touch) return false;
     if (esp_lcd_touch_read_data(s_touch) != ESP_OK) return false;
-    esp_lcd_touch_point_data_t pt[1];
+    esp_lcd_touch_point_data_t pt[TOUCH_POINTS];
     uint8_t n = 0;
-    if (esp_lcd_touch_get_data(s_touch, pt, &n, 1) != ESP_OK || n == 0) return false;
-    *x = pt[0].x;
-    *y = pt[0].y;
+    if (esp_lcd_touch_get_data(s_touch, pt, &n, TOUCH_POINTS) != ESP_OK || n > TOUCH_POINTS) return false;
+    touch_contact_t contacts[TOUCH_POINTS];
+    for (uint8_t i = 0; i < n; i++) {
+        if (pt[i].x > LCD_W || pt[i].y > LCD_H) return false;
+        // Espressif mirrors around x_max/y_max; the exact far edge still belongs to the glass.
+        contacts[i] = (touch_contact_t){
+            .x = pt[i].x < LCD_W ? pt[i].x : LCD_W - 1,
+            .y = pt[i].y < LCD_H ? pt[i].y : LCD_H - 1, .id = pt[i].track_id,
+        };
+    }
+    touch_tracker_update(&tracker, contacts, n, frame);
     return true;
 }
 

@@ -113,31 +113,55 @@ earlier versions keep their places in the same six steps.
 
 ## Skies
 
-Lay the cube nearly flat. Now and then a small gold light peels from one of Tess’s visible corners, leaving a short thread,
-then gently sways beside her for a few seconds, singing her motif; standing up, she never asks. To ask her yourself,
-rock the flat cube three times, quickly, side to side. That only summons her. Ignore it
-and nothing happens. Touch the gold light, or simply lift the cube upright while it is visible,
-and she unravels into a stream of her own dots; stars float in the dark. Hold a finger
-near a star and the stream bends into it: the star fills, brightens and sings.
+Lay the cube nearly flat. Now and then a small gold light peels from one of Tess’s
+visible corners, leaves a short thread, sways beside her and sings her motif;
+standing up, she never asks. To ask her yourself, rock the flat cube three times,
+quickly, side to side. That only summons her. Ignore it and nothing happens. Touch
+the light, or lift the cube upright while it is visible, and Tess unravels into a
+stream of her own dots; musical stars float in the dark. The first sky has one star.
+Hold a finger on the glass and move it to guide the stream into that star.
 
-The music grows with what you do. A filling star sparkles softly; a full star holds its
-note and pulses it whenever light flows through it, so every full star adds a voice.
-Light striking a string sounds one of the sky's own notes. When every star is full
-together the sky sings back how you played it: a melody through the stars in the order
-you filled them, the slow ones held longer, each star flashing as a constellation line
-reaches it, closing on its chord. Then the next sky grows from it.
+Every touch creates an invisible temporary black hole at that point. The stream
+bends and swirls around it, gaining a little speed. All black holes, including
+permanent ones, are completely invisible; their only visual effect is the motion
+of the particles. One or two fingers work the same way
+anywhere on the glass; touching a star, source or fixed black hole never selects,
+moves or turns it. Each field grows over 0.10 seconds and fades over 0.25 seconds
+after release; the other finger keeps controlling its own field. Later skies may
+have up to two permanent black holes that shape the stream, and stars that drift
+in orbits. Tilting is another way to guide the
+flow: it pours the stream under full glass gravity in a pouring sky and has a
+weaker effect in other skies.
 
-Each solved sky teaches one new thing: tilting the cube to pour the stream,
-strings that bounce it, relay stars that send the light on along their arrow (tap one
-to turn it), a source you can turn by pulling from it, wells that bend and hold it,
-prisms that colour it, splitters, a hungry dark star, and stars that drift. Movable
-parts follow a finger and click into place when brought close to where they belong;
-fixed ones stay still. There is no score, text or beat and nothing can
-be lost. If a sky stays unsolved, the useful part quivers. After 15 seconds
-without touch or tilt it fades and she comes home. A visit lasts up to six
-skies; every sky is new and has a solution. What she has met is remembered, and
-her motif starts from your last chord. Skies is Tess only and obeys
-the same rules as the rest of play, below. A short BOOT also ends it.
+Any dot can fill any star, whatever their colours. Passing through a star gives
+the dot that star’s colour. An empty star is a loose gathering of faint lights.
+As the stream fills it, those lights curl inward and gather into a brighter, warmer
+core. The last grains merge into a brief flare; the full star keeps its light.
+If the stream leaves an unfinished star, its core dims and its lights slowly spread
+out again. There are no progress rings or segments. A filling star sparkles softly
+in the music; once full, it holds its note and pulses it when light flows through. Every full star adds
+a voice, and black holes hum softly while light swirls nearby.
+When every star is full together for a moment, the sky sings its own melody: the
+stars in the order you filled them, the slower ones held longer, each flashing as
+a constellation line reaches it, then the closing chord. Once the melody ends and
+the next sky is ready, the old sky fades through darkness over 0.65 seconds; the
+new sky begins with a fresh stream from its source. Rarely, a free Aurora sky
+arrives with a colourful stream, two permanent black holes and no stars to fill.
+If you keep playing, it ends by itself after 40 seconds.
+
+Skies grows through ten stages. The number and placement of
+targets and black holes respond to Tess’s remembered history and how you play.
+Each puzzle has a way to solve it with a tilt or one finger and needs your input.
+A simpler layout may appear; in later stages it still has two stars and one or two
+permanent black holes. There is no score, text, game HUD or Skies button, and
+nothing can be lost. After 15 seconds without touch or tilt, the sky fades and Tess comes home.
+A visit lasts up to six skies. Her progress is remembered and her motif starts from
+your last chord. Skies is Tess only and follows the same agent-first rules as the
+rest of play below. A short BOOT ends it.
+
+Leaving Skies releases the active game’s voices in about 60 milliseconds and
+cancels its delayed notes; the invitation and the agent’s sounds keep their own
+playback rules.
 
 ## The agent comes first
 

@@ -68,5 +68,6 @@ void pmic_power_off(void);
 #define PMIC_KEY_LONG 0x04
 int pmic_pwr_keys(void);
 
-// Touch: returns true while touched, coordinates in panel pixels.
-bool touch_read(int *x, int *y);
+#include "touch_input.h"
+// A complete sample, including release. False means a controller/I2C error.
+bool touch_read(touch_frame_t *frame);
