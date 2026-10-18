@@ -175,6 +175,36 @@ test('checkPairings (notifyApproval) admits immediately; pending frames other th
   assert.equal(await pending.closed, 4002);
 });
 
+test('failed session startup after approval closes that socket without blocking other admissions or retry', async (t) => {
+  const id = deviceKey();
+  const otherId = deviceKey('kubik-other');
+  const pairing = fakePairing();
+  let attempts = 0;
+  const { url, server, logs } = await start(t, { pairing,
+    engineFactory: () => {
+      if (++attempts === 1) throw new Error('engine init failed');
+      return fakeEngine();
+    },
+    serverOptions: { pairingPollMs: 60_000 } });
+  const device = await connectKeyed(url, id);
+  await device.waitFor((e) => e.t === 'pair');
+  const other = await connectKeyed(url, otherId);
+  await other.waitFor((e) => e.t === 'pair');
+  pairing.approve(id.entry);
+  pairing.approve(otherId.entry);
+
+  await assert.doesNotReject(server.checkPairings());
+  assert.equal(await device.closed, 1011);
+  assert.equal(device.events.some((e) => e.t === 'welcome'), false);
+  await other.waitFor((e) => e.t === 'welcome');
+  assert.deepEqual(server.onlineDevices, ['kubik-other']);
+  assert.ok(logs.some((line) => line.includes(`cannot start session for approved device ${DEVICE}: engine init failed`)), logs.join('\n'));
+
+  const retry = await connectKeyed(url, id);
+  assert.equal(retry.events.some((e) => e.t === 'welcome'), true);
+  assert.deepEqual(server.onlineDevices, [DEVICE, 'kubik-other']);
+});
+
 test('empty code (store full) -> pair "" and 4005; pending timeout -> 4004 and the same code again', async (t) => {
   const pairing = fakePairing({ full: true });
   const { url } = await start(t, { pairing, serverOptions: { pairingTimeoutMs: 80, pairingPollMs: 20 } });

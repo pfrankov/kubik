@@ -370,7 +370,6 @@ export class KubikServer {
     clearInterval(this.#poll);
     this.#poll = null;
   }
-
   /** Re-reads approved keys for pending and active sessions; `notifyApproval` calls it for Gateway changes. */
   checkPairings() {
     if (this.#polling) return this.#polling;
@@ -394,13 +393,14 @@ export class KubikServer {
         this.#pending.delete(conn.ws);
         clearTimeout(conn.pendingTimer);
         this.log(`kubik: device ${conn.deviceId} approved`);
-        await this.#startSession(conn);
+        try { await this.#startSession(conn); } catch (error) {
+          this.log(`kubik: cannot start session for approved device ${conn.deviceId}: ${error?.message ?? error}`);
+          if (conn.phase !== 'closed') conn.fail(CLOSE.INTERNAL, 'session unavailable'); }
       }
       this.#stopPollIfIdle();
     })().finally(() => { this.#polling = null; });
     return this.#polling;
   }
-
   async #startSession(conn) {
     const admission = ++this.#admissionSeq;
     const { ws, remote, hello, deviceId } = conn;
