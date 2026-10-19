@@ -118,6 +118,8 @@ static void live(scene_t *scene, const char *state) {
     }
     if (strstr(state, "charging")) {
         face.battery_present = face.charging = face.usb_power = true; face.battery_pct = 60;
+        if (strstr(state, "fade")) face.charging_age = 5.25f;
+        if (strstr(state, "hidden")) face.charging_age = 5.5f;
     }
     face_draw(&face, scene);
 }

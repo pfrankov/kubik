@@ -113,6 +113,7 @@ static void icon_sun(scene_t *s, float x, float y, int level, uint32_t c, float 
 }
 
 void face_set_power(face_t *f, bool present, int percent, bool charging, bool usb_power) {
+    if (charging && !f->charging) f->charging_age = 0;
     f->battery_present = present && percent >= 0 && percent <= 100;
     f->battery_pct = f->battery_present ? percent : -1;
     f->charging = charging;
@@ -125,12 +126,15 @@ static void icon_bolt(scene_t *s, float x, float y, float h, uint32_t c, float a
     sc_icon(s, ICON_ZAP, x, y, h * 2.2f, c, a);
 }
 
+static bool draw_charging_hint(face_t *f, scene_t *s) {
+    if (!f->charging) return false;
+    float alpha = smooth01(clampf((CHARGING_HINT_S - f->charging_age) * 2.f, 0, 1));
+    if (alpha <= 0) return false;
+    icon_bolt(s, 36, 36, 10, COL_MINT, alpha);
+    return true;
+}
 void draw_battery(face_t *f, scene_t *s, bool menu) {
-    if (!menu && f->charging) {
-        // Leave the central status bubble and the cron indicator their own space.
-        icon_bolt(s, 36, 36, 10, COL_MINT, 1);
-        return;
-    }
+    if (!menu && draw_charging_hint(f, s)) return;
     if (!menu && !f->battery_low) return;
     char text[64];
     if (!f->battery_present) snprintf(text, sizeof text, "—");

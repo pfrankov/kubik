@@ -100,6 +100,7 @@ set_source_files_properties(connection_store.c connection_record.c link_discover
 # Plush has a smaller app partition; diagnostics/event storage are not raster work.
 if(KUBIK_CHARACTER STREQUAL "PLUSH")
     set_source_files_properties(app.c app_game_probe.c app_journal.c event_journal.c face_setup.c face_status.c face_agent.c face_menu.c
+        screen_lab_draw.c event_journal_draw.c
         PROPERTIES COMPILE_OPTIONS "-Os")
 endif()
 
