@@ -142,7 +142,7 @@ async def pair(client, port, home, private_key, name='kubik-integration', volume
         process = await asyncio.create_subprocess_exec(sys.executable, str(home / 'plugins/kubik/pair.py'), reply['code'],
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, stderr = await process.communicate()
-        assert process.returncode == 0, (stdout, stderr)
+        assert process.returncode == 0, (process.returncode, stdout, stderr)
         reply = await get_json(ws)
     assert reply['t'] == 'welcome', reply
     capabilities = await get_json(ws)
@@ -188,6 +188,8 @@ def configure(home, backend_port):
     url = f'http://127.0.0.1:{backend_port}/v1'
     data = {'model': {'provider': 'custom', 'default': 'kubik-test', 'base_url': url, 'api_key': 'kubik-test-only', 'context_length': 131072},
         'plugins': {'isolation': 'in_process'}, 'gateway': {'multiplex_profiles': False},
+        # Unrelated background workers must not reap the pairing CLI child owned by asyncio.
+        'kanban': {'dispatch_in_gateway': False, 'notify_in_gateway': False},
         'stt': {'enabled': True, 'provider': 'openai', 'openai': {'model': 'whisper-1', 'base_url': url, 'api_key': 'kubik-test-only'}},
         'tts': {'provider': 'openai', 'openai': {'model': 'tts-1', 'voice': 'alloy', 'base_url': url, 'api_key': 'kubik-test-only'}},
         'agent': {'max_turns': 3}, 'memory': {'enabled': False}, 'toolsets': {'kubik': []}}

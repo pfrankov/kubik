@@ -45,7 +45,8 @@ def run_contract(source):
         raise ValueError(f'Native acceptance requires Python {PIN["python"]}; got {version}')
     if not shutil.which('ffmpeg'):
         raise ValueError('Install ffmpeg before running the native speech contract')
-    with tempfile.TemporaryDirectory(prefix='kubik-hermes-native-') as temporary:
+    # macOS AF_UNIX paths have a small fixed limit; the native Gateway creates sockets below HOME.
+    with tempfile.TemporaryDirectory(prefix='khn-', dir='/tmp') as temporary:
         work = Path(temporary)
         # Do not inherit user tokens, plugin locations, proxy settings or existing homes.
         env = {name: os.environ[name] for name in ('PATH', 'SYSTEMROOT', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH') if name in os.environ}
