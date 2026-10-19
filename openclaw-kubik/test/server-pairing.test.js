@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import test from 'node:test';
 import { channelPlugin } from '../src/channel.js';
 import { connectDevice, DEVICE, deviceKey, fakeEngine, fakePairing, sleep } from './helpers.js';
@@ -173,6 +174,67 @@ test('checkPairings (notifyApproval) admits immediately; pending frames other th
   await pending.waitFor((e) => e.t === 'pair');
   pending.send({ t: 'ptt', on: true, turn: 1 });
   assert.equal(await pending.closed, 4002);
+});
+
+test('failed session startup after approval closes that socket without blocking other admissions or retry', async (t) => {
+  const id = deviceKey();
+  const otherId = deviceKey('kubik-other');
+  const pairing = fakePairing();
+  let attempts = 0;
+  const { url, server, logs } = await start(t, { pairing,
+    engineFactory: () => {
+      if (++attempts === 1) throw new Error('engine init failed');
+      return fakeEngine();
+    },
+    serverOptions: { pairingPollMs: 60_000 } });
+  const device = await connectKeyed(url, id);
+  await device.waitFor((e) => e.t === 'pair');
+  const other = await connectKeyed(url, otherId);
+  await other.waitFor((e) => e.t === 'pair');
+  pairing.approve(id.entry);
+  pairing.approve(otherId.entry);
+  const closeReason = new Promise(resolve => device.ws.once('close', (_code, reason) => resolve(reason.toString())));
+
+  await assert.doesNotReject(server.checkPairings());
+  assert.equal(await device.closed, 1011);
+  assert.equal(await closeReason, 'session unavailable');
+  assert.equal(device.events.some((e) => e.t === 'welcome'), false);
+  await other.waitFor((e) => e.t === 'welcome');
+  assert.deepEqual(server.onlineDevices, ['kubik-other']);
+  assert.ok(logs.some((line) => line.includes(`cannot start session for approved device ${DEVICE}: engine init failed`)), logs.join('\n'));
+
+  const retry = await connectKeyed(url, id);
+  assert.equal(retry.events.some((e) => e.t === 'welcome'), true);
+  assert.deepEqual(server.onlineDevices, [DEVICE, 'kubik-other']);
+});
+
+test('startup failure after publishing a session cleans it up and keeps approval for retry', async (t) => {
+  const id = deviceKey();
+  const pairing = fakePairing();
+  const engine = fakeEngine();
+  let reads = 0, serverClosed;
+  Object.defineProperty(engine, 'voiceMode', { get() {
+    if (++reads === 1) {
+      serverClosed = once(server.getSession(DEVICE).ws, 'close');
+      throw Error('capability delivery failed');
+    }
+    return 'classic';
+  } });
+  const { url, server } = await start(t, { pairing, engine, serverOptions: { pairingPollMs: 60_000 } });
+  const device = await connectKeyed(url, id);
+  pairing.approve(id.entry);
+  const closeReason = new Promise(resolve => device.ws.once('close', (_code, reason) => resolve(reason.toString())));
+  await assert.doesNotReject(server.checkPairings());
+  assert.equal(await device.closed, 1011);
+  assert.equal(await closeReason, 'session unavailable');
+  assert.ok(device.events.some(e => e.t === 'welcome'), 'Failure happens after session publication');
+  await serverClosed; // The server's close event cleans up; client close can arrive first on Linux.
+  assert.deepEqual(server.onlineDevices, []);
+  assert.equal(server.getSession(DEVICE), undefined);
+  const retry = await connectKeyed(url, id);
+  await retry.waitFor(e => e.t === 'state' && e.s === 'idle');
+  assert.deepEqual(server.onlineDevices, [DEVICE]);
+  assert.equal(pairing.state.upserts.length, 1, 'Retry uses the original approval');
 });
 
 test('empty code (store full) -> pair "" and 4005; pending timeout -> 4004 and the same code again', async (t) => {
