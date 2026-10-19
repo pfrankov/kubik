@@ -294,12 +294,12 @@ static void pulse_game_dots(const face_t *f, dot_t dots[TESS_N]) {
 // The colours a prism gives the stream in Skies (far, mid, near): her own turquoise is the palette's.
 static const uint32_t k_sky_ramp[3][3] = {{0}, {0x170D04, 0xB8861C, 0xFFD66E}, {0x2E0B28, 0xC23C7E, 0xFF9CCB}};
 
-// Her dots nearest the summoning star swell and brighten as it passes them.
+// The invitation softly warms the existing body around its anchor.
 #define CALL_LIGHT_Q3 (110 * 8)
 static void light_invited(const face_t *f, dot_t dots[TESS_N]) {
     float x, y;
     if (!tess_sky_calling(f, &x, &y)) return;
-    int shown = (int)(sky_summon_shown(f) * 256.f);
+    int shown = (int)(sky_summon_shown(f) * 48.f);
     int cx = (int)(x * 8.f), cy = (int)(y * 8.f);
     for (int i = 0; i < TESS_N; i++) {
         int dx = dots[i].x - cx, dy = dots[i].y - cy, near = CALL_LIGHT_Q3 - (abs(dx) > abs(dy) ? abs(dx) + 3 * abs(dy) / 8 : abs(dy) + 3 * abs(dx) / 8);

@@ -192,7 +192,7 @@ static void run_queue(face_t *f, float dt) {
 static void invite(face_t *f) {
     tess_play_t *p = &f->tess_play;
     float vigour = 1 - .4f * tess_quiet(p->alone, SLEEPY_SPAN), side = frand(f) < .5f ? -1.f : 1.f;
-    if (tess_sky_invite(f)) {  // a gold thread peels from her corner; touch its head or lift to answer
+    if (tess_sky_invite(f)) {  // her corner warms; touch it or lift to answer
         tess_gaze_notice(f, WAIT_S + 2.f);
         p->waiting = WAIT_S;
         return;

@@ -18,6 +18,17 @@ static probe_t play(tess_tone_kind_t kind, float hz, float gain, float shade) {
     probe_finish(&s_body, &p);
     return p;
 }
+static void the_invitation_is_a_quiet_low_pad(void) {
+    probe_t pad = play(TT_SKY_INVITE, 146.83f, .14f, .5f);
+    int peak = probe_peak(&pad);
+    long half = 0;
+    while (half < pad.length && abs(pad.pcm[half]) < peak / 2) half++;
+    int onset = (int)(half * 1000 / AUDIO_RATE);
+    double high = probe_high_share(&pad, 1500);
+    fprintf(stderr, "    invitation: peak %d, half-peak %d ms, %.3f %% above 1.5 kHz\n", peak, onset, high * 100);
+    assert(peak > 40 && peak < 600);
+    assert(onset > 300 && high < .01);
+}
 static void each_kind_is_clean(void) {
     static const float k_hz[TT_SKY_PAD] = {294, 330, 440, 230, 330, 400, 440, 555};  // the registers tess_tone_hz gives
     for (int kind = 0; kind < TT_SKY_PAD; kind++) {
@@ -102,9 +113,9 @@ static void held_tones_reach_small_targets(void) {
 static void start_sky_exit_fixture(void) {
     tess_tone_t pad = {TT_SKY_PAD, 440, .8f, .3f, 0, 0};
     tess_tone_t chord = {TT_SKY_GAME_CHIME, 587, .8f, .3f, 0, 0};
-    tess_tone_t invite = {TT_SKY_CHIME, 392, .8f, .1f, 0, 0};
+    tess_tone_t invite = {TT_SKY_INVITE, 392, .8f, .1f, 0, 0};
     tess_tone_t game_pending = {TT_SKY_GAME_PLUCK, 659, .7f, .4f, .5f, 0};
-    tess_tone_t invite_pending = {TT_SKY_PLUCK, 494, .7f, .4f, .5f, 0};
+    tess_tone_t invite_pending = {TT_SKY_INVITE, 494, .7f, .4f, .5f, 0};
     tess_sound_reset(&s_body);
     assert(tess_sound_tone(&s_body, &pad));
     assert(tess_sound_tone(&s_body, &chord));
@@ -171,5 +182,6 @@ void check_body_tones(void) {
     words_keep_their_voices();
     held_tones_reach_small_targets();
     sky_exit_releases_only_the_active_round();
+    the_invitation_is_a_quiet_low_pad();
     fprintf(stderr, "body tones: her palette, under her words, gentle in a flood, never taking a word's voice\n");
 }

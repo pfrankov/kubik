@@ -12,7 +12,6 @@
 #define TRACE_EVERY 5
 #define MIN_STAR_GAP 80.f
 #define VERIFY_STEPS 300
-#define SLICE_STEPS 12
 
 typedef struct { float x, y; } point_t;
 enum { ST_LAYOUT, ST_VERIFY, ST_IDLE };
@@ -175,10 +174,10 @@ static bool failed(sky_composer_t *c) {
     c->attempt++;
     return false;
 }
-static bool verify_slice(sky_composer_t *c) {
+static bool verify_slice(sky_composer_t *c, unsigned steps) {
     sky_force_t force = {0};
     if (c->stage == ST_VERIFY) sky_solution(c->w, &force);
-    for (int n = 0; n < SLICE_STEPS; n++) {
+    for (unsigned n = 0; n < steps; n++) {
         sky_stream_step(&c->probe, c->light, SKY_PROBE_N, 1.f / 30.f, &force, NULL);
         c->steps++;
         if (sky_solved(&c->probe)) {
@@ -195,13 +194,13 @@ void sky_compose_begin(sky_composer_t *c, sky_world_t *w, uint32_t seed, const s
     memset(c, 0, sizeof *c);
     c->w = w; c->seed = seed; c->r = *r;
 }
-bool sky_compose_step(sky_composer_t *c) {
+bool sky_compose_step(sky_composer_t *c, unsigned steps) {
     if (c->attempt >= ATTEMPTS) { fallback(c); return true; }
-    if (c->stage != ST_LAYOUT) return verify_slice(c);
+    if (c->stage != ST_LAYOUT) return verify_slice(c, steps);
     return layout(c) ? c->r.aurora : failed(c);
 }
 void sky_compose(sky_world_t *w, uint32_t seed, const sky_recipe_t *r) {
     sky_composer_t c;
     sky_compose_begin(&c, w, seed, r);
-    while (!sky_compose_step(&c)) {}
+    while (!sky_compose_step(&c, SKY_COMPOSE_STEPS)) {}
 }

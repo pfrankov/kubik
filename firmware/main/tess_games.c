@@ -147,6 +147,8 @@ static void pluck_tap(face_t *f, float x, float y) {
 // A round's own events: true when it consumed them.
 static bool round_event(face_t *f, face_event_t event, float x, float y) {
     tess_games_t *g = &f->tess_games;
+    if (g->game == TESS_GAME_SKY && event == FEV_PICKUP) return true;
+    if (g->game == TESS_GAME_SKY && event == FEV_SHAKE) return tess_games_end_sky(f);
     if (event == FEV_TAP) {
         if (g->game == TESS_GAME_FLY && !g->pressed) tess_fly_tap(f, x, y);  // a tap too quick for a frame
         g->pressed = g->finger_owned = false;

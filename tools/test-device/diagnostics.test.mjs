@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { flushStats, measureWindow, MissingStats, setDeviceScreen, waitForDeviceLink, waitForIdleCapture } from './diagnostics.mjs';
+import { combineStats, flushStats, measureWindow, MissingStats, setDeviceScreen, waitForDeviceLink, waitForIdleCapture } from './diagnostics.mjs';
 import { assertPlaybackWindow, assertPlaybackCompletion, assertFaultWindow, PROFILE_MS, speechProfile } from './speech-profile.mjs';
 import { frameVerdict } from './frames.mjs';
 
@@ -29,6 +29,17 @@ test('device preflight waits for confirmed reconnect and rejects a persistently 
 const snapshot = {ok:true, frames:30, elapsed_us:1000000, mean_us:20000, max_us:31000,
   late:0, face:3000, send:17000, gap_us:35000, character:'Tess', sequence:7, modes:16, active:1,
   presented:30,overflows:0};
+
+test('combined windows retain every early late frame and weight timings by actual frames', async () => {
+  const first = { ...await flushStats({sim: async () => snapshot}), shapes:100, prep:1, image:0, glass:0, hash:10, late:5 };
+  const last = { ...first, frames:90, elapsed_us:3000000, presented:90, late:0, meanMs:10, face:1000, maxMs:20 };
+  const all = combineStats([first, last]);
+  assert.equal(all.frames,120); assert.equal(all.presented,120); assert.equal(all.fps,30);
+  assert.equal(all.late,5); assert.equal(all.maxMs,31); assert.equal(all.meanMs,12.5);
+  assert.equal(all.face,1500); assert.equal(all.gapMs,35);
+  assert.throws(() => combineStats([]));
+  assert.throws(() => combineStats([first, {...last, shapes:undefined}]));
+});
 
 test('stats require a complete framed snapshot even when logs are absent or stale', async () => {
   const reply = snapshot;

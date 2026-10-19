@@ -12,6 +12,7 @@
 #define SKY_STEP_S (1.f / 60.f)
 #define SKY_TILT_SCALE .3f
 #define SKY_PATH_N 96
+#define SKY_COMPOSE_STEPS 12
 
 // Tilt and independently fading finger fields; each touch uses the same gravity as a permanent black hole.
 typedef struct { float gx, gy; uint8_t count; sky_touch_t touch[SKY_TOUCHES]; } sky_force_t;
@@ -35,7 +36,7 @@ void sky_solution(const sky_world_t *w, sky_force_t *force); // a physically ver
 void sky_compose(sky_world_t *w, uint32_t seed, const sky_recipe_t *recipe);   // all at once (tests)
 // ...or a slice at a time, so that a sky can grow between frames: step until it returns true.
 void sky_compose_begin(sky_composer_t *c, sky_world_t *w, uint32_t seed, const sky_recipe_t *recipe);
-bool sky_compose_step(sky_composer_t *c);
+bool sky_compose_step(sky_composer_t *c, unsigned steps);
 float sky_degree_hz(int degree);             // D major pentatonic from D4 (degree 0): D E F# A B, then the next octave
 // What a sky will hold and where its light comes from (tess_sky_plan.c).
 void sky_choose_plan(sky_world_t *w, const sky_recipe_t *r, sky_plan_t *pl);

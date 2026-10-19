@@ -113,11 +113,11 @@ earlier versions keep their places in the same six steps.
 
 ## Skies
 
-Lay the cube nearly flat. Now and then a small gold light peels from one of Tess’s
-visible corners, leaves a short thread, sways beside her and sings her motif;
+Lay the cube nearly flat. Now and then one of Tess’s own corners warms gently,
+with a quiet low pad that fades in and out; there is no separate floating light;
 standing up, she never asks. To ask her yourself, rock the flat cube three times,
 quickly, side to side. That only summons her. Ignore it and nothing happens. Touch
-the light, or lift the cube upright while it is visible, and Tess unravels into a
+the warmed corner, or lift the cube upright while it is visible, and Tess unravels into a
 stream of her own dots; musical stars float in the dark. The first sky has one star.
 Hold a finger on the glass and move it to guide the stream into that star.
 
@@ -147,16 +147,16 @@ a constellation line reaches it, then the closing chord. Once the melody ends an
 the next sky is ready, the old sky fades through darkness over 0.65 seconds; the
 new sky begins with a fresh stream from its source. Rarely, a free Aurora sky
 arrives with a colourful stream, two permanent black holes and no stars to fill.
-If you keep playing, it ends by itself after 40 seconds.
+After 40 seconds it resolves into the next sky; the game stays open.
 
 Skies grows through ten stages. The number and placement of
 targets and black holes respond to Tess’s remembered history and how you play.
 Each puzzle has a way to solve it with a tilt or one finger and needs your input.
 A simpler layout may appear; in later stages it still has two stars and one or two
 permanent black holes. There is no score, text, game HUD or Skies button, and
-nothing can be lost. After 15 seconds without touch or tilt, the sky fades and Tess comes home.
-A visit lasts up to six skies. Her progress is remembered and her motif starts from
-your last chord. Skies is Tess only and follows the same agent-first rules as the
+nothing can be lost. Quiet play, ordinary lifts and tilts keep the game open.
+A strong shake or a hardware button ends it; there is no six-sky visit limit.
+Her progress is remembered and her motif starts from your last chord. Skies is Tess only and follows the same agent-first rules as the
 rest of play below. A short BOOT ends it.
 
 Leaving Skies releases the active game’s voices in about 60 milliseconds and

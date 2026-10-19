@@ -7,7 +7,7 @@
 //   tess_sky_stream.c   the stream: 112 particles on integers
 //   tess_sky_compose.c  a sky from a seed: harmony, layout and a solution proven by the real stream
 //   tess_sky_plan.c     what a sky holds; tess_sky_melody.c its ending melody
-//   tess_sky_summon.c   how she asks: a departing gold light with her motif
+//   tess_sky_summon.c   how she asks: a warm body vertex with a quiet pad
 //   tess_sky_touch.c    independent temporary black holes under the fingers
 //   tess_sky_draw.c     the picture
 // The state lives in a block taken when a sky starts and returned when it ends.
@@ -106,14 +106,14 @@ typedef struct {
 
 typedef struct tess_sky {
     uint8_t phase;
-    uint8_t solved_here;    // skies solved this visit
+    uint8_t solved_here;    // skies solved this session, saturates at 255
     sky_world_t w, next;    // the sky being played, and the next one growing while it resolves
     sky_composer_t comp;
     uint8_t compose;        // the next sky: 0 not begun, 1 growing, 2 grown
     sky_particle_t p[SKY_PARTICLES];
     sky_touch_t touch[SKY_TOUCHES];
     bool finger_down;
-    float hold, calm, struggle, resolve_t, resolve_len, fade;  // seconds: all full this long; without touch or tilt; in this sky; resolving (of how long); fading out
+    float hold, struggle, resolve_t, resolve_len, fade;  // seconds: all full this long; in this sky; resolving (of how long); fading out
     uint8_t hints;          // hints shown in this sky
     int8_t hint_star;       // a still-dark target that softly asks for light; -1 none
     sky_played_t played;    // the order the player lit the stars in, for the melody
@@ -121,7 +121,6 @@ typedef struct tess_sky {
     uint8_t melody_next, tour_lit;  // its next note; stars of its tour reached
     float sparkle_wait;     // the inflow's notes are rate limited
     float pulse_wait[SKY_STARS];  // a full star's note pulses as light flows through it
-    uint8_t slice_turn;     // the composer works every other frame while a melody plays
     float pad_gain[SKY_STARS], hum_gain[SKY_HUMS], pad_sent[SKY_STARS], hum_sent[SKY_HUMS];  // what the voices were last told, and when ago
     uint32_t seed;
 } tess_sky_t;

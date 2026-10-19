@@ -45,8 +45,7 @@ typedef enum {
     TT_WOBBLE,  // a scared tremble
     // Skies (tess_sky.c): her game of light and harmony. A pad is held until its gain goes to 0 or its sender stops.
     TT_SKY_PAD,    // a star sings: slot = the star, gain = how full it is, shade = its colour
-    TT_SKY_PLUCK,  // the invitation's celesta note
-    TT_SKY_CHIME,  // the invitation's soft swell
+    TT_SKY_INVITE, // the invitation's quiet low pad
     TT_SKY_HUM,    // light circles a black hole: slot = the hole, gain = nearby particles
     TT_SKY_GAME_PLUCK, // a note from the active sky: released quickly if the player leaves
     TT_SKY_GAME_CHIME, // the active sky's swell or resolving chord

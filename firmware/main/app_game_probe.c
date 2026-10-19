@@ -116,9 +116,9 @@ static void sky_state(char *reply, size_t cap) {
     bool settled;
     unsigned long packed = tess_games_sky_progress(&g_face, &settled);
     int n = snprintf(reply, cap, "{\"ok\":true,\"active\":%s,\"elements\":%u,\"skill\":%u,\"solved\":%u,\"root\":%u,\"invite\":%.1f,\"call_x\":%.1f,\"call_y\":%.1f,"
-                     "\"packed\":%lu,\"saved\":%lu",
+                     "\"call_body_x\":%.1f,\"call_body_y\":%.1f,\"packed\":%lu,\"saved\":%lu",
                      k ? "true" : "false", g->sky_elements, g->sky_skill, g->sky_solved, g->sky_root, g->sky_invite_t, g->sky_call[0], g->sky_call[1],
-                     packed, (unsigned long)g_settings.sky_progress);
+                     g->vertex_px[g->sky_call_vertex][0], g->vertex_px[g->sky_call_vertex][1], packed, (unsigned long)g_settings.sky_progress);
     if (k && n > 0 && (size_t)n < cap) {
         int full = 0, touches = 0;
         for (int i = 0; i < k->w.count_stars; i++) full += k->w.star[i].fill >= SKY_FULL;

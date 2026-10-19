@@ -43,7 +43,7 @@ static void check_fallback(const sky_recipe_t *recipe, uint32_t key) {
     sky_world_t w;sky_composer_t c;
     // Exhaust the search deliberately: include the whole rotated family, not only sampled candidate failures.
     sky_compose_begin(&c,&w,key,recipe);c.attempt=UINT8_MAX;
-    assert(sky_compose_step(&c) && c.simple);validate(&w);
+    assert(sky_compose_step(&c, SKY_COMPOSE_STEPS) && c.simple);validate(&w);
     assert(w.kind==(recipe->elements==2?SKY_POUR:SKY_PUZZLE));
     if(recipe->elements>=3) assert(w.count_stars==2 && w.count_holes>=1);
     int solved=solved_by(w,true), passive=solved_by(w,false);
@@ -58,10 +58,12 @@ int main(int argc,char **argv) {
         uint32_t key=(uint32_t)(seed*977+lesson*43+skill);
         sky_compose_begin(&c,&a,key,&recipe);
         int slices=0;
-        while(!sky_compose_step(&c)) { slices++; assert(slices<1000); }
+        while(!sky_compose_step(&c, SKY_COMPOSE_STEPS)) { slices++; assert(slices<1000); }
         if(slices>max_slices) max_slices=slices;
         simple+=c.simple;holes+=a.count_holes;total++;
-        sky_compose(&b,key,&recipe);
+        sky_composer_t other;
+        sky_compose_begin(&other,&b,key,&recipe);
+        while(!sky_compose_step(&other, SKY_COMPOSE_STEPS / 2)) {}
         assert(!memcmp(&a,&b,sizeof a)); validate(&a);
         if(solved_by(a,true)<0) { failures++; printf("Unsolvable seed=%u lesson=%d skill=%d stars=%d holes=%d fallback=%d\n",key,lesson,skill,a.count_stars,a.count_holes,c.simple); }
         if(solved_by(a,false)>=0) { passive++; printf("Passive seed=%u lesson=%d skill=%d stars=%d holes=%d\n",key,lesson,skill,a.count_stars,a.count_holes); }

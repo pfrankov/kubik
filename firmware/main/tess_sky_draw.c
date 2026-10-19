@@ -118,23 +118,12 @@ static void draw_constellation(scene_t *s, const tess_sky_t *k) {
     }
 }
 
-// One leading bead and a short fading thread: the same light that becomes the stream.
-#define CALL_COLOUR 0xFFD66E
+// Warm a vertex already belonging to Tess, without a separate floating object or trail.
 static void draw_call(const face_t *f, scene_t *s) {
     float x, y, shown = sky_summon_shown(f);
     if (!tess_sky_calling(f, &x, &y) || shown <= 0) return;
-    float pulse = .5f + .5f * tess_sin(f->t * 2.7f);
-    for (int i = 5; i >= 1; i--) {
-        float tx, ty;
-        sky_summon_point(f, .065f * (float)i, &tx, &ty);
-        float tail = 1.f - (float)i / 6.f;
-        sc_glow_dot(s, tx, ty, 1.1f + 1.2f * tail, CALL_COLOUR, (uint8_t)(175.f * shown * tail));
-    }
-    sc_glow_dot(s, x, y, 3.5f + .7f * pulse, CALL_COLOUR, (uint8_t)(255.f * shown));
-    sc_glow_dot(s, x, y, 1.4f, 0xFFF4D6, (uint8_t)(245.f * shown));
-    float spread = 7.f + 2.f * pulse;
-    sc_glow_dot(s, x - spread, y + spread * .6f, 1.2f, CALL_COLOUR, (uint8_t)(125.f * shown));
-    sc_glow_dot(s, x + spread * .6f, y - spread, 1.f, CALL_COLOUR, (uint8_t)(95.f * shown));
+    float breath = .75f + .25f * tess_sin(f->t * .8f);
+    light(s, x, y, 2.5f, 0xF4C37B, shown * breath * .22f, .35f);
 }
 
 void tess_sky_draw(const face_t *f, scene_t *s) {

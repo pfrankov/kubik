@@ -67,8 +67,8 @@ typedef struct {
     uint16_t sky_lit;            // a bit per held voice still sounding: the pads, then the black holes
     bool sky_audio;             // survives leaving the round until its transient and held voices are released
     uint16_t sky_solved;
-    float sky_call[3];           // invitation head (panel px), and its resting direction
-    float sky_call_from[2];      // the actual visible corner it peeled away from
+    float sky_call[2];           // invitation anchor on the body (panel px)
+    uint8_t sky_call_vertex;     // follows this existing vertex as Tess turns
     float rock_t[2];             // per screen axis: s since its last swing across the level (a rocking flat cube summons Skies)
     int8_t rock_side[2];
     uint8_t rock_n[2];

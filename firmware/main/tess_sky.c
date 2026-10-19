@@ -8,11 +8,8 @@
 // (tess_sky_stream.c, tess_sky_compose.c). All stars full for 1.6 s resolves it: the sky sings its own melody, star by
 // star as a line of dots joins them, closes on its chord, and the next sky grows from it with a new arrangement. Her dots are the
 // burst's own dots at their slots, so leaving, for any reason, lets the burst finish: they spring home from where they are.
-//   A touch or a tilt is all it needs to stay; 15 s of neither fades it out. Nothing is ever lost or wrong.
-#define SKIES_PER_VISIT 6
+//   Ordinary handling and quiet play keep the sky open; buttons or a strong shake end the visit.
 #define AURORA_S 40.f
-#define CALM_FADE_S 15.f
-#define TILT_QUIET .12f
 #define CHANGE_S .65f
 
 // ---------------------------------------------------------------- what is kept
@@ -93,9 +90,9 @@ static void compose_begin(face_t *f, tess_sky_t *k) {
     sky_compose_begin(&k->comp, &k->next, k->seed, &r);
     k->compose = 1;
 }
-static void compose_slice(tess_sky_t *k) {
+static void compose_slice(tess_sky_t *k, unsigned steps) {
     if (k->compose != 1) return;
-    if (sky_compose_step(&k->comp)) k->compose = 2;
+    if (sky_compose_step(&k->comp, steps)) k->compose = 2;
 }
 // The grown sky takes the stage; on the first, her dots are let go from where they hang.
 static void make_sky(face_t *f, tess_sky_t *k, bool first_launch) {
@@ -110,7 +107,7 @@ static void make_sky(face_t *f, tess_sky_t *k, bool first_launch) {
     k->sparkle_wait = 0;
     k->w = k->next;
     k->compose = 0;
-    k->hold = k->calm = k->struggle = k->resolve_t = k->fade = 0;
+    k->hold = k->struggle = k->resolve_t = k->fade = 0;
     k->hints = 0;
     k->hint_star = -1;
     k->played = (sky_played_t){0};
@@ -171,24 +168,22 @@ static void begin_resolve(face_t *f, tess_sky_t *k) {
     g->sky_skill = (uint8_t)(skill < 0 ? 0 : skill > 255 ? 255 : skill);
     if (g->sky_elements < SKY_LESSONS) g->sky_elements++;
     g->sky_solved++;
-    k->solved_here++;
+    if (k->solved_here < UINT8_MAX) k->solved_here++;
     g->sky_root = (uint8_t)((g->sky_root + 2 + (int)(frand(f) * 2.f)) % 5);
 }
 
 static bool hint_due(const tess_games_t *g, const tess_sky_t *k) { return k->struggle > hint_delay_s(g->sky_skill) * (k->hints + 1) && k->hints < 3; }
-static bool gravity_force(const face_t *f, const tess_sky_t *k, sky_force_t *force) {
+static void gravity_force(const face_t *f, const tess_sky_t *k, sky_force_t *force) {
     float tilt = k->w.kind == SKY_POUR ? 1.f : SKY_TILT_SCALE;
     // Glass gravity stays meaningful while a tilt is held; the body's adapting rest pose must not cancel it.
     float gx = f->grav_x, gy = f->grav_y;
     force->gx = gx * tilt; force->gy = gy * tilt;
-    return fabsf(gx) + fabsf(gy) > TILT_QUIET;
 }
 static void play(face_t *f, tess_sky_t *k, float dt) {
     tess_games_t *g = &f->tess_games;
     sky_force_t force = {0};
-    bool touched = sky_touch(f, k, &force, dt);
-    bool tilted = gravity_force(f, k, &force);
-    k->calm = touched || tilted ? 0.f : k->calm + dt;
+    sky_touch(f, k, &force, dt);
+    gravity_force(f, k, &force);
     k->struggle += dt;
     sky_hits_t hits;
     sky_stream_step(&k->w, k->p, SKY_PARTICLES, dt, &force, &hits);
@@ -198,7 +193,6 @@ static void play(face_t *f, tess_sky_t *k, float dt) {
     k->hold = sky_solved(&k->w) ? k->hold + dt : fmaxf(0, k->hold - 2.f * dt);
     bool aurora = k->w.kind == SKY_AURORA;
     if (aurora ? k->w.t > AURORA_S : k->hold >= SKY_HOLD_S) begin_resolve(f, k);
-    else if (k->calm > CALM_FADE_S) k->phase = SKY_FADE;
 }
 
 static void change_sky(face_t *f, tess_sky_t *k, float dt) {
@@ -219,11 +213,12 @@ static void resolve(face_t *f, tess_sky_t *k, float dt) {
     sky_stream_step(&k->w, k->p, SKY_PARTICLES, dt, &none, &hits);
     sky_sound_frame(f, k, &hits, dt);
     sky_sound_melody(f, k, (k->resolve_t - SKY_MELODY_AT_S) * 1000.f);
-    bool more = k->solved_here < SKIES_PER_VISIT, singing = k->resolve_t < k->resolve_len;
-    if (more && !k->compose) compose_begin(f, k);
-    if (!singing || (k->slice_turn ^= 1)) compose_slice(k);   // (every other frame while the melody needs the time)
+    bool singing = k->resolve_t < k->resolve_len;
+    if (!k->compose) compose_begin(f, k);
+    // Half a verification slice each frame replaces a full slice every other frame:
+    // the same verification throughput, with a smaller proof slice beside melody and display.
+    compose_slice(k, singing ? SKY_COMPOSE_STEPS / 2 : SKY_COMPOSE_STEPS);
     if (singing) return;
-    if (!more) { k->phase = SKY_FADE; return; }
     if (k->compose != 2) return;   // (still growing: the stream flows on)
     change_sky(f, k, dt);
 }
@@ -242,7 +237,7 @@ static void fade(face_t *f, tess_sky_t *k, float dt) {
 
 static void unravel(face_t *f, tess_sky_t *k) {
     if (!k->compose) compose_begin(f, k);
-    compose_slice(k);
+    compose_slice(k, SKY_COMPOSE_STEPS);
     if (TESS_BURST_S - f->tess_hold[TR_SCATTER] < TESS_HANG_S - .01f || k->compose != 2) return;   // her dots are still flying out
     make_sky(f, k, true);
     k->phase = SKY_PLAY;

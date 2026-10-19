@@ -39,6 +39,24 @@ export async function waitForDeviceLink(read, { timeoutMs = 45000, intervalMs = 
 const complete = (stats) => stats.character &&
   ['fps', 'frames', 'meanMs', 'maxMs', 'late', 'gapMs', 'face', 'send'].every((key) => Number.isFinite(stats[key]));
 
+// Short contiguous windows avoid the display's periodic 10-second reset hiding earlier frames.
+export function combineStats(windows) {
+  assert.ok(windows.length && windows.every(complete), 'Complete frame windows required');
+  const sum = key => windows.reduce((total, window) => total + window[key], 0);
+  const frames = sum('frames'), elapsed_us = sum('elapsed_us');
+  assert.ok(frames > 0 && elapsed_us > 0);
+  const result = { frames, elapsed_us, fps: frames * 1e6 / elapsed_us,
+    late: sum('late'), maxMs: Math.max(...windows.map(window => window.maxMs)),
+    gapMs: Math.max(...windows.map(window => window.gapMs)),
+    presented: sum('presented'), overflows: sum('overflows'), character: windows[0].character };
+  for (const key of ['meanMs', 'face', 'shapes', 'prep', 'image', 'glass', 'hash', 'send']) {
+    assert.ok(windows.every(window => Number.isFinite(window[key])), `Missing ${key} timing`);
+    result[key] = windows.reduce((total, window) => total + window[key] * window.frames, 0) / frames;
+  }
+  assert.ok(windows.every(window => window.character === result.character));
+  return result;
+}
+
 // One framed response owns the complete reset window; ordinary logs remain best effort.
 export async function flushStats({ sim }) {
   const reply = await sim('stats');

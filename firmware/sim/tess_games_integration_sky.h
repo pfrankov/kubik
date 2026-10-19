@@ -100,24 +100,22 @@ static void what_was_learnt_is_kept_and_restored(void) {
     tess_games_restore(&face, TESS_PROGRESS_MASK);   // a reset forgets it
     assert(face.tess_games.sky_elements == 0 && face.tess_games.sky_solved == 0);
 }
-static void the_invitation_peels_from_the_body_and_stays_reachable(void) {
+static void the_invitation_stays_on_the_body(void) {
     static const unsigned forms[] = {0, 1, 7, TESS_PROGRESS_MASK};
     for (unsigned form = 0; form < sizeof forms / sizeof *forms; form++) {
         fresh(forms[form]);
         for (int n = 0; n < 32 && !tess_sky_invite(&face); n++) {}
-        float x, y; assert(tess_sky_calling(&face, &x, &y));
-        assert(x == face.tess_games.sky_call_from[0] && y == face.tess_games.sky_call_from[1]);
-        bool corner = false;
-        for (int i = 0; i < 16; i++) corner |= fabsf(x - face.tess_games.vertex_px[i][0]) + fabsf(y - face.tess_games.vertex_px[i][1]) < .01f;
-        assert(corner && sky_summon_shown(&face) == 0);
+        assert(sky_summon_shown(&face) == 0);
+        unsigned vertex = face.tess_games.sky_call_vertex;
         for (int n = 0; n < 45; n++) {
-            float previous_x = x, previous_y = y; frame();
-            assert(tess_sky_calling(&face, &x, &y));
-            assert(hypotf(x - previous_x, y - previous_y) < 22.f); // continuous departure, no orbit teleport
+            float expected_x = face.tess_games.vertex_px[vertex][0];
+            float expected_y = face.tess_games.vertex_px[vertex][1];
+            frame();
+            float x, y; assert(tess_sky_calling(&face, &x, &y));
+            assert(x == expected_x && y == expected_y);
             assert(x >= 24 && x <= 456 && y >= 24 && y <= 456);
         }
-        float hx, hy; sky_summon_point(&face, 0, &hx, &hy);
-        assert(fabsf(x - hx) + fabsf(y - hy) < .01f && sky_summon_shown(&face) > .99f);
+        assert(sky_summon_shown(&face) > .99f);
     }
 }
 
@@ -136,10 +134,10 @@ static void dimming_cancels_a_visible_invitation(void) {
     assert(!tess_sky_calling(&face, &x, &y));
 }
 
-static void the_summoning_light_departs_and_a_tap_on_it_answers(void) {
+static void the_invitation_is_answered_on_the_body(void) {
     float x0, y0, x, y;
     invite(); assert(tess_sky_calling(&face, &x0, &y0));
-    run(1.5f); assert(tess_sky_calling(&face, &x, &y) && hypotf(x - x0, y - y0) > 40);   // it peels away from her corner
+    run(1.5f); assert(tess_sky_calling(&face, &x, &y));
     tap(x + 30, y - 25);
     assert(face.tess_games.game == TESS_GAME_SKY && sky() && sky()->phase == SKY_UNRAVEL);
 }
@@ -251,10 +249,44 @@ static void exits_before_first_held_note_release_exactly_once(void) {
     leave_before_first_held_note(false); // notification leaves a live audio owner for tess_sky_tick
     leave_before_first_held_note(true);  // reset releases directly; the following tick must not repeat it
 }
+static void quiet_and_ordinary_handling_keep_the_game_open(void) {
+    sky_world_t *w = hand_made_sky();
+    w->count_stars = 1;
+    w->star[0].x = w->star[0].ax = 430;
+    w->star[0].y = w->star[0].ay = 430;
+    w->count_holes = 0;
+    face.grav_x = face.grav_y = 0;
+    run(18);
+    assert(sky() && sky()->phase == SKY_PLAY);
+    face_event(&face, FEV_PICKUP, 0, 0); frame();
+    assert(sky() && sky()->phase == SKY_PLAY);
+    face.grav_x = .4f; face.grav_y = -.3f; run(1);
+    assert(sky() && sky()->phase == SKY_PLAY);
+    face_event(&face, FEV_SHAKE, 0, 0); frame();
+    assert(sky() && sky()->phase == SKY_FADE);
+    run(2);
+    assert(!sky() && !face.tess_games.sky_audio);
+}
+static void a_visit_does_not_end_after_six_skies(void) {
+    hand_made_sky();
+    sky()->solved_here = 6;
+    sky()->phase = SKY_RESOLVE;
+    sky()->resolve_len = .1f;
+    until_phase(SKY_PLAY, 8);
+    assert(sky()->solved_here == 6);
+    sky()->solved_here = UINT8_MAX;
+    for (int i = 0; i < sky()->w.count_stars; i++) sky()->w.star[i].fill = 1;
+    sky()->hold = SKY_HOLD_S;
+    frame();
+    assert(sky()->phase == SKY_RESOLVE && sky()->solved_here == UINT8_MAX);
+    face_card(&face, "end"); frame();
+}
 static void skies_summon_play_and_sing(void) {
-    the_invitation_peels_from_the_body_and_stays_reachable();
+    quiet_and_ordinary_handling_keep_the_game_open();
+    a_visit_does_not_end_after_six_skies();
+    the_invitation_stays_on_the_body();
     dimming_cancels_a_visible_invitation();
-    the_summoning_light_departs_and_a_tap_on_it_answers();
+    the_invitation_is_answered_on_the_body();
     exits_before_first_held_note_release_exactly_once();
     each_finger_makes_a_temporary_hole_everywhere();
     finger_fields_release_independently();
@@ -275,7 +307,7 @@ static void pouring_uses_gravity_without_rest_pose_drift(void) {
         sky_force_t force={.gx=face.grav_x*scale,.gy=face.grav_y*scale};
         sky_stream_step(&expected,particles,SKY_PARTICLES,1.f/30,&force,NULL);
         tess_sky_update(&face,1.f/30);
-        assert(!memcmp(particles,k->p,sizeof particles) && k->calm==0);
+        assert(!memcmp(particles,k->p,sizeof particles));
         face_card(&face,"end"); frame();
     }
 }
@@ -283,7 +315,7 @@ static void pouring_uses_gravity_without_rest_pose_drift(void) {
 static void quiet_releases_survive_a_full_queue(void) {
     fresh(63);
     face.tess_play.tone_n = 0;
-    for (int i = 0; i < TESS_TONES; i++) tess_tone(&face, TT_SKY_PLUCK, 440, .5f, 0);
+    for (int i = 0; i < TESS_TONES; i++) tess_tone(&face, TT_SKY_INVITE, 440, .5f, 0);
     assert(face.tess_play.tone_n == TESS_TONES);
     face.dimmed = true;
     tess_tone_slot(&face, TT_SKY_PAD, 0, 440, 0, 0, 0);

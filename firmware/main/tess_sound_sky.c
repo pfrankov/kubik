@@ -40,11 +40,11 @@ static bool hum(tess_sound_t *s, const tess_tone_t *t) {
 }
 
 // A star filling: a struck celesta note. It keeps the reverb the pads are in.
-static bool pluck(tess_sound_t *s, const tess_tone_t *t, bool game) {
+static bool pluck(tess_sound_t *s, const tess_tone_t *t) {
     int decay = 150 + (int)(120.f * (1.f - t->shade));
     tess_note_t n = {.bright = true, .step = step_hz(t->hz), .end_step = step_hz(t->hz), .ratio_q8 = 256, .layer_ratio_q8 = 512,
         .attack_ms = 5, .decay_ms = (uint16_t)decay, .ring_ms = (uint16_t)(decay * 55 / 100), .release_ms = (uint16_t)decay,
-        .gain = (uint16_t)(PLUCK_GAIN * t->gain), .sky_game = game};
+        .gain = (uint16_t)(PLUCK_GAIN * t->gain), .sky_game = true};
     n.delay_samples = (uint32_t)(t->delay_s * AUDIO_RATE);
     tess_sound_note(s, &n);
     return n.gain > 0;
@@ -54,6 +54,10 @@ static bool pluck(tess_sound_t *s, const tess_tone_t *t, bool game) {
 static bool chime(tess_sound_t *s, const tess_tone_t *t, bool game) {
     tess_note_t n = tess_sound_ensemble(PAD, t->hz, t->gain, CHIME_GAIN);
     n.attack_ms = 220; n.decay_ms = 400; n.hold_ms = (uint16_t)(500 + 700 * t->shade); n.sustain = 12000; n.release_ms = 900;
+    if (!game) {
+        n.attack_ms = 1000; n.decay_ms = 1000; n.hold_ms = 800; n.release_ms = 650;
+        n.index_q8 = 0; n.layer_gain = 1800; n.chorus_gain = 4500;
+    }
     n.sky_game = game;
     n.delay_samples = (uint32_t)(t->delay_s * AUDIO_RATE);
     tess_sound_note(s, &n);
@@ -76,9 +80,8 @@ bool tess_sound_sky(tess_sound_t *s, const tess_tone_t *t) {
     switch (t->kind) {
     case TT_SKY_PAD: return pad(s, t);
     case TT_SKY_HUM: return hum(s, t);
-    case TT_SKY_PLUCK: return t->gain > 0 && pluck(s, t, false);
-    case TT_SKY_CHIME: return t->gain > 0 && chime(s, t, false);
-    case TT_SKY_GAME_PLUCK: return t->gain > 0 && pluck(s, t, true);
+    case TT_SKY_INVITE: return t->gain > 0 && chime(s, t, false);
+    case TT_SKY_GAME_PLUCK: return t->gain > 0 && pluck(s, t);
     case TT_SKY_GAME_CHIME: return t->gain > 0 && chime(s, t, true);
     case TT_SKY_RELEASE: return release_sky(s, t);
     default: return false;

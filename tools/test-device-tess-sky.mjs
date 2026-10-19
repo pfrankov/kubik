@@ -4,7 +4,7 @@
 // and checks completion, melody, frame pacing and speaker feed. Never changes level geometry.
 import assert from 'node:assert/strict';
 import {setTimeout as sleep} from 'node:timers/promises';
-import {setDeviceScreen, assertIdleCapture, flushStats} from './test-device/diagnostics.mjs';
+import {setDeviceScreen, assertIdleCapture, flushStats, combineStats} from './test-device/diagnostics.mjs';
 
 const url = process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
 const LATE_SHARE = .03;   // of the frames of a sky: those that took longer than their 33 ms
@@ -36,16 +36,26 @@ async function solve(elements, skill) {
   assert.equal((await sim('sky-start',{elements,skill})).ok, true, `a sky starts at depth ${elements}`);
   const first = await until(sky, s=>s.active&&s.phase===PHASE.play&&s.here===0, `depth ${elements}: the stream flows`, 8000);
   await flushStats({sim});
+  const measuredStart = performance.now();
   await sim('sky-solve');
   const end = performance.now()+SOLVE_MS;
+  const windows = [];
+  let nextStats = performance.now()+2500;
   let s = first;
   while (performance.now()<end && s.active && s.phase===PHASE.play) {
     await sim('sky-solve'); // Refreshes the same expiring finger/tilt lease as normal input.
     await sleep(120);
     s = await sky();
+    if (performance.now() >= nextStats) {
+      windows.push(await flushStats({sim}));
+      nextStats = performance.now()+2500;
+    }
   }
   await sim('pointer',{down:false,x:240,y:255}); await sim('gravity',{x:0,y:0,ms:0});
-  const played = await flushStats({sim});
+  windows.push(await flushStats({sim}));
+  const played = combineStats(windows);
+  assert.ok(played.elapsed_us >= (performance.now()-measuredStart-500)*1000,
+    'PLAY measurement must include the whole attempt, not only a periodic reset tail');
   const sang = await until(sky, v=>!v.active||v.phase!==PHASE.resolve||v.sung===v.melody, `depth ${elements}: the melody is sung`, 6000).catch(()=>null);
   await sleep(1800);   // its chord, and the next sky growing
   const resolved = await flushStats({sim});
@@ -54,15 +64,24 @@ async function solve(elements, skill) {
 }
 // BOOT, the menu and PWR each end a sky that is being played, at once.
 async function exits() {
-  for (const exit of ['boot','menu','pwr']) {
+  for (const exit of ['boot','menu','pwr','shake']) {
     // (right after a sky was cut short her dots are still coming home and a start is declined: ask again)
     for (let tries=0; tries<12 && !(await sky()).active; tries++) { assert.equal((await sim('sky-start',{elements:3,skill:100})).ok, true); await sleep(1000); }
     await until(sky, s=>s.active&&s.phase===PHASE.play, `${exit}: the stream flows`, 8000);
-    await sleep(1500);
+    await sim('pickup');
+    await sleep(500);
+    assert.ok((await sky()).active, 'Ordinary pickup preserves the sky');
+    const quietWindows = exit==='shake' ? [9000,8000] : [1000];
+    for (const ms of quietWindows) {
+      assert.equal((await sim('gravity',{x:0,y:0,ms:ms+500})).ok, true);
+      await sleep(ms);
+    }
+    assert.ok((await sky()).active, 'Quiet play does not end the sky');
     await sim(exit);
     await until(sky, s=>!s.active, `${exit} ends the sky`, 4000);
     if (exit==='menu' && (await info()).menu) await sim('menu');
     if (exit==='pwr') { await sleep(1500); if ((await info()).screen_dark) await sim('pwr'); }
+    await sim('gravity',{x:0,y:0,ms:0});
     await sleep(2500);
   }
 }
@@ -83,7 +102,7 @@ async function summons() {
   assert.ok(settled.call_x>=24&&settled.call_x<=456&&settled.call_y>=24&&settled.call_y<=456,'invitation remains on the glass');
   await sleep(350);
   const moved = await sky();
-  assert.ok(Math.hypot(moved.call_x-settled.call_x,moved.call_y-settled.call_y)<10,'invitation settles into a gentle sway');
+  assert.ok(Math.hypot(moved.call_x-moved.call_body_x,moved.call_y-moved.call_body_y)<8,'invitation stays on Tess');
   await sleep(4750);
   await until(sky, v=>v.invite===0, 'ignored, it fades', 3000);
   await rock(.1);                                    // summoned again; lifting the cube answers it like a touch
