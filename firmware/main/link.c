@@ -443,9 +443,9 @@ static void manager_connect(manager_state_t *s, manager_retry_t *r) {
     if (!manager_wifi_ok() || !wifi_radio_started()) return;
     uint64_t revision = settings_connection_revision();
     char uri[160];
-    link_target_t target = link_target(s->now, uri, sizeof uri);
-    if (target == TARGET_WAITING) return;
+    link_target_t target = link_target(s->now, revision, uri, sizeof uri);
     if (revision != settings_connection_revision()) { link_target_stop(); return; }
+    if (target == TARGET_WAITING) return;
     wifi_link_attempt_started();
     if (target == TARGET_READY && ws_start(uri, revision)) {
         if (!manager_wifi_ok() || !wifi_radio_started()) ws_stop();

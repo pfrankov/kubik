@@ -11,6 +11,6 @@
 typedef enum { TARGET_WAITING, TARGET_READY, TARGET_NOT_FOUND } link_target_t;
 
 // Called every manager tick until it is no longer TARGET_WAITING; `uri` is set when READY.
-link_target_t link_target(uint32_t now_ms, char *uri, size_t cap);
+link_target_t link_target(uint32_t now_ms, uint64_t revision, char *uri, size_t cap);
 // Abandons a discovery in progress (Wi-Fi went away).
 void link_target_stop(void);

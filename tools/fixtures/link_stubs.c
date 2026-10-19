@@ -77,7 +77,7 @@ void link_pin_keep(bool usb,uint32_t epoch) { (void)epoch; if(usb)keeps_usb++; e
 bool link_pin_take_mismatch(void) { bool m=pin_mismatch; pin_mismatch=false; return m; }
 // link_discover.h stub: a LAN server is "found" at a fixed address.
 static link_target_t target_result=TARGET_READY; static int target_stops;
-link_target_t link_target(uint32_t now,char *uri,size_t cap) {
+link_target_t link_target(uint32_t now,uint64_t revision,char *uri,size_t cap) {
     (void)now; if(target_result==TARGET_READY)snprintf(uri,cap,"%s",g_settings.server_url[0]?g_settings.server_url:"wss://10.0.0.5:18790/kubik/v1");
     return target_result;
 }

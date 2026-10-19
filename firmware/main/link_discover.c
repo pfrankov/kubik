@@ -21,6 +21,7 @@ static const char PROBE[] = "kubik-discover-v5";
 static int s_sock = -1;
 static int s_tries;
 static uint32_t s_sent_ms;
+static uint64_t s_revision;
 
 void link_target_stop(void) {
     if (s_sock >= 0) close(s_sock);
@@ -105,7 +106,8 @@ static link_target_t fixed(const char *authority, char *uri, size_t cap) {
     return n > 0 && (size_t)n < cap ? TARGET_READY : TARGET_NOT_FOUND;
 }
 
-link_target_t link_target(uint32_t now_ms, char *uri, size_t cap) {
+link_target_t link_target(uint32_t now_ms, uint64_t revision, char *uri, size_t cap) {
+    if (revision != s_revision) { link_target_stop(); s_revision = revision; }
     const char *url = g_settings.server_url;
     switch (link_server_mode(url)) {
     case SERVER_LAN_DISCOVER: return discover(now_ms, uri, cap);

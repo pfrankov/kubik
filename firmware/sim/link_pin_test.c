@@ -50,7 +50,7 @@ static int fake_setsockopt(int s, int level, int name, const void *value, sockle
     return 0;
 }
 static int fake_bind(int s, const struct sockaddr *addr, socklen_t len) { (void)s; (void)addr; (void)len; return 0; }
-static int fake_close(int s) { assert(s == 7); closes++; return 0; }
+static int fake_close(int s) { assert(s == 7); closes++; nreplies = 0; return 0; }
 static ssize_t fake_sendto(int s, const void *data, size_t len, int flags, const struct sockaddr *to, socklen_t to_len) {
     (void)s; (void)flags; (void)to_len;
     snprintf(sent, sizeof sent, "%.*s", (int)len, (const char *)data);
@@ -229,32 +229,45 @@ static void test_targets(void) {
     };
     for (size_t i = 0; i < sizeof fixed_cases / sizeof fixed_cases[0]; i++) {
         strcpy(g_settings.server_url, fixed_cases[i][0]);
-        assert(link_target(0, uri, sizeof uri) == TARGET_READY && !strcmp(uri, fixed_cases[i][1]));
+        assert(link_target(0, 0, uri, sizeof uri) == TARGET_READY && !strcmp(uri, fixed_cases[i][1]));
     }
     assert(!sends);
 
     // Nobody answers: three broadcasts a second apart, then "not found".
     strcpy(g_settings.server_url, "");
-    assert(link_target(100, uri, sizeof uri) == TARGET_WAITING && sends == 1 && broadcast_on);
+    assert(link_target(100, 0, uri, sizeof uri) == TARGET_WAITING && sends == 1 && broadcast_on);
     assert(!strcmp(sent, "kubik-discover-v5") && sent_to.sin_addr.s_addr == htonl(INADDR_BROADCAST) &&
            ntohs(sent_to.sin_port) == 18790);
-    assert(link_target(900, uri, sizeof uri) == TARGET_WAITING && sends == 1);
-    assert(link_target(1100, uri, sizeof uri) == TARGET_WAITING && sends == 2);
-    assert(link_target(2100, uri, sizeof uri) == TARGET_WAITING && sends == 3);
-    assert(link_target(3100, uri, sizeof uri) == TARGET_NOT_FOUND && closes == 1);
+    assert(link_target(900, 0, uri, sizeof uri) == TARGET_WAITING && sends == 1);
+    assert(link_target(1100, 0, uri, sizeof uri) == TARGET_WAITING && sends == 2);
+    assert(link_target(2100, 0, uri, sizeof uri) == TARGET_WAITING && sends == 3);
+    assert(link_target(3100, 0, uri, sizeof uri) == TARGET_NOT_FOUND && closes == 1);
 
     // Wrong or oversized replies are ignored; the plugin is where its reply came from.
-    assert(link_target(5000, uri, sizeof uri) == TARGET_WAITING && sends == 4);
+    assert(link_target(5000, 0, uri, sizeof uri) == TARGET_WAITING && sends == 4);
     char big[160];
     snprintf(big, sizeof big, "{\"t\":\"kubik\",\"v\":5,\"port\":18790,\"pad\":\"%0120d\"}", 0);
     reply(big, "192.168.1.6");
     reply("{\"t\":\"kubik\",\"v\":3,\"port\":18790}", "192.168.1.8");
     reply("{\"t\":\"kubik\",\"v\":5,\"port\":0}", "192.168.1.8");
     reply("{\"t\":\"kubik\",\"v\":5,\"port\":18791}", "192.168.1.7");
-    assert(link_target(5200, uri, sizeof uri) == TARGET_READY && !strcmp(uri, "wss://192.168.1.7:18791/kubik/v1"));
+    assert(link_target(5200, 0, uri, sizeof uri) == TARGET_READY && !strcmp(uri, "wss://192.168.1.7:18791/kubik/v1"));
     assert(closes == 2);
     link_target_stop();
     assert(closes == 2);
+}
+
+static void test_discovery_cannot_cross_intents(void) {
+    char uri[160];
+    strcpy(g_settings.server_url, "");
+    int closed = closes, sent_before = sends;
+    assert(link_target(6000, 40, uri, sizeof uri) == TARGET_WAITING);
+    reply("{\"t\":\"kubik\",\"v\":5,\"port\":18790}", "192.168.1.8");
+    assert(link_target(6100, 41, uri, sizeof uri) == TARGET_WAITING);
+    assert(closes == closed + 1 && sends == sent_before + 2 && !nreplies);
+    reply("{\"t\":\"kubik\",\"v\":5,\"port\":18790}", "192.168.2.9");
+    assert(link_target(6200, 41, uri, sizeof uri) == TARGET_READY);
+    assert(!strcmp(uri, "wss://192.168.2.9:18790/kubik/v1"));
 }
 
 int main(void) {
@@ -263,6 +276,7 @@ int main(void) {
     test_usb_binding();
     test_old_route_cannot_repin_new_intent();
     test_targets();
+    test_discovery_cannot_cross_intents();
     puts("pin: TOFU after welcome, pinned match/mismatch without re-pin, USB bind checks, CA host binding and rejected plaintext address, "
          "kubik:// targets and LAN discovery passed");
 }
