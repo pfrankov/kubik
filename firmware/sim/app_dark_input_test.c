@@ -34,7 +34,7 @@ static bool handle_server_event(const app_ev_t *e) { (void)e; calls++; return fa
 int main(void) {
     const app_ev_type_t blocked[] = {EV_PTT_DOWN, EV_PTT_UP, EV_BOOT_SHORT, EV_BOOT_LONG,
         EV_TAP, EV_PET, EV_SHAKE, EV_PICKUP, EV_SWIPE_UP, EV_DRAG, EV_MENU_HOLD,
-        EV_TOUCH_DOWN, EV_VOICE_WAKE, EV_SETUP_START};
+        EV_TOUCH_DOWN, EV_VOICE_WAKE, EV_SETUP_START, EV_MOTION_ACTIVITY};
     for (int state = 0; state < PWR_STATE_COUNT; state++) {
         s_power = state;
         for (unsigned i = 0; i < sizeof blocked / sizeof *blocked; i++) {
@@ -73,5 +73,14 @@ int main(void) {
     assert(s_power == PWR_AWAKE && s_last_activity == clock_ms);
     clock_ms += 200; app_handle(&contact);
     assert(s_last_activity == clock_ms && s_last_touch_or_key == clock_ms);
+    for (int state=PWR_AWAKE; state<=PWR_SLEEPING; state++) {
+        s_power=state; clock_ms+=10000;
+        int64_t touch_at=s_last_touch_or_key;
+        app_ev_t motion={.type=EV_MOTION_ACTIVITY}; app_handle(&motion);
+        assert(s_power==PWR_AWAKE && s_last_activity==clock_ms && s_last_touch_or_key==touch_at);
+    }
+    s_power=PWR_DIMMED; s_menu=true; clock_ms+=10000;
+    app_ev_t pickup={.type=EV_PICKUP}; app_handle(&pickup);
+    assert(s_power==PWR_AWAKE && s_last_activity==clock_ms); // menu / recent touch never swallow activity
     puts("dark input: all user gestures/BOOT/KEY ignored; PWR, replies and background processing retained");
 }

@@ -52,10 +52,12 @@ hanging dots within 120 px lean towards the finger; swept dots fly home in 0.3 s
 along alternating curves. All 112 home finishes the burst and is the discovery;
 2.2 s without a newly gathered dot ends the round.
 
-**Self-play.** After 16–30 s of quiet (no finger, rub, heart, burst, agitation or
-drowsiness, and eligible), she plays one act of her repertoire in turn, silently:
-a quiet pluck, a reach-and-twang (1.2 s), a spin kick, or two opposite vertices
-wrestling apart (1.2 s). A landing finger ends it. Self-play earns nothing.
+**Self-play.** After 16–30 s of quiet (no finger, rub, heart, burst, agitation,
+dimming or drowsiness, and eligible), she plays a quiet pluck, a spin kick, or
+two opposite vertices wrestling apart (1.2 s). One-sided pulls require a finger.
+Each act starts a low-gain body tone; wrestling releases with a quiet twang at
+0.9 s. A landing finger ends it. Dimming releases quiet waves and the flagged
+idle-spin impulse, preserving manual drag inertia. Self-play earns nothing.
 
 **Organic burst.** Each burst's spread is best-candidate sampling on the square
 glass (16 px margin): every dot takes the farthest of 5–8 random candidates from

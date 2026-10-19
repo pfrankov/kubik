@@ -205,7 +205,7 @@ void tess_play_pluck_as(face_t *f, int vertex, bool quiet, float amp, float pace
     if (!slot) slot = oldest;
     pace = clampf(pace, .4f, 1.6f);
     *slot = (tess_wave_t){(uint8_t)(vertex & 15), quiet, 0, 0, quiet ? .6f * amp : amp, SHELL_S * pace, RING_W / pace, 1.f / pace};
-    if (quiet) return;
+    if (quiet) { tess_tone(f, TT_RING, tess_tone_hz(f, .3f), .08f, .3f); return; }
     tess_games_earn(f, BIT_PLUCK);
     if (echo) tess_games_earn(f, BIT_ECHO);
 }

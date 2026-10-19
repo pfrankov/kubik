@@ -221,7 +221,7 @@ static void pointer(face_t *f, float dt) {
 
 // ---------------------------------------------------------------- the clock
 static bool quiet(const face_t *f) {
-    return !f->rub_in.down && f->rub.stage == 0 && f->tess_hold[TR_HEART] <= 0 &&
+    return !f->dimmed && !f->rub_in.down && f->rub.stage == 0 && f->tess_hold[TR_HEART] <= 0 &&
         f->tess_hold[TR_SCATTER] <= 0 && f->tess_agitation < .2f && f->tess_mode[TM_SLEEP] < .3f;
 }
 static void animate(face_t *f, float dt) {
@@ -251,6 +251,12 @@ static void advance(face_t *f, float dt) {
     else if (KUBIK_CHARACTER == CHARACTER_TESS && g->game == TESS_GAME_SKY) tess_sky_update(f, dt);
     else if (!g->game && quiet(f)) tess_self_update(f, dt);
 }
+static void dim_self_play(face_t *f) {
+    tess_games_t *g = &f->tess_games;
+    if (g->self_spinning) f->tess_mood.drag_speed[0] = f->tess_mood.drag_speed[1] = 0;
+    for (int i = 0; i < TESS_WAVES; i++) if (g->wave[i].quiet) g->wave[i].amp = 0;
+    tess_self_end(g);
+}
 void tess_games_update(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     if (!g->ready || face_character(f) != CHARACTER_TESS || !isfinite(dt) || dt <= 0) return;
@@ -259,6 +265,7 @@ void tess_games_update(face_t *f, float dt) {
     if (!allowed) stop_all(g);
     if (!f->rub_in.down && !allowed) g->finger_down = false;
     if (KUBIK_CHARACTER == CHARACTER_TESS) tess_sky_tick(f, dt);
+    if (f->dimmed) dim_self_play(f);
     if (!visible(f)) return;  // preemption above still runs when rendering is paused
     g->pulse = fmaxf(0, g->pulse - dt * 3.f);
     if (allowed) advance(f, dt);

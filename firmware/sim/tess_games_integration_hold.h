@@ -82,6 +82,8 @@ static void corner_holds_respect_the_current_screen_and_agent(void) {
     assert(!sky()); release_corners();
     // Returning from a menu cannot complete an old partial hold.
     corners(0,false); run(1.6f); assert(sky());
+}
+static void an_agent_preempts_a_partial_corner_hold(void) {
     fresh(0); corners(1,false); run(.8f);
     face_set_mode(&face,MODE_THINKING); frame();
     assert(face.tess_games.sky_hold_owned && !tess_games_active(&face));
@@ -92,4 +94,5 @@ static void diagonal_holds_start_skies(void) {
     the_second_corner_takes_over_a_stretch_without_a_throw();
     a_diagonal_needs_two_continuous_corner_contacts();
     corner_holds_respect_the_current_screen_and_agent();
+    an_agent_preempts_a_partial_corner_hold();
 }

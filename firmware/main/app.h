@@ -17,6 +17,7 @@ typedef enum {
     EV_TAP,
     EV_PET,
     EV_SHAKE,
+    EV_MOTION_ACTIVITY, // IMU movement, max 4/s: visible-screen activity without character/agent reactions
     EV_PICKUP,
     EV_LINK_UP,
     EV_LINK_DOWN,

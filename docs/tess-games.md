@@ -72,8 +72,7 @@ make her fond. Each fades on its own, and they colour her moods.
 - Frightened, she shies away from a pulling finger instead of reaching for it.
   Fond, all of her follows it eagerly.
 - Cross, she won't bloom as far.
-- After play she soon asks for more by herself. Curious, she reaches towards
-  where you last touched her.
+- After play she soon asks for more by herself, with small turns and quiet waves.
 
 ## Her sounds
 
@@ -87,17 +86,19 @@ Tess), and her dots puff as they knock and come home, a little higher from highe
 up the glass. Her mood sets where her voice rests: lower when cross, sad or
 sleepy, higher and trembling when scared; a small Tess has a small voice. Her
 body sounds stay quieter than her words. Her body sounds never play over
-the microphone or a spoken reply, and never in the dark or asleep.
+the microphone or a spoken reply, and never while dimmed, in the dark or asleep.
 
 ## When nobody plays
 
-Left alone for a while, Tess plays by herself, silently, as her temper
-suggests. She plucks herself and a ring runs through her. She reaches one corner
-out, towards where you last touched her if she is curious, and lets it twang
-back. Excited, she gives herself a spin and blooms a little. Long alone, two of
+Left alone for a while, Tess plays by herself as her temper
+suggests. She plucks herself and a ring runs through her, with a barely audible
+soft resonance. One-sided stretching only follows your finger. Excited, she gives
+herself a spin and blooms a little. Long alone, two of
 her opposite corners wrestle apart and snap back. Each of these is something your
-finger can do too. A touch stops her own play at once. Cross or frightened, she
-keeps to herself, and she never plays while sleepy or dozing.
+finger can do too; their gentle tension and release have quiet, synchronized sounds.
+A touch stops her own play at once. Cross or frightened, she
+keeps to herself, and she never starts idle play while dimmed, sleepy or dozing.
+Dimming ends current idle play and lets its shape settle without sound.
 
 ## Growing
 

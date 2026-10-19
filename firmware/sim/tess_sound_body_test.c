@@ -196,6 +196,16 @@ void check_body_tones(void) {
     tess_sound_seed(&s_body, 7);
     sky_accents_are_low_layered_and_clean();
     each_kind_is_clean();
+    const int idle_kinds[]={TT_RING,TT_CREAK,TT_TWANG,TT_WHOOSH};
+    for (unsigned i=0;i<sizeof idle_kinds/sizeof *idle_kinds;i++) {
+        int kind=idle_kinds[i];
+        probe_t normal=play((tess_tone_kind_t)kind,330,.6f,.15f);
+        double reference=probe_weighted_100ms(&normal,true);
+        probe_t idle=play((tess_tone_kind_t)kind,330,.1f,.15f);
+        double level=probe_weighted_100ms(&idle,true);
+        assert(reference-level>14 && reference-level<18 && probe_onset_ms(&idle)>=8);
+        assert(probe_peak(&idle)>20); // soft audible material, not a silent or truncated note
+    }
     a_tauter_pull_sits_higher();
     a_flood_stays_gentle();
     words_keep_their_voices();

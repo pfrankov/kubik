@@ -13,7 +13,7 @@ typedef enum { TESS_GAME_REST, TESS_GAME_SHOW, TESS_GAME_WAIT, TESS_GAME_CELEBRA
 // Developer previews (Screen Lab), one per behaviour.
 typedef enum { TESS_PLAY_PLUCK, TESS_PLAY_BLOOM, TESS_PLAY_STRETCH, TESS_PLAY_FLY, TESS_PLAY_GATHER, TESS_PLAY_SELF, TESS_PLAY_SKY, TESS_PLAY_COUNT } tess_preview_t;
 // What she does by herself when left alone.
-typedef enum { SELF_NONE, SELF_PLUCK, SELF_REACH, SELF_SPIN, SELF_WRESTLE } tess_self_t;
+typedef enum { SELF_NONE, SELF_PLUCK, SELF_SPIN, SELF_WRESTLE } tess_self_t;
 
 struct tess_sky;  // tess_sky.h
 
@@ -40,6 +40,7 @@ typedef struct {
     float bloom, spin;           // how far spin has opened her, 0..1; her spin, rad/s
     uint8_t self_act, self_vertex, self_next;  // self_next: her repertoire in turn, so nothing repeats
     float self_age, self_wait, self_dir[2];
+    bool self_spinning;          // distinguishes idle impulse from the user's drag when dimming
     float gather_clock, gather_start;
     uint16_t gathered_at[TESS_GATHER_SLOTS];  // Gather: 1 + centiseconds of gather_clock when swept home; 0 out
     // Her temper, built by what has been happening and fading on its own (each 0..1): excitement from play,
