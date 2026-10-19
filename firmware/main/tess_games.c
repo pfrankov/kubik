@@ -22,7 +22,9 @@ bool tess_games_eligible(const face_t *f) {
         visible(f) && f->mode == MODE_IDLE && !f->live_active && !f->card_n && !f->card_hold &&
         !f->tess_fallen && f->emotion != EMO_SLEEPY;
 }
-bool tess_games_active(const face_t *f) { return f->tess_games.game != TESS_GAME_NONE && tess_games_eligible(f); }
+bool tess_games_active(const face_t *f) {
+    return (f->tess_games.game != TESS_GAME_NONE || f->tess_games.sky_hold_owned) && tess_games_eligible(f);
+}
 bool tess_games_owns_tap(const face_t *f) { return tess_games_active(f) || f->tess_games.finger_owned; }
 
 static unsigned discoveries(uint8_t progress) {
@@ -208,6 +210,7 @@ static void finger_moves(face_t *f, float dt, const rub_input_t *in) {
 static void pointer(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     const rub_input_t *in = &f->rub_in;
+    if (g->sky_hold_owned) { g->finger_down = in->down; g->lifted = 0; return; }
     if (in->down && !g->finger_down) finger_lands(f, in);
     else if (in->down) finger_moves(f, dt, in);
     else if (g->finger_down && g->game == TESS_GAME_STRETCH) tess_stretch_release(f);

@@ -14,6 +14,7 @@
 - [Персонажи и реакции](characters.md)
 - [Игры и рост Tess](tess-games.md)
 - [Tess Skies](tess-skies.md)
+- [Запуск Skies двумя пальцами](tess-skies-entry.md)
 - [Сеть, питание и уведомления](power-network.md)
 - [Обновление, безопасность и сброс](maintenance.md)
 - [Скрытый просмотр экранов и эмулятор](debug.md)

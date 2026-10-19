@@ -60,6 +60,7 @@ Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
 | PWR | Press to turn the screen off/on; hold about two seconds for power off/on |
 
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
+Hold two diagonally opposite screen corners for 1.5 seconds to enter [Skies](docs/tess-games.md#skies), Tess’s musical particle game. Either diagonal works.
 
 No connection? Press **BOOT briefly** on the offline points to bring Tess back for local play. Press BOOT again outside Skies to return to the points.
 

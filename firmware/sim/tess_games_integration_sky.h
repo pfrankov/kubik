@@ -1,5 +1,6 @@
 // Skies through the real face (included by tess_games_integration_test.c, which owns the harness): the summoning star,
 // independent finger fields, persistent musical progress and each sky's own ending melody.
+#include "tess_games_integration_hold.h"
 static void finger_at(float x, float y, int frames) { for (int i = 0; i < frames; i++) finger(true, x, y); }
 
 static void an_ignored_invitation_asks_nothing(void) {
@@ -315,6 +316,7 @@ static void crossings_build_a_low_sparse_rhythm(void) {
     face_card(&face, "end"); frame();
 }
 static void skies_summon_play_and_sing(void) {
+    diagonal_holds_start_skies();
     crossings_build_a_low_sparse_rhythm();
     quiet_and_ordinary_handling_keep_the_game_open();
     a_visit_does_not_end_after_six_skies();

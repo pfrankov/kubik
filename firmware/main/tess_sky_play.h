@@ -8,7 +8,7 @@
 #define SKY_MELODY_AT_S .45f    // the resolution's melody begins this long after the sky is solved
 #define SKY_CHORD_RING_S 1.7f   // ...and its chord rings this long after its last note
 
-// tess_sky_summon.c: (every frame) the summoning star; true when lifting the cube has answered it with a sky
+// tess_sky_summon.c: (every frame) the invitation and diagonal hold; true when a sky starts
 bool sky_summon_tick(face_t *f, float dt);
 // tess_sky_touch.c: each finger creates its own temporary black hole. True while any finger is on the glass.
 bool sky_touch(const face_t *f, tess_sky_t *k, sky_force_t *force, float dt);

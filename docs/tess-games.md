@@ -113,6 +113,12 @@ earlier versions keep their places in the same six steps.
 
 ## Skies
 
+To enter directly from Tess’s home screen, hold two fingers near diagonally
+opposite corners of the glass for 1.5 seconds. Either diagonal works, even upright
+and without an invitation. Keep both fingers in their corner areas; if interrupted,
+release both before trying again. This gesture also works after enabling offline play
+with BOOT. Menus, setup, agent replies and sleep keep their usual priority.
+
 Lay the cube nearly flat. Now and then one of Tess’s own corners warms gently,
 with a quiet low pad that fades in and out; there is no separate floating light;
 standing up, she never asks. To ask her yourself, rock the flat cube three times,

@@ -73,6 +73,9 @@ typedef struct {
     int8_t rock_side[2];
     uint8_t rock_n[2];
     float sky_invite_t;          // s the star stays; 0: no invitation (it is only offered while she waits for an answer)
+    float sky_hold_t;            // diagonal two-finger hold; negative: consumed until all fingers lift
+    uint32_t sky_hold_contacts;  // corner and contact IDs, independent of report order
+    bool sky_hold_owned;         // suppress a stretch, rub or release tap while this chord owns input
 } tess_games_t;
 
 // What the game probe reports of her games: a few numbers, so the small USB task never holds her whole state.
