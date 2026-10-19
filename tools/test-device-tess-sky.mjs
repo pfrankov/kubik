@@ -146,6 +146,7 @@ async function main() {
       assert.ok(/^(\d+)\/\1$/.test(row.sung)&&row.sung!=='0/0', `depth ${row.elements}: its melody was sung (${row.sung})`);
       assert.ok(row.late <= Math.max(row.frames*LATE_SHARE, LATE_FLOOR), `depth ${row.elements}: ${row.late} of ${row.frames} frames late`);
     }
+    assert.ok(audio.mix_max_us < 20000, 'audio mixing fits the 20 ms output buffer');
     assert.equal(audio.late_feeds,0,'speaker feed stays within its reserve');
     assert.equal(audio.write_errors,0,'codec accepts every frame');
     console.log('device skies: every depth resolved and sang, BOOT/menu/PWR end a sky, frames on pace, speaker fed');

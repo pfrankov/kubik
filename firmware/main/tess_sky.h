@@ -2,7 +2,7 @@
 // dark, each with a note. A star fills while the stream passes through it and sings as it fills; when every star of
 // the sky has been lit the sky resolves into a chord and the next one grows from it. Each finger makes a temporary
 // invisible black hole; permanent holes and tilt bend the stream. Lit stars keep their light until the next sky.
-// No score, no text, no beat: nothing is ever wrong, and nothing waits for the player.
+// No score, no text, no required timing: the stream makes the music, never a timing challenge.
 //   tess_sky.c          the rounds: invitation, play, resolution, leaving; touch; sound
 //   tess_sky_stream.c   the stream: 112 particles on integers
 //   tess_sky_compose.c  a sky from a seed: harmony, layout and a solution proven by the real stream
@@ -120,7 +120,8 @@ typedef struct tess_sky {
     sky_melody_t melody;    // the resolution's own melody, sung back from how it was played
     uint8_t melody_next, tour_lit;  // its next note; stars of its tour reached
     float sparkle_wait;     // the inflow's notes are rate limited
-    float pulse_wait[SKY_STARS];  // a full star's note pulses as light flows through it
+    float beat_wait;        // the shared pulse, gated by actual particle flow
+    uint8_t beat_step, beat_flow[SKY_STARS]; // sparse rhythm and peak crossings since the last beat
     float pad_gain[SKY_STARS], hum_gain[SKY_HUMS], pad_sent[SKY_STARS], hum_sent[SKY_HUMS];  // what the voices were last told, and when ago
     uint32_t seed;
 } tess_sky_t;

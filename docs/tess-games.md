@@ -139,8 +139,11 @@ As the stream fills it, those lights curl inward and gather into a brighter, war
 core. The last grains merge into a brief flare; the full star keeps its light.
 If the stream leaves an unfinished star, its core dims and its lights slowly spread
 out again. There are no progress rings or segments. A filling star sparkles softly
-in the music; once full, it holds its note and pulses it when light flows through. Every full star adds
-a voice, and black holes hum softly while light swirls nearby.
+in the music; once full, it holds a layered low or middle voice. Passing light also
+adds occasional low rhythmic accents, even before a star is full: its octave or
+twelfth gives the small speaker a warm body, and the star briefly glows with the beat.
+No flow means no accents; dense flow never creates a barrage of notes.
+Every full star adds a voice, and black holes hum softly while light swirls nearby.
 When every star is full together for a moment, the sky sings its own melody: the
 stars in the order you filled them, the slower ones held longer, each flashing as
 a constellation line reaches it, then the closing chord. Once the melody ends and

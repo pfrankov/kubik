@@ -48,6 +48,7 @@ typedef enum {
     TT_SKY_INVITE, // the invitation's quiet low pad
     TT_SKY_HUM,    // light circles a black hole: slot = the hole, gain = nearby particles
     TT_SKY_GAME_PLUCK, // a note from the active sky: released quickly if the player leaves
+    TT_SKY_GAME_PULSE, // a low layered accent from light crossing a star
     TT_SKY_GAME_CHIME, // the active sky's swell or resolving chord
     TT_SKY_RELEASE,    // zero-gain priority command: release only the active sky's voices
     TT_COUNT

@@ -1,4 +1,5 @@
 #include "tess_sky_play.h"
+#include <string.h>
 
 // The melody grows with the player's progress. Each newly lit star joins the sustained harmony, and contacts
 // add quiet, rate-limited notes. Permanent and temporary black holes hum while the stream circles them.
@@ -23,7 +24,8 @@ static bool send(face_t *f, tess_tone_kind_t kind, int slot, float hz, float lev
     return level > 0;
 }
 #define TOP_DEGREE 11       // E6: nothing in play sounds higher
-#define PULSE_SLOW_S 1.5f   // a full star's pulse with a trickle through it; a strong flow halves it
+// Fold without powf in the frame loop: D3..B3, retaining each star's pitch class.
+static float low_hz(float hz) { while (hz > 500.f) hz *= .5f; return hz * .5f; }
 static int in_range(int degree) { while (degree > TOP_DEGREE) degree -= 5; return degree; }
 static float note_hz(int degree) { return sky_degree_hz(in_range(degree)); }
 // The busiest star still filling sparkles, rate limited, climbing the scale with its fill.
@@ -35,19 +37,30 @@ static void sparkle(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt) 
         if (k->w.star[i].fill < SKY_FULL && hits->inside[i] > (best < 0 ? 2 : hits->inside[best])) best = i;
     if (best < 0) return;
     const sky_star_t *s = &k->w.star[best];
-    tess_tone(f, TT_SKY_GAME_PLUCK, note_hz(s->degree + (int)(s->fill / SKY_FULL * 4.f)), .1f + .14f * s->fill, 1.f);
-    k->sparkle_wait = .16f + .1f * frand(f);
+    tess_tone(f, TT_SKY_GAME_PLUCK, note_hz(s->degree + (int)(s->fill / SKY_FULL * 4.f)), .08f + .1f * s->fill, 1.f);
+    k->sparkle_wait = .28f + .16f * frand(f);
 }
-// A full star with light flowing through it pulses its note: one voice more for every full star.
+// Passing light forms a sparse 3-2-3 rhythm. Empty beats stay empty; only one star leads a beat.
 static void pulse(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt) {
-    for (int i = 0; i < k->w.count_stars; i++) {
-        const sky_star_t *s = &k->w.star[i];
-        k->pulse_wait[i] -= dt;
-        if (k->phase != SKY_PLAY || s->fill < SKY_FULL || hits->inside[i] < 1 || k->pulse_wait[i] > 0) continue;
-        float flow = fminf(1.f, (float)hits->inside[i] / 10.f);
-        tess_tone(f, TT_SKY_GAME_PLUCK, note_hz(s->degree + (i & 1 ? 5 : 0)), .14f + .1f * flow, .7f);
-        k->pulse_wait[i] = PULSE_SLOW_S * (1.f - .5f * flow) * (1.f + .13f * (float)i);   // (each its own time: no grid)
+    if (k->phase != SKY_PLAY) return;
+    for (int i = 0; i < k->w.count_stars; i++)
+        if (hits->inside[i] > k->beat_flow[i]) k->beat_flow[i] = hits->inside[i];
+    k->beat_wait -= dt;
+    if (k->beat_wait > 0) return;
+    k->beat_wait = fmaxf(0, k->beat_wait + .28f + .015f * k->w.root);
+    unsigned step = k->beat_step++ & 7u;
+    int best = -1;
+    for (int n = 0; n < k->w.count_stars; n++) {
+        int i = (n + step) % k->w.count_stars;
+        if (k->beat_flow[i] >= 3 && (best < 0 || k->beat_flow[i] > k->beat_flow[best])) best = i;
     }
+    if ((step == 0 || step == 3 || step == 5) && best >= 0) {
+        sky_star_t *star = &k->w.star[best];
+        float flow = fminf(1.f, (float)k->beat_flow[best] / 12.f);
+        tess_tone(f, TT_SKY_GAME_PULSE, low_hz(star->hz), .28f + .24f * flow, (float)(step != 0));
+        star->glow = fmaxf(star->glow, .3f + .35f * flow);
+    }
+    memset(k->beat_flow, 0, sizeof k->beat_flow);
 }
 // How the sky was played: the stars in the order they first became full, and when.
 static void note_played(tess_sky_t *k, int star) {
@@ -65,7 +78,6 @@ static void events(face_t *f, tess_sky_t *k, const sky_hits_t *hits) {
             note_played(k, i);
             tess_tone(f, TT_SKY_GAME_PLUCK, note_hz(s->degree), .5f, .3f);
             tess_tone_later(f, TT_SKY_GAME_PLUCK, note_hz(s->degree + 5), .3f, .5f, .09f);
-            k->pulse_wait[i] = .8f;
         }
     }
 }
@@ -79,7 +91,7 @@ void sky_sound_frame(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt)
     float fade = 1.f - smooth01(k->fade / SKY_FADE_S);
     for (int i = 0; i < w->count_stars; i++) {
         const sky_star_t *s = &w->star[i];
-        bool on = send(f, TT_SKY_PAD, i, s->hz, pad_level(s->fill) * fade, s->color * .5f, &k->pad_gain[i], &k->pad_sent[i], dt, g->sky_lit & PAD_BIT(i));
+        bool on = send(f, TT_SKY_PAD, i, low_hz(s->hz) * (i & 1 ? 2.f : 1.f), pad_level(s->fill) * fade, s->color * .5f, &k->pad_gain[i], &k->pad_sent[i], dt, g->sky_lit & PAD_BIT(i));
         g->sky_lit = (uint16_t)(on ? g->sky_lit | PAD_BIT(i) : g->sky_lit & ~PAD_BIT(i));
     }
     float hum_hz = sky_degree_hz(w->root) * .5f;
@@ -92,7 +104,7 @@ void sky_sound_frame(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt)
 
 // The sky resolves: a soft swell on its root (its melody follows, a note at a time).
 void sky_sound_resolve(face_t *f, tess_sky_t *k) {
-    tess_tone(f, TT_SKY_GAME_CHIME, sky_degree_hz(k->w.root), .4f, .3f);
+    tess_tone(f, TT_SKY_GAME_CHIME, sky_degree_hz(k->w.root) * .5f, .4f, .3f);
 }
 // The melody's notes that are due by `ms` from its start; a star whose note it is flashes, and after the last the
 // sky's chord rings under the tonic.

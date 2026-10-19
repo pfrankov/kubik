@@ -174,8 +174,27 @@ static void sky_exit_releases_only_the_active_round(void) {
     assert(s_body.active_voices > 0);  // the invitation chord still rings
     assert(s_body.pending_count > s_body.pending_head);  // its delayed note was kept
 }
+static void sky_accents_are_low_layered_and_clean(void) {
+    probe_t low = play(TT_SKY_GAME_PULSE, 146.83f, .52f, 0);
+    double centroid = probe_centroid(&low);
+    assert(probe_peak(&low) > 40 && probe_peak(&low) < 6000);
+    assert(probe_sounding_ms(&low) > 100 && probe_flatness(&low) < .02);
+    probe_t high = play(TT_SKY_GAME_PLUCK, 880.f, .52f, 1);
+    assert(probe_centroid(&high) > centroid * 2);
+    tess_sound_reset(&s_body);
+    tess_tone_t accent = {TT_SKY_GAME_PULSE, 146.83f, .52f, 0, 0, 0};
+    assert(tess_sound_tone(&s_body, &accent));
+    probe_silence(&s_body, 1);
+    tess_voice_t *v = NULL;
+    for (int i = 0; i < TESS_VOICES; i++) if (s_body.voices[i].stage && s_body.voices[i].sky_game) v = &s_body.voices[i];
+    assert(v);
+    double hz = (double)v->step * AUDIO_RATE / 4294967296.0;
+    assert(fabs(hz - accent.hz) < 1 && v->chorus_share > 0 && v->layer_share > 0);
+    assert(v->layer_step > v->step * 2 && v->sky_game && !v->bright);
+}
 void check_body_tones(void) {
     tess_sound_seed(&s_body, 7);
+    sky_accents_are_low_layered_and_clean();
     each_kind_is_clean();
     a_tauter_pull_sits_higher();
     a_flood_stays_gentle();

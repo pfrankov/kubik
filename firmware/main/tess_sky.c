@@ -101,7 +101,8 @@ static void make_sky(face_t *f, tess_sky_t *k, bool first_launch) {
     memset(k->pad_sent, 0, sizeof k->pad_sent);
     memset(k->hum_gain, 0, sizeof k->hum_gain);
     memset(k->hum_sent, 0, sizeof k->hum_sent);
-    memset(k->pulse_wait, 0, sizeof k->pulse_wait);
+    memset(k->beat_flow, 0, sizeof k->beat_flow);
+    k->beat_wait = 0; k->beat_step = 0;
     memset(k->touch, 0, sizeof k->touch);
     k->finger_down = false;
     k->sparkle_wait = 0;

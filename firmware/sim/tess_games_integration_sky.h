@@ -281,7 +281,41 @@ static void a_visit_does_not_end_after_six_skies(void) {
     assert(sky()->phase == SKY_RESOLVE && sky()->solved_here == UINT8_MAX);
     face_card(&face, "end"); frame();
 }
+typedef struct { int pulses, quiet; bool low_pad, upper_pad; } sky_sound_observation_t;
+static void observe_sky_tones(sky_sound_observation_t *heard, int frame) {
+    tess_tone_t tone;
+    while (face_take_tone(&face, &tone)) {
+        if (tone.kind == TT_SKY_GAME_PULSE) {
+            assert(tone.hz > 140 && tone.hz < 250 && tone.gain <= .6f);
+            if (frame < 90) heard->pulses++; else if (frame > 100) heard->quiet++;
+        }
+        if (tone.kind == TT_SKY_PAD && tone.gain > 0) {
+            heard->low_pad |= tone.hz < 250; heard->upper_pad |= tone.hz > 290;
+        }
+    }
+}
+static void crossings_build_a_low_sparse_rhythm(void) {
+    hand_made_sky();
+    tess_sky_t *k = sky();
+    k->w.star[0].fill = .3f; k->w.star[1].fill = 1;
+    k->w.star[0].hz = 293.665f; k->w.star[1].hz = 493.883f;
+    tess_tone_t tone;
+    while (face_take_tone(&face, &tone)) {}
+    sky_hits_t hits = {0};
+    sky_sound_observation_t heard = {0};
+    for (int frame = 0; frame < 180; frame++) {
+        hits.inside[0] = frame < 90 ? 12 : 0;
+        sky_sound_frame(&face, k, &hits, 1.f / 30);
+        observe_sky_tones(&heard, frame);
+    }
+    assert(heard.pulses >= 2 && heard.pulses <= 6 && !heard.quiet && heard.low_pad && heard.upper_pad);
+    k->phase = SKY_FADE; hits.inside[0] = 112; k->beat_wait = 0;
+    sky_sound_frame(&face, k, &hits, 1.f / 30);
+    while (face_take_tone(&face, &tone)) assert(tone.kind != TT_SKY_GAME_PULSE);
+    face_card(&face, "end"); frame();
+}
 static void skies_summon_play_and_sing(void) {
+    crossings_build_a_low_sparse_rhythm();
     quiet_and_ordinary_handling_keep_the_game_open();
     a_visit_does_not_end_after_six_skies();
     the_invitation_stays_on_the_body();
