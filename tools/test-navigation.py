@@ -13,7 +13,7 @@ def section(name, start, end):
 
 
 source = section('input.c', 'static void update_boot_key(', 'static void update_power_key(')
-source += section('input.c', 'static void refresh_touch_activity(', 'static void update_touch(')
+source += section('input_touch.c', 'static void refresh_touch_activity(', 'static bool read_sample(')
 source += section('app_control.c', 'bool app_offline_play_button(', 'static bool fallen_character(')
 source += section('app_events.c', 'static void handle_boot_short(', 'static void handle_boot_long(')
 mocks = r'''
@@ -24,6 +24,7 @@ mocks = r'''
 #include <string.h>
 enum { PIN_BOOT, EV_BOOT_SHORT, EV_BOOT_LONG, EV_TOUCH_DOWN, SFX_MENU_CLOSE, SFX_DISMISS, BUB_OK };
 typedef struct { bool boot, boot_long_sent; int boot_count; int64_t boot_started_ms, touch_activity_ms; } input_state_t;
+typedef input_state_t input_touch_t;
 static bool down, s_menu, s_setup, s_pair_hidden, s_offline_play;
 static bool s_online = true;
 static char s_pair_code[17];

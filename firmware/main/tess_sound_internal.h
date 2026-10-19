@@ -7,6 +7,7 @@ typedef struct {
     bool bright;                          // short collision sparks bypass the warm low-pass
     bool harmony;                         // accompaniment; the syllabic lead remains independently identifiable
     bool body;                            // a sound of her body: only a free voice, never one a word is using
+    bool sky_game;                        // owned by the active Skies round; invitation tones are not
     uint32_t delay_samples, step, end_step;  // from the start of the sound; pitch at the start and at the end of the glide
     uint16_t ratio_q8, layer_ratio_q8;        // the modulator's and the layer's frequency, in carriers (Q8)
     int16_t chorus_detune;                    // the detuned copy's pitch: this many 1/1024 of the note's above it (below: negative)
@@ -19,6 +20,7 @@ typedef struct {
 unsigned tess_sound_random(tess_sound_t *s);  // 0..65535, from the seed
 void tess_sound_note(tess_sound_t *s, const tess_note_t *note);  // queue a note (it plays at its delay, whatever was queued before)
 void tess_sound_release(tess_sound_t *s);  // everything still sounding lets go within ~60 ms, what has not begun never will
+void tess_sound_sky_release(tess_sound_t *s); // only active-Skies voices let go; other voices and shared reverb stay
 void tess_sound_fade_reverb(tess_sound_t *s);  // the tail follows in 200 ms instead of its full length
 // Held voices (a game's pads): one per slot, gliding to `goal` (Q15). A goal of 0 lets it go; it also lets go by itself
 // when not tended for about 0.8 s, so a lost sender never leaves a pad ringing.

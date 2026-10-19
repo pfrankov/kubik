@@ -128,3 +128,5 @@ bool tess_sky_holds_burst(const face_t *face);
 void tess_sky_update(face_t *face, float dt);
 void tess_sky_draw(const face_t *face, scene_t *scene);
 int tess_sky_dot_colour(const face_t *face, int point);
+uint8_t tess_sky_alpha(const face_t *face);              // stream fade between skies; ordinary exits keep visible dots
+bool tess_sky_dot_visible(const face_t *face, int point); // source particles stay hidden until their launch tick

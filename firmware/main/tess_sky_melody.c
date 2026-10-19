@@ -219,10 +219,21 @@ static void set_accents(sky_melody_t *m, int split, rng_t *r) {
     }
     m->note[m->n - 1].accent = 255;
 }
+// Free play has no target or imaginary star tour: a short descending phrase simply brings it home.
+static void aurora_melody(const sky_world_t *w, rng_t *r, sky_melody_t *m) {
+    int root = clampi(w->root, 0, 4);
+    for (int i = 0; i < SKY_STARS; i++) m->tour[i] = -1;
+    m->n = 4; m->total_units = 14; m->unit_ms = (uint16_t)(170 + pick(r, 30));
+    for (int i = 0; i < 4; i++)
+        m->note[i] = (sky_note_t){.degree=(int8_t)(root+3-i),.star=-1,.units=(uint8_t)(i==3?8:2),.accent=(uint8_t)(i==3?255:160)};
+    m->note[0].degree += (int8_t)pick(r, 2);
+    m->chord[0]=(int8_t)root; m->chord[1]=(int8_t)(root+2); m->chord[2]=(int8_t)(root+3);
+}
 
 void sky_melody_compose(const sky_world_t *w, const sky_played_t *played, uint32_t seed, sky_melody_t *m) {
     memset(m, 0, sizeof *m);
     rng_t r = seed_rng(w, seed);
+    if (!w->count_stars) { aurora_melody(w, &r, m); return; }
     int stars = star_count(w), slots = stars < MIN_SLOTS ? MIN_SLOTS : stars;
     int8_t slot[SKY_STARS], deg[SKY_STARS], answer[ANSWER_MAX];
     build_tour(w, played, m->tour);

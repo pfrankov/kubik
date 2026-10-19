@@ -6,7 +6,7 @@
 
 static tess_sound_t s_body;
 static int32_t s_pcm[PROBE_MAX_SAMPLES];
-// (the Skies kinds, TT_SKY_*, are held voices, measured with the sky sounds)
+// Skies sounds have their own held-voice and exit tests below.
 static const char *const k_kind[TT_SKY_PAD] = {"ring", "creak", "twang", "thud", "grain", "whoosh", "chirp", "wobble"};
 
 static probe_t play(tess_tone_kind_t kind, float hz, float gain, float shade) {
@@ -99,6 +99,70 @@ static void held_tones_reach_small_targets(void) {
         assert(!voice->held && !voice->stage);
     }
 }
+static void start_sky_exit_fixture(void) {
+    tess_tone_t pad = {TT_SKY_PAD, 440, .8f, .3f, 0, 0};
+    tess_tone_t chord = {TT_SKY_GAME_CHIME, 587, .8f, .3f, 0, 0};
+    tess_tone_t invite = {TT_SKY_CHIME, 392, .8f, .1f, 0, 0};
+    tess_tone_t game_pending = {TT_SKY_GAME_PLUCK, 659, .7f, .4f, .5f, 0};
+    tess_tone_t invite_pending = {TT_SKY_PLUCK, 494, .7f, .4f, .5f, 0};
+    tess_sound_reset(&s_body);
+    assert(tess_sound_tone(&s_body, &pad));
+    assert(tess_sound_tone(&s_body, &chord));
+    assert(tess_sound_tone(&s_body, &invite));
+    assert(tess_sound_tone(&s_body, &game_pending));
+    assert(tess_sound_tone(&s_body, &invite_pending));
+    assert(tess_sound_cue(&s_body, TC_TOUCH, 1, 0));  // an unrelated character voice shares the mixer
+    probe_silence(&s_body, 2);
+}
+
+static void ordinary_silence_keeps_the_chord(void) {
+    tess_tone_t pad = {TT_SKY_PAD, 440, 0, .3f, 0, 0};
+    tess_sound_tone(&s_body, &pad);
+    tess_voice_t *chord_voice = NULL;
+    for (int i = 0; i < TESS_VOICES; i++)
+        if (s_body.voices[i].stage && s_body.voices[i].sky_game && s_body.voices[i].body) chord_voice = &s_body.voices[i];
+    assert(chord_voice && chord_voice->stage != 3);  // still sounding across the normal transition
+}
+
+static void assert_active_voices_stopped_by_owner(void) {
+    int active_sky = 0, active_other = 0;
+    for (int i = 0; i < TESS_VOICES; i++) {
+        const tess_voice_t *v = &s_body.voices[i];
+        if (!v->stage) continue;
+        if (v->sky_game) {
+            active_sky++;
+            assert(v->stage == 3 && !v->held && v->release < (1 << 24));
+        } else {
+            active_other++;
+            assert(v->stage != 3);  // invitation and character voices were not stolen
+        }
+    }
+    assert(active_sky >= 2 && active_other > 0);
+}
+
+static void assert_pending_notes_filtered_by_owner(void) {
+    int pending_sky = 0, pending_other = 0;
+    for (int i = s_body.pending_head; i < s_body.pending_count; i++) {
+        if (s_body.pending[i].sky_game) pending_sky++;
+        else pending_other++;
+    }
+    assert(pending_sky == 0 && pending_other > 0);
+}
+
+static void sky_exit_releases_only_the_active_round(void) {
+    tess_tone_t exit = {TT_SKY_RELEASE, 440, 0, 0, 0, 0};
+    start_sky_exit_fixture();
+    ordinary_silence_keeps_the_chord();
+    unsigned reverb_left = s_body.reverb_samples_left;
+    assert(tess_sound_tone(&s_body, &exit));
+    assert(s_body.reverb_samples_left == reverb_left);  // the shared room tail is not globally silenced
+    assert_active_voices_stopped_by_owner();
+    assert_pending_notes_filtered_by_owner();
+    probe_silence(&s_body, 5);  // 100 ms: quick envelope reaches the voice floor
+    for (int i = 0; i < TESS_VOICES; i++) assert(!s_body.voices[i].stage || !s_body.voices[i].sky_game);
+    assert(s_body.active_voices > 0);  // the invitation chord still rings
+    assert(s_body.pending_count > s_body.pending_head);  // its delayed note was kept
+}
 void check_body_tones(void) {
     tess_sound_seed(&s_body, 7);
     each_kind_is_clean();
@@ -106,5 +170,6 @@ void check_body_tones(void) {
     a_flood_stays_gentle();
     words_keep_their_voices();
     held_tones_reach_small_targets();
+    sky_exit_releases_only_the_active_round();
     fprintf(stderr, "body tones: her palette, under her words, gentle in a flood, never taking a word's voice\n");
 }

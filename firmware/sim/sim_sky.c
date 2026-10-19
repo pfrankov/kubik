@@ -1,7 +1,5 @@
-// Simulator scenario for Skies: the invitation, the tap on its gold light, the unravelling, a first sky solved with a
-// finger, the resolution and the next sky solved by putting its tools where its composer says (a player's moves are
-// not scripted). Frames go to stdout, the sky's timeline to stderr.
-//   sim sky [seconds]
+// Real Skies, including invitation and resolution; scripted input follows the composer's verified route.
+// Frames go to stdout, the timeline to stderr. sim sky [seconds]
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +10,10 @@
 
 static int tones[TT_COUNT];
 
-static void feed(face_t *f, bool down, float x, float y) { f->rub_in = (rub_input_t){.down = down, .x = x, .y = y}; }
+static void feed(face_t *f, bool down, float x, float y) {
+    f->rub_in = (rub_input_t){.down = down, .x = x, .y = y};
+    f->touch_in = (touch_frame_t){.point={{.down=down,.x=x,.y=y}}};
+}
 static void step(face_t *f, float t, const char *what) {
     face_update(f, 1.f / R_FPS);
     tess_tone_t tone;
@@ -28,44 +29,17 @@ static void report(face_t *f, float t) {
     if (!k) { fprintf(stderr, "%5.1fs no sky\n", t); return; }
     fprintf(stderr, "%5.1fs phase %d kind %d stars", t, k->phase, k->w.kind);
     for (int i = 0; i < k->w.count_stars; i++) fprintf(stderr, " %.2f", k->w.star[i].fill);
-    fprintf(stderr, " tools %d relays/aim %d/%d melody %d/%d solved %d elements %d skill %d\n", k->w.count_tools,
-            (int)(k->w.star[0].relay + k->w.star[1].relay + k->w.star[2].relay), k->w.source.aim, k->melody_next, k->melody.n, f->tess_games.sky_solved, f->tess_games.sky_elements, f->tess_games.sky_skill);
+    fprintf(stderr, " holes %d melody %d/%d solved %d lessons %d skill %d\n", k->w.count_holes,
+            k->melody_next, k->melody.n, f->tess_games.sky_solved, f->tess_games.sky_elements, f->tess_games.sky_skill);
 }
 
-// The relays and an aimed source, a step at a time, as a player would turn them (after a moment's look).
-static void turn_things(sky_world_t *w) {
-    for (int s = 0; s < w->count_stars; s++)
-        if (w->star[s].relay && w->star[s].dir != w->star[s].sdir && w->t > 2.f + s && fmodf(w->t, .6f) < 1.f / R_FPS) w->star[s].dir = (uint8_t)((w->star[s].dir + 1) % SKY_DIRS);
-    if (!w->source.aim || w->t < 1.5f) return;
-    w->source.dx += (w->source.sdx - w->source.dx) * .06f; w->source.dy += (w->source.sdy - w->source.dy) * .06f;
-    float len = hypotf(w->source.dx, w->source.dy);
-    w->source.dx /= len; w->source.dy /= len;
-}
-static bool needs_finger(const sky_world_t *w) {
-    if (w->count_tools || w->source.aim) return false;
-    for (int s = 0; s < w->count_stars; s++) if (w->star[s].relay) return false;
-    return true;
-}
-// What a player would do in this sky: tilt a pour, put a finger on the emptiest star, or move each tool to its place.
 static void play_it(face_t *f, tess_games_t *g) {
-    sky_world_t *w = &g->sky->w;
-    turn_things(w);
-    if (w->kind == SKY_POUR) {
-        f->grav_x = g->tilt_rest[0] + w->gravity[0] + copysignf(.06f, w->gravity[0]);
-        f->grav_y = g->tilt_rest[1] + w->gravity[1] + copysignf(.06f, w->gravity[1]);
-    } else if (needs_finger(w)) {
-        int star = 0;
-        for (int s = 1; s < w->count_stars; s++) if (w->star[s].fill < w->star[star].fill) star = s;
-        feed(f, true, w->star[star].x, w->star[star].y);
-    } else {
-        tess_sky_t *m = g->sky;
-        for (int s = 0; s < m->w.count_tools; s++) {
-            sky_tool_t *tl = &m->w.tool[s];
-            if (!tl->movable) continue;
-            tl->x += (tl->sx - tl->x) * .08f; tl->y += (tl->sy - tl->y) * .08f;
-            tl->dx += (tl->sdx - tl->dx) * .08f; tl->dy += (tl->sdy - tl->dy) * .08f;
-        }
-    }
+    const sky_world_t *w = &g->sky->w;
+    sky_force_t force;
+    sky_solution(w, &force);
+    float scale = w->kind == SKY_POUR ? 1.f : SKY_TILT_SCALE;
+    f->grav_x = force.gx / scale; f->grav_y = force.gy / scale;
+    if (force.count) feed(f, true, force.touch[0].x, force.touch[0].y);
 }
 
 static bool tap_corner(face_t *f, float t) {

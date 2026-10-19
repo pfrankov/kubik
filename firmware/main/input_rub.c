@@ -7,16 +7,20 @@
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static rub_track_t s_track;
 static rub_input_t s_input;
+static touch_frame_t s_frame;
 
-void input_rub_sample(bool down, int x, int y) {
+void input_rub_sample(const touch_frame_t *frame, int primary) {
+    touch_point_t p = primary >= 0 && primary < TOUCH_POINTS ? frame->point[primary] : (touch_point_t){0};
     portENTER_CRITICAL(&s_lock);
-    rub_touch(&s_track, &s_input, down, x, y);
+    rub_touch(&s_track, &s_input, p.down, p.x, p.y);
+    s_frame = *frame;
     portEXIT_CRITICAL(&s_lock);
 }
 
-void input_rub(rub_input_t *input) {
+void input_rub(rub_input_t *input, touch_frame_t *frame) {
     portENTER_CRITICAL(&s_lock);
     *input = s_input;
+    *frame = s_frame;
     s_input.path = 0;
     s_input.turns = 0;
     portEXIT_CRITICAL(&s_lock);
@@ -24,5 +28,9 @@ void input_rub(rub_input_t *input) {
 
 void input_rub_script(float t, bool cloud, bool down) {
     const float turn = 6.2831853f;
-    input_rub_sample(down, (int)(240 + 60 * sinf(turn * 3.5f * t)), (int)((cloud ? 255 : 370) + 15 * sinf(turn * 1.7f * t)));
+    touch_frame_t frame = {.point = {{
+        .x = (int)(240 + 60 * sinf(turn * 3.5f * t)),
+        .y = (int)((cloud ? 255 : 370) + 15 * sinf(turn * 1.7f * t)), .down = down,
+    }}};
+    input_rub_sample(&frame, down ? 0 : -1);
 }

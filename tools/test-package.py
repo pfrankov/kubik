@@ -348,7 +348,8 @@ def check_character_symbols():
     symbols = {line.split()[0] for line in subprocess.check_output(
         [nm, '--defined-only', '--format=posix', str(BUILD / 'kubik.elf')], text=True).splitlines() if line.strip()}
     check_wake_workspace(symbols)
-    tess = {'tess_draw', 'tess_update', 'tess_sound_mix', 'tess_reset', 'app_wake_init', 'app_wake_listening'}
+    tess = {'tess_draw', 'tess_update', 'tess_sound_mix', 'tess_reset', 'app_wake_init', 'app_wake_listening',
+            'sky_sound_exit', 'tess_tone_slot'}
     plush = {'face_plush_draw', 'body_update', 'assets_pcm'}
     required, absent = (tess, plush) if CHARACTER == 'TESS' else (plush, tess)
     # Both builds end native voice input by local VAD; wake-word inference is Tess-only.

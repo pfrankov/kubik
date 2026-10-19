@@ -15,12 +15,12 @@ bool input_probe_sample(bool down, int x, int y) {
     return true;
 }
 
-bool input_probe_read(int *x, int *y) {
+bool input_probe_read(touch_frame_t *frame) {
     int64_t now = esp_timer_get_time();
     portENTER_CRITICAL(&s_lock);
     bool active = now < s_sample.until;
-    bool down = s_sample.down;
-    if (active) { *x = s_sample.x; *y = s_sample.y; }
+    *frame = (touch_frame_t){0};
+    if (active) frame->point[0] = (touch_point_t){.x = s_sample.x, .y = s_sample.y, .down = s_sample.down};
     portEXIT_CRITICAL(&s_lock);
-    return active ? down : touch_read(x, y);
+    return active || touch_read(frame);
 }

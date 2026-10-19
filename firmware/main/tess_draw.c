@@ -331,8 +331,11 @@ static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
         palette_valid = true;
     }
     // Blown apart, the points are bare specks: a halo round each of 112 moving points is most of what the panel would repaint.
+    int alpha = tess_sky_alpha(f);
+    if (!alpha) return;
     int glow_q8 = (int)fminf(255.f, 230 * fmaxf(0, 1 - 2 * reaction[TR_SCATTER]) * f->style.halo);
     for (int i = 0; i < count; i++) {
+        if (!tess_sky_dot_visible(f, order[i])) continue;
         const dot_t *dot = &dots[order[i]];
         int q = dot->key * TESS_SHADES >> 16;
         // The halo grows with nearness too: far points are bare specks, near ones glow.
@@ -340,6 +343,10 @@ static void draw_cloud(face_t *f, scene_t *s, dot_t dots[TESS_N]) {
         uint32_t color = shade[q];
         int tint = tess_sky_dot_colour(f, order[i]);
         if (tint) color = palette_mix(color, ramp(k_sky_ramp[tint][0], k_sky_ramp[tint][1], k_sky_ramp[tint][2], dot->key * (1.f / 65535)), .85f);
+        if (alpha < 255) {
+            color = rgb_scale(color, (float)alpha * (1.f / 255.f));
+            glow = (uint8_t)(glow * alpha / 255);
+        }
         sc_glow_dot_q3(s, dot->x, dot->y, dot->radius, color, glow);
     }
 }
@@ -415,6 +422,8 @@ static void sample_point_trail(face_t *f, const float centre[2]) {
 static void draw_point_trail(face_t *f, scene_t *s, const dot_t dots[TESS_N]) {
     tess_games_t *g = &f->tess_games;
     float p = point_share(f);
+    int alpha = tess_sky_alpha(f);
+    if (alpha < 255) p *= (float)alpha * (1.f / 255.f);
     if (!(p > .01f)) { g->trail_n = 0; return; }
     float c[2]; centroid(dots, c);
     sample_point_trail(f, c);
