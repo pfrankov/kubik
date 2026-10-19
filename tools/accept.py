@@ -127,6 +127,7 @@ def device():
         run(["node", "tools/test-device-native-voice.mjs", "--wifi", "--speech-only", *profile])
     run(["node", "tools/test-device-capture.mjs"])
     run(["node", "tools/test-device-agent.mjs", "--select"])
+    run(["node", "tools/test-device-pairing.mjs"])
     run(["node", "tools/test-device-notify.mjs"])
     run(["node", "tools/test-device-radio.mjs"])
     run(["node", "tools/test-device.mjs"])

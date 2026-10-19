@@ -192,9 +192,11 @@ test('failed session startup after approval closes that socket without blocking 
   await other.waitFor((e) => e.t === 'pair');
   pairing.approve(id.entry);
   pairing.approve(otherId.entry);
+  const closeReason = new Promise(resolve => device.ws.once('close', (_code, reason) => resolve(reason.toString())));
 
   await assert.doesNotReject(server.checkPairings());
   assert.equal(await device.closed, 1011);
+  assert.equal(await closeReason, 'session unavailable');
   assert.equal(device.events.some((e) => e.t === 'welcome'), false);
   await other.waitFor((e) => e.t === 'welcome');
   assert.deepEqual(server.onlineDevices, ['kubik-other']);
@@ -203,6 +205,31 @@ test('failed session startup after approval closes that socket without blocking 
   const retry = await connectKeyed(url, id);
   assert.equal(retry.events.some((e) => e.t === 'welcome'), true);
   assert.deepEqual(server.onlineDevices, [DEVICE, 'kubik-other']);
+});
+
+test('startup failure after publishing a session cleans it up and keeps approval for retry', async (t) => {
+  const id = deviceKey();
+  const pairing = fakePairing();
+  const engine = fakeEngine();
+  let reads = 0;
+  Object.defineProperty(engine, 'voiceMode', { get() {
+    if (++reads === 1) throw Error('capability delivery failed');
+    return 'classic';
+  } });
+  const { url, server } = await start(t, { pairing, engine, serverOptions: { pairingPollMs: 60_000 } });
+  const device = await connectKeyed(url, id);
+  pairing.approve(id.entry);
+  const closeReason = new Promise(resolve => device.ws.once('close', (_code, reason) => resolve(reason.toString())));
+  await assert.doesNotReject(server.checkPairings());
+  assert.equal(await device.closed, 1011);
+  assert.equal(await closeReason, 'session unavailable');
+  assert.ok(device.events.some(e => e.t === 'welcome'), 'Failure happens after session publication');
+  assert.deepEqual(server.onlineDevices, []);
+  assert.equal(server.getSession(DEVICE), undefined);
+  const retry = await connectKeyed(url, id);
+  await retry.waitFor(e => e.t === 'state' && e.s === 'idle');
+  assert.deepEqual(server.onlineDevices, [DEVICE]);
+  assert.equal(pairing.state.upserts.length, 1, 'Retry uses the original approval');
 });
 
 test('empty code (store full) -> pair "" and 4005; pending timeout -> 4004 and the same code again', async (t) => {
