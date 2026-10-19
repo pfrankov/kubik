@@ -233,7 +233,7 @@ static void aurora_melody(const sky_world_t *w, rng_t *r, sky_melody_t *m) {
 void sky_melody_compose(const sky_world_t *w, const sky_played_t *played, uint32_t seed, sky_melody_t *m) {
     memset(m, 0, sizeof *m);
     rng_t r = seed_rng(w, seed);
-    if (!w->count_stars) { aurora_melody(w, &r, m); return; }
+    if (w->kind == SKY_AURORA || !w->count_stars) { aurora_melody(w, &r, m); return; }
     int stars = star_count(w), slots = stars < MIN_SLOTS ? MIN_SLOTS : stars;
     int8_t slot[SKY_STARS], deg[SKY_STARS], answer[ANSWER_MAX];
     build_tour(w, played, m->tour);

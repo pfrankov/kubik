@@ -89,6 +89,7 @@ float tess_scatter_weight(float seconds);                 // how far the cloud i
 void tess_scatter_spot(int slot, float spot[3]);          // where a slot of the burst lands
 void tess_scatter_spot_px(int slot, float *x, float *y);   // and where that is on the panel
 void tess_scatter_frame(const face_t *face, float seconds);                // what the whole cloud does seconds into the burst: once a frame, before the dots
+bool tess_scatter_sky_targets(const face_t *face, float out[TESS_N][3], int parity);
 void tess_scatter_apply(float point[3], int dot, int slot);  // the dot's place in that moment
 void tess_scatter_finish(face_t *face);                   // every dot is home already: the burst ends now
 void tess_scatter_hang_at(int slot, float x, float y);    // a game that holds the burst places a slot (panel px)

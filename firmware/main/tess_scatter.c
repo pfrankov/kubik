@@ -338,6 +338,24 @@ void tess_scatter_apply(float p[3], int dot, int slot) {
     lean_to_finger(p, slot, away);
 }
 
+// At the held sky phase reach is exactly one: the hidden body's coordinates cancel out.
+// Keep the same scatter tremor, sag and depth, without shaping 112 invisible body targets.
+bool tess_scatter_sky_targets(const face_t *f, float out[TESS_N][3], int parity) {
+    float time = TESS_BURST_S - f->tess_hold[TR_SCATTER];
+    if (!tess_sky_holds_burst(f) || fabsf(time - TESS_HANG_S) > 1e-3f || tess_ripple_active(f)) return false;
+    tess_scatter_frame(f, time);
+    for (int i = parity < 0 ? 0 : parity; i < TESS_N; i += parity < 0 ? 1 : 2) {
+        float tremor[2];
+        shiver(i, dot_letgo(i), tremor);
+        int slot = f->tess_scatter_of[i];
+        float mass = dot_mass(i);
+        out[i][0] = given.spot[slot][0] + (tremor[0] + moment.sag[0] * mass);
+        out[i][1] = given.spot[slot][1] + (tremor[1] + moment.sag[1] * mass);
+        out[i][2] = given.spot[slot][2];
+    }
+    return true;
+}
+
 // A burst that is under way is left to finish: its dots are mid-flight, and starting again would make them jump.
 void tess_scatter_begin(face_t *f) {
     if (f->tess_hold[TR_SCATTER] > 0) return;

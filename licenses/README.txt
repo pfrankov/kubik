@@ -76,3 +76,5 @@ Native Muse: facebookincubator/muse-gadget-sdk, pinned revision
 affiliates; Apache-2.0. Vendored Noise core, community pairing, C6 chat link
 and software pairing test harness retain their source notices and LICENSE.
 Source license does not grant rights to distribute a personal Muse SDK token.
+
+ODbL-1.0-SIMBAD.txt — Skies source coordinate extract and generated projected star table; see root NOTICE for attribution and source.

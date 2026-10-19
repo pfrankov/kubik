@@ -263,6 +263,7 @@ void tess_point_targets(face_t *f, float out[TESS_N][3], int parity) {
     const float *mw = f->tess_mode;
     tess_form(f, points, wd);
     for (int i = 0; i < TESS_N; i++) f->tess_wdepth[i] = wd[f->tess_form_of[i]];
+    if (tess_scatter_sky_targets(f, out, parity)) return;
     const float *r = f->tess_reaction;
     float time = fmodf(f->t, 20 * PI);
     float heart = r[TR_HEART], other = 1 - heart;

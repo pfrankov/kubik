@@ -125,8 +125,8 @@ with a quiet low pad that fades in and out; there is no separate floating light;
 standing up, she never asks. To ask her yourself, rock the flat cube three times,
 quickly, side to side. That only summons her. Ignore it and nothing happens. Touch
 the warmed corner, or lift the cube upright while it is visible, and Tess unravels into a
-stream of her own dots; musical stars float in the dark. The first sky has one star.
-Hold a finger on the glass and move it to guide the stream into that star.
+stream of her own dots; musical stars float in the dark. The first sky is Triangulum. One star is already full and emits the stream.
+Hold a finger on the glass and move it to guide the light into another star.
 
 Every touch creates an invisible temporary black hole at that point. The stream
 bends and swirls around it, gaining a little speed. All black holes, including
@@ -135,17 +135,19 @@ of the particles. One or two fingers work the same way
 anywhere on the glass; touching a star, source or fixed black hole never selects,
 moves or turns it. Each field grows over 0.10 seconds and fades over 0.25 seconds
 after release; the other finger keeps controlling its own field. Later skies may
-have up to two permanent black holes that shape the stream, and stars that drift
-in orbits. Tilting is another way to guide the
+have up to two permanent black holes that shape the stream. Stars keep their
+measured relative positions. Tilting is another way to guide the
 flow: it pours the stream under full glass gravity in a pouring sky and has a
 weaker effect in other skies.
 
-Any dot can fill any star, whatever their colours. Passing through a star gives
-the dot that star’s colour. An empty star is a loose gathering of faint lights.
-As the stream fills it, those lights curl inward and gather into a brighter, warmer
-core. The last grains merge into a brief flare; the full star keeps its light.
-If the stream leaves an unfinished star, its core dims and its lights slowly spread
-out again. There are no progress rings or segments. A filling star sparkles softly
+Any active-stream dot can fill any star, whatever their colours. Successful
+streams keep feeding their own completed star. Passing through a star gives
+the dot that star’s colour. An empty star is a faint radial blur with a little RGB separation, like an unfocused telescope image.
+As the stream fills it, the blur narrows and a clear, bright core emerges.
+If the stream leaves an unfinished star, it dims and loses focus again.
+A completed star keeps its light and becomes the new emitter. The successful
+stream from the previous emitter keeps flowing; each discovery adds a lasting stream. There are no orbiting dots, progress rings or segments.
+A filling star sparkles softly
 in the music; once full, it holds a layered low or middle voice. Passing light also
 adds occasional low rhythmic accents, even before a star is full: its octave or
 twelfth gives the small speaker a warm body, and the star briefly glows with the beat.
@@ -153,18 +155,21 @@ No flow means no accents; dense flow never creates a barrage of notes.
 Every full star adds a voice, and black holes hum softly while light swirls nearby.
 When every star is full together for a moment, the sky sings its own melody: the
 stars in the order you filled them, the slower ones held longer, each flashing as
-a constellation line reaches it, then the closing chord. Once the melody ends and
+the chart’s real links appear, then the closing chord. Its English name fades in
+only after success; your filling order changes the melody, not the constellation’s figure. Once the melody ends and
 the next sky is ready, the old sky fades through darkness over 0.65 seconds; the
 new sky begins with a fresh stream from its source. Rarely, a free Aurora sky
-arrives with a colourful stream, two permanent black holes and no stars to fill.
+arrives with a colourful stream, two permanent black holes, one full emitter and no goals to fill.
 After 40 seconds it resolves into the next sky; the game stays open.
 
-Skies grows through ten stages. The number and placement of
-targets and black holes respond to Tess’s remembered history and how you play.
-Each puzzle has a way to solve it with a tilt or one finger and needs your input.
-A simpler layout may appear; in later stages it still has two stars and one or two
-permanent black holes. There is no score, text, game HUD or Skies button, and
-nothing can be lost. Quiet play, ordinary lifts and tilts keep the game open.
+Discover eight bright-star figures, from simple to complex:
+Triangulum, Crux, Corvus, Delphinus, Cassiopeia, Cepheus, Ursa Minor and Orion.
+They grow from three to seven stars. The whole chart may turn, preserving its
+proportions; individual stars never drift out of the figure. The catalog repeats
+after Orion with new orientations and harmony. Each layout has a verified route
+using tilt and one finger, and requires input. There is no score, HUD or Skies
+button; the name appears only on completion, and nothing can be lost.
+Quiet play, ordinary lifts and tilts keep the game open.
 A strong shake or a hardware button ends it; there is no six-sky visit limit.
 Her progress is remembered and her motif starts from your last chord. Skies is Tess only and follows the same agent-first rules as the
 rest of play below. A short BOOT ends it.

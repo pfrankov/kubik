@@ -40,6 +40,7 @@ static void sparkle(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt) 
     tess_tone(f, TT_SKY_GAME_PLUCK, note_hz(s->degree + (int)(s->fill / SKY_FULL * 4.f)), .08f + .1f * s->fill, 1.f);
     k->sparkle_wait = .28f + .16f * frand(f);
 }
+static unsigned minimum_crossings(const sky_star_t *star) { return star->fill >= SKY_FULL ? 1u : 3u; }
 // Passing light forms a sparse 3-2-3 rhythm. Empty beats stay empty; only one star leads a beat.
 static void pulse(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt) {
     if (k->phase != SKY_PLAY) return;
@@ -52,7 +53,7 @@ static void pulse(face_t *f, tess_sky_t *k, const sky_hits_t *hits, float dt) {
     int best = -1;
     for (int n = 0; n < k->w.count_stars; n++) {
         int i = (n + step) % k->w.count_stars;
-        if (k->beat_flow[i] >= 3 && (best < 0 || k->beat_flow[i] > k->beat_flow[best])) best = i;
+        if (k->beat_flow[i] >= minimum_crossings(&k->w.star[i]) && (best < 0 || k->beat_flow[i] > k->beat_flow[best])) best = i;
     }
     if ((step == 0 || step == 3 || step == 5) && best >= 0) {
         sky_star_t *star = &k->w.star[best];

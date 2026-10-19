@@ -53,14 +53,18 @@ static void raising_the_cube_answers_an_invitation_like_a_touch(void) {
 static void the_first_sky_is_answered_by_a_finger_and_resolves_into_the_next(void) {
     answer();
     until_phase(SKY_PLAY, 4);
-    assert(sky()->w.count_stars == 1 && sky()->w.count_holes == 0 && face.tess_games.sky_elements == 1);
-    const sky_star_t *star = &sky()->w.star[0];
-    for (int i = 0; i < 40 * 30 && sky()->phase == SKY_PLAY; i++) { finger(true, star->x, star->y); }
+    assert(sky()->w.count_stars == 3 && sky()->w.star[0].fill == 1 && face.tess_games.sky_elements == 1);
+    for (int i = 0; i < 40 * 30 && sky()->phase == SKY_PLAY; i++) {
+        sky_force_t force; sky_solution(&sky()->w, &force);
+        face.grav_x = force.gx; face.grav_y = force.gy; // first chart uses full tilt
+        finger(true, force.touch[0].x, force.touch[0].y);
+    }
+    face.grav_x = face.grav_y = 0;
     face.rub_in = (rub_input_t){0};
     face.touch_in = (touch_frame_t){0};
     assert(sky()->phase == SKY_RESOLVE && face.tess_games.sky_solved == 1 && face.tess_games.sky_elements == 2);
     until_phase(SKY_PLAY, 8);   // the next sky has grown, with one thing more
-    assert(sky()->w.kind == SKY_POUR && sky()->solved_here == 1 && sky()->compose == 0);
+    assert(sky()->w.kind == SKY_PUZZLE && sky()->solved_here == 1 && !sky()->next_ready);
 }
 static void every_exit_ends_a_sky_at_once(void) {
     for (int exit = 0; exit < 9; exit++) {
@@ -96,6 +100,10 @@ static void what_was_learnt_is_kept_and_restored(void) {
     assert(face.tess_games.sky_elements == 0);
     tess_games_restore_sky(&face, kept);
     assert(face.tess_games.sky_elements == 5 && face.tess_games.sky_skill == 173 && face.tess_games.sky_root == 3 && face.tess_games.sky_solved == 4021);
+    sky_world_t restored_chart;
+    sky_recipe_t restored_recipe={.elements=face.tess_games.sky_elements,.root=face.tess_games.sky_root,.solved=face.tess_games.sky_solved};
+    sky_compose(&restored_chart,42,&restored_recipe);
+    assert(restored_chart.chart==5 && restored_chart.root==3); // saved stage maps into the real catalog
     tess_games_restore_sky(&face, 15u | 7u << 12);   // nonsense is not taken
     assert(face.tess_games.sky_elements == 5 && face.tess_games.sky_root == 3);
     tess_games_restore(&face, TESS_PROGRESS_MASK);   // a reset forgets it
@@ -146,6 +154,7 @@ static void the_invitation_is_answered_on_the_body(void) {
 static sky_world_t *hand_made_sky(void) {
     answer(); until_phase(SKY_PLAY, 4);
     sky_world_t *w = &sky()->w;
+    sky()->played=(sky_played_t){0};
     *w = (sky_world_t){.feed_scale=1,.rng=71,.count_stars=2,.count_holes=1,
         .source={.x=90,.y=140,.dx=1,.speed=120},
         .star={{.x=240,.y=255,.ax=240,.ay=255,.hz=440}, {.x=360,.y=365,.ax=360,.ay=365,.hz=587}},
@@ -180,7 +189,8 @@ static void finger_fields_release_independently(void) {
 }
 static void aurora_ends_without_goals_or_progress(void) {
     sky_world_t *w=hand_made_sky();
-    w->kind=SKY_AURORA; w->count_stars=0; w->t=39.8f;
+    w->kind=SKY_AURORA; w->count_stars=1; w->chart=0; w->star[0].fill=1; w->star[0].sang=true; w->t=39.8f;
+    sky()->played=(sky_played_t){0};
     unsigned solved=face.tess_games.sky_solved, lessons=face.tess_games.sky_elements;
     finger_at(200,300,9);
     assert(sky()->phase==SKY_RESOLVE && sky()->hint_star==-1 && !sky()->played.n);
@@ -209,16 +219,19 @@ static void stars_can_be_lit_one_after_another(void) {
 // Solved, the sky sings back how it was played: every star's note in the order lit, its star flashing, then its chord.
 static void every_sky_sings_its_own_melody(void) {
     answer(); until_phase(SKY_PLAY, 4);
-    const sky_star_t *star = &sky()->w.star[0];
-    for (int i = 0; i < 40 * 30 && sky()->phase == SKY_PLAY; i++) finger(true, star->x, star->y);
-    finger(false, 0, 0);
+    for (int i = 0; i < 1200 && sky()->phase == SKY_PLAY; i++) {
+        sky_force_t force; sky_solution(&sky()->w, &force);
+        face.grav_x = force.gx; face.grav_y = force.gy;
+        finger(true, force.touch[0].x, force.touch[0].y);
+    }
+    face.grav_x = face.grav_y = 0; finger(false, 0, 0);
     assert(sky()->phase == SKY_RESOLVE && sky()->melody.n >= 6);
-    assert(sky()->played.n == 1 && sky()->played.order[0] == 0 && sky()->melody.tour[0] == 0);   // sung as it was played
+    assert(sky()->played.n == 3 && sky()->played.order[0] == 0 && sky()->melody.tour[0] == 0);
     float len = sky()->resolve_len, glowed = 0;
     assert(len > SKY_MELODY_AT_S + 2.2f && len < SKY_MELODY_AT_S + 4.3f + SKY_CHORD_RING_S);
     tones_heard = 0;
     for (int i = 0; i < (int)(len * 30) - 2 && sky()->phase == SKY_RESOLVE; i++) { frame(); glowed = fmaxf(glowed, sky()->w.star[0].glow); }
-    assert(sky()->melody_next == sky()->melody.n && sky()->tour_lit == 1 && glowed > .9f);
+    assert(sky()->melody_next == sky()->melody.n && sky()->tour_lit == 3 && glowed > .9f);
     assert((tones_heard & (1u << TT_SKY_GAME_PLUCK)) && (tones_heard & (1u << TT_SKY_GAME_CHIME)));
     face_card(&face, "end"); frame(); assert(!sky());
 }
@@ -310,6 +323,11 @@ static void crossings_build_a_low_sparse_rhythm(void) {
         observe_sky_tones(&heard, frame);
     }
     assert(heard.pulses >= 2 && heard.pulses <= 6 && !heard.quiet && heard.low_pad && heard.upper_pad);
+    hits=(sky_hits_t){0};hits.inside[1]=1;k->beat_wait=0;k->beat_step=0;
+    sky_sound_frame(&face,k,&hits,1.f/30);
+    bool learned_pulse=false;
+    while(face_take_tone(&face,&tone))learned_pulse|=tone.kind==TT_SKY_GAME_PULSE;
+    assert(learned_pulse); // sparse successful streams still contribute to the shared rhythm
     k->phase = SKY_FADE; hits.inside[0] = 112; k->beat_wait = 0;
     sky_sound_frame(&face, k, &hits, 1.f / 30);
     while (face_take_tone(&face, &tone)) assert(tone.kind != TT_SKY_GAME_PULSE);

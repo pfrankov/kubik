@@ -78,6 +78,40 @@ static void every_material_value(void) {
     }
 }
 
+static void held_sky_targets(void) {
+    face_t f = {0};
+    float targets[TESS_N][3];
+    f.tess_games.ready = true;
+    f.tess_games.game = TESS_GAME_SKY;
+    f.tess_games.sky = (struct tess_sky *)&f;
+    for (int i = 0; i < TESS_RIPPLES; i++) f.tess_ripple[i].age = 99;
+    f.tess_hold[TR_SCATTER] = TESS_BURST_S - TESS_HANG_S;
+    for (int i = 0; i < TESS_N; i++) f.tess_scatter_of[i] = (uint8_t)((i * 17) % TESS_N);
+    for (int frame = 0; frame < 120; frame++) {
+        f.tess_games.gather_clock = frame / 30.f;
+        f.grav_x = sinf(frame); f.grav_y = cosf(frame);
+        assert(tess_scatter_sky_targets(&f, targets, -1));
+        for (int i = 0; i < TESS_N; i++) {
+            float reference[3] = {(i - 56) * .03f, (frame - 60) * .04f, .3f};
+            reference_tess_scatter_apply(reference, i, f.tess_scatter_of[i]);
+            for (int axis = 0; axis < 3; axis++) assert(fabsf(reference[axis] - targets[i][axis]) < 2e-6f);
+        }
+    }
+    memset(targets, 0, sizeof targets);
+    assert(tess_scatter_sky_targets(&f, targets, 1));
+    for (int i = 0; i < TESS_N; i += 2) for (int axis = 0; axis < 3; axis++) assert(targets[i][axis] == 0);
+    f.tess_hold[TR_SCATTER] += .02f;
+    assert(!tess_scatter_sky_targets(&f, targets, -1)); // entry still uses the body
+    f.tess_hold[TR_SCATTER] -= .04f;
+    assert(!tess_scatter_sky_targets(&f, targets, -1)); // return still uses the body
+    f.tess_hold[TR_SCATTER] += .02f;
+    f.tess_ripple[0].age = 0;
+    assert(!tess_scatter_sky_targets(&f, targets, -1));
+    f.tess_ripple[0].age = 99;
+    f.tess_games.game = TESS_GAME_GATHER;
+    assert(!tess_scatter_sky_targets(&f, targets, -1));
+}
+
 int main(void) {
     every_material_value();
     face_t f = {0};
@@ -100,5 +134,6 @@ int main(void) {
             }
         }
     }
+    held_sky_targets();
     printf("scatter cached release: %u point transforms byte-exact across all phases\n", checked);
 }

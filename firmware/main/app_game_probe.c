@@ -120,14 +120,15 @@ static void sky_state(char *reply, size_t cap) {
                      k ? "true" : "false", g->sky_elements, g->sky_skill, g->sky_solved, g->sky_root, g->sky_invite_t, g->sky_call[0], g->sky_call[1],
                      g->vertex_px[g->sky_call_vertex][0], g->vertex_px[g->sky_call_vertex][1], packed, (unsigned long)g_settings.sky_progress);
     if (k && n > 0 && (size_t)n < cap) {
+        sky_force_t solution; sky_solution(&k->w, &solution);
         int full = 0, touches = 0;
         for (int i = 0; i < k->w.count_stars; i++) full += k->w.star[i].fill >= SKY_FULL;
         for (int i = 0; i < SKY_TOUCHES; i++) touches += k->touch[i].down;
-        snprintf(reply + n, cap - (size_t)n, ",\"phase\":%u,\"kind\":%u,\"stars\":%u,\"full\":%d,\"holes\":%u,\"touches\":%d,\"finger\":%s,"
+        snprintf(reply + n, cap - (size_t)n, ",\"phase\":%u,\"kind\":%u,\"chart\":%u,\"turn\":%u,\"emitter\":%u,\"channels\":%u,\"stars\":%u,\"full\":%d,\"holes\":%u,\"touches\":%d,\"finger\":%s,"
                  "\"gx\":%.2f,\"gy\":%.2f,\"hold\":%.2f,\"t\":%.1f,\"here\":%u,\"sx\":%.0f,\"sy\":%.0f,\"melody\":%u,\"sung\":%u}",
-                 k->phase, k->w.kind, k->w.count_stars, full, k->w.count_holes, touches, k->w.touch_solution ? "true" : "false",
-                 k->w.gravity[0], k->w.gravity[1], k->hold, k->w.t, k->solved_here,
-                 k->w.count_stars ? k->w.star[0].x : 0.f, k->w.count_stars ? k->w.star[0].y : 0.f, k->melody.n, k->melody_next);
+                 k->phase, k->w.kind, k->w.chart, k->w.turn, k->w.emitter, k->w.channels, k->w.count_stars, full, k->w.count_holes, touches, solution.count ? "true" : "false",
+                 solution.gx, solution.gy, k->hold, k->w.t, k->solved_here,
+                 k->w.source.x, k->w.source.y, k->melody.n, k->melody_next);
     } else if (n > 0 && (size_t)n < cap) snprintf(reply + n, cap - (size_t)n, "}");
     face_unlock();
 }

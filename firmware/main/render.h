@@ -60,7 +60,7 @@ typedef struct {
 } prim_t;
 
 #define R_MAX_DOTS 192  // tesseract + recording orbit + touch wave; Skies: stars, relays, the melody's lines
-typedef struct { int16_t x, y, radius; uint16_t color; uint8_t glow, reserved; } render_dot_t;
+typedef struct { int16_t x, y, radius; uint16_t color; uint8_t glow, blur; } render_dot_t; // blur: radial light only, no opaque disc
 typedef struct {
     render_dot_t dots[R_MAX_DOTS];  // native Q4, an independent background layer
     int dots_n;
@@ -94,6 +94,7 @@ typedef struct {
 
 // Float builders (a few dozen calls per frame; soft-float cost is negligible).
 void scene_begin(scene_t *s, uint16_t bg);
+void sc_blur_dot(scene_t *s, float x, float y, float radius, uint32_t rgb);
 void sc_glow_dot(scene_t *s, float x, float y, float radius, uint32_t rgb, uint8_t glow);
 // The same dot already in 1/8 panel px (Tess projects its points on integers).
 void sc_glow_dot_q3(scene_t *s, int x, int y, int radius, uint32_t rgb, uint8_t glow);

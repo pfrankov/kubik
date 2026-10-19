@@ -1,4 +1,4 @@
-// Production Skies rendering: gathering light, bounded scenes, invisible gravity, fades and constellation tours.
+// Production Skies rendering: telescope focus, bounded scenes, invisible gravity, fades and constellation tours.
 // Native RGB565 properties are portable; no platform-specific image hashes or copied raster implementation.
 #include "../main/tess_sky_play.h"
 #include <assert.h>
@@ -28,7 +28,7 @@ static void fixture(void) {
     sky.touch[0] = (sky_touch_t){.x = 122, .y = 330, .shown = 1, .spin = 1, .down = true};
     sky.touch[1] = (sky_touch_t){.x = 374, .y = 150, .shown = 1, .spin = -1, .down = true};
     sky.w.count_stars = SKY_STARS;
-    const float places[SKY_STARS][2] = {{95,85},{384,64},{418,270},{370,406},{160,418},{59,240}};
+    const float places[SKY_STARS][2] = {{95,85},{384,64},{418,270},{370,406},{160,418},{59,240},{240,180}};
     for (int i = 0; i < SKY_STARS; i++)
         sky.w.star[i] = (sky_star_t){.x = places[i][0], .y = places[i][1], .fill = 1, .glow = 1, .color = i % COL_COUNT};
     for (int i = 0; i < SKY_PARTICLES; i++)
@@ -41,8 +41,14 @@ static void particles(void) {
         sc_glow_dot_q3(&scene, sky.p[i].x, sky.p[i].y, 12, 0x9AF9E0, 60);
 }
 
-static void capacity_at(float fill, float glow) {
+static void capacity_at(float fill, float glow, bool resolve) {
     fixture();
+    if(resolve) {
+        sky_recipe_t recipe={.elements=8};sky_compose(&sky.w,4,&recipe);sky.w.t=6;
+        sky.phase=SKY_RESOLVE;sky.resolve_t=4;sky.resolve_len=8;
+        sky.melody.n=SKY_STARS;sky.melody.unit_ms=160;
+        for(int i=0;i<SKY_STARS;i++)sky.melody.note[i]=(sky_note_t){.star=(int8_t)i,.units=1};
+    }
     for (int i = 0; i < SKY_STARS; i++) { sky.w.star[i].fill = fill; sky.w.star[i].glow = glow; }
     // The larger native primitive pool reveals overflow before the device's 64-slot builder can hide it.
     assert(R_MAX_PRIMS == 80);
@@ -63,9 +69,10 @@ static void capacity_at(float fill, float glow) {
 }
 
 static void capacity(void) {
-    capacity_at(0, 0);
-    capacity_at(SKY_FULL * .5f, 0); // The dust is now largest while stars are still filling.
-    capacity_at(1, 1);
+    capacity_at(0, 0, false);
+    capacity_at(SKY_FULL * .5f, 0, false); // Blurred discs must fit without filling the primitive or dot pool.
+    capacity_at(1, 1, false);
+    capacity_at(1, 1, true);
 }
 
 static void push(int x0, int y0, int x1, int y1, uint16_t *p, void *context) {
@@ -79,24 +86,26 @@ static void raster(void) {
     render_frame(&state, &scene, buffers, 2, false, push, NULL);
 }
 
-typedef struct { unsigned core; float spread; } star_light_t;
+typedef struct { unsigned core; float spread, split; } star_light_t;
 
 static star_light_t star_light(float fill, int color, float time) {
     sky.w.star[0] = (sky_star_t){.x=240, .y=240, .ax=240, .ay=240, .fill=fill, .color=(uint8_t)color};
     face.t = time;
     scene_begin(&scene, 0); tess_sky_draw(&face, &scene); raster();
-    unsigned core = 0, total = 0, moment = 0;
+    unsigned core = 0, total = 0, moment = 0, red=0, blue=0;
+    int red_x=0, blue_x=0;
     for (int y = 96; y < 144; y++) {
         for (int x = 96; x < 144; x++) {
             uint16_t c = frame[y][x];
             unsigned energy = ((c >> 11) & 31) + ((c >> 6) & 31) + (c & 31);
             int dx = x * 2 + 1 - 240, dy = y * 2 + 1 - 240, radius2 = dx * dx + dy * dy;
+            unsigned r=(c>>11)&31, b=c&31; red+=r;blue+=b;red_x+=(int)r*dx;blue_x+=(int)b*dx;
             total += energy; moment += energy * (unsigned)radius2;
             if (radius2 < 36) core += energy;
         }
     }
     assert(total > 0);
-    return (star_light_t){core, (float)moment / (float)total};
+    return (star_light_t){core, (float)moment / (float)total, fabsf((float)red_x/red-(float)blue_x/blue)};
 }
 
 static void stars_gather_light(void) {
@@ -109,6 +118,7 @@ static void stars_gather_light(void) {
             float time = 6.f + (float)t * 1.7f;
             star_light_t empty = star_light(0, c, time), half = star_light(SKY_FULL * .5f, c, time);
             star_light_t near = star_light(SKY_FULL * .75f, c, time), full = star_light(1, c, time);
+            assert(empty.split > .25f && empty.split > half.split && half.split > full.split);
             // Native pixels must concentrate around a brighter core, instead of filling an outer progress ring.
             assert(empty.spread > half.spread * 1.25f && half.spread > near.spread * 1.25f);
             assert(empty.core < half.core && half.core < near.core && near.core < full.core);
@@ -187,11 +197,12 @@ static void sky_effects_fade_completely(void) {
 
 static void freeplay_aurora_needs_no_targets(void) {
     fixture();
-    sky.w.kind = SKY_AURORA; sky.w.count_stars = 0;
+    sky_recipe_t recipe={.elements=8,.aurora=true};sky_compose(&sky.w,4,&recipe);sky.w.t=6;
+    assert(sky.w.count_stars==1 && sky.w.star[0].fill==1);
     for (int phase = SKY_PLAY; phase <= SKY_RESOLVE; phase++) {
         sky.phase = (uint8_t)phase; sky.resolve_len = 8;
         scene_begin(&scene, 0); particles(); tess_sky_draw(&face, &scene); raster();
-        assert(scene.n == 0 && scene.dots_n > SKY_PARTICLES && scene.dots_n < R_MAX_DOTS);
+        assert(scene.n == 2 && scene.dots_n > SKY_PARTICLES && scene.dots_n < R_MAX_DOTS);
         compare_without_fields();
     }
 }
@@ -218,22 +229,41 @@ static bool middle_of_link(const sky_star_t *a, const sky_star_t *b, float from,
     return false;
 }
 
-static void long_constellations_reach_every_star(void) {
-    fixture();
-    sky.phase = SKY_RESOLVE; sky.resolve_t = 3; sky.resolve_len = 8;
-    sky.w.count_holes = 0; memset(sky.touch, 0, sizeof sky.touch);
-    const float places[SKY_STARS][2] = {{50,60},{430,420},{50,400},{430,100},{50,160},{430,350}};
-    sky.melody.n = SKY_STARS; sky.melody.unit_ms = 200;
-    for (int i = 0; i < SKY_STARS; i++) {
-        sky.w.star[i].x = places[i][0]; sky.w.star[i].y = places[i][1];
-        sky.melody.tour[i] = (int8_t)i;
-        sky.melody.note[i] = (sky_note_t){.star = (int8_t)i, .units = 1};
-    }
-    scene_begin(&scene, 0); tess_sky_draw(&face, &scene);
-    assert(scene.dots_n < R_MAX_DOTS);
-    for (int i = 0; i + 1 < SKY_STARS; i++) {
-        assert(middle_of_link(&sky.w.star[i], &sky.w.star[i + 1], .2f, .4f));
-        assert(middle_of_link(&sky.w.star[i], &sky.w.star[i + 1], .6f, .8f));
+static void assert_name(const char *name) {
+        int labels=0;
+        for (int i=0; i<scene.n; i++) if (scene.p[i].kind==PK_TEXT) {
+            const prim_t *p=&scene.p[i]; labels++;
+            assert(p->b==(int)strlen(name) && p->bx0>=24 && p->bx1<=456 && p->by0>=424 && p->by1<=468);
+            for (int j=0;j<p->b;j++) assert(scene.text[p->a+j]==font_glyph(&g_fonts[p->r],name[j]));
+        }
+        assert(labels==1);
+}
+
+static void real_constellation_links_and_success_names(void) {
+    for (int id=1; id<=SKY_CHARTS; id++) {
+        fixture();
+        sky_recipe_t recipe = {.elements=(uint8_t)id};
+        sky_compose(&sky.w, 42, &recipe); sky.w.t=6;
+        const char *name = sky_constellation_name(&sky.w);
+        assert(name);
+        scene_begin(&scene,0); tess_sky_draw(&face,&scene);
+        for (int i=0; i<scene.n; i++) assert(scene.p[i].kind!=PK_TEXT); // no label before success
+        sky.phase=SKY_RESOLVE; sky.resolve_t=3; sky.resolve_len=8;
+        sky.melody.n=sky.w.count_stars; sky.melody.unit_ms=200;
+        for (int i=0; i<sky.w.count_stars; i++) {
+            sky.w.star[i].fill=1;
+            int star=sky.w.count_stars-1-i; // music order must not rewire the figure
+            sky.melody.tour[i]=(int8_t)star;
+            sky.melody.note[i]=(sky_note_t){.star=(int8_t)star,.units=1};
+        }
+        scene_begin(&scene,0); tess_sky_draw(&face,&scene);
+        assert(scene.dots_n<R_MAX_DOTS && scene.n<64);
+        const sky_edge_t *edges; int count=sky_constellation_edges(&sky.w,&edges);
+        for (int i=0; i<count; i++)
+            assert(middle_of_link(&sky.w.star[edges[i].a],&sky.w.star[edges[i].b],.1f,.9f));
+        assert_name(name);
+        sky.fade=SKY_FADE_S; scene_begin(&scene,0); tess_sky_draw(&face,&scene);
+        assert(scene.n==0 && scene.dots_n==0); // title fades with the chart
     }
 }
 
@@ -244,6 +274,6 @@ int main(void) {
     sky_effects_fade_completely();
     freeplay_aurora_needs_no_targets();
     composing_next_sky_does_not_change_current_sky();
-    long_constellations_reach_every_star();
-    puts("Skies render: gathering light, bounded scenes, invisible fields, fades and complete constellation tours OK");
+    real_constellation_links_and_success_names();
+    puts("Skies render: telescope focus, bounded scenes, invisible fields, fades and catalog lines and success names OK");
 }

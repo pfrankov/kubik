@@ -17,6 +17,13 @@ void sc_glow_dot_q3(scene_t *s, int x, int y, int radius, uint32_t rgb, uint8_t 
     s->dots[s->dots_n++] = (render_dot_t){(int16_t)x, (int16_t)y, (int16_t)radius, rgb565(rgb), glow, 0};
 }
 
+// Optical point-spread image: the ordinary dot halo, with its opaque core removed.
+void sc_blur_dot(scene_t *s, float x, float y, float radius, uint32_t rgb) {
+    if (s->dots_n >= R_MAX_DOTS) return;
+    sc_glow_dot_q3(s, (int)lrintf(x * 8), (int)lrintf(y * 8), (int)lrintf(radius * 8), rgb, 255);
+    s->dots[s->dots_n - 1].blur = 1;
+}
+
 void sc_glow_dot(scene_t *s, float x, float y, float radius, uint32_t rgb, uint8_t glow) {
     sc_glow_dot_q3(s, (int)lrintf(x * 8), (int)lrintf(y * 8), (int)lrintf(radius * 8), rgb, glow);
 }

@@ -23,7 +23,11 @@ static tess_sky_t *begin(unsigned seed, bool check_origin) {
     face.tess_games.sky_elements = 1; face.tess_games.sky_skill = 200;
     for (int i = 0; i < 240; i++) frame();
     face.tess_games.self_wait = 999;
+    face.tess_games.gather_clock = 4;
+    for (int i = 0; i < TESS_N; i++) face.tess_games.gathered_at[i] = 1;
     assert(tess_sky_start(&face));
+    assert(face.tess_games.gather_clock == 0);
+    for (int i = 0; i < TESS_N; i++) assert(face.tess_games.gathered_at[i] == 0);
     tess_sky_t *k = face.tess_games.sky;
     int32_t from[SKY_PARTICLES][2] = {{0}};
     for (int n = 0; n < 1000 && k->phase == SKY_UNRAVEL; n++) {
@@ -47,7 +51,8 @@ static void release_input(void) {
 static void solve_first(tess_sky_t *k) {
     for (int i = 0; i < 900 && k->phase == SKY_PLAY; i++) {
         sky_force_t force; sky_solution(&k->w, &force);
-        face.grav_x = force.gx / SKY_TILT_SCALE; face.grav_y = force.gy / SKY_TILT_SCALE;
+        float scale = k->w.kind == SKY_POUR ? 1 : SKY_TILT_SCALE;
+        face.grav_x = force.gx / scale; face.grav_y = force.gy / scale;
         face.touch_in.point[0] = (touch_point_t){.x = force.touch[0].x, .y = force.touch[0].y, .down = true};
         frame();
     }
@@ -81,7 +86,7 @@ static void draw_game(void) {
 
 static bool observe_fade(tess_sky_t *k, float *first, unsigned *previous) {
     if (k->fade <= 0) return false;
-    assert(k->compose == 2 && k->resolve_t >= k->resolve_len);
+    assert(k->next_ready && k->resolve_t >= k->resolve_len);
     if (*first < 0) *first = face.t;
     unsigned alpha = tess_sky_alpha(&face);
     assert(alpha <= *previous); *previous = alpha;

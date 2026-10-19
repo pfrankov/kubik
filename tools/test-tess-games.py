@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
+subprocess.run([sys.executable, str(ROOT / "tools/assets/sky-catalog.py"), "--check"], check=True)
 with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
     temp = Path(directory)
     # Production touch sampling wrapper: a crashed USB client cannot hold a finger down.
@@ -67,6 +68,12 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
                     "firmware/sim/tess_sky_test.c", "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",
                     "-lm", "-o", str(sky)], cwd=ROOT, check=True)
     subprocess.run([str(sky), "40"], cwd=ROOT, check=True)
+    relay = temp / "relay"
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-Ifirmware/main", "firmware/sim/tess_sky_relay_test.c",
+                    "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",
+                    "-lm", "-o", str(relay)], cwd=ROOT, check=True)
+    subprocess.run([str(relay)], cwd=ROOT, check=True)
     # Skies: the ending melody visits every star, stays singable and comes home to the tonic.
     melody = temp / "melody"
     subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",

@@ -31,10 +31,21 @@ async function endVisit(elements) {
   if (!(await sky()).active) return;
   await sim('boot'); await until(sky, v=>!v.active, `depth ${elements}: the visit ends`, 5000); await sleep(2500);
 }
+function assertChart(first,elements) {
+  if(elements<=8) {
+    assert.equal(first.chart,elements,'installed chart matches progression');
+    assert.equal(first.stars,[3,4,4,5,5,5,7,7][elements-1],'all real star targets are present');
+  } else assert.ok(first.chart>=1&&first.chart<=8,'completed catalog cycles through real charts');
+  assert.equal(first.full,1,'one prefilled emitter');
+  assert.equal(first.channels,0,'new sky starts with no learned channel');
+  assert.equal(first.emitter,0);
+  assert.ok(Number.isInteger(first.turn)&&first.turn>=0&&first.turn<4);
+}
 // Brings a sky of this depth to its resolution; returns what it was and how its frames fared.
 async function solve(elements, skill) {
   assert.equal((await sim('sky-start',{elements,skill})).ok, true, `a sky starts at depth ${elements}`);
   const first = await until(sky, s=>s.active&&s.phase===PHASE.play&&s.here===0, `depth ${elements}: the stream flows`, 8000);
+  assertChart(first,elements);
   await flushStats({sim});
   const measuredStart = performance.now();
   await sim('sky-solve');
@@ -51,6 +62,7 @@ async function solve(elements, skill) {
       nextStats = performance.now()+2500;
     }
   }
+  if(s.phase===PHASE.resolve) assert.equal(s.channels,first.stars-1,'all successful streams remain');
   await sim('pointer',{down:false,x:240,y:255}); await sim('gravity',{x:0,y:0,ms:0});
   windows.push(await flushStats({sim}));
   const played = combineStats(windows);
@@ -127,7 +139,7 @@ async function main() {
     for (const elements of (process.env.ELEMENTS ?? '1,2,3,4,5,6,7,8,9,10').split(',').map(Number)) {
       const r = await solve(elements, 100);
       const frames = r.played.frames + r.resolved.frames, late = r.played.late + r.resolved.late;
-      report.push({elements, kind:r.first.kind, stars:r.first.stars, holes:r.first.holes, finger:r.first.finger, phase:r.phase, sung:`${r.sung}/${r.melody}`, frames, late, lateIn:`${r.played.late}+${r.resolved.late}`,
+      report.push({elements, chart:r.first.chart, turn:r.first.turn, kind:r.first.kind, stars:r.first.stars, holes:r.first.holes, finger:r.first.finger, phase:r.phase, sung:`${r.sung}/${r.melody}`, frames, late, lateIn:`${r.played.late}+${r.resolved.late}`,
         faceUs:`${r.played.face}+${r.resolved.face}`, shapesUs:`${r.played.shapes}+${r.resolved.shapes}`, sendUs:`${r.played.send}+${r.resolved.send}`,
         maxMs:+Math.max(r.played.maxMs, r.resolved.maxMs).toFixed(1), meanMs:+((r.played.meanMs+r.resolved.meanMs)/2).toFixed(1)});
       console.log(JSON.stringify(report.at(-1)));
