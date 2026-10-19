@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import test from 'node:test';
 import { channelPlugin } from '../src/channel.js';
 import { connectDevice, DEVICE, deviceKey, fakeEngine, fakePairing, sleep } from './helpers.js';
@@ -211,9 +212,12 @@ test('startup failure after publishing a session cleans it up and keeps approval
   const id = deviceKey();
   const pairing = fakePairing();
   const engine = fakeEngine();
-  let reads = 0;
+  let reads = 0, serverClosed;
   Object.defineProperty(engine, 'voiceMode', { get() {
-    if (++reads === 1) throw Error('capability delivery failed');
+    if (++reads === 1) {
+      serverClosed = once(server.getSession(DEVICE).ws, 'close');
+      throw Error('capability delivery failed');
+    }
     return 'classic';
   } });
   const { url, server } = await start(t, { pairing, engine, serverOptions: { pairingPollMs: 60_000 } });
@@ -224,6 +228,7 @@ test('startup failure after publishing a session cleans it up and keeps approval
   assert.equal(await device.closed, 1011);
   assert.equal(await closeReason, 'session unavailable');
   assert.ok(device.events.some(e => e.t === 'welcome'), 'Failure happens after session publication');
+  await serverClosed; // The server's close event cleans up; client close can arrive first on Linux.
   assert.deepEqual(server.onlineDevices, []);
   assert.equal(server.getSession(DEVICE), undefined);
   const retry = await connectKeyed(url, id);
