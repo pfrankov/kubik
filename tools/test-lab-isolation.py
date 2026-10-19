@@ -26,8 +26,12 @@ static bool audio_stream_playing(void) { return playing; }
 static int quiet_calls, sound_calls;
 static void audio_sfx_quiet(void) { assert(locks == 1); quiet_calls++; }
 static void audio_tess_cue(tess_cue_t cue, float strength, float position) { assert(locks == 1 && (cue == TC_IMPACT || cue == TC_SWING)); sound_calls++; }
-static int tone_calls;
-static void audio_tess_tone(const tess_tone_t *tone) { assert(locks == 1 && tone->kind == TT_RING); tone_calls++; }
+static int tone_calls, release_calls;
+static void audio_tess_tone(const tess_tone_t *tone) {
+ assert(locks == 1);
+ if (tone->kind == TT_SKY_RELEASE) { assert(tone->gain == 0); release_calls++; }
+ else { assert(tone->kind == TT_RING); tone_calls++; }
+}
 static int64_t s_menu_touch_ms;
 #define SS_IDLE 0
 static int s_talk;
@@ -101,6 +105,17 @@ int main(void) {
  app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == 2);
  app_lab_play_cue(TC_SWING,.5f,0); assert(sound_calls == 2);
  app_lab_play_tone(&ring); assert(tone_calls == 1);  // a synthetic agent screen never sounds her body
+ screen_lab_select(s_lab,LAB_PLAY_SKY);
+ assert(s_lab->face.tess_games.sky_audio);
+ assert(app_lab_event(&(app_ev_t){.type=EV_BOOT_SHORT}));
+ assert(s_lab->selected == -1);
+ face_lock(); assert(app_lab_frame(&scene,1.f/30,false)); face_unlock();
+ tess_tone_t release;
+ face_lock(); assert(app_lab_take_tone(&release)); face_unlock();
+ assert(release.kind == TT_SKY_RELEASE && release.gain == 0);
+ app_lab_play_tone(&release); assert(release_calls == 1);  // cleanup survives the catalog and darkness
+ app_lab_play_tone(&ring); assert(tone_calls == 1);
+ face_lock(); assert(!app_lab_take_tone(&release)); face_unlock();
  screen_lab_select(s_lab,-1);
  assert(app_lab_event(&(app_ev_t){.type=EV_BOOT_SHORT}));
  assert(!app_lab_active() && s_menu && !s_lab && !g_face.rub_in.down);
@@ -110,6 +125,7 @@ int main(void) {
  int stopped = quiet_calls; assert(stopped > 0);
  int sounds = sound_calls; app_lab_play_cue(TC_IMPACT,.5f,0); assert(sound_calls == sounds);
  app_lab_play_tone(&ring); assert(tone_calls == 1);  // nor after the Lab closed
+ app_lab_play_tone(&release); assert(release_calls == 1);  // close already reset the mixer
  g_face.rub_in.down=true; app_lab_close(); app_lab_close(); assert(!locks && g_face.rub_in.down && quiet_calls == stopped);
  puts("lab isolation: busy/allocation gates, ephemeral sliders, KEY interception, network pass-through, motion and exits passed");
 }

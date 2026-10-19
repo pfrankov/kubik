@@ -22,7 +22,7 @@ device_names = quoted_values(
     ROOT / "tools/test-device-screen-lab.mjs",
     r"const names=\[(.*?)\];",
 )
-assert len(firmware_names) == 32, "Firmware Screen Lab catalog must cover all 32 screens"
+assert len(firmware_names) == 33, "Firmware Screen Lab catalog must cover all 33 screens"
 assert device_names == firmware_names, "Device Screen Lab catalog differs from firmware"
 
 sources = runpy.run_path(str(ROOT / "tools/test-frames.py"))["SOURCES"]

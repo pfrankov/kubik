@@ -17,6 +17,8 @@ TESTS = {
     'render_sqrt': [source for source in RENDER if source != 'render_raster'],
     'face_math': [],
     'tess_scene_capacity': face_sources(),
+    'tess_sky_draw': face_sources(),
+    'tess_sky_transition': face_sources(),
     'palette_blend': [],
     'output_flat': ['render_output'],
     'present_merge': RENDER + ['frame_store', 'canvas'],

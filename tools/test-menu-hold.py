@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 ROOT = Path(__file__).resolve().parent.parent
-source = (ROOT / 'firmware/main/input.c').read_text()
+source = (ROOT / 'firmware/main/input_touch.c').read_text()
 source = source[source.index('static void update_touch_gesture('):source.index('static void refresh_touch_activity(')]
 menu = (ROOT / 'firmware/main/app_menu.c').read_text()
 source += menu[menu.index('void menu_hold('):]
@@ -16,8 +16,7 @@ mock = r'''
 #include <math.h>
 #include "input_hold.h"
 enum {EV_MENU_HOLD, EV_SWIPE_UP, EV_PET, EV_TAP, EV_DRAG, EV_TOUCH_UP};
-typedef struct { bool touching, gesture_done, first_drag; int touch_x0, touch_y0, drag_x, drag_y; float touch_path; int64_t touch_started_ms; } input_state_t;
-static bool s_menu_view = true;
+typedef struct { bool touching, gesture_done, first_drag; int touch_x0, touch_y0, drag_x, drag_y; float touch_path; int64_t touch_started_ms; } input_touch_t;
 enum { MENU_VOLUME, SFX_PAGE };
 static struct { struct { bool open; } status; struct { bool open; } journal; struct { bool open; } agent; struct { bool sound; } menu; } g_face;
 static bool s_menu = true;
@@ -33,7 +32,7 @@ static void audio_sfx(int sound) { assert(sound==SFX_PAGE); opens++; }
 static void menu_sync(void) {} static void disp_wake(void) {}
 static int events[6];
 static void app_post(int type, int x, int y) { (void)x; (void)y; events[type]++; }
-static void update_menu_drag(input_state_t *state, int x, int y, bool menu) {(void)state;(void)x;(void)y;(void)menu;}
+static void update_menu_drag(input_touch_t *state, int x, int y, bool menu) {(void)state;(void)x;(void)y;(void)menu;}
 '''
 test = r'''
 int main(void) {
@@ -43,15 +42,15 @@ int main(void) {
  s_menu_drag_row=MENU_VOLUME; menu_hold(188,200); assert(!g_face.menu.sound);
  menu_hold(72,200); assert(g_face.menu.sound && opens==1 && s_menu_drag_row==-1);
  menu_hold(72,200); assert(opens==1);
- input_state_t s = {.touching=true,.touch_x0=72,.touch_y0=200};
+ input_touch_t s = {.touching=true,.touch_x0=72,.touch_y0=200};
  update_touch_gesture(&s,72,200,799,true); assert(!events[EV_MENU_HOLD]);
  update_touch_gesture(&s,72,200,800,true); update_touch_gesture(&s,72,200,2000,true);
- assert(events[EV_MENU_HOLD]==1); release_touch(&s,2100); assert(!events[EV_TAP] && events[EV_DRAG]==1); // the release reaches lists that coast
- s=(input_state_t){.touching=true,.touch_x0=72,.touch_y0=200,.touch_path=40};
+ assert(events[EV_MENU_HOLD]==1); release_touch(&s,true,2100); assert(!events[EV_TAP] && events[EV_DRAG]==1); // the release reaches lists that coast
+ s=(input_touch_t){.touching=true,.touch_x0=72,.touch_y0=200,.touch_path=40};
  update_touch_gesture(&s,72,220,900,true); assert(events[EV_MENU_HOLD]==1);
- s=(input_state_t){.touching=true,.touch_x0=72,.touch_y0=200};
- release_touch(&s,200); assert(events[EV_TAP]==1 && events[EV_TOUCH_UP]==2);
- s=(input_state_t){.touching=true,.touch_x0=72,.touch_y0=200};
+ s=(input_touch_t){.touching=true,.touch_x0=72,.touch_y0=200};
+ release_touch(&s,true,200); assert(events[EV_TAP]==1 && events[EV_TOUCH_UP]==2);
+ s=(input_touch_t){.touching=true,.touch_x0=72,.touch_y0=200};
  update_touch_gesture(&s,72,200,900,false); assert(events[EV_MENU_HOLD]==1 && events[EV_PET]==1);
 }
 '''

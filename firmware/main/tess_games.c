@@ -37,6 +37,7 @@ static float grown_form(uint8_t progress) {
 void tess_games_restore(face_t *f, uint8_t progress) {
     tess_games_t *g = &f->tess_games;
     uint32_t round = g->round + 1;
+    if (KUBIK_CHARACTER == CHARACTER_TESS && g->sky_audio) tess_sky_stop(f);
     tess_sky_release(g);
     memset(g, 0, sizeof *g);
     g->round = round ? round : 1;
@@ -66,7 +67,10 @@ static void stop_all(tess_games_t *g) {
 }
 void tess_games_set_available(face_t *f, bool available) {
     f->tess_games.available = available;
-    if (!available) stop_all(&f->tess_games);
+    if (!available) {
+        if (KUBIK_CHARACTER == CHARACTER_TESS) tess_sky_stop(f);
+        stop_all(&f->tess_games);
+    }
 }
 // A first discovery: she lights up gold for a moment and says so. Repeats add nothing.
 void tess_games_earn(face_t *f, unsigned bit) {

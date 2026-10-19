@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Native game contracts and real app tap routing; no microphone, network or device."""
 import os
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
     # Production touch sampling wrapper: a crashed USB client cannot hold a finger down.
     (temp / "freertos").mkdir()
     (temp / "freertos/FreeRTOS.h").write_text("#include <pthread.h>\ntypedef pthread_mutex_t portMUX_TYPE;\n#define portMUX_INITIALIZER_UNLOCKED PTHREAD_MUTEX_INITIALIZER\n#define portENTER_CRITICAL(p) ((void)pthread_mutex_lock(p))\n#define portEXIT_CRITICAL(p) ((void)pthread_mutex_unlock(p))\n")
-    (temp / "board.h").write_text("#include <stdbool.h>\nbool touch_read(int *, int *);\n")
+    (temp / "board.h").write_text("#include \"touch_input.h\"\nbool touch_read(touch_frame_t *);\n")
     (temp / "esp_timer.h").write_text("#include <stdint.h>\nint64_t esp_timer_get_time(void);\n")
     # Quoted includes resolve next to the source first; copy this wrapper alone, not hardware headers.
     (temp / "input_probe.c").write_text((ROOT / "firmware/main/input_probe.c").read_text())
@@ -20,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
                     "-fsanitize=address,undefined", "-pthread", "-I" + str(temp), "-Ifirmware/main",
                     "firmware/sim/input_probe_test.c", str(temp / "input_probe.c"), "-o", str(probe)], cwd=ROOT, check=True)
     subprocess.run([str(probe)], check=True)
-    assert "bool has_touch = input_probe_read(&x, &y);" in (ROOT / "firmware/main/input.c").read_text()
+    subprocess.run([sys.executable, str(ROOT / "tools/test-touch.py")], cwd=ROOT, check=True)
     control = (ROOT / "firmware/main/app_control.c").read_text()
     tap = control[control.index("static void touch_tap("):control.index("static void touch_pet(")]
     app = (ROOT / "firmware/main/app.c").read_text()
@@ -60,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
                     "-fsanitize=address,undefined", "-Ifirmware/main", "firmware/sim/tess_sky_physics_test.c",
                     "firmware/main/tess_sky_stream.c", "-lm", "-o", str(physics)], cwd=ROOT, check=True)
     subprocess.run([str(physics)], cwd=ROOT, check=True)
-    # Skies: every composed sky is deterministic, on the scale, solvable by its own solution, and scrambled.
+    # Skies: deterministic, on the scale, solvable by real input, and not completed without action.
     sky = temp / "sky"
     subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-Ifirmware/main",
                     "firmware/sim/tess_sky_test.c", "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",

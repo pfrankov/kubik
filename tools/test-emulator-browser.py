@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Browser acceptance of the shared native emulator, with no attached device or agent."""
 import importlib.util
+import json
 from pathlib import Path
 import threading
 import time
@@ -68,6 +69,18 @@ def read_state(page):
     }""")
 
 
+def forgotten_contacts_expire(worker):
+    worker.event({"command": "select", "args": [worker.screens.index("Play: skies")]})
+    worker.frame(60)
+    worker.event({"command": "touches", "args": [1, 150, 250, 15, 1, 350, 300, 2]})
+    assert 0 < worker.touch_deadline - time.monotonic() <= .35
+    assert worker.frame()[0]["contacts"] == 2
+    worker.touch_deadline = time.monotonic() - 1
+    state, _ = worker.frame()
+    assert state["contacts"] == state["sky_contacts"] == 0
+    assert worker.touch_deadline == 0
+
+
 def click(page, x, y):
     box = page.locator("canvas").bounding_box()
     page.mouse.click(box["x"] + x * box["width"] / 480, box["y"] + y * box["height"] / 480)
@@ -119,6 +132,54 @@ def preview_frames(page, screens):
             assert len(set(sequence)) > 1, f"Game preview must animate: {name}"
 
 
+def multitouch(page, screens):
+    choose(page, screens.index("Play: skies"), "Play: skies")
+    page.evaluate("running = false; clearTimeout(frameTimer)")
+    page.wait_for_function("!inFlight")
+    advance_frames(page, 60)
+    box = page.locator("canvas").bounding_box()
+    def point(id, x, y):
+        return {"id": id, "x": box["x"] + x * box["width"] / 480,
+                "y": box["y"] + y * box["height"] / 480}
+    first, second, third = point(11, 150, 250), point(29, 350, 300), point(43, 240, 200)
+    session = page.context.new_cdp_session(page)
+    def touch(kind, points):
+        session.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": points})
+        # The paused timer must not bypass the real frame's touch heartbeat. A slow CDP event can outlast
+        # the server's lease even though the two accepted browser contacts are still held.
+        with page.expect_response(lambda response: response.url.endswith("/frame?steps=1")) as response:
+            advance_frames(page, 1)
+        return json.loads(response.value.header_value("X-Kubik-State"))
+    try:
+        state = touch("touchStart", [first])
+        assert state["contacts"] == state["sky_contacts"] == 1
+        state = touch("touchStart", [second])
+        assert state["contacts"] == state["sky_contacts"] == 2
+        assert touch("touchStart", [third])["contacts"] == 2
+        # Chromium CreateWebTouchEvents uses changed points: touchEnd names the lifted IDs.
+        # See content/browser/devtools/protocol/input_handler.cc (the WebTouch path).
+        page.wait_for_timeout(450)  # Longer than the 350 ms lease: ignored fingers do not send a new snapshot.
+        state = touch("touchEnd", [third])
+        assert state["contacts"] == state["sky_contacts"] == 2, state
+        state = touch("touchEnd", [first])
+        assert state["contacts"] == state["sky_contacts"] == 1
+        second = point(29, 320, 330)
+        assert touch("touchMove", [second])["sky_contacts"] == 1
+        state = touch("touchCancel", [])
+        assert state["contacts"] == state["sky_contacts"] == 0
+        touch("touchStart", [first, second])
+        page.evaluate("window.dispatchEvent(new Event('blur'))")
+        assert read_state(page)["contacts"] == 0
+        touch("touchCancel", [])
+        touch("touchStart", [first, second])
+        page.select_option("#screen", str(screens.index("Home")))
+        assert read_state(page)["contacts"] == 0
+    finally:
+        session.send("Input.dispatchTouchEvent", {"type": "touchCancel", "touchPoints": []})
+        session.detach()
+        page.evaluate("running = true; frame()")
+
+
 def exercise(page, screens):
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
@@ -126,6 +187,7 @@ def exercise(page, screens):
     assert len(page.locator("#screen option").all()) == len(screens) + 1
     started = time.monotonic()
     preview_frames(page, screens)
+    multitouch(page, screens)
     print(f"emulator: preview sequences {time.monotonic() - started:.1f}s", flush=True)
     started = time.monotonic()
     choose(page, screens.index("Settings"), "Settings")
@@ -206,12 +268,15 @@ def main():
     url = f"http://127.0.0.1:{server.server_port}"
     try:
         check_batches(worker, executable)
+        forgotten_contacts_expire(worker)
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=True)
             page = browser.new_page(viewport={"width":1100,"height":850})
             page.goto(url)
             exercise(page, worker.screens)
             assert page.request.post(url + "/event", data='{"command":"select","args":[999]}').status == 400
+            for args in ([1, 40, 50, 1], [1, 480, 50, 1, 0, 0, 0, 0], [1, 40, 50, 1, 1, 90, 100, 1]):
+                assert page.request.post(url + "/event", data={"command": "touches", "args": args}).status == 400
             assert page.request.post(url + "/event", data='[]').status == 400
             assert page.request.post(url + "/event", data='{"command":"select","args":[0]}', headers={"Origin":"https://example.com"}).status == 403
             assert page.request.get(url + "/../README.md").status == 404

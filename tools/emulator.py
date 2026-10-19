@@ -55,6 +55,7 @@ class Worker:
             self.close(); raise RuntimeError("Native catalog timed out")
         self.screens = json.loads(self.process.stdout.readline(2048))
         self.last_frame = 0
+        self.touch_deadline = 0
         atexit.register(self.close)
 
     def close(self):
@@ -72,6 +73,9 @@ class Worker:
         with self.lock:
             delay = 1 / 30 - (time.monotonic() - self.last_frame)
             if delay > 0: time.sleep(delay)
+            if self.touch_deadline and time.monotonic() >= self.touch_deadline:
+                self.send("touches 0 0 0 0 0 0 0 0")
+                self.touch_deadline = 0
             self.send(f"frame {steps}")
             state, rgb = self.read_frame()
             self.last_frame = time.monotonic()
@@ -97,14 +101,25 @@ class Worker:
     def event(self, data):
         command = data.get("command")
         bounds = {"select": [(-1, len(self.screens) - 1)], "event": [(0, 5), (0, 480), (0, 480)],
-                  "pointer": [(0, 1), (0, 480), (0, 480)], "tilt": [(-100, 100), (-100, 100)],
+                  "touches": [(0, 1), (0, 479), (0, 479), (0, 15)] * 2,
+                  "tilt": [(-100, 100), (-100, 100)],
                   "character": [(0, 1)]}
         args = data.get("args", [])
         limits = bounds.get(command)
         if limits is None or len(args) != len(limits): raise ValueError("Invalid command")
         if any(type(value) is not int or not low <= value <= high for value, (low, high) in zip(args, limits)):
             raise ValueError("Invalid argument")
-        with self.lock: self.send(command + " " + " ".join(map(str, args)))
+        with self.lock:
+            if command == "touches":
+                self.lease_touches(args)
+            if command in {"select", "character"}:
+                self.touch_deadline = 0
+            self.send(command + " " + " ".join(map(str, args)))
+
+    def lease_touches(self, args):
+        if args[0] and args[4] and args[3] == args[7]:
+            raise ValueError("Duplicate contact ID")
+        self.touch_deadline = time.monotonic() + .35 if args[0] or args[4] else 0
 
 
 class LocalHTTPServer(HTTPServer):
@@ -125,7 +140,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # A closing page may drop the reply to its final contact cancellation.
 
     def local(self):
         host = f"127.0.0.1:{self.server.server_port}"

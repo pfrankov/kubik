@@ -8,7 +8,7 @@ bool screen_lab_controls(const screen_lab_t *lab) {
     return (lab->selected >= LAB_RECORD && lab->selected <= LAB_LIVE) || lab->selected == LAB_EVENTS;
 }
 int screen_lab_control_y(const screen_lab_t *lab) { return (lab->selected == LAB_LIVE || lab->selected == LAB_EVENTS) ? 92 : 428; }
-static bool tess_debug_preview(int screen) { return screen >= LAB_GROW_POINT && screen <= LAB_PLAY_SELF; }
+static bool tess_debug_preview(int screen) { return screen >= LAB_GROW_POINT && screen <= LAB_PLAY_SKY; }
 static void select_model(screen_lab_t *lab, face_agent_hit_t hit) {
     agent_menu_t *m = &lab->face.agent;
         unsigned index = hit - AGENT_HIT_MODEL_0;
@@ -160,6 +160,16 @@ void screen_lab_pointer(screen_lab_t *lab, bool down, int x, int y) {
         if (row == MENU_VOLUME || row == MENU_UI_VOLUME || row == MENU_BRIGHT) menu_tap(lab, x, y);
     }
 }
+void screen_lab_contacts(screen_lab_t *lab, const touch_frame_t *frame) {
+    lab->face.touch_in = *frame;
+    int primary = touch_primary_step(&lab->primary, frame);
+    if (primary >= 0) {
+        const touch_point_t *point = &frame->point[primary];
+        screen_lab_pointer(lab, true, point->x, point->y);
+    } else {
+        screen_lab_pointer(lab, false, lab->finger.last_x, lab->finger.last_y);
+    }
+}
 void screen_lab_update(screen_lab_t *lab, float dt) {
     face_t *f = &lab->face;
     dt = fminf(0.1f, fmaxf(0.001f, dt));
@@ -172,7 +182,7 @@ void screen_lab_update(screen_lab_t *lab, float dt) {
         tess_cue_t cue; float strength, position;
         while (face_take_cue(f, &cue, &strength, &position)) {}
         tess_tone_t tone;
-        while (face_take_tone(f, &tone)) {}
+        while (face_take_tone(f, &tone)) lab->sky_release |= tone.kind == TT_SKY_RELEASE;
     }
 }
 
@@ -184,12 +194,18 @@ bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue) {
     return cue == TC_TOUCH || cue == TC_FLING || cue == TC_SWING || cue == TC_EXCITE ||
         cue == TC_DODGE || cue == TC_JOY;
 }
-bool screen_lab_tones_allowed(const screen_lab_t *lab) {
-    return !lab->face.dark && lab->selected >= LAB_GROW_POINT && lab->selected < LAB_COUNT;
+bool screen_lab_tone_allowed(const screen_lab_t *lab, const tess_tone_t *tone) {
+    return tone->kind == TT_SKY_RELEASE ||
+        (!lab->face.dark && lab->selected >= LAB_GROW_POINT && lab->selected < LAB_COUNT);
 }
 bool screen_lab_take_tone(screen_lab_t *lab, tess_tone_t *tone) {
+    if (lab->sky_release) {
+        lab->sky_release = false;
+        *tone = (tess_tone_t){.kind = TT_SKY_RELEASE, .hz = 440};
+        return true;
+    }
     while (face_take_tone(&lab->face, tone))
-        if (screen_lab_tones_allowed(lab)) return true;
+        if (screen_lab_tone_allowed(lab, tone)) return true;
     return false;
 }
 bool screen_lab_take_cue(screen_lab_t *lab, tess_cue_t *cue, float *strength, float *position) {

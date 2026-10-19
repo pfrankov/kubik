@@ -91,6 +91,26 @@ void tess_sound_release(tess_sound_t *s) {
         if (v->release > quick) v->release = quick;
     }
 }
+// A Skies exit releases only voices owned by the active round. Invitation, word, body and UI
+// sounds share the mixer, so neither the general release nor the shared reverb may be cleared.
+void tess_sound_sky_release(tess_sound_t *s) {
+    int32_t quick = decay_factor(QUICK_RELEASE_MS);
+    uint8_t kept = 0;
+    for (uint8_t i = s->pending_head; i < s->pending_count; i++) {
+        if (s->pending[i].sky_game) continue;  // a delayed note from a sky that ended never begins
+        s->pending[kept++] = s->pending[i];
+    }
+    s->pending_head = 0;
+    s->pending_count = kept;
+    for (int i = 0; i < TESS_VOICES; i++) {
+        tess_voice_t *v = &s->voices[i];
+        if (!v->stage || !v->sky_game) continue;
+        v->held = false;
+        v->goal = 0;
+        v->stage = RELEASE;
+        if (v->release > quick) v->release = quick;
+    }
+}
 // The reverb tail ends in a 200 ms linear fade (see mix_reverb_sample); joining it at once is continuous.
 void tess_sound_fade_reverb(tess_sound_t *s) {
     if (s->reverb_samples_left > 4800) s->reverb_samples_left = 4800;
@@ -113,7 +133,7 @@ static tess_voice_t make_voice(const tess_sound_t *s, const tess_note_t *n) {
         .sustain = (int32_t)n->sustain << 15, .attack_step = ENV_ONE / voice_steps_from_ms(n->attack_ms),
         .decay = decay_factor(n->decay_ms), .release = decay_factor(n->release_ms ? n->release_ms : n->decay_ms),
         .gain = n->gain, .chorus_share = n->chorus_gain, .layer_share = n->layer_gain,
-        .stage = ATTACK, .harmony = n->harmony, .bright = n->bright, .body = n->body};
+        .stage = ATTACK, .harmony = n->harmony, .bright = n->bright, .body = n->body, .sky_game = n->sky_game};
     if (n->bright) {
         v.stage = DECAY; v.env = v.partial_env = v.rise_left = ENV_ONE;
         v.rise_decay = decay_factor(n->attack_ms);

@@ -1,0 +1,107 @@
+--- esp_lcd_touch_cst9217.c
++++ esp_lcd_touch_cst9217.c
+@@ -17,6 +17,7 @@
+ #include "esp_lcd_panel_io.h"
+ #include "esp_lcd_touch.h"
+ #include "esp_lcd_touch_cst9217.h"
++#include "touch_report.h"
+ 
+ static const char *TAG = "CST9217";
+ 
+@@ -29,7 +30,8 @@
+ 
+ /* CST9217 parameters */
+ #define CST9217_ACK_VALUE 0xAB
+-#define CST9217_MAX_TOUCH_POINTS 1
++#define CST9217_MAX_TOUCH_POINTS TOUCH_POINTS
++_Static_assert(CONFIG_ESP_LCD_TOUCH_MAX_POINTS >= TOUCH_POINTS, "Touch capacity must cover both contacts");
+ #define CST9217_DATA_LENGTH (CST9217_MAX_TOUCH_POINTS * 5 + 5)
+ 
+ /*******************************************************************************
+@@ -37,6 +39,7 @@
+  *******************************************************************************/
+ static esp_err_t esp_lcd_touch_cst9217_read_data(esp_lcd_touch_handle_t tp);
+ static bool esp_lcd_touch_cst9217_get_xy(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num);
++static esp_err_t cst9217_get_track_id(esp_lcd_touch_handle_t tp, uint8_t *ids, uint8_t count);
+ static esp_err_t esp_lcd_touch_cst9217_del(esp_lcd_touch_handle_t tp);
+ static esp_err_t cst9217_read_reg(esp_lcd_touch_handle_t tp, uint16_t reg, uint8_t *data, size_t len);
+ static esp_err_t cst9217_write_reg(esp_lcd_touch_handle_t tp, uint16_t reg, uint8_t *data, size_t len);
+@@ -64,6 +67,7 @@
+     /* Set callbacks */
+     cst9217->read_data = esp_lcd_touch_cst9217_read_data;
+     cst9217->get_xy = esp_lcd_touch_cst9217_get_xy;
++    cst9217->get_track_id = cst9217_get_track_id;
+     cst9217->del = esp_lcd_touch_cst9217_del;
+ 
+     /* Mutex init */
+@@ -121,36 +125,29 @@
+ {
+     uint8_t data[CST9217_DATA_LENGTH] = {0};
+     esp_err_t ret = ESP_OK;
++    portENTER_CRITICAL(&tp->data.lock);
++    tp->data.points = 0;
++    portEXIT_CRITICAL(&tp->data.lock);
+ 
+     ESP_GOTO_ON_ERROR(
+         cst9217_read_reg(tp, ESP_LCD_TOUCH_CST9217_DATA_REG, data, sizeof(data)),
+         err, TAG, "Read data failed");
+ 
+-    if (data[6] != CST9217_ACK_VALUE) {
+-        // ESP_LOGE(TAG, "Invalid ACK: 0x%02X vs 0x%02X", data[6], CST9217_ACK_VALUE);
+-        return ESP_ERR_INVALID_RESPONSE;
+-    }
+-
+-    uint8_t points = data[5] & 0x7F;
+-    points = (points > CST9217_MAX_TOUCH_POINTS) ? CST9217_MAX_TOUCH_POINTS : points;
++    /* Acknowledge every received report, including empty or malformed frames. */
++    const uint8_t ack[] = {0x00, CST9217_ACK_VALUE};
++    ESP_GOTO_ON_ERROR(esp_lcd_panel_io_tx_param(tp->io, 0xD0, ack, sizeof(ack)),
++                      err, TAG, "Report ACK failed");
++    touch_report_t report;
++    if (!touch_report_decode(data, sizeof(data), &report)) return ESP_ERR_INVALID_RESPONSE;
+ 
+     portENTER_CRITICAL(&tp->data.lock);
+-    tp->data.points = 0;
+-    for (int i = 0; i < points; i++) {
+-        uint8_t *p = &data[i * 5 + (i ? 2 : 0)];
+-        uint8_t status = p[0] & 0x0F;
+-
+-        if (status == 0x06) {
+-            tp->data.coords[i].x = ((p[1] << 4) | (p[3] >> 4));
+-            tp->data.coords[i].y = ((p[2] << 4) | (p[3] & 0x0F));
+-            tp->data.points++;
+-
+-            ESP_LOGV(TAG, "Point %d: X=%d, Y=%d",
+-                    i, tp->data.coords[i].x, tp->data.coords[i].y);
+-        }
+-    }
++    for (uint8_t i = 0; i < report.count; i++) {
++        tp->data.coords[i].x = report.point[i].x;
++        tp->data.coords[i].y = report.point[i].y;
++        tp->data.coords[i].track_id = report.point[i].id;
++    }
++    tp->data.points = report.count;
+     portEXIT_CRITICAL(&tp->data.lock);
+-
+     return ret;
+ 
+ err:
+@@ -182,6 +179,18 @@
+     return (*point_num > 0);
+ }
+ 
++static esp_err_t cst9217_get_track_id(esp_lcd_touch_handle_t tp, uint8_t *ids, uint8_t count)
++{
++    portENTER_CRITICAL(&tp->data.lock);
++    if (count > tp->data.points) {
++        portEXIT_CRITICAL(&tp->data.lock);
++        return ESP_ERR_INVALID_ARG;
++    }
++    for (uint8_t i = 0; i < count; i++) ids[i] = tp->data.coords[i].track_id;
++    portEXIT_CRITICAL(&tp->data.lock);
++    return ESP_OK;
++}
++
+ static esp_err_t esp_lcd_touch_cst9217_del(esp_lcd_touch_handle_t tp)
+ {
+     if (tp->config.rst_gpio_num != GPIO_NUM_NC)

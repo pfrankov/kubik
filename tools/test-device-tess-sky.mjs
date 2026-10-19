@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Runs on the installed ESP32 through its native touch sampler. No provider calls.
-// Starts Tess Skies at each depth of the element ladder (ELEMENTS=1,..,10), puts the tools, relays and an aimed source
-// where the composed solution has them (a finger or tilt for the skies that need one), and checks that the sky resolves
-// into its own melody, that the frames keep their pace while it plays and resolves, and that the speaker is never starved.
+// Starts each saved progression depth, drives its verified solution through the real input sampler,
+// and checks completion, melody, frame pacing and speaker feed. Never changes level geometry.
 import assert from 'node:assert/strict';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {setDeviceScreen, assertIdleCapture, flushStats} from './test-device/diagnostics.mjs';
@@ -41,8 +40,7 @@ async function solve(elements, skill) {
   const end = performance.now()+SOLVE_MS;
   let s = first;
   while (performance.now()<end && s.active && s.phase===PHASE.play) {
-    if (first.kind===1) await sim('gravity',{x:first.gx,y:first.gy,ms:600});                              // poured: tilt
-    else if (first.tools===0&&first.relays===0&&!first.aim) await sim('pointer',{down:true,x:Math.round(first.sx),y:Math.round(first.sy)});  // nothing to set: a finger
+    await sim('sky-solve'); // Refreshes the same expiring finger/tilt lease as normal input.
     await sleep(120);
     s = await sky();
   }
@@ -110,7 +108,7 @@ async function main() {
     for (const elements of (process.env.ELEMENTS ?? '1,2,3,4,5,6,7,8,9,10').split(',').map(Number)) {
       const r = await solve(elements, 100);
       const frames = r.played.frames + r.resolved.frames, late = r.played.late + r.resolved.late;
-      report.push({elements, kind:r.first.kind, stars:r.first.stars, tools:r.first.tools, relays:r.first.relays, aim:r.first.aim, phase:r.phase, sung:`${r.sung}/${r.melody}`, frames, late, lateIn:`${r.played.late}+${r.resolved.late}`,
+      report.push({elements, kind:r.first.kind, stars:r.first.stars, holes:r.first.holes, finger:r.first.finger, phase:r.phase, sung:`${r.sung}/${r.melody}`, frames, late, lateIn:`${r.played.late}+${r.resolved.late}`,
         faceUs:`${r.played.face}+${r.resolved.face}`, shapesUs:`${r.played.shapes}+${r.resolved.shapes}`, sendUs:`${r.played.send}+${r.resolved.send}`,
         maxMs:+Math.max(r.played.maxMs, r.resolved.maxMs).toFixed(1), meanMs:+((r.played.meanMs+r.resolved.meanMs)/2).toFixed(1)});
       console.log(JSON.stringify(report.at(-1)));

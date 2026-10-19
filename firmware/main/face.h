@@ -7,6 +7,7 @@
 #include "render.h"
 #include "character.h"
 #include "rub.h"
+#include "touch_input.h"
 #include "agent_menu.h"
 #include "tess_cue.h"
 #include "tess_feel.h"
@@ -249,6 +250,7 @@ typedef struct {
     rub_t rub;                                        // petting effort (both characters)
     bool rub_love;                                    // the love on show came from rubbing (Plush: no hug clip, see face_body.c)
     rub_input_t rub_in;                               // input: the finger's stroke since the last update (consumed by it)
+    touch_frame_t touch_in;                           // complete contacts, indexed by stable controller ID
     bool tess_fallen;                                 // offline: loose particles lying where gravity pulls
     uint8_t tess_contact_wait[TESS_N], tess_contact_cursor;
     float tess_twinkle_age[TESS_TWINKLES], tess_twinkle_rise[TESS_TWINKLES], tess_twinkle_fade[TESS_TWINKLES];  // offline shimmer: points brighten and fade, overlapping (a slot is free once age is past rise + fade)

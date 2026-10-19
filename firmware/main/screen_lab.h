@@ -9,7 +9,7 @@ typedef enum {
     LAB_RECORD, LAB_THINK, LAB_SPEAK, LAB_LIVE, LAB_TEXT, LAB_OFFLINE, LAB_ERROR,
     LAB_BACKGROUND, LAB_REMINDER, LAB_EVENTS, LAB_EVENT_LOG,
     LAB_GROW_POINT, LAB_GROW_SQUARE, LAB_GROW_CUBE, LAB_GROW_TESSERACT,
-    LAB_PLAY_PLUCK, LAB_PLAY_BLOOM, LAB_PLAY_STRETCH, LAB_PLAY_FLY, LAB_PLAY_GATHER, LAB_PLAY_SELF,
+    LAB_PLAY_PLUCK, LAB_PLAY_BLOOM, LAB_PLAY_STRETCH, LAB_PLAY_FLY, LAB_PLAY_GATHER, LAB_PLAY_SELF, LAB_PLAY_SKY,
     LAB_COUNT
 } lab_screen_t;
 typedef enum { LAB_TAP, LAB_BOOT, LAB_KEY, LAB_MENU, LAB_POWER, LAB_HOLD } lab_event_t;
@@ -17,9 +17,10 @@ typedef struct {
     face_t face;
     uint8_t qr[QR_MAX_N * QR_MAX_N];
     rub_track_t finger;
+    touch_primary_t primary;
     menu_service_t service;
     int selected, page, character;
-    bool signal, overlay;
+    bool signal, overlay, sky_release; // pending audio cleanup survives replacing face
     int volume, ui_volume, brightness;
     uint8_t model_choice[5], event_step;
 } screen_lab_t;
@@ -34,6 +35,7 @@ void screen_lab_dispose(screen_lab_t *lab);
 void screen_lab_select(screen_lab_t *lab, int screen);
 void screen_lab_event(screen_lab_t *lab, lab_event_t event, int x, int y);
 void screen_lab_pointer(screen_lab_t *lab, bool down, int x, int y);
+void screen_lab_contacts(screen_lab_t *lab, const touch_frame_t *frame);
 void screen_lab_update(screen_lab_t *lab, float dt);
 void screen_lab_draw(screen_lab_t *lab, scene_t *scene);
 bool screen_lab_controls(const screen_lab_t *lab);
@@ -41,8 +43,8 @@ int screen_lab_control_y(const screen_lab_t *lab);
 
 bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue);
 bool screen_lab_take_cue(screen_lab_t *lab, tess_cue_t *cue, float *strength, float *position);
-// Tess's body sounds play only in her growth and play previews (local, never provider speech).
-bool screen_lab_tones_allowed(const screen_lab_t *lab);
+// Body sounds belong to growth/play previews; an old sky's release also passes through quiet screens.
+bool screen_lab_tone_allowed(const screen_lab_t *lab, const tess_tone_t *tone);
 bool screen_lab_take_tone(screen_lab_t *lab, tess_tone_t *tone);
 
 void screen_lab_demo_event(screen_lab_t *lab);

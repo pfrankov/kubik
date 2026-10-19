@@ -59,13 +59,13 @@ static void game_state(char *reply, size_t cap) {
              v.x, v.y, v.waves, v.bloom, v.tone_kinds, v.spin, v.tilt_x, v.tilt_y, v.excite, v.annoy, v.fear, v.fond, v.pull,
              v.speed, v.squash, v.self_act, v.shaping ? "true" : "false", v.burst, v.form);
 }
-// Skies on the installed device: start one at a given depth, read it, and put its tools where the solution has them.
+// Skies diagnostics use real, expiring finger/tilt input; they never move level geometry to solve it.
 static uint32_t s_sky_saved;       // the player's own progress, taken before the first forced sky
 static bool s_sky_kept;
 static atomic_int s_sky_request;   // elements << 8 | skill; 0 none (the face's own task starts it: this task's stack is small)
 static bool sky_start(cJSON *j) {
     cJSON *el = cJSON_GetObjectItemCaseSensitive(j, "elements"), *sk = cJSON_GetObjectItemCaseSensitive(j, "skill");
-    if (!cJSON_IsNumber(el) || el->valueint < 1 || el->valueint > EL_COUNT || !cJSON_IsNumber(sk) || sk->valueint < 0 || sk->valueint > 255)
+    if (!cJSON_IsNumber(el) || el->valueint < 1 || el->valueint > SKY_LESSONS || !cJSON_IsNumber(sk) || sk->valueint < 0 || sk->valueint > 255)
         return false;
     if (!s_sky_kept) {
         bool settled;
@@ -94,11 +94,20 @@ static bool sky_restore(void) {
     return idle;
 }
 static bool sky_solve(void) {
+    sky_force_t force = {0};
     face_lock();
-    tess_sky_t *k = g_face.tess_games.sky;
-    if (k) sky_scramble_back(&k->w);
+    const tess_sky_t *k = g_face.tess_games.sky;
+    bool playing = k && k->phase == SKY_PLAY;
+    if (playing) {
+        sky_solution(&k->w, &force);
+        float scale = k->w.kind == SKY_POUR ? 1.f : SKY_TILT_SCALE;
+        force.gx /= scale; force.gy /= scale;
+    }
     face_unlock();
-    return k != NULL;
+    if (!playing) return false;
+    s_gravity[0] = force.gx; s_gravity[1] = force.gy;
+    s_gravity_until = now_ms() + 350;
+    return input_probe_sample(force.count > 0, force.count ? (int)force.touch[0].x : 0, force.count ? (int)force.touch[0].y : 0);
 }
 static void sky_state(char *reply, size_t cap) {
     face_lock();
@@ -111,11 +120,12 @@ static void sky_state(char *reply, size_t cap) {
                      k ? "true" : "false", g->sky_elements, g->sky_skill, g->sky_solved, g->sky_root, g->sky_invite_t, g->sky_call[0], g->sky_call[1],
                      packed, (unsigned long)g_settings.sky_progress);
     if (k && n > 0 && (size_t)n < cap) {
-        int full = 0, relays = 0;
-        for (int i = 0; i < k->w.count_stars; i++) { full += k->w.star[i].fill >= SKY_FULL; relays += k->w.star[i].relay; }
-        snprintf(reply + n, cap - (size_t)n, ",\"phase\":%u,\"kind\":%u,\"stars\":%u,\"full\":%d,\"tools\":%u,\"relays\":%d,\"aim\":%s,"
+        int full = 0, touches = 0;
+        for (int i = 0; i < k->w.count_stars; i++) full += k->w.star[i].fill >= SKY_FULL;
+        for (int i = 0; i < SKY_TOUCHES; i++) touches += k->touch[i].down;
+        snprintf(reply + n, cap - (size_t)n, ",\"phase\":%u,\"kind\":%u,\"stars\":%u,\"full\":%d,\"holes\":%u,\"touches\":%d,\"finger\":%s,"
                  "\"gx\":%.2f,\"gy\":%.2f,\"hold\":%.2f,\"t\":%.1f,\"here\":%u,\"sx\":%.0f,\"sy\":%.0f,\"melody\":%u,\"sung\":%u}",
-                 k->phase, k->w.kind, k->w.count_stars, full, k->w.count_tools, relays, k->w.source.aim ? "true" : "false",
+                 k->phase, k->w.kind, k->w.count_stars, full, k->w.count_holes, touches, k->w.touch_solution ? "true" : "false",
                  k->w.gravity[0], k->w.gravity[1], k->hold, k->w.t, k->solved_here,
                  k->w.count_stars ? k->w.star[0].x : 0.f, k->w.count_stars ? k->w.star[0].y : 0.f, k->melody.n, k->melody_next);
     } else if (n > 0 && (size_t)n < cap) snprintf(reply + n, cap - (size_t)n, "}");

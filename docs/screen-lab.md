@@ -37,6 +37,11 @@ without interaction closes the lab and frees its fixture memory.
   the form fixtures restore point, square, cube and tesseract
   progress masks of 0, 1, 7 and 63 respectively. All four forms allow natural
   gesture discovery without changing durable progress.
+- Play: skies: a hidden Tess-only Screen Lab preview of Skies through the same
+  renderer in the browser emulator. It is a developer fixture, not an ordinary
+  game-menu entry or gameplay button; preview play does not change saved progress.
+  BOOT, KEY replay and selecting another screen release the old sky's held and
+  delayed notes before the new preview's tones, including when the next screen is silent.
 - Text reply and Error: real card and bubble layouts.
 - Background work and Reminder: rotating clock and countdown, without creating jobs.
 - Agent events: Next or KEY advances a local sequence through connection, thinking,
