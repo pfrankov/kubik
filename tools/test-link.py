@@ -166,7 +166,7 @@ int main(void) {
     feed_status("unavailable",42);assert(!link_up()&&events[3]=='D'&&link_usb_host_present());
     usb_json(42,welcome);assert(!link_up()); // delayed old welcome cannot revive a failed epoch
     atomic_store(&s_host_seen,false);nevents=0;
-    assert(ws_start(g_settings.server_url));assert(last_ws_buffer==1280);assert(s_ws_rx==NULL);assert(!link_up());
+    assert(ws_start(g_settings.server_url, 0));assert(last_ws_buffer==1280);assert(s_ws_rx==NULL);assert(!link_up());
     char hello[1024];assert(link_make_hello(hello,sizeof hello));assert(strstr(hello,"quoted\\\""));check_hello(hello);
     devkey_ok=false;assert(!link_make_hello(hello,sizeof hello));devkey_ok=true; // no key, no hello
     assert(link_make_hello(hello,sizeof hello));
@@ -257,10 +257,10 @@ int main(void) {
     ws_stop();ws_event((void*)&before_json,NULL,WEBSOCKET_EVENT_DISCONNECTED,NULL);
     assert(!strcmp(link_via(),"usb")); // stale WS stop/disconnect cannot drop USB
     feed_status("disabled",45);nevents=0;
-    fail_init=1;assert(!ws_start(g_settings.server_url)&&s_ws==NULL);fail_init=0;
-    fail_register=1;assert(!ws_start(g_settings.server_url)&&s_ws==NULL);fail_register=0;
-    fail_start=1;assert(!ws_start(g_settings.server_url)&&s_ws==NULL);fail_start=0;
-    fail_rx=true;assert(ws_start(g_settings.server_url));assert(s_ws_connected&&!s_ws_failed&&s_ws_rx==NULL);
+    fail_init=1;assert(!ws_start(g_settings.server_url, 0)&&s_ws==NULL);fail_init=0;
+    fail_register=1;assert(!ws_start(g_settings.server_url, 0)&&s_ws==NULL);fail_register=0;
+    fail_start=1;assert(!ws_start(g_settings.server_url, 0)&&s_ws==NULL);fail_start=0;
+    fail_rx=true;assert(ws_start(g_settings.server_url, 0));assert(s_ws_connected&&!s_ws_failed&&s_ws_rx==NULL);
     esp_websocket_event_data_t unexpected={.op_code=1,.payload_len=2,.data_len=2,.data_ptr="{}"};
     ws_event(s_ws,NULL,WEBSOCKET_EVENT_DATA,&unexpected); // allocation failure cannot copy to NULL
     assert(!s_ws_connected&&s_ws_failed&&s_ws_rx==NULL);
@@ -321,25 +321,25 @@ int main(void) {
     assert(nevents==2&&events[0]=='U'&&events[1]=='W');
     ws_stop();
     // ---- refusals and connection problems
-    assert(ws_start(g_settings.server_url) && wake_transport_busy); s_ws_hello_sent=true;
+    assert(ws_start(g_settings.server_url, 0) && wake_transport_busy); s_ws_hello_sent=true;
     ws_text("{\"t\":\"error\",\"code\":\"unauthorized\"}");assert(link_last_problem()==LINK_REFUSED&&!link_up());
     ws_stop();
-    connect_on_start=false;assert(ws_start(g_settings.server_url)); // HTTP upgrade answered 404: web server, no Kubik plugin
+    connect_on_start=false;assert(ws_start(g_settings.server_url, 0)); // HTTP upgrade answered 404: web server, no Kubik plugin
     ws_error(WEBSOCKET_ERROR_TYPE_HANDSHAKE,404);assert(link_last_problem()==LINK_NO_PLUGIN&&s_ws_failed);
     ws_stop();connect_on_start=true;
-    assert(ws_start(g_settings.server_url) && wake_transport_busy); s_ws_hello_sent=true;
+    assert(ws_start(g_settings.server_url, 0) && wake_transport_busy); s_ws_hello_sent=true;
     esp_websocket_event_data_t close4001={.op_code=8,.payload_len=2,.data_len=2,.data_ptr="\x0f\xa1"};
     ws_event(s_ws,NULL,WEBSOCKET_EVENT_DATA,&close4001);assert(link_last_problem()==LINK_REFUSED&&!link_up());
     ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);assert(link_last_problem()==LINK_REFUSED&&s_ws_failed);
     ws_stop();
-    assert(ws_start(g_settings.server_url) && wake_transport_busy); s_ws_hello_sent=true;
+    assert(ws_start(g_settings.server_url, 0) && wake_transport_busy); s_ws_hello_sent=true;
     esp_websocket_event_data_t close1000={.op_code=8,.payload_len=2,.data_len=2,.data_ptr="\x03\xe8"};
     ws_event(s_ws,NULL,WEBSOCKET_EVENT_DATA,&close1000);assert(link_last_problem()==LINK_REFUSED); // unchanged
     ws_error(WEBSOCKET_ERROR_TYPE_HANDSHAKE,502);assert(link_last_problem()==LINK_NO_PLUGIN);
     ws_stop();
-    assert(ws_start(g_settings.server_url)); // TCP failure after connecting is not "no server"
+    assert(ws_start(g_settings.server_url, 0)); // TCP failure after connecting is not "no server"
     ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);assert(link_last_problem()==LINK_NO_PLUGIN);ws_stop();
-    connect_on_start=false;assert(ws_start(g_settings.server_url)); // DNS/TCP/TLS failure before connecting
+    connect_on_start=false;assert(ws_start(g_settings.server_url, 0)); // DNS/TCP/TLS failure before connecting
     ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);assert(link_last_problem()==LINK_NO_SERVER&&s_ws_failed);
     ws_stop();connect_on_start=true;
     assert(allocations==destroys);
@@ -401,17 +401,17 @@ int main(void) {
     int t0=target_stops;wifi_connected=false;manager_run(1);assert(!link_up()&&target_stops>t0);wifi_connected=true;
     // A different key fails TLS; the screen says so and later failures do not hide it.
     char retry_uri[sizeof last_uri];snprintf(retry_uri,sizeof retry_uri,"%s",last_uri);
-    assert(!strcmp(retry_uri,last_uri));connect_on_start=false;assert(ws_start(retry_uri));pin_mismatch=true;
+    assert(!strcmp(retry_uri,last_uri));connect_on_start=false;assert(ws_start(retry_uri, 0));pin_mismatch=true;
     ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);manager_run(1);assert(link_last_problem()==LINK_KEY_CHANGED);
-    ws_stop();assert(ws_start(retry_uri));ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);
+    ws_stop();assert(ws_start(retry_uri, 0));ws_error(WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,0);
     assert(link_last_problem()==LINK_KEY_CHANGED);ws_stop();connect_on_start=true;
     target_result=TARGET_NOT_FOUND;time_ms+=60000;manager_run(20);assert(link_last_problem()==LINK_KEY_CHANGED);
     target_result=TARGET_READY;
-    strcpy(g_settings.server_url,"kubik://mac.local");assert(!ws_start(g_settings.server_url));assert(ws_start("wss://mac.local:18790/kubik/v1")&&last_attach==link_pin_attach);
+    strcpy(g_settings.server_url,"kubik://mac.local");assert(!ws_start(g_settings.server_url, 0));assert(ws_start("wss://mac.local:18790/kubik/v1", 0)&&last_attach==link_pin_attach);
     char endpoint[160]; atomic_store(&s_via,VIA_WIFI); link_endpoint(endpoint,sizeof endpoint);
     assert(!strcmp(endpoint,"wss://mac.local:18790/kubik/v1"));
     atomic_store(&s_via,VIA_NONE); link_endpoint(endpoint,sizeof endpoint); assert(!endpoint[0]); ws_stop();
-    strcpy(g_settings.server_url,"wss://server");assert(ws_start(g_settings.server_url)&&last_attach==esp_crt_bundle_attach);ws_stop();
+    strcpy(g_settings.server_url,"wss://server");assert(ws_start(g_settings.server_url, 0)&&last_attach==esp_crt_bundle_attach);ws_stop();
     // Transient poll failure can retry, but respects backoff and a fixed attempt cap.
     clock_ready=true;poll_mode=true;poll_attempts=0;fail_start=1;n0=nattempts;
     manager_run(200);assert(nattempts==n0+3&&!s_ws&&poll_attempts==3);

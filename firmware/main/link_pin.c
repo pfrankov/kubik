@@ -22,6 +22,7 @@ static uint8_t s_usb_key[SETTINGS_PIN_BYTES];
 static char s_usb_bind[LINK_BIND_MAX];
 static uint32_t s_usb_epoch;
 static bool s_usb_seen;
+static uint64_t s_wifi_revision, s_usb_revision;
 
 server_mode_t link_server_mode(const char *url) {
     if (!url[0]) return SERVER_LAN_DISCOVER;
@@ -66,7 +67,10 @@ esp_err_t link_pin_attach(void *ssl_conf) {
     return ESP_OK;
 }
 
-void link_pin_begin_wifi(void) { atomic_store(&s_wifi_seen, false); }
+void link_pin_begin_wifi(uint64_t revision) {
+    atomic_store(&s_wifi_seen, false);
+    s_wifi_revision = revision;
+}
 
 static bool parse_key(const char *hex, uint8_t key[SETTINGS_PIN_BYTES]) {
     if (strlen(hex) != SETTINGS_PIN_BYTES * 2) return false;
@@ -80,6 +84,7 @@ static bool parse_key(const char *hex, uint8_t key[SETTINGS_PIN_BYTES]) {
 
 void link_pin_usb_bind(uint32_t epoch, const char *bind, size_t len) {
     s_usb_seen = false;
+    s_usb_revision = settings_connection_revision();
     if (!len || len >= LINK_BIND_MAX) return;
     memcpy(s_usb_bind, bind, len);
     s_usb_bind[len] = 0;
@@ -128,10 +133,13 @@ void link_pin_keep(bool usb, uint32_t epoch) {
     bool seen = usb ? s_usb_seen && s_usb_epoch == epoch : atomic_load(&s_wifi_seen);
     if (!seen) return;
     app_wake_configuration_busy(true);
-    esp_err_t err = settings_save_pin(key);
+    esp_err_t err = settings_save_pin(key, usb ? s_usb_revision : s_wifi_revision);
     app_wake_configuration_busy(false);
     if (err == ESP_OK) ESP_LOGI(TAG, "server key pinned");
-    else ESP_LOGW(TAG, "could not keep the server key: %s", esp_err_to_name(err));
+    else if (err == ESP_ERR_INVALID_STATE) {
+        if (usb) s_usb_seen = false;
+        else atomic_store(&s_wifi_seen, false);
+    } else ESP_LOGW(TAG, "could not keep the server key: %s", esp_err_to_name(err));
 }
 
 bool link_pin_take_mismatch(void) { return atomic_exchange(&s_mismatch, false); }

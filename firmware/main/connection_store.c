@@ -337,18 +337,19 @@ esp_err_t connection_store_save_network(connection_record_t *record,
     return update(record, mutate_network, &context, &publish);
 }
 
-typedef struct { const uint8_t *pin; } pin_context_t;
+typedef struct { const uint8_t *pin; uint64_t revision; } pin_context_t;
 
 static esp_err_t mutate_pin(connection_record_t *record, const void *opaque) {
     const pin_context_t *context = opaque;
+    if (record->network_revision != context->revision) return ESP_ERR_INVALID_STATE;
     memcpy(record->server_pin, context->pin, sizeof record->server_pin);
     record->flags |= CONNECTION_RECORD_PIN_SET;
     return ESP_OK;
 }
 
-esp_err_t connection_store_save_pin(connection_record_t *record, const uint8_t pin[SETTINGS_PIN_BYTES]) {
+esp_err_t connection_store_save_pin(connection_record_t *record, const uint8_t pin[SETTINGS_PIN_BYTES], uint64_t expected_revision) {
     if (!pin) return ESP_ERR_INVALID_ARG;
-    pin_context_t context = {pin};
+    pin_context_t context = {pin, expected_revision};
     connection_publish_t publish = CONNECTION_PUBLISH_PIN;
     return update(record, mutate_pin, &context, &publish);
 }

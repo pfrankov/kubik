@@ -288,7 +288,7 @@ static void test_setup_connection_and_agent_share_record(void) {
     settings_load();
     assert(settings_save_connection("previous-net", "previous-pass", "kubik://previous.local") == ESP_OK);
     uint8_t pin[SETTINGS_PIN_BYTES] = {0x5a};
-    assert(settings_save_pin(pin) == ESP_OK);
+    assert(settings_save_pin(pin, settings_connection_revision()) == ESP_OK);
     char token[49] = "mgst_";
     memset(token + 5, 'A', 43); token[48] = 0;
     assert(muse_store_begin(token) == ESP_OK);
@@ -322,7 +322,7 @@ static void test_factory_reset(void) {
     uint8_t pin[SETTINGS_PIN_BYTES] = {0xa5};
     nvs_set_blob(1, "devkey", key, sizeof key);
     assert(settings_save_connection("Odin", "odin-password", "kubik://box.local") == ESP_OK);
-    assert(settings_save_pin(pin) == ESP_OK);
+    assert(settings_save_pin(pin, settings_connection_revision()) == ESP_OK);
     settings_load();
     g_settings.volume = 15; g_settings.brightness = 40; g_settings.greeted = true;
     assert(settings_complete_guide() == ESP_OK);

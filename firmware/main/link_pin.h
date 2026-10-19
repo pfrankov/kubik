@@ -23,12 +23,12 @@ server_mode_t link_server_mode(const char *url);
 // esp_websocket_client crt_bundle_attach hook for LAN mode: installs the pinning verify callback.
 esp_err_t link_pin_attach(void *ssl_conf);
 // A new Wi-Fi connection attempt: forget the key the previous one saw.
-void link_pin_begin_wifi(void);
+void link_pin_begin_wifi(uint64_t revision);
 // USB frame 0x23 for `epoch`: remembers the bind unless it contradicts the pin.
 void link_pin_usb_bind(uint32_t epoch, const char *bind, size_t len);
 // The bind to sign for a challenge on this route; false when there is none (no auth then).
 bool link_pin_bind(bool usb, uint32_t epoch, char out[LINK_BIND_MAX]);
-// After a welcome on this route: LAN mode keeps the key it trusted on first use.
+// After a welcome: keep this route's key only if its saved connection intent is still current.
 void link_pin_keep(bool usb, uint32_t epoch);
 // True once after a handshake or USB bind met a different key than the pinned one.
 bool link_pin_take_mismatch(void);

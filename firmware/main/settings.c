@@ -92,6 +92,7 @@ void settings_apply_connection_record(const connection_record_t *record) {
     settings_test_apply_hook(record);
 #endif
     settings_t *s = &g_settings;
+    s->connection_revision = record->network_revision;
     s->wifi_profile_count = record->networks.count;
     memcpy(s->wifi_profiles, record->networks.profiles, sizeof s->wifi_profiles);
     memcpy(s->server_url, record->networks.url, sizeof s->server_url);
@@ -342,10 +343,17 @@ esp_err_t settings_save_setup(const char *ssid, const char *password, const char
     return err;
 }
 
-esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES]) {
+uint64_t settings_connection_revision(void) {
+    if (app_nvs_lock() != ESP_OK) return UINT64_MAX;
+    uint64_t revision = g_settings.connection_revision;
+    app_nvs_unlock();
+    return revision;
+}
+
+esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES], uint64_t expected_revision) {
     connection_record_t *record = calloc(1, sizeof *record);
     if (!record) return ESP_ERR_NO_MEM;
-    esp_err_t err = connection_store_save_pin(record, pin);
+    esp_err_t err = connection_store_save_pin(record, pin, expected_revision);
     muse_store_wipe(record, sizeof *record);
     free(record);
     return err;

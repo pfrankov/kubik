@@ -15,8 +15,10 @@ void app_wake_configuration_busy(bool busy) {
     configuration_leases += busy ? 1 : -1; assert(configuration_leases >= 0);
 }
 const char *esp_err_to_name(esp_err_t err) { (void)err; return "test"; }
-esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES]) {
+uint64_t settings_connection_revision(void) { return g_settings.connection_revision; }
+esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES], uint64_t expected_revision) {
     assert(configuration_leases > 0);
+    if (expected_revision != g_settings.connection_revision) return ESP_ERR_INVALID_STATE;
     memcpy(g_settings.server_pin, pin, SETTINGS_PIN_BYTES);
     g_settings.server_pinned = true;
     pin_saves++;
@@ -129,7 +131,7 @@ static void test_wifi_pinning(void) {
     uint32_t flags;
     strcpy(g_settings.server_url, "");
     assert(link_pin_attach(NULL) == ESP_OK && installed_ca && installed_verify);
-    link_pin_begin_wifi();
+    link_pin_begin_wifi(settings_connection_revision());
     assert(!link_pin_bind(false, 0, bind));  // no handshake yet: nothing to sign
     // First use: any key is accepted and remembered for this connection only.
     assert(handshake("abc", &flags) == 0 && flags == 0);
@@ -140,9 +142,9 @@ static void test_wifi_pinning(void) {
     link_pin_keep(false, 0);
     assert(pin_saves == 1);
     // The same key again is trusted; another one fails the handshake and is reported once.
-    link_pin_begin_wifi();
+    link_pin_begin_wifi(settings_connection_revision());
     assert(handshake("abc", &flags) == 0 && flags == 0);
-    link_pin_begin_wifi();
+    link_pin_begin_wifi(settings_connection_revision());
     assert(handshake("abd", &flags) == 0 && flags != 0);
     assert(!link_pin_bind(false, 0, bind));
     assert(link_pin_take_mismatch() && !link_pin_take_mismatch());
@@ -181,6 +183,33 @@ static void test_usb_binding(void) {
     assert(!link_pin_bind(true, 10, bind));
     link_pin_usb_bind(10, "ca:Gw", 5);
     assert(!link_pin_bind(true, 10, bind));
+}
+
+static void test_old_route_cannot_repin_new_intent(void) {
+    uint32_t flags;
+    strcpy(g_settings.server_url, "kubik://old-server");
+    g_settings.server_pinned = false;
+    link_pin_begin_wifi(settings_connection_revision());
+    assert(handshake("abc", &flags) == 0 && !flags);
+    link_pin_usb_bind(20, ABC, strlen(ABC));
+    int before = pin_saves;
+    // Saving even the same address is a new trust decision; the old ready socket must not pin it.
+    g_settings.connection_revision++;
+    link_pin_keep(false, 0);
+    link_pin_keep(true, 20);
+    assert(!g_settings.server_pinned && pin_saves == before && !configuration_leases);
+    // A target derived before a save must retain its old revision even if startup is delayed.
+    uint64_t target_revision = settings_connection_revision();
+    g_settings.connection_revision++;
+    link_pin_begin_wifi(target_revision);
+    assert(handshake("abd", &flags) == 0 && !flags);
+    link_pin_keep(false, 0);
+    assert(!g_settings.server_pinned && pin_saves == before);
+    // A new authenticated route for the current intent may pin normally.
+    link_pin_begin_wifi(settings_connection_revision());
+    assert(handshake("abd", &flags) == 0 && !flags);
+    link_pin_keep(false, 0);
+    assert(g_settings.server_pinned && pin_saves == before + 1);
 }
 
 static void reply(const char *text, const char *from) {
@@ -232,6 +261,7 @@ int main(void) {
     test_modes();
     test_wifi_pinning();
     test_usb_binding();
+    test_old_route_cannot_repin_new_intent();
     test_targets();
     puts("pin: TOFU after welcome, pinned match/mismatch without re-pin, USB bind checks, CA host binding and rejected plaintext address, "
          "kubik:// targets and LAN discovery passed");

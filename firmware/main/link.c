@@ -241,7 +241,7 @@ static void ws_stop(void) {
     free(rx);
     xSemaphoreGive(s_ws_io_mtx);
 }
-static bool ws_start(const char *uri) {
+static bool ws_start(const char *uri, uint64_t revision) {
     if (strncmp(uri, "wss://", 6)) return false;
     bool pinned = link_server_mode(g_settings.server_url) <= SERVER_LAN_FIXED;
     app_wake_transport_busy(true);
@@ -269,7 +269,7 @@ static bool ws_start(const char *uri) {
     s_ws_connected = s_ws_ready = s_ws_failed = s_ws_hello_sent = false;
     s_ws_started_ms = now_ms();
     s_ws_attempt_ms = WSS_ATTEMPT_MS;
-    link_pin_begin_wifi();
+    link_pin_begin_wifi(revision);
     xSemaphoreGive(s_route_mtx);
     esp_err_t err = esp_websocket_register_events(ws, WEBSOCKET_EVENT_ANY, ws_event, ws);
     if (err == ESP_OK) err = esp_websocket_client_start(ws);
@@ -377,7 +377,6 @@ static bool manager_usb_probe_locked(manager_state_t *s) {
     }
     return usb_probe_pending_locked(s->now);
 }
-// The server key: bind for a pending challenge, pin after a welcome, report a changed key.
 static void manager_pin_locked(manager_state_t *s) {
     if (s->nonce[0]) s->bound = link_pin_bind(s->nonce_usb, s->nonce_epoch, s->bind);
     if (s_ws_ready) link_pin_keep(false, 0);
@@ -440,14 +439,15 @@ static void manager_stop_wifi(manager_state_t *s) {
     if (s->has_ws) ws_stop();
     link_target_stop();
 }
-// LAN discovery takes a few ticks; a server that is not found counts as a failed attempt.
 static void manager_connect(manager_state_t *s, manager_retry_t *r) {
     if (!manager_wifi_ok() || !wifi_radio_started()) return;
+    uint64_t revision = settings_connection_revision();
     char uri[160];
     link_target_t target = link_target(s->now, uri, sizeof uri);
     if (target == TARGET_WAITING) return;
+    if (revision != settings_connection_revision()) { link_target_stop(); return; }
     wifi_link_attempt_started();
-    if (target == TARGET_READY && ws_start(uri)) {
+    if (target == TARGET_READY && ws_start(uri, revision)) {
         if (!manager_wifi_ok() || !wifi_radio_started()) ws_stop();
         return;
     }

@@ -76,7 +76,7 @@ static void test_runtime_fallback_reads_and_writes(void) {
     free(record);
 
     uint8_t pin[SETTINGS_PIN_BYTES] = {0x5a};
-    assert(settings_save_pin(pin) == ESP_OK && g_settings.server_pinned);
+    assert(settings_save_pin(pin, settings_connection_revision()) == ESP_OK && g_settings.server_pinned);
     assert(!strcmp(g_settings.wifi_ssid, "fallback-B") &&
            !strcmp(g_settings.wifi_pass, "fallback-password"));
     assert(settings_save_connection("preferred-A", "preferred-password", "") == ESP_OK);
@@ -218,7 +218,7 @@ static void test_native_agent_selection(void) {
     settings_load();
     assert(g_settings.host_agent == SETTINGS_AGENT_HERMES);
     uint8_t pin[SETTINGS_PIN_BYTES] = {0x7a};
-    assert(settings_save_pin(pin) == ESP_OK);
+    assert(settings_save_pin(pin, settings_connection_revision()) == ESP_OK);
     fail_write = !strcmp(latest_record_key(), CONNECTION_RECORD_KEY_A)
         ? CONNECTION_RECORD_KEY_B : CONNECTION_RECORD_KEY_A;
     assert(settings_save_setup("OtherWiFi", "otherpass", "", SETTINGS_AGENT_OPENCLAW, NULL) != ESP_OK);
@@ -238,7 +238,29 @@ static void test_native_agent_selection(void) {
     muse_store_wipe(&record, sizeof record);
 }
 
+static void test_pin_requires_current_connection_intent(void) {
+    nvs_flash_erase();
+    assert(settings_save_setup("home", "password123", "kubik://same:18790", SETTINGS_AGENT_OPENCLAW, NULL) == ESP_OK);
+    uint64_t old = settings_connection_revision();
+    uint8_t pin[SETTINGS_PIN_BYTES] = {0x5a};
+    // An agent change on the same endpoint is still a new intent.
+    assert(settings_save_setup("home", "password123", "kubik://same:18790", SETTINGS_AGENT_HERMES, NULL) == ESP_OK);
+    assert(settings_connection_revision() != old);
+    assert(settings_save_pin(pin, old) == ESP_ERR_INVALID_STATE);
+    settings_load();
+    assert(!g_settings.server_pinned);
+    uint64_t current = settings_connection_revision();
+    settings_save(); // unrelated preferences do not invalidate a handshake
+    assert(settings_save_pin(pin, current) == ESP_OK);
+    assert(settings_connection_revision() == current && g_settings.server_pinned);
+    assert(settings_save_connection("home", "password123", "kubik://same:18790") == ESP_OK);
+    assert(settings_save_pin(pin, current) == ESP_ERR_INVALID_STATE);
+    settings_load();
+    assert(!g_settings.server_pinned);
+}
+
 void settings_test_connection_runtime(void) {
+    test_pin_requires_current_connection_intent();
     test_native_agent_selection();
     test_runtime_fallback_reads_and_writes();
     test_refresh_after_setup_agent_switch();

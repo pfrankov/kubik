@@ -33,6 +33,7 @@ typedef struct {
     // "" finds OpenClaw on this network; kubik://host[:port] names it there;
     // wss://host/kubik/v1 is a TLS-protected public address.
     char server_url[128];
+    uint64_t connection_revision; // serialized connection intent; not changed by pinning
     settings_agent_t host_agent; // last non-Muse choice, in the atomic connection record
     // LAN mode: SHA-256 of the plugin's TLS key (SPKI), kept after its first welcome.
     uint8_t server_pin[SETTINGS_PIN_BYTES];
@@ -70,7 +71,8 @@ esp_err_t settings_save_setup(const char *ssid, const char *password, const char
 void settings_apply_connection_record(const struct connection_record *record);
 void settings_apply_connection_pin(const struct connection_record *record);
 int settings_wifi_find(const char *ssid);
-esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES]);
+uint64_t settings_connection_revision(void);
+esp_err_t settings_save_pin(const uint8_t pin[SETTINGS_PIN_BYTES], uint64_t expected_revision);
 // Erases the app namespace. Runtime settings change only when the erase succeeds.
 esp_err_t settings_factory_reset(void);
 bool settings_server_valid(const char *url);

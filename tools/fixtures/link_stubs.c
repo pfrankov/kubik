@@ -61,7 +61,8 @@ server_mode_t link_server_mode(const char *url) {
     return strncmp(url,"wss://",6)?SERVER_INVALID:SERVER_CA;
 }
 esp_err_t link_pin_attach(void *conf) { (void)conf; return 0; }
-void link_pin_begin_wifi(void) { }
+uint64_t settings_connection_revision(void) { return 0; }
+void link_pin_begin_wifi(uint64_t revision) { (void)revision; }
 void link_pin_usb_bind(uint32_t epoch,const char *bind,size_t len) {
     usb_bind_set=strncmp(bind,"bad",len)!=0; pin_mismatch=!usb_bind_set;
     memcpy(usb_bind_text,bind,len); usb_bind_text[len]=0; usb_bind_epoch=epoch;

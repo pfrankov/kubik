@@ -49,7 +49,7 @@ static void test_server_forms_and_pin(void) {
     assert(!g_settings.server_pinned);
     uint8_t pin[SETTINGS_PIN_BYTES];
     memset(pin, 0xa5, sizeof pin);
-    assert(settings_save_pin(pin) == ESP_OK && g_settings.server_pinned);
+    assert(settings_save_pin(pin, settings_connection_revision()) == ESP_OK && g_settings.server_pinned);
     settings_load();
     assert(g_settings.server_pinned && !memcmp(g_settings.server_pin, pin, sizeof pin));
     fail_write = inactive_record_key();
@@ -59,7 +59,7 @@ static void test_server_forms_and_pin(void) {
     assert(g_settings.server_pinned && !strcmp(g_settings.server_url, ""));
     assert(settings_save_connection("home", "home-password", "") == ESP_OK);
     assert(!g_settings.server_pinned && !key_present("pin"));
-    assert(settings_save_pin(pin) == ESP_OK);
+    assert(settings_save_pin(pin, settings_connection_revision()) == ESP_OK);
     assert(settings_save_connection("home", "home-password", "kubik://other.local:18790") == ESP_OK);
     settings_load();
     assert(!g_settings.server_pinned && !strcmp(g_settings.server_url, "kubik://other.local:18790"));

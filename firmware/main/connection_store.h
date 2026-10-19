@@ -13,7 +13,7 @@ esp_err_t connection_store_save_setup(connection_record_t *record,
                                       const char *ssid, const char *password, const char *url,
                                       settings_agent_t agent, const char *sdk_token);
 esp_err_t connection_store_save_pin(connection_record_t *record,
-                                     const uint8_t pin[SETTINGS_PIN_BYTES]);
+                                     const uint8_t pin[SETTINGS_PIN_BYTES], uint64_t expected_revision);
 esp_err_t connection_store_begin_muse(connection_record_t *record, const char *sdk_token);
 esp_err_t connection_store_select_muse(connection_record_t *record, bool enabled);
 esp_err_t connection_store_refresh_muse(connection_record_t *record,
