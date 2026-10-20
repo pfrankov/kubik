@@ -118,6 +118,7 @@ bool app_lab_frame(scene_t *scene, float dt, bool powered) {
     f->jolt_dvx = g_face.jolt_dvx; f->jolt_dvy = g_face.jolt_dvy;
     g_face.jolt_dvx = g_face.jolt_dvy = 0;
     memcpy(f->view_q, g_face.view_q, sizeof f->view_q);
+    f->tess_motion_sound.input_active = g_face.tess_motion_sound.input_active;
     s_lab->face.rub_in = g_face.rub_in;
     s_lab->face.touch_in = g_face.touch_in;
     g_face.rub_in.path = 0; g_face.rub_in.turns = 0;

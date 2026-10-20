@@ -121,17 +121,19 @@ loudest 100 ms and biggest rise.
 geometry pass. Every 50 ms it measures all 112 points, smooths their speed and
 maps changing extent to resonance. This covers rigid turns (zero solver velocity),
 springs, growth, tilt and inertia. `TT_MOTION` updates coalesce in the queue;
-`tess_sound_motion.c` sustains one body voice and retunes its four oscillators
-without restarting phases or envelope. The material varies once per gesture,
+`tess_sound_motion.c` sustains one quiet body voice at a fixed carrier pitch,
+varying its level and partials without restarting phases or envelope. The material varies once per gesture,
 using the synth's prime cycles, independently of visual randomness.
 The voice shares the three-body-voice limit, never steals, and retries if full.
 A zero-gain release passes through full/quiet queues; missing updates release
 after 0.83 s. Menu, text, dim, sleep, agent processing, capture, speech, Live, Skies and fallen
 particles stop this layer. Screen Lab uses its own face and preserves cleanup
-across screen replacement. The endless rigid idle drift cannot start a voice:
-touch, deformation, a reaction or carried momentum owns it, including the
-spring/momentum tail. Returning to ordinary idle drift releases it, leaving
-real silence for the local listener.
+across screen replacement. Only a touch gesture, finite game/reaction, carried
+momentum or real IMU activity owns it, with a bounded 0.6 s spring tail.
+IMU ownership reuses `motion_activity_step` with 400 ms freshness; it never uses
+the camera quaternion's automatic recentering. Static sag, idle pose rates and
+a stationary finger without a recognized purr cannot sustain sound. Returning to ordinary idle drift
+releases it, leaving real silence for the local listener.
 
 Discovery bits are 0 Pluck, 1 Echo, 2 Bloom, 3 Twang, 4 Slingshot, 5 Gather. A new
 bit raises `pulse`, `TR_JOY` and `TC_JOY`. Existing six-bit masks keep their

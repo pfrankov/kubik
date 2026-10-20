@@ -11,6 +11,7 @@ void input_view_tilt(float *x, float *y);
 // The same as an orientation (w, x, y, z), predicted over the display latency.
 void input_view_quat(float q[4]);
 void input_view_active(bool active);
+bool input_motion_active(void); // real IMU activity in the last 400 ms, excluding viewpoint recentering
 // Velocity change from jolts (gravity removed) since the previous call, in g*s, along the
 // screen's x (right) and y (down). Moves the face around inside its glass.
 void input_jolt(float *dvx, float *dvy);

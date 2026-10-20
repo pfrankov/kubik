@@ -19,7 +19,7 @@ static int render_audio(void) {
     tess_tone_t tone;
     while (face_take_tone(&face, &tone)) {
         if (tone.kind != TT_MOTION) continue;
-        assert(tone.gain >= 0 && tone.gain <= .8f);
+        assert(tone.gain >= 0 && tone.gain <= .45f);
         gain = tone.gain;
         if (tone.gain) {
             updates++;
@@ -75,7 +75,7 @@ static void a_motion_is_a_continuous_voice_not_repeated_notes(void) {
     float quiet = gain;
     constant_movement(80, 20);
     assert(gain > quiet * 3 && sound.active_voices == 1);
-    assert(updates >= 20 && updates <= 40 && pitch_high - pitch_low > 10);
+    assert(updates >= 20 && updates <= 40 && pitch_high - pitch_low < .01f);
     for (int i = 0; i < 100; i++) { // five seconds: well beyond a one-shot or the held watchdog
         constant_movement(50, 1);
         assert(sound.active_voices == 1 && render_audio() > 5);
@@ -121,6 +121,7 @@ static void device_rotation_is_motion_too(void) {
     memset(&face.tess_mood, 0, sizeof face.tess_mood);
     memset(face.tess_reaction, 0, sizeof face.tess_reaction);
     tess_motion_sound_stop(&face);
+    face.tess_motion_sound.input_active = true;
     for (int i = 0; i < 60; i++) {
         float a = i * .025f;
         face.view_q[0] = cosf(a); face.view_q[1] = sinf(a);
@@ -131,9 +132,37 @@ static void device_rotation_is_motion_too(void) {
         for (int n = 0; n < 3; n++) render_audio();
     }
     assert(updates > 40 && tess_sound_active(&sound));
-    for (int i = 0; i < 4; i++) face.view_q[i] = -face.view_q[i];
-    constant_movement(10, 30); // same quaternion orientation, idle turning cannot retain the sound
+    face.tess_motion_sound.input_active = false;
+    for (int i = 0; i < 30; i++) { // automatic camera return still moves the projection, but is not a gesture
+        face.view_q[0] = cosf(.7f - i * .02f);
+        face.view_q[1] = sinf(.7f - i * .02f);
+        constant_movement(30, 1);
+    }
     assert(!face.tess_motion_sound.sounding && !tess_sound_active(&sound));
+}
+static void static_shapes_and_idle_poses_do_not_sound(void) {
+    fresh();
+    face.tess_rigid = 0; face.tess_games.shaping = true;
+    face.tess_games.tilt[0] = .5f; // a stationary tilt keeps sag/shaping set
+    face.tess_mood.rate[0] = face.tess_mood.w_rate[0] = 1;
+    face.tess_play.down = true; // a stationary finger is not movement either
+    constant_movement(80, 60); // background rotation/breathing is still visible
+    assert(!updates && !tess_sound_active(&sound));
+    face.tess_games.game = TESS_GAME_STRETCH; face.tess_games.pull_k = 1;
+    for (int i = 0; i < 40; i++) {
+        face.tess_games.pull[0] += 2;
+        constant_movement(40, 1);
+    }
+    assert(updates > 15 && tess_sound_active(&sound));
+    face.tess_games.game = TESS_GAME_NONE;
+    constant_movement(40, 30); // after the pull, static deformation/idle rotation cannot keep a voice
+    assert(!face.tess_motion_sound.sounding && !tess_sound_active(&sound));
+    face.tess_play.petted = true; face.tess_mood.wiggle = .03f; // holding a recognized pet still animates its purr
+    constant_movement(40, 40);
+    assert(tess_sound_active(&sound));
+    face.tess_play.petted = false; face.tess_mood.wiggle = 0;
+    constant_movement(40, 30);
+    assert(!tess_sound_active(&sound));
 }
 static void quiet_boundary(int boundary) {
     switch (boundary) {
@@ -197,9 +226,9 @@ static void retuning_keeps_phase_and_new_gestures_vary(void) {
     tone.hz = 430; tone.shade = .9f; tone.gain = .2f;
     assert(tess_sound_tone(&sound, &tone));
     assert(v->phase == phase && v->env == envelope && v->step == old_pitch);
-    assert(v->glide > 0 && sound.random == random && sound.active_voices == 1);
+    assert(v->glide == 0 && sound.random == random && sound.active_voices == 1);
     for (int i = 0; i < 15; i++) render_audio();
-    assert(v->step > old_pitch * 1.5f && v->gain < 400);
+    assert(v->step == old_pitch && v->gain < 300); // no siren-like pitch sweep as motion changes
     // Losing the sender must never leave a stuck continuous sound.
     for (int i = 0; i < 120; i++) render_audio();
     assert(!tess_sound_active(&sound));
@@ -227,20 +256,22 @@ static void variants_and_capacity(void) {
 }
 static void idle_motion_leaves_real_silence(void) {
     fresh();
-    int quiet = 0, streak = 0, longest = 0;
+    int quiet = 0, streak = 0, longest = 0, voiced = 0, longest_voiced = 0;
     for (int i = 0; i < 60 * 60; i++) {
         frame();
-        if (!tess_sound_active(&sound)) { quiet++; streak++; }
-        else streak = 0;
+        if (!tess_sound_active(&sound)) { quiet++; streak++; voiced = 0; }
+        else { streak = 0; voiced++; }
         if (streak > longest) longest = streak;
+        if (voiced > longest_voiced) longest_voiced = voiced;
     }
     fprintf(stderr, "motion: idle silence %.2fs / 60s, longest %.2fs\n", quiet / 60.f, longest / 60.f);
-    assert(quiet >= 900 && longest >= 180); // real multi-second listening windows, not a perpetual quiet bed
+    assert(quiet >= 45 * 60 && longest >= 5 * 60 && longest_voiced <= 5 * 60);
 }
 int main(void) {
     a_motion_is_a_continuous_voice_not_repeated_notes();
     real_animations_keep_their_resonance();
     device_rotation_is_motion_too();
+    static_shapes_and_idle_poses_do_not_sound();
     every_quiet_boundary_releases_before_drawing();
     release_survives_a_full_queue_and_coalesces();
     retuning_keeps_phase_and_new_gestures_vary();

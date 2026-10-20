@@ -55,6 +55,7 @@ typedef struct {
     uint32_t random;
     uint16_t variation[5];  // prime-cycle phases: preserved by quiet/mute, seeded once at boot
     uint16_t motion_variant; // one material per movement; control updates never choose another
+    float motion_hz;         // stable register for this gesture; geometry never sweeps it like a siren
     tess_gate_t gate;
     // Reverb: two damped combs and two all-pass diffusers, carved out of one buffer; a dark low-pass on its output.
     int16_t reverb[TESS_REVERB_SAMPLES];

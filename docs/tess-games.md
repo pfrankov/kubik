@@ -79,8 +79,8 @@ make her fond. Each fades on its own, and they colour her moods.
 Her sounds come from what her body does, in the same soft, spacey palette as
 her voice: no bells and no tunes. A pluck makes her whole body resonate at one
 pitch; the corner only changes the overtone and the slow beating over it, so
-plucking corner after corner never plays a melody. A taut pull hums higher and
-beats faster the further you stretch it and glides down as it lets go. She
+plucking corner after corner never plays a melody. A pull has a soft, steady
+resonance that follows the moving shape and fades as it settles. She
 keeps resonating as she spins, thuds softly against the rim (lower for a bigger
 Tess), and her dots puff as they knock and come home, a little higher from higher
 up the glass. Her mood sets where her voice rests: lower when cross, sad or
@@ -89,10 +89,11 @@ body sounds stay quieter than her words. Her body sounds never play over
 the microphone or a spoken reply, and never while dimmed, in the dark or asleep.
 
 That resonance follows the whole movement, including inertia and the return
-after you let go. Speed changes its level; the changing shape shifts its pitch
-and layered overtones. Each new gesture has a slightly different material sound,
-without restarting a note every frame. It fades as she stops. Tiny resting drift
-stays quiet, and spontaneous movements are much softer than your gestures.
+after you let go. Speed changes its level; the changing shape colours its layered
+overtones. Pitch stays steady within a gesture, and each new gesture has a
+slightly different material sound. It fades as she stops. Resting drift, a
+stationary tilted pose and automatic recentering stay quiet; spontaneous play
+is much softer than your gestures. Holding a pet still accompanies her purr.
 Opening a menu releases the sound; Skies and offline particles keep their own music.
 The continuous layer also pauses while the agent processes your request.
 

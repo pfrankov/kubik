@@ -2,7 +2,7 @@
 #include <math.h>
 
 #define MOTION_SLOT 16 // separate from the seven stars and four wells
-#define MOTION_GAIN 1450
+#define MOTION_GAIN 1100
 
 static bool held_motion(const tess_sound_t *s) {
     for (int i = 0; i < TESS_VOICES; i++) {
@@ -32,21 +32,21 @@ bool tess_sound_motion(tess_sound_t *s, const tess_tone_t *t) {
     if (!active) {
         if (!motion_room(s)) return false;
         s->motion_variant = (uint16_t)tess_sound_random(s);
+        s->motion_hz = t->hz * (.97f + .06f * (s->motion_variant & 255u) / 255.f);
     }
     unsigned colour = s->motion_variant;
     float shade = fminf(fmaxf(t->shade, 0), 1);
-    float register_scale = .94f + .12f * (colour & 255u) / 255.f;
-    tess_note_t n = tess_sound_ensemble(PAD, t->hz * register_scale, 1, MOTION_GAIN);
+    tess_note_t n = tess_sound_ensemble(PAD, s->motion_hz, 1, MOTION_GAIN);
     // One layered resonance, not a succession of notes: material stays stable,
-    // while geometry opens/closes its detuned partials and shifts its register.
+    // while geometry changes its level and gently colours the partials.
     static const uint16_t layers[] = {384, 512, 768};
     n.layer_ratio_q8 = layers[(colour >> 8) % 3];
     n.layer_gain = (uint16_t)(6000 + 1800 * ((colour >> 10) & 3u));
-    n.chorus_gain = 7000;
-    n.chorus_detune = (int16_t)(3 + ((colour >> 12) & 3u) + 12 * shade);
+    n.chorus_gain = 1800;
+    n.chorus_detune = (int16_t)(2 + ((colour >> 12) & 1u) + 2 * shade);
     n.index_q8 = (uint16_t)(24 + ((colour >> 4) & 31u));
     n.ring_ms = 0; // held material keeps its overtones, rather than decaying to a sine
-    n.attack_ms = 70; n.decay_ms = 40; n.release_ms = 65;
+    n.attack_ms = 55; n.decay_ms = 40; n.release_ms = 40;
     int gain = (int)(MOTION_GAIN * fminf(t->gain, 1));
     tess_sound_hold(s, MOTION_SLOT, &n, gain);
     return held_motion(s);

@@ -416,6 +416,7 @@ static void update_face_motion(face_t *f, int64_t t) {
     if (face_character(f) == CHARACTER_TESS) {
         input_view_tilt(&f->tilt_x, &f->tilt_y);
         input_view_quat(f->view_q);
+        f->tess_motion_sound.input_active = input_motion_active() || t < s_debug_spin_until;
         if (t < s_debug_spin_until) spin_view(f->view_q, t / 1000.f);
     } else {
         input_tilt(&f->tilt_x, &f->tilt_y);
