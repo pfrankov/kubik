@@ -43,12 +43,11 @@ void tess_tone_later(face_t *f, tess_tone_kind_t kind, float hz, float gain, flo
     tess_tone_slot(f, kind, 0, hz, gain, shade, delay_s);
 }
 // Gain 0 releases a held voice or the entire game; these commands also pass through quiet/full queues.
-static bool update_held(tess_play_t *p, unsigned kind, unsigned slot, float hz, float gain, float shade) {
+static bool update_held(tess_play_t *p, unsigned kind, unsigned slot, float hz, float gain) {
     if (!tess_tone_held(kind)) return false;
     for (int i = 0; i < p->tone_n; i++) if (p->tone[i].kind == kind && p->tone[i].slot == slot) {
         p->tone[i].gain = clampf(gain, 0, 1);
         p->tone[i].hz = clampf(hz, 40, 3000);
-        p->tone[i].shade = clampf(shade, 0, 1);
         return true;
     }
     return false;
@@ -67,7 +66,7 @@ void tess_tone_slot(face_t *f, tess_tone_kind_t kind, unsigned slot, float hz, f
     tess_play_t *p = &f->tess_play;
     bool release = tess_tone_release(kind, gain);
     if ((cues_quiet(f) && !release) || !isfinite(hz) || !isfinite(gain) || (gain <= 0 && !release)) return;
-    if (update_held(p, kind, slot, hz, gain, shade) || !tone_room(p, release)) return;
+    if (update_held(p, kind, slot, hz, gain) || !tone_room(p, release)) return;
     p->tone[p->tone_n++] = (tess_tone_t){(uint8_t)kind, clampf(hz, 40.f, 3000.f), clampf(gain, 0, 1), clampf(shade, 0, 1), clampf(delay_s, 0, 1), (uint8_t)slot};
     f->tess_games.tone_kinds |= (uint16_t)(1u << kind);
 }

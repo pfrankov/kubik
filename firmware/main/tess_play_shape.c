@@ -10,7 +10,7 @@
 //   three and four edges away: 4, 6, 4 and 1 of them), so every path meets again at the opposite corner.
 //   Spin opens her: the outer cell flowers out and the two cells twist against each other.
 //   A pull drags one vertex towards the finger; its neighbours follow less the farther they are along edges.
-//   A wall flattens the side that hit it. Wrestling pushes two opposite corners apart.
+//   A wall flattens the side that hit it.
 #define PI 3.14159265f
 #define SHELL_S .12f          // a wave's step from one shell of vertices to the next (the notes stay apart)
 #define RING_W 18.85f         // rad/s: three swings a second

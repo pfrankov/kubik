@@ -388,26 +388,17 @@ static void independent_contacts_and_primary_menu(void) {
     screen_lab_select(&lab, LAB_HOME);
     assert(!lab.face.tess_games.sky); assert(!touch_count(&lab.face.touch_in));
 }
-static void motion_follows_the_visible_preview_and_stops_on_switch(void) {
+static void home_motion_does_not_add_a_continuous_tone(void) {
     screen_lab_select(&lab, LAB_HOME);
+    tess_tone_t cleanup;
+    while (screen_lab_take_tone(&lab, &cleanup))
+        assert(cleanup.kind == TT_SKY_RELEASE && cleanup.gain == 0); // prior Skies fixture still releases its music
     lab.face.tess_mood.drag_speed[0] = 12;
-    bool heard = false;
-    tess_tone_t motion = {.kind = TT_MOTION, .hz = 300, .gain = .4f};
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 120; i++) {
         screen_lab_update(&lab, 1.f / 30); screen_lab_draw(&lab, &scene);
         tess_tone_t tone;
-        while (screen_lab_take_tone(&lab, &tone))
-            if (tone.kind == TT_MOTION && tone.gain > 0) { heard = true; motion = tone; }
+        assert(!screen_lab_take_tone(&lab, &tone));
     }
-    assert(heard && screen_lab_tone_allowed(&lab, &motion));
-    screen_lab_select(&lab, LAB_SETTINGS);
-    assert(!screen_lab_tone_allowed(&lab, &motion)); // copied before the face lock was released
-    bool released = false; tess_tone_t tone;
-    while (screen_lab_take_tone(&lab, &tone))
-        released |= tone.kind == TT_MOTION && tone.gain == 0;
-    assert(released);
-    screen_lab_select(&lab, LAB_HOME);
-    assert(!screen_lab_tone_allowed(&lab, &motion)); // a new visible face has not started moving yet
 }
 int main(void) {
     changing_a_preview_releases_its_sky();
@@ -420,7 +411,7 @@ int main(void) {
     screen_lab_init(&lab, CHARACTER_TESS);
     growth_previews_accept_natural_taps();
     independent_contacts_and_primary_menu();
-    motion_follows_the_visible_preview_and_stops_on_switch();
+    home_motion_does_not_add_a_continuous_tone();
     game_previews();
     screen_lab_dispose(&lab);
     puts("Screen Lab: hidden entry, native QR, menus, guide, voice, gestures and bounded scenes passed");

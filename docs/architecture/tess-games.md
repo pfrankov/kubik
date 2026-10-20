@@ -117,23 +117,11 @@ under her words. `python3 tools/render-particles.py --play OUT.wav` renders a
 scripted play session through the real face and synth and prints its peak,
 loudest 100 ms and biggest rise.
 
-`tess_motion_sound.c` observes the existing rendered projection, without a second
-geometry pass. Every 50 ms it measures all 112 points, smooths their speed and
-maps changing extent to resonance. This covers rigid turns (zero solver velocity),
-springs, growth and inertia during an explicit animation. `TT_MOTION` updates coalesce in the queue;
-`tess_sound_motion.c` sustains one quiet body voice at a fixed carrier pitch,
-varying its level and partials without restarting phases or envelope. The material varies once per gesture,
-using the synth's prime cycles, independently of visual randomness.
-The voice shares the three-body-voice limit, never steals, and retries if full.
-A zero-gain release passes through full/quiet queues; missing updates release
-after 0.83 s. Menu, text, dim, sleep, agent processing, capture, speech, Live, Skies and fallen
-particles stop this layer. Screen Lab uses its own face and preserves cleanup
-across screen replacement. Only a touch gesture, finite game/reaction, carried
-momentum owns it, with a bounded 0.6 s spring tail.
-Device tilt, rocking and the camera quaternion's automatic recentering cannot
-start or prolong it. Static sag, idle pose rates and
-a stationary finger without a recognized purr cannot sustain sound. Returning to ordinary idle drift
-releases it, leaving real silence for the local listener.
+Body movement does not sustain a voice. Plucks, pull onset/release and impacts
+produce finite notes through the existing body-sound path; idle motion, rotation,
+inertia and deformation do not add a background tone. Only Skies uses held pads,
+with its existing release/watchdog behavior and priority over decorative notes.
+The short-note and motion-silence regression is `tess_animation_sound_test.c`.
 
 Discovery bits are 0 Pluck, 1 Echo, 2 Bloom, 3 Twang, 4 Slingshot, 5 Gather. A new
 bit raises `pulse`, `TR_JOY` and `TC_JOY`. Existing six-bit masks keep their

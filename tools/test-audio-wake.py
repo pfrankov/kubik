@@ -73,15 +73,15 @@ int main(void) {
     audio_levels_set_interface(70); tess_event(SFX_WAKE, -1);
     assert(kicks == 4 && queued == 3);
     s_character = CHARACTER_TESS;
-    tess_tone_t motion = {TT_MOTION, 300, .4f, .5f, 0, 0};
+    tess_tone_t pad = {TT_SKY_PAD, 300, .4f, .5f, 0, 0};
     prebuffering = true;
-    audio_tess_tone(&motion); assert(kicks == 4 && queued == 3);
-    motion.gain = 0; // stops always pass: capture or prebuffer must never strand a held voice
-    audio_tess_tone(&motion); assert(kicks == 5 && queued == 4);
+    audio_tess_tone(&pad); assert(kicks == 4 && queued == 3);
+    pad.gain = 0; // stops always pass: capture or prebuffer must never strand a held voice
+    audio_tess_tone(&pad); assert(kicks == 5 && queued == 4);
     prebuffering = false; speaking = true;
-    audio_tess_tone(&motion); assert(kicks == 6 && queued == 5);
+    audio_tess_tone(&pad); assert(kicks == 6 && queued == 5);
     speaking = false; mic_open = true;
-    audio_tess_tone(&motion); assert(kicks == 7 && queued == 6);
+    audio_tess_tone(&pad); assert(kicks == 7 && queued == 6);
     puts("audio wake: Tess/stepped/PCM publication precedes unlocked speaker notification");
 }
 '''

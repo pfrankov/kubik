@@ -52,7 +52,7 @@ void tess_stretch_move(face_t *f, float x, float y) {
     if (g->game != TESS_GAME_STRETCH) return;
     g->pull[0] = x; g->pull[1] = y;
 }
-// The rendered deformation continuously drives her material sound.
+// The pull has a short onset and release sound; holding it does not sustain a tone.
 void tess_stretch_update(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     g->pull_k = fminf(1, g->pull_k + dt * 6.f);

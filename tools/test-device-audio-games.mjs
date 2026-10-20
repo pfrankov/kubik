@@ -59,18 +59,22 @@ async function autonomousSound() {
   for(let n=0;n<2;n++) { await sim('tap',{x:356,y:428}); await sleep(100); }
   await sim('audio-stats',{reset:true});
   await sim('tap',{x:240,y:232});
-  await waitForDeviceState(info,s=>s.lab_screen==='Play: alone','autonomous motion preview');
+  await waitForDeviceState(info,s=>s.lab_screen==='Play: alone','finite autonomous reaction preview');
   await sleep(300); // finite entry transition has its own frame budget
   await flushStats({sim});
   await sleep(2200);
   const frames=await flushStats({sim});
-  console.log(JSON.stringify({workload:'continuous autonomous sound',...frames}));
+  console.log(JSON.stringify({workload:'finite autonomous reaction',...frames}));
   if(!process.argv.includes('--measure-only'))
-    assert.ok(frameVerdict(frames,'reaction'),'Continuous sound retains the existing reaction frame budget');
+    assert.ok(frameVerdict(frames,'reaction'),'Autonomous animation retains the existing reaction frame budget');
   const state=await sim('game-state'), audio=await sim('audio-stats');
-  assert.ok(state.tones&(1<<15),'Autonomous projection produces the continuous motion tone');
-  assert.ok(audio.audible_frames>=40,'Autonomous motion reaches the real speaker beyond its onset accent');
+  assert.equal(state.tones,1,'Self-play emits only its finite ring, with no sustained motion layer');
+  assert.ok(audio.audible_frames>0,'The finite reaction reaches the real speaker');
   verifyAudio(audio);
+  // TT_RING's slowest shade takes 90 + 550*ln(256) + 500 = 3640 ms including reverb.
+  await sleep(1500); // reach 4 s from entry without cutting off the existing note
+  await sim('audio-stats',{reset:true}); await sleep(600);
+  assert.equal((await sim('audio-stats')).audible_frames,0,'The body note ends while the character keeps animating');
   await sim('boot');
   await waitForDeviceState(info,s=>s.lab_screen==='Screen Lab','release on catalog entry');
   await sleep(1200);

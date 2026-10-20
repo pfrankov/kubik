@@ -71,7 +71,6 @@ static int body_sounding(const tess_sound_t *s) {
 
 bool tess_sound_tone(tess_sound_t *s, const tess_tone_t *tone) {
     if (!tone) return false;
-    if (tone->kind == TT_MOTION) return tess_sound_motion(s, tone);
     if (tone->kind >= TT_SKY_PAD && tone->kind < TT_COUNT) return tess_sound_sky(s, tone);
     if (tone->kind >= TT_COUNT || !isfinite(tone->hz) || !isfinite(tone->gain) || tone->gain <= 0) return false;
     tess_note_t note = shaped(tone);

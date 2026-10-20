@@ -183,12 +183,6 @@ typedef struct {
 } tess_play_t;
 
 typedef struct {
-    int16_t xy[TESS_N][2];             // last visible projection, Q3; no second geometry pass
-    float at, speed, extent, tail_until;
-    bool ready, sounding;
-} tess_motion_sound_t;
-
-typedef struct {
     float pose[TP_COUNT], rate[TP_COUNT];  // offsets (rad) and their speeds
     float push[TP_COUNT];                  // speed a kick still has to give the pose (it is let in over ~0.2 s)
     float spin;                            // the endless turn about the vertical, rad/s, either way
@@ -353,7 +347,6 @@ typedef struct {
     int offline_icon_last;           // retained only for this face while its connection icon fades
     float offline_k;                 // Tess: its corner icon fade 0..1
     float charging_age;              // visible home-screen seconds; Settings always shows external power
-    tess_motion_sound_t tess_motion_sound; // projection history; keep existing state offsets stable
 } face_t;
 
 static inline character_t face_character(const face_t *f) {

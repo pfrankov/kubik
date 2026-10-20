@@ -300,7 +300,6 @@ void face_update(face_t *f, float dt) {
     update_short_timers(f, dt);
     update_corner_indicators(f, dt);
     tess_games_update(f, dt);
-    if (face_character(f) == CHARACTER_TESS) tess_motion_sound_gate(f);
 
     // Hidden or unselected characters do no simulation, sprite lookup or mapping. On a dark panel the
     // character holds still and carries on from the same state when it lights up (dt is capped above).

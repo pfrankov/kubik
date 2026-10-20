@@ -3,7 +3,6 @@ static unsigned self_frame_tones(void) {
     face_update(&face,1.f/30); face_draw(&face,&scene);
     unsigned kinds=0; tess_tone_t tone;
     while (face_take_tone(&face,&tone)) {
-        if (tone.kind == TT_MOTION) { assert(tone.gain >= 0 && tone.gain <= .8f); continue; }
         assert(tone.gain>0 && tone.gain<=.1f && tone.delay_s==0);
         kinds|=1u<<tone.kind;
     }

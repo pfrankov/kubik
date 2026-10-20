@@ -15,7 +15,7 @@ static void frame(void) {
     face_update(&face, 1.f / 30); face_draw(&face, &scene);
     if ((unsigned)scene.dots_n > most_dots) most_dots = (unsigned)scene.dots_n;
     tess_tone_t tone;
-    while (face_take_tone(&face, &tone)) { assert(tone.hz >= 40 && tone.hz <= 3000 && (tone.gain > 0 || tone.kind == TT_SKY_PAD || tone.kind == TT_SKY_HUM || tone.kind == TT_SKY_RELEASE || tone.kind == TT_MOTION) && tone.gain <= 1); tones_heard |= 1u << tone.kind;
+    while (face_take_tone(&face, &tone)) { assert(tone.hz >= 40 && tone.hz <= 3000 && (tone.gain > 0 || tone.kind == TT_SKY_PAD || tone.kind == TT_SKY_HUM || tone.kind == TT_SKY_RELEASE) && tone.gain <= 1); tones_heard |= 1u << tone.kind;
         if (tone.kind == TT_RING) { ring_low = fminf(ring_low, tone.hz); ring_high = fmaxf(ring_high, tone.hz); } }
 }
 static void run(float seconds) { for (int i=0;i<(int)(seconds*30);i++) frame(); }

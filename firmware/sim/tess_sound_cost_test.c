@@ -75,8 +75,8 @@ static void start_cost_play(tess_sound_t *sound, int play) {
     probe_rest(sound);
     if (play % 2) tess_sound_cue(sound, TC_LOVE, .5f, 0);
     else tess_sound_event(sound, SFX_SETUP_OK, -1, 0, .5f);
-    tess_tone_t motion = {.kind = TT_MOTION, .hz = 260.f + play * 3, .gain = .7f, .shade = .6f};
-    assert(tess_sound_tone(sound, &motion)); // held body plus the foreground word, same production mixer
+    tess_tone_t ring = {.kind = TT_RING, .hz = 260.f + play * 3, .gain = .7f, .shade = .6f};
+    assert(tess_sound_tone(sound, &ring)); // finite body note plus the foreground word, same production mixer
 }
 
 static bool reconstruct_cost_frame(tess_sound_t *sound, const tess_sound_t *initial, int target_play,

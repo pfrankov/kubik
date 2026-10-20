@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--sky', type=int, metavar='ELEMENTS', help='A Skies session from this depth (1..10) instead')
     args = parser.parse_args()
     sources = runpy.run_path(str(ROOT / 'tools/test-render.py'))['face_sources']()
-    sources += ['agent_menu', 'face_agent', 'ui_text', 'tess_sound', 'tess_sound_compose', 'tess_sound_body', 'tess_sound_motion', 'tess_sound_sky', 'tess_sound_rules']
+    sources += ['agent_menu', 'face_agent', 'ui_text', 'tess_sound', 'tess_sound_compose', 'tess_sound_body', 'tess_sound_sky', 'tess_sound_rules']
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='kubik-particles-') as temporary:

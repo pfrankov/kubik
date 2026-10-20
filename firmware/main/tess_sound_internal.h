@@ -25,5 +25,4 @@ void tess_sound_fade_reverb(tess_sound_t *s);  // the tail follows in 200 ms ins
 // Held voices (a game's pads): one per slot, gliding to `goal` (Q15). A goal of 0 lets it go; it also lets go by itself
 // when not tended for about 0.8 s, so a lost sender never leaves a pad ringing.
 void tess_sound_hold(tess_sound_t *s, unsigned slot, const tess_note_t *note, int goal);
-bool tess_sound_motion(tess_sound_t *s, const tess_tone_t *tone);
 tess_note_t tess_sound_ensemble(int timbre, float hz, float strength, int gain);  // a note of the palette at a pitch and a level

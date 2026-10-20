@@ -22,8 +22,6 @@ enum { AFTER_SWING = KICK_COUNT, AFTER_UNTURN, AFTER_PEEK, AFTER_LOOK_AWAY, AFTE
 
 typedef struct { int x, y, radius, key; uint16_t lit; } tess_projected_t;
 void tess_project_dots(face_t *face, tess_projected_t dots[TESS_N]);
-void tess_motion_sound_observe(face_t *face, const tess_projected_t dots[TESS_N]);
-void tess_motion_sound_stop(face_t *face);
 // Play moves her own structure (tess_play_shape.c): once a frame with her vertices, then each dot by its form slot.
 bool tess_play_frame(face_t *face, const float points[TESS_N][3], float scale, float body_dx, float body_dy, float body_cos, float body_sin);
 int tess_play_vertex_slot(int vertex);
