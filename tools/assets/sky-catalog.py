@@ -47,11 +47,13 @@ def generate(data):
         for x,y in points: assert 84 <= x <= 396 and 84 <= y <= 396
         for a,b in c['edges']: assert 0 <= a < n and 0 <= b < n and a != b
         stars = []
+        magnitudes = [star['vmag'] for star in c['stars']]
+        faintest, brightest = max(magnitudes), min(magnitudes)
         for (x,y), star in zip(points,c['stars']):
             magnitude = star['vmag']
             assert -2 < magnitude < 8
-            # Compressed apparent brightness: optical size +/- 20%, not a physical stellar diameter.
-            size = round(max(-20,min(20,(2.5-magnitude)*10)))
+            # Chart-relative apparent brightness: optical size -40% to +65%, not stellar diameter.
+            size = round(-40 + 105 * (faintest-magnitude) / max(1, faintest-brightest))
             stars.append(f'{{{x},{y},{size}}}')
         edges = ','.join(f'{{{a},{b}}}' for a,b in c['edges'])
         lines += [f'    {{"{c["name"]}",{n},{len(c["edges"])},{c["holes"]},',

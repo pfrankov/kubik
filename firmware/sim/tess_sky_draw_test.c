@@ -115,14 +115,14 @@ static star_light_t star_light(float fill, int color, float time) {
 static void star_sizes_follow_the_catalog(void) {
     fixture();sky.w.count_stars=1;
     for(int i=0;i<SKY_PARTICLES;i++)sky.p[i].wait=1;
-    star_light_t small=star_light_size(0,0,6,-20),large=star_light_size(0,0,6,20);
-    assert(large.spread>small.spread*1.4f);
+    star_light_t small=star_light_size(0,0,6,-40),large=star_light_size(0,0,6,65);
+    assert(large.spread>small.spread*4.f);
     for(int chart=1;chart<=SKY_CHARTS;chart++) {
         sky_recipe_t r={.elements=(uint8_t)chart}; sky_world_t world;
         sky_compose(&world,42,&r);
         int low=100,high=-100;
         for(int i=0;i<world.count_stars;i++) {
-            int size=world.star[i].size; assert(size>=-20 && size<=20);
+            int size=world.star[i].size; assert(size>=-40 && size<=65);
             if(size<low)low=size; if(size>high)high=size;
         }
         assert(high>low);

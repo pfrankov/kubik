@@ -8,6 +8,7 @@
 
 static void old_streams_do_not_fill_new_stars(sky_world_t w, const sky_particle_t *particles) {
     sky_particle_t p[SKY_PARTICLES]; memcpy(p, particles, sizeof p);
+    w.emitting=false; // Isolate the already established links.
     float fill[SKY_STARS];
     for (int i=0;i<w.count_stars;i++) fill[i]=w.star[i].fill;
     for (int i=0;i<SKY_PARTICLES;i++) if (!p[i].channel) p[i].wait=60000;
@@ -28,7 +29,19 @@ static void visible_continuity(const sky_particle_t *p, const sky_particle_t *be
 static void channel_owners(const sky_world_t *w, const sky_particle_t *p) {
     unsigned counts[SKY_CHANNELS]={0};
     for(int i=0;i<SKY_PARTICLES;i++)if(p[i].channel)counts[p[i].channel-1]++;
-    for(int i=0;i<w->channels;i++)assert(counts[i]>0 && counts[i]<=SKY_CHANNEL_DOTS);
+    for(int i=0;i<w->channels;i++)assert(counts[i]==SKY_CHANNEL_DOTS);
+}
+static void settled_links_are_straight(const sky_world_t *w, const sky_particle_t *p) {
+    unsigned visible[SKY_CHANNELS]={0};
+    for(int i=0;i<SKY_PARTICLES;i++) {
+        if(!p[i].channel || p[i].wait)continue;
+        const sky_channel_t *c=&w->channel[p[i].channel-1];
+        long dx=c->x[1]-c->x[0],dy=c->y[1]-c->y[0];
+        long cross=(p[i].x-c->x[0])*dy-(p[i].y-c->y[0])*dx;
+        assert(labs(cross)<=labs(dx)+labs(dy));
+        visible[p[i].channel-1]++;
+    }
+    for(int i=0;i<w->channels;i++)assert(visible[i]>=SKY_CHANNEL_DOTS-1);
 }
 static void capture_and_continuity(void) {
     sky_recipe_t r={.elements=8}; sky_world_t w; sky_compose(&w,4,&r);
@@ -53,6 +66,7 @@ static void capture_and_continuity(void) {
     for(int tick=0;tick<1800;tick++) {
         memcpy(before,p,sizeof p); sky_stream_step(&w,p,SKY_PARTICLES,SKY_STEP_S,&force,NULL);
         visible_continuity(p,before);
+        if(tick>120)settled_links_are_straight(&w,p);
     }
 }
 static void every_emitter_target_pair_works_with_the_smallest_active_pool(void) {
@@ -70,26 +84,54 @@ static void every_emitter_target_pair_works_with_the_smallest_active_pool(void) 
         }
     }
 }
-static int curve_reference(const int16_t control[4], unsigned phase) {
-    int a[4];for(int i=0;i<4;i++)a[i]=control[i];
-    for(int n=3;n>0;n--)for(int i=0;i<n;i++)a[i]+=(a[i+1]-a[i])*(int)phase/65536;
-    return a[0];
+static void straight_links_never_pause(void) {
+    sky_world_t w={.kind=SKY_AURORA,.count_stars=2,.channels=1,.feed_scale=1};
+    w.star[0].fill=w.star[1].fill=1; w.star[0].sang=w.star[1].sang=true;
+    sky_channel_t *c=&w.channel[0];
+    *c=(sky_channel_t){.x={600,3100},.y={2900,800},.step=351,.to=1};
+    sky_particle_t p[SKY_CHANNEL_DOTS]={0}; sky_force_t none={0};
+    for(int i=0;i<SKY_CHANNEL_DOTS;i++) {
+        p[i].channel=1;p[i].age=(uint16_t)(i*65536u/SKY_CHANNEL_DOTS);
+        p[i].x=c->x[0]+(c->x[1]-c->x[0])*(int)p[i].age/65536;
+        p[i].y=c->y[0]+(c->y[1]-c->y[0])*(int)p[i].age/65536;
+    }
+    for(int tick=0;tick<2400;tick++) {
+        sky_stream_step(&w,p,SKY_CHANNEL_DOTS,tick%2 ? SKY_STEP_S : 1.f/30,&none,NULL);
+        unsigned visible=0, sectors=0;
+        for(int i=0;i<SKY_CHANNEL_DOTS;i++) {
+            if(p[i].wait)continue;
+            visible++;
+            long cross=(long)(p[i].x-c->x[0])*(c->y[1]-c->y[0])-(long)(p[i].y-c->y[0])*(c->x[1]-c->x[0]);
+            assert(labs(cross)<5000); // less than a quarter pixel from the actual star-to-star line
+            sectors|=1u<<(p[i].age/16384);
+        }
+        assert(visible>=SKY_CHANNEL_DOTS-1 && sectors==15);
+    }
 }
-static void unrolled_curve_keeps_every_phase_exact(void) {
-    sky_force_t none={0};
-    for(int shape=0;shape<32;shape++) {
-        sky_world_t w={.kind=SKY_AURORA,.count_stars=1,.channels=1,.rng=shape+1,.feed_scale=1};
-        w.star[0].fill=1;w.star[0].sang=true;w.channel[0].step=1;
-        for(int i=0;i<4;i++) { w.channel[0].x[i]=(int16_t)((int)(sky_rand(&w)%11000)-4000);w.channel[0].y[i]=(int16_t)((int)(sky_rand(&w)%11000)-4000); }
-        for(unsigned phase=0;phase<65536;phase++) {
-            sky_particle_t p={.channel=1,.age=(uint16_t)(phase-1)};
-            sky_stream_step(&w,&p,1,SKY_STEP_S,&none,NULL);
-            assert(p.x==curve_reference(w.channel[0].x,phase) && p.y==curve_reference(w.channel[0].y,phase));
+static void source_keeps_emitting_after_handoff(void) {
+    for(int n=52;n<=SKY_PARTICLES;n+=60) {
+        sky_world_t w={.kind=SKY_AURORA,.count_stars=2,.feed_scale=1,.rng=42};
+        w.star[0]=(sky_star_t){.x=100,.y=80,.fill=1,.sang=true};
+        w.star[1]=(sky_star_t){.x=340,.y=390,.fill=1,.sang=true};
+        sky_emitter(&w,0);
+        sky_particle_t p[SKY_PARTICLES]; sky_stream_launch(&w,p,n,NULL);
+        sky_force_t none={0}; int gap=0;
+        for(int tick=0;tick<1800;tick++) {
+            if(tick==900) {sky_emitter(&w,1);gap=0;}
+            sky_stream_step(&w,p,n,SKY_STEP_S,&none,NULL);
+            bool emitted=false;
+            for(int i=0;i<n;i++) if(p[i].age==0 && p[i].wait==1) {
+                assert(hypotf(p[i].x/SKY_Q3-w.source.x,p[i].y/SKY_Q3-w.source.y)<9);
+                emitted=true;
+            }
+            gap=emitted?0:gap+1;
+            assert(gap<480/n);
+            if(tick==900)assert(emitted);
         }
     }
 }
 int main(void) {
-    unrolled_curve_keeps_every_phase_exact();
+    straight_links_never_pause(); source_keeps_emitting_after_handoff();
     capture_and_continuity(); every_emitter_target_pair_works_with_the_smallest_active_pool();
     puts("Skies relay: prefilled source, every physical route with 52 dots, six persistent channels, no hidden fill or visible teleport");
 }

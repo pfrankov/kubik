@@ -4,7 +4,7 @@
 #include <string.h>
 
 // Active light uses a bounded, softened gravitational field: a hole bends it into a fly-by.
-// Successful streams replay their captured curves in the same particle pool, without feeding new goals.
+// Successful streams continuously traverse straight star links in the same particle pool, without feeding new goals.
 // Both paths run at 60 Hz with carried remainders; drawing cadence cannot change a level.
 #define G_PX 300.f
 #define HOLE_A 520
@@ -103,7 +103,7 @@ static void respawn(sky_world_t *w, sky_particle_t *p) {
     p->color = COL_TEAL; p->age = p->channel = 0;
     if (w->kind == SKY_AURORA) p->color = (uint8_t)(sky_rand(w) % COL_COUNT);
     p->rx = p->ry = p->rvx = p->rvy = 0;
-    p->wait = (uint16_t)(sky_rand(w) % 32);
+    p->wait = 1;
 }
 static void feed_stars(const field_t *f, sky_world_t *w, sky_particle_t *p) {
     for (int i = 0; i < f->ns; i++) {
@@ -151,6 +151,7 @@ static void update_stars(sky_world_t *w, field_t *f, sky_hits_t *hits) {
 // New active light leaves the most recently discovered star, directed into the chart.
 void sky_emitter(sky_world_t *w, unsigned star) {
     w->emitter = (uint8_t)star;
+    w->emit_tick = 0;
     sky_source_t *s = &w->source;
     s->x = w->star[star].x; s->y = w->star[star].y;
     float dx = 240 - s->x, dy = 240 - s->y, length = hypotf(dx, dy);
@@ -159,56 +160,42 @@ void sky_emitter(sky_world_t *w, unsigned star) {
     s->speed = 60;
 }
 
-// Fixed-point de Casteljau; no per-particle trig, square root or allocation.
-static inline int curve_lerp(int a, int b, int phase) { return a + (b-a)*phase/65536; }
-static int curve(const int16_t control[4], unsigned phase) {
-    int u=(int)phase;
-    int a=curve_lerp(control[0],control[1],u);
-    int b=curve_lerp(control[1],control[2],u);
-    int c=curve_lerp(control[2],control[3],u);
-    return curve_lerp(curve_lerp(a,b,u),curve_lerp(b,c,u),u);
-}
+// Learned links are straight; their evenly spaced dots share a fixed-point phase clock.
+static int line_position(int a, int b, unsigned phase) { return a + (b-a)*(int)phase/65536; }
 static void learned_particle(sky_world_t *w, sky_particle_t *p) {
     const sky_channel_t *c = &w->channel[p->channel - 1];
-    if (p->wait) { p->wait--; return; }
     unsigned phase = p->age + c->step;
     bool wrap = phase > UINT16_MAX;
     p->age = (uint16_t)phase;
-    if (wrap) {
-        // Natural emission: the endpoint disappears before the dot is reused at the source.
-        p->wait = (uint16_t)(1 + (unsigned)p->rvx * (65536u / c->step) / SKY_CHANNEL_DOTS);
-        p->rvx = 0; p->rx = 0;
-    }
-    int x = curve(c->x, p->age), y = curve(c->y, p->age);
-    // Capture preserves the visible position. Ease into the saved path over 0.2 s.
+    // Hide only the endpoint-to-source wrap, never pause the channel's clock.
+    if (wrap) p->wait = 1;
+    int x = line_position(c->x[0], c->x[1], p->age);
+    int y = line_position(c->y[0], c->y[1], p->age);
     int ease = p->rx > 0 ? p->rx-- : 1;
-    int vx = (x - p->x) / ease, vy = (y - p->y) / ease;
+    int vx = clamp32((x - p->x) / ease, -100, 100);
+    int vy = clamp32((y - p->y) / ease, -100, 100);
+    if (wrap) { p->rx = 0; vx = x - p->x; vy = y - p->y; }
     p->x += vx; p->y += vy;
     p->vx = wrap ? 0 : (int16_t)clamp32(vx * 60, -2700, 2700);
     p->vy = wrap ? 0 : (int16_t)clamp32(vy * 60, -2700, 2700);
     p->color = w->star[c->to].color;
-    if (!p->wait && distance(p->x-c->x[3],p->y-c->y[3]) < SKY_ZONE_R*SKY_Q3 && w->star[c->to].inside < 255)
+    if (!p->wait && distance(p->x-c->x[1],p->y-c->y[1]) < SKY_ZONE_R*SKY_Q3 && w->star[c->to].inside < 255)
         w->star[c->to].inside++;
 }
 static void capture_particles(sky_world_t *w, sky_particle_t *ps, int n, const sky_channel_t *c) {
-    int sample[16][2];
-    for(unsigned i=0;i<16;i++) { sample[i][0]=curve(c->x,i*4096);sample[i][1]=curve(c->y,i*4096); }
     for (int slot = 0; slot < SKY_CHANNEL_DOTS; slot++) {
+        unsigned phase = (unsigned)slot * 65536u / SKY_CHANNEL_DOTS;
+        int x = line_position(c->x[0],c->x[1],phase), y = line_position(c->y[0],c->y[1],phase);
         int best = -1, nearest = INT32_MAX;
         for (int i = 0; i < n; i++) {
-            if (ps[i].channel || ps[i].wait || !ps[i].age) continue;
-            int d = distance(ps[i].x - c->x[3], ps[i].y - c->y[3]);
-            if (d < nearest && d < (int)(SKY_ZONE_R * SKY_Q3) + 48) { best = i; nearest = d; }
+            if (ps[i].channel) continue;
+            int d = distance(ps[i].x-x,ps[i].y-y);
+            if (d < nearest) { best = i; nearest = d; }
         }
         if (best < 0) break;
         sky_particle_t *p = &ps[best];
-        unsigned phase = 0; nearest = INT32_MAX;
-        for (unsigned index = 0; index < 16; index++) {
-            unsigned u = index * 4096;
-            int d = distance(p->x - sample[index][0], p->y - sample[index][1]);
-            if (d < nearest) { phase = u; nearest = d; }
-        }
-        p->channel = w->channels; p->wait = 0; p->age = (uint16_t)phase; p->rx = 12; p->rvx = (int8_t)slot;
+        p->channel = w->channels; p->age = (uint16_t)phase;
+        p->rx = 60; // Preserve visible positions, then settle onto the line over one second.
     }
 }
 static void capture(sky_world_t *w, sky_particle_t *ps, int n, int target) {
@@ -216,30 +203,38 @@ static void capture(sky_world_t *w, sky_particle_t *ps, int n, int target) {
     sky_channel_t *c = &w->channel[w->channels++];
     c->from = w->emitter; c->to = (uint8_t)target;
     c->x[0] = (int16_t)q3(w->source.x); c->y[0] = (int16_t)q3(w->source.y);
-    c->x[3] = (int16_t)q3(w->star[target].x); c->y[3] = (int16_t)q3(w->star[target].y);
-    float length = hypotf(c->x[3] - c->x[0], c->y[3] - c->y[0]);
-    c->x[1] = c->x[0] + (int16_t)(w->source.dx * length * .33f);
-    c->y[1] = c->y[0] + (int16_t)(w->source.dy * length * .33f);
-    // Arrival tangent from the particles that actually reached this star.
-    int vx = 0, vy = 0;
-    for (int i = 0; i < n; i++) if (!ps[i].channel && !ps[i].wait && ps[i].age && distance(ps[i].x-c->x[3], ps[i].y-c->y[3]) < SKY_ZONE_R*SKY_Q3) {
-        vx += ps[i].vx; vy += ps[i].vy;
-    }
-    float arrival = hypotf(vx, vy);
-    c->x[2] = c->x[3] - (int16_t)(arrival > 1 ? vx / arrival * length * .33f : 0);
-    c->y[2] = c->y[3] - (int16_t)(arrival > 1 ? vy / arrival * length * .33f : 0);
+    c->x[1] = (int16_t)q3(w->star[target].x); c->y[1] = (int16_t)q3(w->star[target].y);
+    float length = hypotf(c->x[1] - c->x[0], c->y[1] - c->y[0]);
     c->step = (uint16_t)clamp32((int32_t)(65536.f * 100.f * SKY_Q3 / (60.f * fmaxf(length, 60*SKY_Q3))), 1, 4096);
     capture_particles(w, ps, n, c);
     sky_emitter(w, (unsigned)target);
+}
+// A steady source reuses the oldest active dot, preferring ones already off-screen.
+// The cadence spans the pool's eight-second lifetime, even after six learned links.
+static void emit_particle(sky_world_t *w, sky_particle_t *ps, int n) {
+    if (!w->emitting) return;
+    if (w->emit_tick) w->emit_tick--;
+    int best = -1, count = 0;
+    unsigned oldest = 0;
+    for (int i = 0; i < n; i++) {
+        if (ps[i].channel) continue;
+        count++;
+        unsigned age = ps[i].wait ? 65536u + ps[i].wait : ps[i].age;
+        if (best < 0 || age > oldest) { best = i; oldest = age; }
+    }
+    if (best < 0 || (w->emit_tick && ps[best].wait <= 1)) return;
+    respawn(w, &ps[best]);
+    w->emit_tick = (uint16_t)clamp32(MAX_AGE / count, 1, MAX_AGE);
 }
 static void tick(sky_world_t *w, field_t *field, sky_particle_t *ps, int n, sky_hits_t *hits) {
     for (int i = 0; i < n; i++) {
         sky_particle_t *p = &ps[i];
         if (p->channel) { learned_particle(w, p); continue; }
         if (p->wait) { p->wait--; continue; }
-        if (!move_particle(field, p, hits)) respawn(w, p);
+        if (!move_particle(field, p, hits)) p->wait = UINT16_MAX;
         else feed_stars(field, w, p);
     }
+    emit_particle(w, ps, n);
     update_stars(w, field, hits);
     for (int i = 0; i < w->count_stars; i++)
         if (hits->locked & (1u << i)) capture(w, ps, n, i);
@@ -257,6 +252,8 @@ void sky_stream_step(sky_world_t *w, sky_particle_t *ps, int n, float dt, const 
     w->remainder += fminf(dt, .1f);
     field_t field;load_field(&field,w,force); // inputs and holes stay fixed; moving stars refresh their entries after each tick
     unsigned ticks = 0, inside[SKY_STARS] = {0}, orbit[SKY_HUMS] = {0};
+    if (w->remainder + .000001f >= SKY_STEP_S)
+        for (int i = 0; i < n; i++) if (ps[i].channel) ps[i].wait = 0;
     while (w->remainder + .000001f >= SKY_STEP_S && ticks < 6) {
         sky_hits_t step = {0};
         tick(w, &field, ps, n, &step);
@@ -270,11 +267,12 @@ void sky_stream_step(sky_world_t *w, sky_particle_t *ps, int n, float dt, const 
 }
 
 void sky_stream_launch(sky_world_t *w, sky_particle_t *ps, int n, const int32_t from[][2]) {
+    w->emitting = true; w->emit_tick = 0;
     for (int i = 0; i < n; i++) {
         sky_particle_t *p = &ps[i];
         respawn(w, p);
         p->wait = 0;
-        if (!from) { p->wait = (uint16_t)(sky_rand(w) % 120); continue; }
+        if (!from) { p->wait = UINT16_MAX; continue; }
         float away = sky_range(w, 20.f, 150.f);
         float cx = (float)(from[i][0] - q3(SKY_CX)) / SKY_Q3, cy = (float)(from[i][1] - q3(SKY_CY)) / SKY_Q3;
         float len = hypotf(cx, cy);

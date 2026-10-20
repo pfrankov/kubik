@@ -60,14 +60,16 @@ typedef struct { float x, y, shown; int8_t spin; bool down; uint8_t id; } sky_to
 // Where the stream comes from, its direction (unit vector) and pace (px/s).
 typedef struct { float x, y, dx, dy, speed; } sky_source_t;
 
-// A captured stream: fixed Q3 cubic path and phase increment per 60 Hz tick.
+// A captured stream: fixed Q3 endpoints and phase increment per 60 Hz tick.
 #define SKY_CHANNEL_DOTS 10
 #define SKY_CHANNELS (SKY_STARS - 1)
-typedef struct { int16_t x[4], y[4]; uint16_t step; uint8_t from, to; } sky_channel_t;
+typedef struct { int16_t x[2], y[2]; uint16_t step; uint8_t from, to; } sky_channel_t;
 
 // Everything that makes a sky: a prevalidated star chart with a seeded orientation and harmony.
 typedef struct {
     uint8_t kind, count_stars, count_holes, root;  // root: the chord's first scale degree
+    bool emitting;           // enabled only after launch; diagnostics may isolate existing channels
+    uint16_t emit_tick;      // bounded cadence for the active source
     uint8_t emitter, channels; // newest full star and persistent captured streams
     sky_channel_t channel[SKY_CHANNELS];
     uint8_t chart, turn;    // fixed catalog ID (0: free Aurora), whole-chart quarter turns
