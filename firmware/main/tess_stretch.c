@@ -161,35 +161,23 @@ bool tess_fly_tap(face_t *f, float x, float y) {
 static void begin_self(face_t *f) {
     tess_games_t *g = &f->tess_games;
     float angle = frange(f, 0, 2 * PI);
-    g->self_dir[0] = cosf(angle); g->self_dir[1] = sinf(angle);
-    g->self_vertex = (uint8_t)((int)(frand(f) * 16) & 15);
-    g->self_act = tess_temper_self_act(f);
-    g->self_spinning = g->self_act == SELF_SPIN;
-    g->self_age = 0;
+    int vertex = (int)(frand(f) * 16) & 15;
+    tess_self_t act = tess_temper_self_act(f);
+    g->self_spinning = act == SELF_SPIN;
     // Still excited from play, she soon asks for more; otherwise she plays now and then.
     g->self_wait = g->excite > .5f ? frange(f, 3.f, 6.f) : frange(f, SELF_LO, SELF_HI);
-    if (g->self_act == SELF_PLUCK) { tess_play_pluck(f, g->self_vertex, true); g->self_act = SELF_NONE; }
-    else if (g->self_act == SELF_WRESTLE) tess_tone(f, TT_CREAK, tess_tone_hz(f, .2f), .1f, .15f);
-    else if (g->self_act == SELF_SPIN) {
+    if (act == SELF_PLUCK) tess_play_pluck(f, vertex, true);
+    else if (act == SELF_SPIN) {
         tess_tone(f, TT_WHOOSH, tess_tone_hz(f, .2f), .08f, .15f);
-        f->tess_mood.drag_speed[0] += g->self_dir[0] * 10.f;
-        f->tess_mood.drag_speed[1] += g->self_dir[1] * 4.f;
-        g->self_act = SELF_NONE;
+        f->tess_mood.drag_speed[0] += cosf(angle) * 10.f;
+        f->tess_mood.drag_speed[1] += sinf(angle) * 4.f;
     }
 }
 void tess_self_end(tess_games_t *g) {
-    g->self_act = SELF_NONE;
     g->self_spinning = false;
 }
 void tess_self_update(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
-    if (g->self_act) {
-        if (g->self_act == SELF_WRESTLE && g->self_age < .9f && g->self_age + dt >= .9f)
-            tess_tone(f, TT_TWANG, tess_tone_hz(f, .2f), .07f, .15f);
-        g->self_age += dt;
-        if (g->self_age >= 1.2f) tess_self_end(g);
-        return;
-    }
     g->self_wait -= dt;
     if (g->self_wait <= 0) begin_self(f);
 }

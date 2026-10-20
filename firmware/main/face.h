@@ -185,7 +185,6 @@ typedef struct {
 typedef struct {
     int16_t xy[TESS_N][2];             // last visible projection, Q3; no second geometry pass
     float at, speed, extent, tail_until;
-    bool input_active;               // recent real IMU motion, never the camera's automatic return
     bool ready, sounding;
 } tess_motion_sound_t;
 

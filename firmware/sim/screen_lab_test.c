@@ -250,7 +250,7 @@ static void assert_playing(int screen) {
     bool moving = false;
     for (int frame = 0; frame < 45 && !moving; frame++) {
         screen_lab_update(&lab, 1.f / 30);
-        moving = g->shaping || g->self_act || lab_waves() || g->bloom > .3f || g->game;
+        moving = g->shaping || g->self_spinning || lab_waves() || g->bloom > .3f || g->game;
     }
     assert(moving);
     if (screen == LAB_PLAY_STRETCH) assert(g->game == TESS_GAME_STRETCH || g->game == TESS_GAME_FLY || g->pull_k == 0);

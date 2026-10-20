@@ -53,11 +53,11 @@ static void game_state(char *reply, size_t cap) {
              "\"game\":%u,\"phase\":%u,\"streak\":%u,\"round\":%lu,\"available\":%s,"
              "\"x\":%.1f,\"y\":%.1f,\"waves\":%u,\"bloom\":%.3f,\"tones\":%u,\"spin\":%.2f,\"tilt_x\":%.2f,\"tilt_y\":%.2f,"
              "\"excite\":%.2f,\"annoy\":%.2f,\"fear\":%.2f,\"fond\":%.2f,\"pull\":%.3f,"
-             "\"speed\":%.2f,\"squash\":%.3f,\"self\":%u,\"shaping\":%s,\"burst\":%.2f,\"form\":%.3f}",
+             "\"speed\":%.2f,\"squash\":%.3f,\"shaping\":%s,\"burst\":%.2f,\"form\":%.3f}",
              v.preview ? "true" : "false", v.progress, saved,
              v.game, v.phase, v.streak, (unsigned long)v.round, v.available ? "true" : "false",
              v.x, v.y, v.waves, v.bloom, v.tone_kinds, v.spin, v.tilt_x, v.tilt_y, v.excite, v.annoy, v.fear, v.fond, v.pull,
-             v.speed, v.squash, v.self_act, v.shaping ? "true" : "false", v.burst, v.form);
+             v.speed, v.squash, v.shaping ? "true" : "false", v.burst, v.form);
 }
 // Skies diagnostics use real, expiring finger/tilt input; they never move level geometry to solve it.
 static uint32_t s_sky_saved;       // the player's own progress, taken before the first forced sky

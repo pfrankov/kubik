@@ -68,7 +68,6 @@ static bool imu_read(float a[3], float w[3]) {
 #define SHAKE_G 1.4f  // jolt (g, gravity removed) that counts towards a dizzying shake
 static float s_tilt_x, s_tilt_y, s_view_x, s_view_y;
 static float s_view_q[4] = {1, 0, 0, 0};
-static volatile uint32_t s_motion_ms;
 // Jolts accumulate as integers (1e-4 g*s) so the display can take differences without a lock.
 static volatile int32_t s_jolt_x, s_jolt_y;
 static float s_slide_x, s_slide_y, s_grav_x, s_grav_y;
@@ -103,10 +102,6 @@ void input_view_tilt(float *x, float *y) {
 }
 void input_view_quat(float q[4]) {
     for (int i = 0; i < 4; i++) q[i] = s_view_q[i];
-}
-bool input_motion_active(void) {
-    uint32_t at = s_motion_ms;
-    return at && (uint32_t)(esp_timer_get_time() / 1000 - at) < 400;
 }
 
 void input_jolt(float *dvx, float *dvy) {
@@ -340,10 +335,8 @@ static void update_motion(input_state_t *s, int64_t now_ms) {
     update_viewpoint(s, &sample);
     update_rest_state(s, &sample);
     log_motion(s, &sample, now_ms);
-    if (motion_activity_step(&s->activity, s->gravity, sample.rotation, sample.dynamic, now_ms)) {
-        s_motion_ms = (uint32_t)now_ms;
-        if (!s_dark) app_post(EV_MOTION_ACTIVITY, 0, 0);
-    }
+    if (motion_activity_step(&s->activity, s->gravity, sample.rotation, sample.dynamic, now_ms) && !s_dark)
+        app_post(EV_MOTION_ACTIVITY, 0, 0);
     detect_shake(s, &sample, now_ms);
     detect_pickup(s, &sample, now_ms);
 }

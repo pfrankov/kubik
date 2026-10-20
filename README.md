@@ -71,7 +71,8 @@ into the rim, throw her hard and sweep her shattered dots home. Left alone, she
 plays by herself. Six first discoveries grow her from a point into a tesseract.
 Her body softly resonates throughout a gesture and its inertia. Speed changes
 the level, shape colours the overtones, and each new gesture has a subtle variation.
-Resting drift stays quiet.
+Tilting, rocking and resting drift do not trigger sound on their own; sound
+accompanies her animations and finger gestures. She never stretches her corners by herself.
 There is no game menu or HUD; see [Playing with Tess](docs/tess-games.md).
 
 Press **PWR** to wake a dark screen. After automatic sleep, a touch or lifting Kubik also wakes it; ordinary movement and shaking do not. After switching the screen off with PWR, touch, BOOT, KEY and movement are ignored. An incoming agent reply can wake either sleeping state; background activity and reconnections keep the screen off. Touch restores a dimmed screen to full brightness; holding or dragging keeps it active.

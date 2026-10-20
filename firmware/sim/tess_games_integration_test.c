@@ -154,20 +154,21 @@ static void a_drag_on_her_still_turns_her(void) {
     finger(false,240,335);
 }
 static unsigned self_kinds(const tess_games_t *g) {  // one bit per act of her own play seen
-    unsigned kinds=g->self_act?1u<<(g->self_act-1):0;
+    unsigned kinds=0;
     for (int w=0;w<TESS_WAVES;w++) if (g->wave[w].amp!=0 && g->wave[w].quiet) kinds|=1;
     if (g->bloom>.1f) kinds|=1u<<(SELF_SPIN-1);
     return kinds;
 }
 static void alone_she_plays_with_herself(void) {
     fresh(0);
+    face.tess_games.since_touch=0; // quiet play after interaction includes spins; long solitude settles to plucks
     face.tess_games.self_wait=.1f;
     unsigned kinds=0;
     for (int i=0;i<4*30*30;i++) {
         frame(); kinds|=self_kinds(&face.tess_games);
         assert(face.tess_games.pull_k==0); // one-sided pulls require a real finger
     }
-    assert(kinds&1 && kinds&(1u<<(SELF_WRESTLE-1))); // quiet plucks and opposing corners remain
+    assert(kinds&1 && kinds&(1u<<(SELF_SPIN-1))); // quiet plucks and spins remain, without corner stretching
     assert(!face.tess_games.progress);  // her own play discovers nothing for you
     // Still excited from play, she soon spins or plucks herself, asking for more.
     face.tess_games.excite=.9f; face.tess_games.self_wait=.1f;

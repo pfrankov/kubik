@@ -53,10 +53,10 @@ along alternating curves. All 112 home finishes the burst and is the discovery;
 2.2 s without a newly gathered dot ends the round.
 
 **Self-play.** After 16–30 s of quiet (no finger, rub, heart, burst, agitation,
-dimming or drowsiness, and eligible), she plays a quiet pluck, a spin kick, or
-two opposite vertices wrestling apart (1.2 s). One-sided pulls require a finger.
-Each act starts a low-gain body tone; wrestling releases with a quiet twang at
-0.9 s. A landing finger ends it. Dimming releases quiet waves and the flagged
+dimming or drowsiness, and eligible), she plays a quiet pluck or a spin kick.
+Corner pulls require a finger; there is no autonomous corner-stretch animation.
+Each act starts a low-gain body tone. A landing finger ends it.
+Dimming releases quiet waves and the flagged
 idle-spin impulse, preserving manual drag inertia. Self-play earns nothing.
 
 **Organic burst.** Each burst's spread is best-candidate sampling on the square
@@ -93,9 +93,9 @@ excited plucks are answered from the opposite corner 0.55–0.85 s later and 10%
 reflect. Pets soothe; rim hits frighten (`ME_JOLT` above 6 units/s); a full
 gather calms and endears (`ME_GLAD`). Fear above 0.5 inverts and weakens a pull;
 fondness strengthens how far her other corners follow. Annoyance damps bloom.
-Self-play is chosen by temper and mood: none when cross or scared, a reach towards
-the last touch when curious, spin or pluck when excited, wrestle/pluck/reach in
-turn when long alone; excited, she asks again within 3–6 s. Knocks (`jolt` above
+Self-play is chosen by temper and mood: none when cross or scared, spin or pluck
+when excited, otherwise alternating plucks and spins. After a minute without touch
+she only plucks; excited, she asks again within 3–6 s. Knocks (`jolt` above
 0.015) rattle up to three corners with quiet plucks and grains.
 
 **Body sound.** `tess_tone` queues up to twelve physical tones per frame beside the
@@ -120,7 +120,7 @@ loudest 100 ms and biggest rise.
 `tess_motion_sound.c` observes the existing rendered projection, without a second
 geometry pass. Every 50 ms it measures all 112 points, smooths their speed and
 maps changing extent to resonance. This covers rigid turns (zero solver velocity),
-springs, growth, tilt and inertia. `TT_MOTION` updates coalesce in the queue;
+springs, growth and inertia during an explicit animation. `TT_MOTION` updates coalesce in the queue;
 `tess_sound_motion.c` sustains one quiet body voice at a fixed carrier pitch,
 varying its level and partials without restarting phases or envelope. The material varies once per gesture,
 using the synth's prime cycles, independently of visual randomness.
@@ -129,9 +129,9 @@ A zero-gain release passes through full/quiet queues; missing updates release
 after 0.83 s. Menu, text, dim, sleep, agent processing, capture, speech, Live, Skies and fallen
 particles stop this layer. Screen Lab uses its own face and preserves cleanup
 across screen replacement. Only a touch gesture, finite game/reaction, carried
-momentum or real IMU activity owns it, with a bounded 0.6 s spring tail.
-IMU ownership reuses `motion_activity_step` with 400 ms freshness; it never uses
-the camera quaternion's automatic recentering. Static sag, idle pose rates and
+momentum owns it, with a bounded 0.6 s spring tail.
+Device tilt, rocking and the camera quaternion's automatic recentering cannot
+start or prolong it. Static sag, idle pose rates and
 a stationary finger without a recognized purr cannot sustain sound. Returning to ordinary idle drift
 releases it, leaving real silence for the local listener.
 

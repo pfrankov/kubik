@@ -121,15 +121,6 @@ static void squash_side(const tess_games_t *g, const float (*home)[3]) {
         add(v, -nx * flat - ny * flat * .5f, -ny * flat + nx * flat * .5f, 0);  // flattened, and squeezed sideways
     }
 }
-static void wrestle(const tess_games_t *g, const float (*dir)[2]) {
-    if (g->self_act != SELF_WRESTLE) return;
-    float t = g->self_age, e = t < .9f ? smooth(t / .9f) : 0;  // they strain apart, then let go at once
-    for (int side = 0; side < 2; side++) {
-        int v = side ? g->self_vertex ^ 15 : g->self_vertex;
-        add(v, dir[v][0] * .9f * e, dir[v][1] * .9f * e, .2f * e);
-    }
-}
-
 // A Tess still growing is folded small; her play flashes open along the tesseract she will become,
 // so even a point rings, flowers and reaches with the full shape (inner and outer cell). The same corners,
 // on the panel, are what touch looks up.
@@ -142,9 +133,8 @@ static void unfold_home(tess_games_t *g, const float points[TESS_N][3], float ho
     }
 }
 static bool rings(const tess_games_t *g) {
-    bool any = g->self_act == SELF_WRESTLE;
-    for (int w = 0; w < TESS_WAVES; w++) any = any || g->wave[w].amp != 0;
-    return any;
+    for (int w = 0; w < TESS_WAVES; w++) if (g->wave[w].amp != 0) return true;
+    return false;
 }
 bool tess_play_frame(face_t *f, const float points[TESS_N][3], float k, float bx, float by, float pc, float ps) {
     if (!k_slots.ready) map_slots();
@@ -157,7 +147,6 @@ bool tess_play_frame(face_t *f, const float points[TESS_N][3], float k, float bx
     if (rings(g)) {
         for (int v = 0; v < 16; v++) radial(home[v], dir[v]);
         ring_waves(g, (const float (*)[2])dir);
-        wrestle(g, (const float (*)[2])dir);
     }
     open_bloom(g, home);
     pull_vertex(g, home, fmaxf(k, .05f), bx, by, pc, ps);

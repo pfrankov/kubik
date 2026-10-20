@@ -91,8 +91,8 @@ the microphone or a spoken reply, and never while dimmed, in the dark or asleep.
 That resonance follows the whole movement, including inertia and the return
 after you let go. Speed changes its level; the changing shape colours its layered
 overtones. Pitch stays steady within a gesture, and each new gesture has a
-slightly different material sound. It fades as she stops. Resting drift, a
-stationary tilted pose and automatic recentering stay quiet; spontaneous play
+slightly different material sound. It fades as she stops. Tilting or rocking
+alone, resting drift and automatic recentering stay quiet; spontaneous play
 is much softer than your gestures. Holding a pet still accompanies her purr.
 Opening a menu releases the sound; Skies and offline particles keep their own music.
 The continuous layer also pauses while the agent processes your request.
@@ -101,10 +101,10 @@ The continuous layer also pauses while the agent processes your request.
 
 Left alone for a while, Tess plays by herself as her temper
 suggests. She plucks herself and a ring runs through her, with a barely audible
-soft resonance. One-sided stretching only follows your finger. Excited, she gives
-herself a spin and blooms a little. Long alone, two of
-her opposite corners wrestle apart and snap back. Each of these is something your
-finger can do too; their gentle tension and release have quiet, synchronized sounds.
+soft resonance. She never stretches her corners by herself; stretching follows
+your finger. Excited, she gives herself a spin and blooms a little. Long alone,
+she settles into occasional quiet plucks. These animations have soft,
+synchronized sounds; short sounds from actual impacts remain.
 A touch stops her own play at once. Cross or frightened, she
 keeps to herself, and she never starts idle play while dimmed, sleepy or dozing.
 Dimming ends current idle play and lets its shape settle without sound.

@@ -42,7 +42,7 @@ static bool carried_motion(const tess_mood_t *m) {
         fabsf(m->yw_rate) + fabsf(m->barrel_rate) > .05f;
 }
 static bool structural_motion(const tess_games_t *g) {
-    if (g->self_act || g->bloom > .02f || g->game == TESS_GAME_STRETCH ||
+    if (g->bloom > .02f || g->game == TESS_GAME_STRETCH ||
         g->game == TESS_GAME_FLY || g->game == TESS_GAME_GATHER) return true;
     for (int i = 0; i < TESS_WAVES; i++) if (g->wave[i].amp != 0) return true;
     return false;
@@ -55,8 +55,7 @@ static bool touch_motion(const face_t *f) {
 }
 static float motion_threshold(face_t *f) {
     bool structural = structural_motion(&f->tess_games);
-    if (touch_motion(f) || f->tess_motion_sound.input_active ||
-        structural || reacting(f) || carried_motion(&f->tess_mood))
+    if (touch_motion(f) || structural || reacting(f) || carried_motion(&f->tess_mood))
         f->tess_motion_sound.tail_until = fmaxf(f->tess_motion_sound.tail_until, f->t + (structural ? .6f : .1f));
     // Shape springs finish; other impulses already include their decay. Idle drift cannot renew either.
     if (f->t >= f->tess_motion_sound.tail_until) return INFINITY;

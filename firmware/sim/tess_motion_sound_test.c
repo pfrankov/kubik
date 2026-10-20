@@ -115,13 +115,13 @@ static void real_animations_keep_their_resonance(void) {
         assert(moving > 20 && audible == moving && updates > 10);
     }
 }
-static void device_rotation_is_motion_too(void) {
+static void device_rotation_and_tilt_stay_quiet(void) {
     fresh(); settle(); face.tess_rigid = 1;
     face.tess_touch_t = 10; face.tess_games.shaping = false;
     memset(&face.tess_mood, 0, sizeof face.tess_mood);
     memset(face.tess_reaction, 0, sizeof face.tess_reaction);
     tess_motion_sound_stop(&face);
-    face.tess_motion_sound.input_active = true;
+    float fastest = 0;
     for (int i = 0; i < 60; i++) {
         float a = i * .025f;
         face.view_q[0] = cosf(a); face.view_q[1] = sinf(a);
@@ -129,16 +129,29 @@ static void device_rotation_is_motion_too(void) {
         face.t += .05f;
         tess_project_dots(&face, dots);
         tess_motion_sound_observe(&face, dots);
+        fastest = fmaxf(fastest, face.tess_motion_sound.speed);
         for (int n = 0; n < 3; n++) render_audio();
     }
-    assert(updates > 40 && tess_sound_active(&sound));
-    face.tess_motion_sound.input_active = false;
+    assert(fastest > 8 && !updates && !tess_sound_active(&sound));
     for (int i = 0; i < 30; i++) { // automatic camera return still moves the projection, but is not a gesture
         face.view_q[0] = cosf(.7f - i * .02f);
         face.view_q[1] = sinf(.7f - i * .02f);
         constant_movement(30, 1);
     }
     assert(!face.tess_motion_sound.sounding && !tess_sound_active(&sound));
+    fresh(); settle();
+    fastest = 0;
+    for (int i = 0; i < 360; i++) {
+        float a = i / 60.f;
+        face.grav_x = .2f * sinf(a * 2);
+        face.grav_y = .15f * cosf(a * 2);
+        frame(); // real gravity, body springs, sag and rendering; no artificial sound gate
+        fastest = fmaxf(fastest, face.tess_motion_sound.speed);
+    }
+    assert(fastest > 8 && !updates && !tess_sound_active(&sound));
+    face.grav_x = .2f; face.grav_y = .15f;
+    for (int i = 0; i < 120; i++) frame();
+    assert(!updates && !face.tess_motion_sound.sounding && !tess_sound_active(&sound));
 }
 static void static_shapes_and_idle_poses_do_not_sound(void) {
     fresh();
@@ -270,7 +283,7 @@ static void idle_motion_leaves_real_silence(void) {
 int main(void) {
     a_motion_is_a_continuous_voice_not_repeated_notes();
     real_animations_keep_their_resonance();
-    device_rotation_is_motion_too();
+    device_rotation_and_tilt_stay_quiet();
     static_shapes_and_idle_poses_do_not_sound();
     every_quiet_boundary_releases_before_drawing();
     release_survives_a_full_queue_and_coalesces();

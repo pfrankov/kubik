@@ -17,7 +17,7 @@ void app_lab_game_snapshot(tess_games_view_t *v) {
     v->waves = 0;
     for (int i = 0; i < TESS_WAVES; i++) v->waves += g->wave[i].amp != 0;
     v->progress = g->progress; v->game = g->game; v->phase = g->phase; v->streak = g->streak; v->tone_kinds = g->tone_kinds;
-    v->self_act = g->self_act; v->round = g->round; v->available = g->available; v->shaping = g->shaping;
+    v->round = g->round; v->available = g->available; v->shaping = g->shaping;
     v->x = g->hit[0]; v->y = g->hit[1]; v->bloom = g->bloom; v->spin = g->spin; v->tilt_x = g->tilt[0]; v->tilt_y = g->tilt[1];
     v->excite = g->excite; v->annoy = g->annoy; v->fear = g->fear; v->fond = g->fond; v->pull = g->pull_k;
     v->speed = hypotf(g->fly_v[0], g->fly_v[1]); v->squash = g->squash_k; v->burst = g->gather_clock; v->form = g->form;
@@ -118,7 +118,6 @@ bool app_lab_frame(scene_t *scene, float dt, bool powered) {
     f->jolt_dvx = g_face.jolt_dvx; f->jolt_dvy = g_face.jolt_dvy;
     g_face.jolt_dvx = g_face.jolt_dvy = 0;
     memcpy(f->view_q, g_face.view_q, sizeof f->view_q);
-    f->tess_motion_sound.input_active = g_face.tess_motion_sound.input_active;
     s_lab->face.rub_in = g_face.rub_in;
     s_lab->face.touch_in = g_face.touch_in;
     g_face.rub_in.path = 0; g_face.rub_in.turns = 0;

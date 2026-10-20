@@ -86,12 +86,12 @@ static void alone_she_plays_only_when_quiet(void) {
     ready(0);
     f.tess_games.self_wait = .1f;
     step(.2f);
-    assert(f.tess_games.self_act || waves());
+    assert(f.tess_games.self_spinning || waves());
     ready(0);
     f.tess_games.self_wait = .1f;
     f.rub_in.down = true;
     step(.3f);
-    assert(!f.tess_games.self_act && !waves());
+    assert(!f.tess_games.self_spinning && !waves());
 }
 int main(void) {
     restore_and_growth();
