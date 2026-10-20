@@ -4,7 +4,7 @@
 
 // Measured star positions, conventional chart links and offline verified relay input routes.
 // No per-star displacement: only the whole chart turns, preserving the real figure.
-typedef struct { int16_t x, y; } chart_star_t;
+typedef struct { int16_t x, y; int8_t size; } chart_star_t;
 typedef struct {
     const char *name;
     uint8_t stars, links, holes;
@@ -57,6 +57,7 @@ void sky_place_chart(sky_world_t *w, const sky_recipe_t *r) {
         sky_star_t *s = &w->star[i];
         position(c ? c->star[i].x : 50, c ? c->star[i].y : 240, w->turn, &s->x, &s->y);
         s->ax = s->x; s->ay = s->y;
+        s->size = c ? c->star[i].size : 0;
     }
     w->star[0].fill = 1; w->star[0].sang = true;
     if (c) sky_emitter(w, 0);

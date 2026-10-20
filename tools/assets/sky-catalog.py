@@ -47,8 +47,12 @@ def generate(data):
         for x,y in points: assert 84 <= x <= 396 and 84 <= y <= 396
         for a,b in c['edges']: assert 0 <= a < n and 0 <= b < n and a != b
         stars = []
-        for x,y in points:
-            stars.append(f'{{{x},{y}}}')
+        for (x,y), star in zip(points,c['stars']):
+            magnitude = star['vmag']
+            assert -2 < magnitude < 8
+            # Compressed apparent brightness: optical size +/- 20%, not a physical stellar diameter.
+            size = round(max(-20,min(20,(2.5-magnitude)*10)))
+            stars.append(f'{{{x},{y},{size}}}')
         edges = ','.join(f'{{{a},{b}}}' for a,b in c['edges'])
         lines += [f'    {{"{c["name"]}",{n},{len(c["edges"])},{c["holes"]},',
                   '     {'+','.join(stars)+'},', '     {'+edges+'}},']

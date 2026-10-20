@@ -113,10 +113,11 @@ static void make_sky(face_t *f, tess_sky_t *k, bool first_launch) {
         return;
     }
     int32_t from[SKY_PARTICLES][2];
-    for (int i = 0; i < SKY_PARTICLES; i++) {
-        float x, y;
-        tess_scatter_spot_px(i, &x, &y);
-        from[i][0] = (int32_t)(x * SKY_Q3); from[i][1] = (int32_t)(y * SKY_Q3);
+    tess_projected_t dots[TESS_N];
+    tess_project_dots(f, dots);
+    for (int i = 0; i < TESS_N; i++) {
+        int slot = f->tess_scatter_of[i];
+        from[slot][0] = dots[i].x; from[slot][1] = dots[i].y;
     }
     sky_stream_launch(&k->w, k->p, SKY_PARTICLES, from);
 }

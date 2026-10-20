@@ -88,8 +88,8 @@ static void raster(void) {
 
 typedef struct { unsigned core; float spread, split; } star_light_t;
 
-static star_light_t star_light(float fill, int color, float time) {
-    sky.w.star[0] = (sky_star_t){.x=240, .y=240, .ax=240, .ay=240, .fill=fill, .color=(uint8_t)color};
+static star_light_t star_light_size(float fill, int color, float time, int size) {
+    sky.w.star[0] = (sky_star_t){.x=240, .y=240, .ax=240, .ay=240, .fill=fill, .color=(uint8_t)color, .size=(int8_t)size};
     face.t = time;
     scene_begin(&scene, 0); tess_sky_draw(&face, &scene); raster();
     unsigned core = 0, total = 0, moment = 0, red=0, blue=0;
@@ -106,6 +106,27 @@ static star_light_t star_light(float fill, int color, float time) {
     }
     assert(total > 0);
     return (star_light_t){core, (float)moment / (float)total, fabsf((float)red_x/red-(float)blue_x/blue)};
+}
+
+static star_light_t star_light(float fill, int color, float time) {
+    return star_light_size(fill,color,time,0);
+}
+
+static void star_sizes_follow_the_catalog(void) {
+    fixture();sky.w.count_stars=1;
+    for(int i=0;i<SKY_PARTICLES;i++)sky.p[i].wait=1;
+    star_light_t small=star_light_size(0,0,6,-20),large=star_light_size(0,0,6,20);
+    assert(large.spread>small.spread*1.4f);
+    for(int chart=1;chart<=SKY_CHARTS;chart++) {
+        sky_recipe_t r={.elements=(uint8_t)chart}; sky_world_t world;
+        sky_compose(&world,42,&r);
+        int low=100,high=-100;
+        for(int i=0;i<world.count_stars;i++) {
+            int size=world.star[i].size; assert(size>=-20 && size<=20);
+            if(size<low)low=size; if(size>high)high=size;
+        }
+        assert(high>low);
+    }
 }
 
 static void stars_gather_light(void) {
@@ -268,6 +289,7 @@ static void real_constellation_links_and_success_names(void) {
 }
 
 int main(void) {
+    star_sizes_follow_the_catalog();
     capacity();
     stars_gather_light();
     holes_leave_no_visual_trace();

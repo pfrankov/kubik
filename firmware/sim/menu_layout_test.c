@@ -127,6 +127,9 @@ static void power_indicator(void) {
 }
 static void sound_geometry(void) {
     face_t face = {0}; face.menu.open = true; face.menu.k = 1;
+    face.menu.volume=50; face.menu.ui_volume=100; face.menu.pressed=MENU_VOLUME;
+    scene_t overall; face_draw(&face,&overall);
+    assert(text(&overall,"75"));
     face.menu.sound = true; face.menu.volume = 70; face.menu.ui_volume = 0;
     face.menu.pressed = -1;
     int part;

@@ -29,7 +29,7 @@ def main():
         subprocess.run([os.environ.get('CC','cc'),'-O2','-DKUBIK_SIM_EMBEDDED','-Ifirmware/main','-Ifirmware/managed_components/espressif__qrcode',
                         'firmware/sim/sky_preview.c',*[f'firmware/{s}.c' for s in sources],'-lm','-o',str(exe)],cwd=ROOT,check=True)
         frames=subprocess.check_output([str(exe)],cwd=ROOT)
-    names=['triangulum','crux','corvus','delphinus','cassiopeia','cepheus','ursa-minor','orion',*[f'focus-{i}' for i in range(5)]]
+    names=['triangulum','crux','corvus','delphinus','cassiopeia','cepheus','ursa-minor','orion',*[f'focus-{i}' for i in range(5)],*[f'orion-focus-{i}' for i in range(5)],*[f'stream-{i}' for i in range(3)]]
     size=480*480*3;assert len(frames)==len(names)*size
     for i,name in enumerate(names):(args.out/f'{name}.png').write_bytes(png(frames[i*size:(i+1)*size]))
     print(f'{len(names)} production-rendered frames: {args.out}')

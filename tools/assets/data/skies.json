@@ -1,6 +1,7 @@
 {
   "frame": "ICRS J2000.0, degrees",
   "coordinate_source": "https://simbad.cds.unistra.fr/simbad/sim-tap/sync (basic.ra/basic.dec)",
+  "magnitude_source": "SIMBAD allfluxes.V; unresolved alf Cru and gam Del sum the V flux of both components. gam Cep (HR 8974) and eta UMi (HR 6116): Bright Star Catalogue V/50, Hoffleit et al. 1991, via https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50",
   "chart_reference": "https://iauarchive.eso.org/public/themes/constellations/",
   "outline_note": "Conventional simplified bright-star figures. IAU defines boundaries, not one official stick figure; chart artwork is not copied.",
   "license": "ODbL-1.0",
@@ -8,9 +9,9 @@
   "constellations": [
     {"name": "Triangulum", "holes": 0,
      "stars": [
-       {"id": "\u03b1 Tri", "simbad_id": "alf Tri", "ra": 28.270439, "dec": 29.578819},
-       {"id": "\u03b2 Tri", "simbad_id": "bet Tri", "ra": 32.385946, "dec": 34.987297},
-       {"id": "\u03b3 Tri", "simbad_id": "gam Tri", "ra": 34.328614, "dec": 33.847197}
+       {"id": "\u03b1 Tri", "simbad_id": "alf Tri", "ra": 28.270439, "dec": 29.578819, "vmag": 3.42},
+       {"id": "\u03b2 Tri", "simbad_id": "bet Tri", "ra": 32.385946, "dec": 34.987297, "vmag": 3},
+       {"id": "\u03b3 Tri", "simbad_id": "gam Tri", "ra": 34.328614, "dec": 33.847197, "vmag": 4}
      ], "edges": [[0, 1], [1, 2], [2, 0]], "routes": [
        [[0, 0, 0, 0], [-3, -2, 40, 0], [-3, -1, 40, 0]],
        [[2, 2, -40, 0], [0, 0, 0, 0], [-2, -3, 40, 0]],
@@ -18,10 +19,10 @@
      ]},
     {"name": "Crux", "holes": 0,
      "stars": [
-       {"id": "\u03b1 Cru (Acrux)", "simbad_id": "alf Cru", "ra": 186.649563, "dec": -63.099093},
-       {"id": "\u03b2 Cru (Mimosa)", "simbad_id": "bet Cru", "ra": 191.930287, "dec": -59.688772},
-       {"id": "\u03b3 Cru (Gacrux)", "simbad_id": "gam Cru", "ra": 187.791498, "dec": -57.113213},
-       {"id": "\u03b4 Cru (Imai)", "simbad_id": "del Cru", "ra": 183.786327, "dec": -58.748924}
+       {"id": "\u03b1 Cru (Acrux)", "simbad_id": "alf Cru", "ra": 186.649563, "dec": -63.099093, "vmag": 0.667},
+       {"id": "\u03b2 Cru (Mimosa)", "simbad_id": "bet Cru", "ra": 191.930287, "dec": -59.688772, "vmag": 1.25},
+       {"id": "\u03b3 Cru (Gacrux)", "simbad_id": "gam Cru", "ra": 187.791498, "dec": -57.113213, "vmag": 1.64},
+       {"id": "\u03b4 Cru (Imai)", "simbad_id": "del Cru", "ra": 183.786327, "dec": -58.748924, "vmag": 2.752}
      ], "edges": [[0, 2], [1, 3]], "routes": [
        [[0, 0, 0, 0], [-3, -2, 0, -40], [-2, -3, 0, 40], [-1, -3, 0, 40]],
        [[1, 3, -40, 0], [0, 0, 0, 0], [-2, -3, 0, 40], [2, -2, 0, 40]],
@@ -30,10 +31,10 @@
      ]},
     {"name": "Corvus", "holes": 1,
      "stars": [
-       {"id": "\u03b3 Crv (Gienah)", "simbad_id": "gam Crv", "ra": 183.951545, "dec": -17.54193},
-       {"id": "\u03b4 Crv (Algorab)", "simbad_id": "del Crv", "ra": 187.466063, "dec": -16.515431},
-       {"id": "\u03b2 Crv (Kraz)", "simbad_id": "bet Crv", "ra": 188.596812, "dec": -23.39676},
-       {"id": "\u03b5 Crv (Minkar)", "simbad_id": "eps Crv", "ra": 182.531169, "dec": -22.619767}
+       {"id": "\u03b3 Crv (Gienah)", "simbad_id": "gam Crv", "ra": 183.951545, "dec": -17.54193, "vmag": 2.58},
+       {"id": "\u03b4 Crv (Algorab)", "simbad_id": "del Crv", "ra": 187.466063, "dec": -16.515431, "vmag": 2.94},
+       {"id": "\u03b2 Crv (Kraz)", "simbad_id": "bet Crv", "ra": 188.596812, "dec": -23.39676, "vmag": 2.64},
+       {"id": "\u03b5 Crv (Minkar)", "simbad_id": "eps Crv", "ra": 182.531169, "dec": -22.619767, "vmag": 2.98}
      ], "edges": [[0, 1], [1, 2], [2, 3], [3, 0]], "routes": [
        [[0, 0, 0, 0], [-2, 2, 40, 0], [-1, 3, 40, 0], [1, 3, 0, -40]],
        [[2, -3, -40, 0], [0, 0, 0, 0], [0, 2, 0, -40], [2, 2, 40, 0]],
@@ -42,11 +43,11 @@
      ]},
     {"name": "Delphinus", "holes": 1,
      "stars": [
-       {"id": "\u03b1 Del (Sualocin)", "simbad_id": "alf Del", "ra": 309.909498, "dec": 15.91216},
-       {"id": "\u03b2 Del (Rotanev)", "simbad_id": "bet Del", "ra": 309.387255, "dec": 14.595089},
-       {"id": "\u03b3 Del", "simbad_id": "gam Del", "ra": 311.664127, "dec": 16.124346},
-       {"id": "\u03b4 Del", "simbad_id": "del Del", "ra": 310.864723, "dec": 15.074579},
-       {"id": "\u03b5 Del (Deneb Dulfim)", "simbad_id": "eps Del", "ra": 308.30322026626874, "dec": 11.303266387445278}
+       {"id": "\u03b1 Del (Sualocin)", "simbad_id": "alf Del", "ra": 309.909498, "dec": 15.91216, "vmag": 3.8},
+       {"id": "\u03b2 Del (Rotanev)", "simbad_id": "bet Del", "ra": 309.387255, "dec": 14.595089, "vmag": 3.63},
+       {"id": "\u03b3 Del", "simbad_id": "gam Del", "ra": 311.664127, "dec": 16.124346, "vmag": 3.795},
+       {"id": "\u03b4 Del", "simbad_id": "del Del", "ra": 310.864723, "dec": 15.074579, "vmag": 4.417},
+       {"id": "\u03b5 Del (Deneb Dulfim)", "simbad_id": "eps Del", "ra": 308.30322026626874, "dec": 11.303266387445278, "vmag": 4.03}
      ], "edges": [[0, 2], [2, 3], [3, 1], [1, 0], [1, 4]], "routes": [
        [[0, 0, 0, 0], [3, 1, 0, -40], [0, 2, 40, 0], [0, -1, 40, 0], [2, 2, 0, 40]],
        [[-1, -3, 0, 40], [0, 0, 0, 0], [-2, -3, 40, 0], [-4, 0, 40, 0], [3, 2, -40, 0]],
@@ -56,11 +57,11 @@
      ]},
     {"name": "Cassiopeia", "holes": 1,
      "stars": [
-       {"id": "\u03b2 Cas (Caph)", "simbad_id": "bet Cas", "ra": 2.294522, "dec": 59.149781},
-       {"id": "\u03b1 Cas (Schedar)", "simbad_id": "alf Cas", "ra": 10.126846, "dec": 56.537329},
-       {"id": "\u03b3 Cas (Tsih)", "simbad_id": "gam Cas", "ra": 14.177213, "dec": 60.71674},
-       {"id": "\u03b4 Cas (Ruchbah)", "simbad_id": "del Cas", "ra": 21.453964, "dec": 60.235284},
-       {"id": "\u03b5 Cas (Segin)", "simbad_id": "eps Cas", "ra": 28.598892, "dec": 63.6701}
+       {"id": "\u03b2 Cas (Caph)", "simbad_id": "bet Cas", "ra": 2.294522, "dec": 59.149781, "vmag": 2.27},
+       {"id": "\u03b1 Cas (Schedar)", "simbad_id": "alf Cas", "ra": 10.126846, "dec": 56.537329, "vmag": 2.23},
+       {"id": "\u03b3 Cas (Tsih)", "simbad_id": "gam Cas", "ra": 14.177213, "dec": 60.71674, "vmag": 2.39},
+       {"id": "\u03b4 Cas (Ruchbah)", "simbad_id": "del Cas", "ra": 21.453964, "dec": 60.235284, "vmag": 2.68},
+       {"id": "\u03b5 Cas (Segin)", "simbad_id": "eps Cas", "ra": 28.598892, "dec": 63.6701, "vmag": 3.37}
      ], "edges": [[0, 1], [1, 2], [2, 3], [3, 4]], "routes": [
        [[0, 0, 0, 0], [0, 4, 0, -40], [-2, 3, 40, 0], [-3, 1, 40, 0], [-4, 0, 40, 0]],
        [[2, 1, -40, 0], [0, 0, 0, 0], [2, 0, 0, 40], [-3, 2, 40, 0], [-3, -1, 40, 0]],
@@ -70,11 +71,11 @@
      ]},
     {"name": "Cepheus", "holes": 2,
      "stars": [
-       {"id": "\u03b1 Cep (Alderamin)", "simbad_id": "alf Cep", "ra": 319.644885, "dec": 62.585574},
-       {"id": "\u03b2 Cep (Alfirk)", "simbad_id": "bet Cep", "ra": 322.164987, "dec": 70.560715},
-       {"id": "\u03b3 Cep (Errai)", "simbad_id": "gam Cep", "ra": 354.837127, "dec": 77.632364},
-       {"id": "\u03b9 Cep", "simbad_id": "iot Cep", "ra": 342.4200728828125, "dec": 66.20040505350917},
-       {"id": "\u03b6 Cep", "simbad_id": "zet Cep", "ra": 332.71365710650707, "dec": 58.20126183406695}
+       {"id": "\u03b1 Cep (Alderamin)", "simbad_id": "alf Cep", "ra": 319.644885, "dec": 62.585574, "vmag": 2.46},
+       {"id": "\u03b2 Cep (Alfirk)", "simbad_id": "bet Cep", "ra": 322.164987, "dec": 70.560715, "vmag": 3.23},
+       {"id": "\u03b3 Cep (Errai)", "simbad_id": "gam Cep", "ra": 354.837127, "dec": 77.632364, "vmag": 3.21},
+       {"id": "\u03b9 Cep", "simbad_id": "iot Cep", "ra": 342.4200728828125, "dec": 66.20040505350917, "vmag": 3.54},
+       {"id": "\u03b6 Cep", "simbad_id": "zet Cep", "ra": 332.71365710650707, "dec": 58.20126183406695, "vmag": 3.35}
      ], "edges": [[2, 1], [1, 0], [0, 4], [4, 3], [3, 2]], "routes": [
        [[0, 0, 0, 0], [-3, -1, 0, 40], [-3, -2, -40, 0], [-3, 1, 40, 0], [-3, 2, 40, 0]],
        [[3, 0, 0, -40], [0, 0, 0, 0], [-1, -3, 0, 40], [0, -2, 40, 0], [2, 3, 0, -40]],
@@ -84,13 +85,13 @@
      ]},
     {"name": "Ursa Minor", "holes": 2,
      "stars": [
-       {"id": "\u03b1 UMi (Polaris)", "simbad_id": "alf UMi", "ra": 37.954561, "dec": 89.264109},
-       {"id": "\u03b2 UMi (Kochab)", "simbad_id": "bet UMi", "ra": 222.676357, "dec": 74.155504},
-       {"id": "\u03b3 UMi (Pherkad)", "simbad_id": "gam UMi", "ra": 230.182098, "dec": 71.834025},
-       {"id": "\u03b4 UMi (Yildun)", "simbad_id": "del UMi", "ra": 263.054159, "dec": 86.58646},
-       {"id": "\u03b5 UMi", "simbad_id": "eps UMi", "ra": 251.492682, "dec": 82.037258},
-       {"id": "\u03b6 UMi", "simbad_id": "zet UMi", "ra": 236.014661, "dec": 77.794493},
-       {"id": "\u03b7 UMi", "simbad_id": "eta UMi", "ra": 244.376126, "dec": 75.755343}
+       {"id": "\u03b1 UMi (Polaris)", "simbad_id": "alf UMi", "ra": 37.954561, "dec": 89.264109, "vmag": 2.02},
+       {"id": "\u03b2 UMi (Kochab)", "simbad_id": "bet UMi", "ra": 222.676357, "dec": 74.155504, "vmag": 2.08},
+       {"id": "\u03b3 UMi (Pherkad)", "simbad_id": "gam UMi", "ra": 230.182098, "dec": 71.834025, "vmag": 3.002},
+       {"id": "\u03b4 UMi (Yildun)", "simbad_id": "del UMi", "ra": 263.054159, "dec": 86.58646, "vmag": 4.336},
+       {"id": "\u03b5 UMi", "simbad_id": "eps UMi", "ra": 251.492682, "dec": 82.037258, "vmag": 4.212},
+       {"id": "\u03b6 UMi", "simbad_id": "zet UMi", "ra": 236.014661, "dec": 77.794493, "vmag": 4.274},
+       {"id": "\u03b7 UMi", "simbad_id": "eta UMi", "ra": 244.376126, "dec": 75.755343, "vmag": 4.95}
      ], "edges": [[0, 3], [3, 4], [4, 5], [5, 6], [6, 2], [2, 1], [1, 5]], "routes": [
        [[0, 0, 0, 0], [2, 2, 0, 40], [2, 3, -40, 0], [3, 2, 0, -40], [4, 0, 0, -40], [2, 3, 0, -40], [1, 3, -40, 0]],
        [[0, -4, 40, 0], [0, 0, 0, 0], [1, 3, 20, 0], [-1, -3, 40, 0], [-3, -1, 40, 0], [-3, 2, 40, 0], [0, 4, 40, 0]],
@@ -102,13 +103,13 @@
      ]},
     {"name": "Orion", "holes": 2,
      "stars": [
-       {"id": "\u03b1 Ori (Betelgeuse)", "simbad_id": "alf Ori", "ra": 88.792939, "dec": 7.407064},
-       {"id": "\u03b2 Ori (Rigel)", "simbad_id": "bet Ori", "ra": 78.634467, "dec": -8.201638},
-       {"id": "\u03b3 Ori (Bellatrix)", "simbad_id": "gam Ori", "ra": 81.282764, "dec": 6.349703},
-       {"id": "\u03ba Ori (Saiph)", "simbad_id": "kap Ori", "ra": 86.93912, "dec": -9.669605},
-       {"id": "\u03b6 Ori (Alnitak)", "simbad_id": "zet Ori", "ra": 85.189694, "dec": -1.942574},
-       {"id": "\u03b5 Ori (Alnilam)", "simbad_id": "eps Ori", "ra": 84.053389, "dec": -1.201919},
-       {"id": "\u03b4 Ori (Mintaka)", "simbad_id": "del Ori", "ra": 83.001667, "dec": -0.299095}
+       {"id": "\u03b1 Ori (Betelgeuse)", "simbad_id": "alf Ori", "ra": 88.792939, "dec": 7.407064, "vmag": 0.42},
+       {"id": "\u03b2 Ori (Rigel)", "simbad_id": "bet Ori", "ra": 78.634467, "dec": -8.201638, "vmag": 0.13},
+       {"id": "\u03b3 Ori (Bellatrix)", "simbad_id": "gam Ori", "ra": 81.282764, "dec": 6.349703, "vmag": 1.64},
+       {"id": "\u03ba Ori (Saiph)", "simbad_id": "kap Ori", "ra": 86.93912, "dec": -9.669605, "vmag": 2.06},
+       {"id": "\u03b6 Ori (Alnitak)", "simbad_id": "zet Ori", "ra": 85.189694, "dec": -1.942574, "vmag": 1.77},
+       {"id": "\u03b5 Ori (Alnilam)", "simbad_id": "eps Ori", "ra": 84.053389, "dec": -1.201919, "vmag": 1.69},
+       {"id": "\u03b4 Ori (Mintaka)", "simbad_id": "del Ori", "ra": 83.001667, "dec": -0.299095, "vmag": 2.41}
      ], "edges": [[0, 2], [2, 6], [6, 1], [1, 3], [3, 4], [4, 0], [4, 5], [5, 6]], "routes": [
        [[0, 0, 0, 0], [0, 2, 0, -40], [1, 0, -40, 0], [0, 3, 0, -40], [0, 1, 0, -40], [0, 1, 0, -40], [0, 1, 0, -20]],
        [[-2, -3, 40, 0], [0, 0, 0, 0], [0, -4, 0, 40], [-2, 3, 40, 0], [-4, 0, 40, 0], [-3, 0, 40, 0], [-3, -2, 40, 0]],

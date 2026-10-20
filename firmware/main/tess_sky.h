@@ -42,6 +42,7 @@ typedef struct {
     float x, y;             // where it is now (drifting stars move about their anchor)
     float ax, ay, orbit, spin, phase;  // anchor, radius and speed of the drift (orbit 0: still)
     float fill, glow;       // 0..1: how full it is; the flash of becoming full, fading
+    int8_t size;           // optical size offset in percent, from apparent V magnitude
     float hz;               // its note
     uint8_t degree;         // ...as a step of the scale (sky_degree_hz)
     uint8_t color;          // its visual and musical shade (every particle can light every star)

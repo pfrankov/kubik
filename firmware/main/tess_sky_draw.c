@@ -20,19 +20,20 @@ static void light(scene_t *s, float x, float y, float radius, uint32_t c, float 
 // Both its optical radius and RGB separation collapse with actual collected light only.
 static void star_focus(scene_t *s, const sky_star_t *st, float appear, float focus, float guide) {
     if (appear <= .004f) return;
-    float blur = 1.f - focus, offset = 2.8f * blur * blur;
+    float size = 1.f + (float)st->size * .01f;
+    float blur = 1.f - focus, offset = 2.8f * blur * blur * size;
     float gain = appear * (.26f + .6f * focus + .025f * guide);
-    float radius = 1.1f + 4.2f * blur;
+    float radius = (1.1f + 4.2f * blur) * size;
     sc_blur_dot(s, st->x - offset, st->y + offset * .35f, radius, rgb_scale(0xFF9B80, gain));
     sc_blur_dot(s, st->x, st->y - offset * .35f, radius, rgb_scale(0x92FFC8, gain));
     sc_blur_dot(s, st->x + offset, st->y + offset * .35f, radius, rgb_scale(0x97B7FF, gain));
-    if (focus > 0) light(s, st->x, st->y, .2f + 2.6f * focus, 0xFFF7E5, appear * (.25f + .75f * focus * focus), .65f);
+    if (focus > 0) light(s, st->x, st->y, (.2f + 2.6f * focus) * size, 0xFFF7E5, appear * (.25f + .75f * focus * focus), .65f);
 }
 
 static void star_rays(scene_t *s, const sky_star_t *st, float appear) {
     float strength = clampf((st->fill >= SKY_FULL ? .14f : 0.f) + st->glow * .75f, 0.f, 1.f);
     if (strength <= .01f) return;
-    float reach = 6.f + 9.f * st->glow;
+    float reach = (6.f + 9.f * st->glow) * (1.f + (float)st->size * .01f);
     prim_t *p = sc_capsule(s, st->x, st->y - reach, st->x, st->y + reach, 2.f, 0xFFF5E1, appear * strength);
     pr_soft(p, 2.5f);
     p = sc_capsule(s, st->x - reach * .65f, st->y, st->x + reach * .65f, st->y, 1.7f, 0xFFF5E1, appear * strength * .8f);

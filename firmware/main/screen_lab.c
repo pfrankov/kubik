@@ -1,4 +1,5 @@
 #include "screen_lab.h"
+#include "sound_levels.h"
 #include "face_agent.h"
 #include <math.h>
 #include <string.h>
@@ -57,6 +58,12 @@ static bool menu_detail_open(screen_lab_t *lab, int row) {
     else return false;
     return true;
 }
+static void set_volume(screen_lab_t *lab, int value) {
+    if (lab->face.menu.sound) lab->volume = value;
+    else sound_level_link(&lab->volume, &lab->ui_volume, value);
+    lab->face.menu.volume = lab->volume;
+    lab->face.menu.ui_volume = lab->ui_volume;
+}
 static void menu_tap(screen_lab_t *lab, int x, int y) {
     face_t *f = &lab->face;
     if (device_status_tap(&f->status, x, y)) {
@@ -70,7 +77,7 @@ static void menu_tap(screen_lab_t *lab, int x, int y) {
     }
     int value, row = face_menu_hit(f, x, y, &value);
     if (menu_detail_open(lab, row)) return;
-    else if (row == MENU_VOLUME) f->menu.volume = lab->volume = value;
+    else if (row == MENU_VOLUME) set_volume(lab, value);
     else if (row == MENU_UI_VOLUME) f->menu.ui_volume = lab->ui_volume = value;
     else if (row == MENU_BRIGHT) f->menu.brightness = lab->brightness = value;
     else if (row == MENU_AGENT) { agent_menu_show(&f->agent, true); screen_lab_catalog(lab); }

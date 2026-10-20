@@ -22,8 +22,32 @@ static void draw(int chart, float fill, bool resolved) {
     for(int i=0;i<sky.w.count_stars;i++)sky.melody.note[i]=(sky_note_t){.star=(int8_t)i,.units=1};
     scene_begin(&scene,0); tess_sky_draw(&face,&scene); sim_render_scene(&scene); sim_emit_frame();
 }
+static void stream_frames(void) {
+    face.tess_games.sky=NULL;
+    face_init(&face); face_set_character(&face,CHARACTER_TESS); face_set_mode(&face,MODE_IDLE);
+    tess_games_restore(&face,TESS_PROGRESS_MASK);
+    for(int i=0;i<240;i++)face_update(&face,1.f/30);
+    face.tess_games.sky_elements=8;face.tess_games.self_wait=999;
+    assert(tess_sky_start(&face));
+    for(int i=0;i<270;i++) {
+        tess_sky_t *k=face.tess_games.sky;
+        if(k->phase==SKY_PLAY) {
+            sky_force_t force;sky_solution(&k->w,&force);
+            face.grav_x=force.gx/SKY_TILT_SCALE;face.grav_y=force.gy/SKY_TILT_SCALE;
+            face.view_q[0]=.9238795f;face.view_q[1]=.3826834f;
+            face.touch_in.point[0]=(touch_point_t){.x=force.touch[0].x,.y=force.touch[0].y,.down=true};
+        }
+        face_update(&face,1.f/30);
+        tess_tone_t tone;while(face_take_tone(&face,&tone)){}
+        tess_cue_t cue;float a,b;while(face_take_cue(&face,&cue,&a,&b)){}
+        if(i%90==89) {scene_begin(&scene,0);tess_draw(&face,&scene);sim_render_scene(&scene);sim_emit_frame();}
+    }
+    tess_games_set_available(&face,false);
+}
 int main(void) {
     for(int chart=1;chart<=SKY_CHARTS;chart++)draw(chart,1,true);
     for(int i=0;i<=4;i++)draw(1,SKY_FULL*i*.25f,false);
+    for(int i=0;i<=4;i++)draw(8,SKY_FULL*i*.25f,false);
+    stream_frames();
     return 0;
 }

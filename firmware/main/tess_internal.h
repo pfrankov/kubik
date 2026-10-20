@@ -109,6 +109,7 @@ void tess_fall_turn(face_t *face, bool falling);
 void tess_fall_step(face_t *face, float dt);
 #define TESS_GLINT_PEAK 255  // a twinkle with this peak is a glint
 float tess_twinkle_level(const face_t *face, int slot);  // offline shimmer: how lit each of the twinkling points is, 0..1
+float tess_projection_form(const face_t *face);
 void tess_view_matrix(const face_t *face, float matrix[3][3]);
 void tess_transform_point(const float matrix[3][3], const float source[3], float target[3], bool transpose);
 

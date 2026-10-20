@@ -4,6 +4,7 @@
 #include "app_internal.h"
 
 #include "audio.h"
+#include "sound_levels.h"
 #include "board.h"
 #include "esp_log.h"
 #include "input.h"
@@ -273,32 +274,31 @@ void menu_close(bool sound) {
     menu_sync();
 }
 
+static bool menu_sound_level(int row, int value) {
+    int speech = g_settings.volume, interface = g_settings.ui_volume;
+    if (row == MENU_UI_VOLUME) interface = value;
+    else if (g_face.menu.sound) speech = value;
+    else sound_level_link(&speech, &interface, value);
+    if (speech == g_settings.volume && interface == g_settings.ui_volume) return false;
+    g_settings.volume = speech;
+    g_settings.ui_volume = interface;
+    audio_set_volume(speech);
+    audio_set_ui_volume(interface);
+    device_state_volume_report(false);
+    return true;
+}
+
 static void menu_slider(int row, int v) {
-    if (row == MENU_VOLUME) {
-        if (v == g_settings.volume) return;
-        g_settings.volume = v;
-        audio_set_volume(v);
-        device_state_volume_report(false);
-        if (v / 10 != s_menu_tick_level) {  // a wooden notch per 10 %, at the new loudness
-            s_menu_tick_level = v / 10;
-            audio_sfx_level(SFX_DETENT, v / 10);
-        }
-    } else if (row == MENU_UI_VOLUME) {
-        if (v == g_settings.ui_volume) return;
-        g_settings.ui_volume = v;
-        audio_set_ui_volume(v);
-        if (v / 10 != s_menu_tick_level) {
-            s_menu_tick_level = v / 10; audio_sfx_level(SFX_DETENT, v / 10);
-        }
-    } else {
+    bool brightness = row == MENU_BRIGHT;
+    if (brightness) {
         int level = 10 + v * 245 / 100;
         if (level == g_settings.brightness) return;
-        if (v / 10 != s_menu_tick_level) {  // a glassy notch per 10 %
-            s_menu_tick_level = v / 10;
-            audio_sfx_level(SFX_GLINT, v / 10);
-        }
         g_settings.brightness = level;
         disp_brightness_fade(level, 0);
+    } else if (!menu_sound_level(row, v)) return;
+    if (v / 10 != s_menu_tick_level) {
+        s_menu_tick_level = v / 10;
+        audio_sfx_level(brightness ? SFX_GLINT : SFX_DETENT, v / 10);
     }
     s_menu_dirty = true;
 }
@@ -412,7 +412,7 @@ void menu_drag(int x, int y, bool first, bool last) {
     if (first) {
         int part, row = face_menu_hit(&g_face, x, y, &part);
         s_menu_drag_row = row == MENU_VOLUME || row == MENU_BRIGHT || row == MENU_UI_VOLUME ? row : -1;
-        s_menu_tick_level = (row == MENU_BRIGHT ? bright_pct() : row == MENU_UI_VOLUME ? g_settings.ui_volume : g_settings.volume) / 10;  // notches from here on
+        s_menu_tick_level = (row == MENU_BRIGHT ? bright_pct() : row == MENU_UI_VOLUME ? g_settings.ui_volume : g_face.menu.sound ? g_settings.volume : sound_level_mean(g_settings.volume, g_settings.ui_volume)) / 10;  // notches from here on
         if (s_menu_drag_row >= 0) menu_press(row, part);
         menu_sync(); return; // A stationary hold must not change the level.
     }

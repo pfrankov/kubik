@@ -1,5 +1,6 @@
 #include "face_internal.h"
 #include "ui_theme.h"
+#include "sound_levels.h"
 
 // ------------------------------------------------------------------ settings menu
 // Full screen control centre: narrow sliders, three large navigation targets,
@@ -175,7 +176,7 @@ static void draw_slider_readout(scene_t *s, const tile_t *t, int row, int value,
 }
 
 static int slider_value(const face_menu_t *m, int row) {
-    if (row == MENU_VOLUME) return m->volume;
+    if (row == MENU_VOLUME) return m->sound ? m->volume : sound_level_mean(m->volume, m->ui_volume);
     return row == MENU_UI_VOLUME ? m->ui_volume : m->brightness;
 }
 
