@@ -52,7 +52,6 @@ typedef struct {
     float answer_in;             // s until it, < 0 none
     float tilt[2], tilt_rest[2]; // the device's tilt from how it usually stands (pull on the panel), and that usual
     bool tilt_known;             // the usual pose starts from the first reading, not from level
-    float creak_in, whoosh_turn; // when the next stretch creak and spin whoosh sound
     uint16_t tone_kinds;         // one bit per kind of body sound she has made (for the USB probe)
     float tick_at;               // Gather: when its last dot sounded
     bool shaping;                // any structural play is moving her dots this frame

@@ -152,7 +152,9 @@ void tess_sound_note(tess_sound_t *s, const tess_note_t *n) {
 }
 
 // A pad takes any free voice, the spare ones first; with none free it stays silent rather than cut a word.
+static void start_body_note(tess_sound_t *s, const tess_voice_t *v);
 static void start_held(tess_sound_t *s, const tess_voice_t *v) {
+    if (v->body) { start_body_note(s, v); return; }
     for (int n = 0; n < TESS_VOICES; n++) {
         int i = (TESS_WORD_VOICES + n) % TESS_VOICES;
         if (s->voices[i].stage) continue;
@@ -162,13 +164,29 @@ static void start_held(tess_sound_t *s, const tess_voice_t *v) {
     }
 }
 
+// A living body keeps oscillator phases and its envelope while the geometry
+// changes its pitch and beating. Skies pads retain their fixed musical notes.
+static void retune_body(tess_voice_t *v, const tess_note_t *n) {
+    int steps = voice_steps_from_ms(80);
+    uint32_t chorus = n->step + (n->step >> 10) * (uint32_t)(int32_t)n->chorus_detune;
+    v->glide = (int32_t)(n->step - v->step) / steps;
+    v->mod_glide = (int32_t)(times_q8(n->step, n->ratio_q8) - v->mod_step) / steps;
+    v->layer_glide = (int32_t)(times_q8(n->step, n->layer_ratio_q8) - v->layer_step) / steps;
+    v->chorus_glide = (int32_t)(chorus - v->chorus_step) / steps;
+    v->glide_left = (uint32_t)steps;
+}
+
 void tess_sound_hold(tess_sound_t *s, unsigned slot, const tess_note_t *n, int goal) {
     initialize_sine_table();
     for (int i = 0; i < TESS_VOICES; i++) {
         tess_voice_t *v = &s->voices[i];
         if (!v->held || v->slot != slot || v->stage == OFF || v->stage == RELEASE) continue;
         v->idle = 0;
-        if (goal > 0) { v->goal = goal; return; }
+        if (goal > 0) {
+            v->goal = goal;
+            if (v->body) retune_body(v, n);
+            return;
+        }
         v->held = false;  // let go: its release is the end of the pad, and the slot is free for the next one
         v->stage = RELEASE;
         return;
@@ -202,7 +220,8 @@ static int quietest_word_voice(const tess_sound_t *s) {
 static void start_body_note(tess_sound_t *s, const tess_voice_t *v) {
     int body = 0, slot = -1;
     for (int i = 0; i < TESS_VOICES; i++) body += s->voices[i].stage && s->voices[i].body;
-    for (int n = 0; n < TESS_VOICES && slot < 0; n++) {
+    int available = v->held ? TESS_VOICES - TESS_WORD_VOICES : TESS_VOICES;
+    for (int n = 0; n < available && slot < 0; n++) {
         int i = (TESS_WORD_VOICES + n) % TESS_VOICES;
         if (!s->voices[i].stage) slot = i;
     }

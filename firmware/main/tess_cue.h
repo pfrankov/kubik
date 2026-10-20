@@ -1,6 +1,8 @@
 // What Tess's behaviour asks the speaker for. The face (portable, also run by the simulator) only names the cue;
 // the app takes them once a frame (face_take_cue) and hands them to audio_tess_cue (tess_sound.c).
 #pragma once
+#include <stdbool.h>
+#include <stdint.h>
 
 typedef enum {
     TC_TOUCH,    // a finger lands on the cloud (strength 0, position: which side)
@@ -51,6 +53,13 @@ typedef enum {
     TT_SKY_GAME_PULSE, // a low layered accent from light crossing a star
     TT_SKY_GAME_CHIME, // the active sky's swell or resolving chord
     TT_SKY_RELEASE,    // zero-gain priority command: release only the active sky's voices
+    TT_MOTION,         // one sustained body resonance: speed = gain, shape = pitch/shade; zero releases it
     TT_COUNT
 } tess_tone_kind_t;
 typedef struct { uint8_t kind; float hz, gain, shade, delay_s; uint8_t slot; } tess_tone_t;
+static inline bool tess_tone_held(unsigned kind) {
+    return kind == TT_SKY_PAD || kind == TT_SKY_HUM || kind == TT_MOTION;
+}
+static inline bool tess_tone_release(unsigned kind, float gain) {
+    return gain <= 0 && (tess_tone_held(kind) || kind == TT_SKY_RELEASE);
+}

@@ -34,6 +34,7 @@ void tess_reset(face_t *f) {
     f->tess_drift = 0;
     tess_mood_reset(f);
     tess_play_reset(f);
+    memset(&f->tess_motion_sound, 0, sizeof f->tess_motion_sound);
     tess_feel_reset(f);
 }
 

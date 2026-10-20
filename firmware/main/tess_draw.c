@@ -458,6 +458,7 @@ void tess_project_dots(face_t *f, tess_projected_t dots[TESS_N]) {
 void tess_draw(face_t *f, scene_t *s) {
     dot_t dots[TESS_N];
     tess_project_dots(f, dots);
+    tess_motion_sound_observe(f, dots);
     pulse_game_dots(f, dots);
     shimmer_point(f, dots);
     light_invited(f, dots);

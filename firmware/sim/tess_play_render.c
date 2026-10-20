@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
         if (i && windows[i - 1] > -45 && windows[i] - windows[i - 1] > jump) jump = windows[i] - windows[i - 1];
     }
     printf("peak %d/32768, loudest 100 ms %.1f dBFS, biggest rise over a sounding 100 ms window %.1f dB, %d cues\n", peak, loudest, jump, cues);
-    static const char *const names[TT_COUNT] = {"ring", "creak", "twang", "thud", "grain", "whoosh", "chirp", "wobble", "pad", "invite", "hum", "sky-pluck", "sky-pulse", "sky-chime", "sky-exit"};
+    static const char *const names[TT_COUNT] = {"ring", "creak", "twang", "thud", "grain", "whoosh", "chirp", "wobble", "pad", "invite", "hum", "sky-pluck", "sky-pulse", "sky-chime", "sky-exit", "motion"};
     for (int k = 0; k < TT_COUNT; k++) printf("  %-6s %d\n", names[k], tones[k]);
     return error;
 }

@@ -44,8 +44,7 @@ bool tess_stretch_try(face_t *f, float x, float y) {
     g->grab = (uint8_t)vertex;
     g->pull[0] = x; g->pull[1] = y;
     g->pull_k = 0;
-    g->creak_in = 0;
-    if (tess_temper_scared(f)) tess_tone(f, TT_WOBBLE, tess_tone_hz(f, .8f), .35f, .5f);
+    tess_tone(f, tess_temper_scared(f) ? TT_WOBBLE : TT_CREAK, tess_tone_hz(f, .3f), .18f, .2f);
     return true;
 }
 void tess_stretch_move(face_t *f, float x, float y) {
@@ -53,17 +52,11 @@ void tess_stretch_move(face_t *f, float x, float y) {
     if (g->game != TESS_GAME_STRETCH) return;
     g->pull[0] = x; g->pull[1] = y;
 }
-// While held, the taut edge creaks, a little higher and louder the further she is pulled.
+// The rendered deformation continuously drives her material sound.
 void tess_stretch_update(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     g->pull_k = fminf(1, g->pull_k + dt * 6.f);
     g->age += dt;
-    g->creak_in -= dt;
-    float taut = clampf(stretched(f) / 1.8f, 0, 1);
-    if (g->creak_in <= 0 && taut > .08f) {
-        tess_tone(f, tess_temper_scared(f) ? TT_WOBBLE : TT_CREAK, tess_tone_hz(f, .15f + .7f * taut), .2f + .4f * taut, taut);
-        g->creak_in = .35f;
-    }
     if (!g->finger_down && g->age > 1.5f) tess_stretch_release(f);  // (a preview has no finger to lift)
 }
 static void sling(face_t *f, float pulled) {

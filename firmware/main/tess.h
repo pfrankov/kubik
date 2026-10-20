@@ -7,6 +7,8 @@ void tess_emotion(face_t *face, emotion_t emotion, float seconds);
 void tess_event(face_t *face, face_event_t event, float x, float y);
 void tess_update(face_t *face, float dt);
 void tess_draw(face_t *face, scene_t *scene);
+void tess_motion_sound_gate(face_t *face);
+bool tess_motion_sound_allowed(const face_t *face);
 
 // Restore once, before display startup. Progress is six finite discoveries;
 // render fixtures that do not restore it keep their established adult baseline.

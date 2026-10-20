@@ -81,12 +81,20 @@ her voice: no bells and no tunes. A pluck makes her whole body resonate at one
 pitch; the corner only changes the overtone and the slow beating over it, so
 plucking corner after corner never plays a melody. A taut pull hums higher and
 beats faster the further you stretch it and glides down as it lets go. She
-whooshes faster as she spins, thuds softly against the rim (lower for a bigger
+keeps resonating as she spins, thuds softly against the rim (lower for a bigger
 Tess), and her dots puff as they knock and come home, a little higher from higher
 up the glass. Her mood sets where her voice rests: lower when cross, sad or
 sleepy, higher and trembling when scared; a small Tess has a small voice. Her
 body sounds stay quieter than her words. Her body sounds never play over
 the microphone or a spoken reply, and never while dimmed, in the dark or asleep.
+
+That resonance follows the whole movement, including inertia and the return
+after you let go. Speed changes its level; the changing shape shifts its pitch
+and layered overtones. Each new gesture has a slightly different material sound,
+without restarting a note every frame. It fades as she stops. Tiny resting drift
+stays quiet, and spontaneous movements are much softer than your gestures.
+Opening a menu releases the sound; Skies and offline particles keep their own music.
+The continuous layer also pauses while the agent processes your request.
 
 ## When nobody plays
 

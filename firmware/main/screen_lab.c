@@ -1,6 +1,7 @@
 #include "screen_lab.h"
 #include "sound_levels.h"
 #include "face_agent.h"
+#include "tess.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -188,8 +189,6 @@ void screen_lab_update(screen_lab_t *lab, float dt) {
     if (lab->selected != LAB_OFFLINE && lab->selected < LAB_GROW_POINT) {
         tess_cue_t cue; float strength, position;
         while (face_take_cue(f, &cue, &strength, &position)) {}
-        tess_tone_t tone;
-        while (face_take_tone(f, &tone)) lab->sky_release |= tone.kind == TT_SKY_RELEASE;
     }
 }
 
@@ -202,13 +201,23 @@ bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue) {
         cue == TC_DODGE || cue == TC_JOY;
 }
 bool screen_lab_tone_allowed(const screen_lab_t *lab, const tess_tone_t *tone) {
+    if (face_character(&lab->face) != CHARACTER_TESS) return false;
+    if (tone->kind == TT_MOTION)
+        return tone->gain <= 0 || (lab->selected >= LAB_HOME && lab->selected < LAB_COUNT &&
+            lab->face.tess_motion_sound.sounding && tess_motion_sound_allowed(&lab->face));
     return tone->kind == TT_SKY_RELEASE ||
         (!lab->face.dark && lab->selected >= LAB_GROW_POINT && lab->selected < LAB_COUNT);
 }
 bool screen_lab_take_tone(screen_lab_t *lab, tess_tone_t *tone) {
+    if (face_character(&lab->face) != CHARACTER_TESS) return false;
     if (lab->sky_release) {
         lab->sky_release = false;
         *tone = (tess_tone_t){.kind = TT_SKY_RELEASE, .hz = 440};
+        return true;
+    }
+    if (lab->motion_release) {
+        lab->motion_release = false;
+        *tone = (tess_tone_t){.kind = TT_MOTION, .hz = 300};
         return true;
     }
     while (face_take_tone(&lab->face, tone))

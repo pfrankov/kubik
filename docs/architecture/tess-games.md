@@ -98,7 +98,7 @@ the last touch when curious, spin or pluck when excited, wrestle/pluck/reach in
 turn when long alone; excited, she asks again within 3–6 s. Knocks (`jolt` above
 0.015) rattle up to three corners with quiet plucks and grains.
 
-**Body sound.** `tess_tone` queues up to eight physical tones per frame beside the
+**Body sound.** `tess_tone` queues up to twelve physical tones per frame beside the
 cues (`face_take_tone`), silent when cues are; the display task plays them after
 the face lock through `audio_tess_tone`, which skips them while the microphone is
 open or a reply plays. `tess_sound_body.c` turns each into one synth note shaped by
@@ -107,7 +107,7 @@ her body pitch, the corner choosing the octave or twelfth overtone and the beati
 sinking 1.5% as it settles; a quick wave a fifth up, a recoil a fourth down), creak
 (SWEEP rising with tension, beating faster), twang (falling to rest), thud (HUM,
 200–290 Hz by size, a third harmonic for the small speaker), grain (a short NUDGE
-puff gliding down 20%), whoosh (beating, per half turn, pitch with spin), chirp
+puff gliding down 20%), whoosh (a launch accent), chirp
 (a glide up or down) and wobble (CLUSTER beating). `tess_tone_hz` is continuous,
 not a scale: a 0–1 height lifts her resting pitch up to a fifth; the rest is D4,
 B3 when grumpy, sad or sleepy, F#4 when scared, a fifth up for a Tess smaller than
@@ -116,6 +116,22 @@ sounding. Full-strength levels measure −35 to −44 dB on the speaker weightin
 under her words. `python3 tools/render-particles.py --play OUT.wav` renders a
 scripted play session through the real face and synth and prints its peak,
 loudest 100 ms and biggest rise.
+
+`tess_motion_sound.c` observes the existing rendered projection, without a second
+geometry pass. Every 50 ms it measures all 112 points, smooths their speed and
+maps changing extent to resonance. This covers rigid turns (zero solver velocity),
+springs, growth, tilt and inertia. `TT_MOTION` updates coalesce in the queue;
+`tess_sound_motion.c` sustains one body voice and retunes its four oscillators
+without restarting phases or envelope. The material varies once per gesture,
+using the synth's prime cycles, independently of visual randomness.
+The voice shares the three-body-voice limit, never steals, and retries if full.
+A zero-gain release passes through full/quiet queues; missing updates release
+after 0.83 s. Menu, text, dim, sleep, agent processing, capture, speech, Live, Skies and fallen
+particles stop this layer. Screen Lab uses its own face and preserves cleanup
+across screen replacement. The endless rigid idle drift cannot start a voice:
+touch, deformation, a reaction or carried momentum owns it, including the
+spring/momentum tail. Returning to ordinary idle drift releases it, leaving
+real silence for the local listener.
 
 Discovery bits are 0 Pluck, 1 Echo, 2 Bloom, 3 Twang, 4 Slingshot, 5 Gather. A new
 bit raises `pulse`, `TR_JOY` and `TC_JOY`. Existing six-bit masks keep their

@@ -94,13 +94,14 @@ static void *begin_b(void *arg) {
 }
 int main(void) {
     s_ring_lock = &chunk; probe_kick = true; audio_stream_begin(); assert(kicks == 1);
+    assert(audio_stream_busy()); // prebuffer owns output even before audible PCM
     static uint8_t packet[5000]; assert(audio_stream_write_ima(packet, IMA_HEADER_BYTES + FRAME_BYTES) == FRAME_BYTES);
     audio_stream_end(); // A's only frame is also its final frame
     pthread_t a, b; assert(!pthread_create(&a, NULL, read_a, NULL));
     pthread_mutex_lock(&gate);
     while (!decoding) pthread_cond_wait(&condition, &gate);
     pthread_mutex_unlock(&gate);
-    assert(s_rd == s_wr && s_output_in_flight && !audio_stream_drained());
+    assert(s_rd == s_wr && s_output_in_flight && !audio_stream_drained() && audio_stream_busy());
     assert(!pthread_create(&b, NULL, begin_b, NULL));
     pthread_mutex_lock(&gate);
     while (!restart_started) pthread_cond_wait(&condition, &gate);
@@ -181,8 +182,9 @@ int main(void) {
     }
     assert(s_played_bytes == 10800);
     assert(s_rd == s_wr && !audio_stream_drained()); // empty ring is not speaker completion
-    now = s_output_tail.until - 1; assert(!audio_stream_drained());
-    now++; assert(audio_stream_drained());
+    audio_stream_stop(); // an explicit cancel still owns its already submitted DMA tail
+    now = s_output_tail.until - 1; assert(!audio_stream_drained() && audio_stream_busy());
+    now++; assert(audio_stream_drained() && !audio_stream_busy());
     audio_stream_stop(); ring_release_if_idle(); assert(!s_ring_cap && !s_active);
     s_doze = true; now = 1000; audio_output_tail_mark(&s_output_tail, now);
     assert(AUDIO_OUTPUT_TAIL_US == 80000);

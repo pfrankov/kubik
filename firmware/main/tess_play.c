@@ -43,15 +43,12 @@ void tess_tone_later(face_t *f, tess_tone_kind_t kind, float hz, float gain, flo
     tess_tone_slot(f, kind, 0, hz, gain, shade, delay_s);
 }
 // Gain 0 releases a held voice or the entire game; these commands also pass through quiet/full queues.
-static bool held_tone(unsigned kind) { return kind == TT_SKY_PAD || kind == TT_SKY_HUM; }
-static bool release_tone(unsigned kind, float gain) {
-    return gain <= 0 && (held_tone(kind) || kind == TT_SKY_RELEASE);
-}
-static bool update_held(tess_play_t *p, unsigned kind, unsigned slot, float hz, float gain) {
-    if (!held_tone(kind)) return false;
+static bool update_held(tess_play_t *p, unsigned kind, unsigned slot, float hz, float gain, float shade) {
+    if (!tess_tone_held(kind)) return false;
     for (int i = 0; i < p->tone_n; i++) if (p->tone[i].kind == kind && p->tone[i].slot == slot) {
         p->tone[i].gain = clampf(gain, 0, 1);
         p->tone[i].hz = clampf(hz, 40, 3000);
+        p->tone[i].shade = clampf(shade, 0, 1);
         return true;
     }
     return false;
@@ -61,16 +58,16 @@ static bool tone_room(tess_play_t *p, bool release) {
     if (!release) return false;
     // An end-of-note must survive a full queue of decorative strikes.
     int i = p->tone_n - 1;
-    while (i >= 0 && held_tone(p->tone[i].kind) && p->tone[i].gain <= 0) i--;
+    while (i >= 0 && tess_tone_held(p->tone[i].kind) && p->tone[i].gain <= 0) i--;
     if (i < 0) return false;
     memmove(p->tone + i, p->tone + i + 1, (--p->tone_n - i) * sizeof p->tone[0]);
     return true;
 }
 void tess_tone_slot(face_t *f, tess_tone_kind_t kind, unsigned slot, float hz, float gain, float shade, float delay_s) {
     tess_play_t *p = &f->tess_play;
-    bool release = release_tone(kind, gain);
+    bool release = tess_tone_release(kind, gain);
     if ((cues_quiet(f) && !release) || !isfinite(hz) || !isfinite(gain) || (gain <= 0 && !release)) return;
-    if (update_held(p, kind, slot, hz, gain) || !tone_room(p, release)) return;
+    if (update_held(p, kind, slot, hz, gain, shade) || !tone_room(p, release)) return;
     p->tone[p->tone_n++] = (tess_tone_t){(uint8_t)kind, clampf(hz, 40.f, 3000.f), clampf(gain, 0, 1), clampf(shade, 0, 1), clampf(delay_s, 0, 1), (uint8_t)slot};
     f->tess_games.tone_kinds |= (uint16_t)(1u << kind);
 }
@@ -79,7 +76,7 @@ bool face_take_tone(face_t *f, tess_tone_t *tone) {
     while (p->tone_n) {
         *tone = p->tone[0];
         memmove(p->tone, p->tone + 1, --p->tone_n * sizeof p->tone[0]);
-        if (!cues_quiet(f) || release_tone(tone->kind, tone->gain)) return true;
+        if (!cues_quiet(f) || tess_tone_release(tone->kind, tone->gain)) return true;
     }
     return false;
 }

@@ -242,8 +242,4 @@ void tess_play_spin(face_t *f, float dt) {
     g->bloom += (target - g->bloom) * fminf(1, dt * 5.f);
     if (g->bloom > .8f && !(g->progress & (1u << BIT_BLOOM))) tess_tone(f, TT_CHIRP, tess_tone_hz(f, .8f), .5f, .9f);
     if (g->bloom > .8f) tess_games_earn(f, BIT_BLOOM);
-    // Air past her edges: a whoosh every half turn, higher and louder the faster she goes.
-    g->whoosh_turn += spin * dt;
-    if (allowed && spin > 4.f && g->whoosh_turn >= 2 * PI) tess_tone(f, TT_WHOOSH, 160.f + 20.f * spin, fminf(1, spin / 16.f) * .7f, g->bloom);
-    if (g->whoosh_turn >= 2 * PI || spin <= 4.f) g->whoosh_turn = 0;
 }
