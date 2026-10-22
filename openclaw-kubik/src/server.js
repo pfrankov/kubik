@@ -4,8 +4,7 @@ import { isDeviceId, normalizeDeviceId } from './config.js';
 import { HttpEngine } from './engines/http.js';
 import { authMessage, CLOSE, decodeDeviceKey, out, ProtocolError } from './protocol.js';
 import { attachDeviceMessages } from './server-connection.js';
-import { sendPairingChallenge } from './telegram-pairing.js';
-import { guardSessionFrames, readAllowed, withPairingTimeout } from './pairing-access.js';
+import { guardSessionFrames, readAllowed, sendPairingChallenge, withPairingTimeout } from './pairing-access.js';
 import { DeviceSession } from './session.js';
 import { NotificationError, NotificationQueue } from './notification-queue.js';
 import { refreshSessionActivity, sendSessionCron } from './server-status.js';
@@ -29,7 +28,7 @@ function createDefaultEngine(voice, options) {
 
 /** Device sessions of the account, whatever transport accepted the socket. A fresh authenticated connection
  * replaces the old one (close 4003). Keys use v5 challenge–response bound to the transport; unknown keys wait for
- * approval in OpenClaw's pairing store. */
+ * approval in the configured pairing store. */
 export class KubikServer {
   #wss = null;
   #heartbeat = null;

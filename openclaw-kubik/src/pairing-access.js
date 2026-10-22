@@ -1,6 +1,16 @@
+import { out } from './protocol.js';
+
 const PAIRING_TIMEOUT_MS = 5000;
 const MAX_AUTH_QUEUE_BYTES = 64 * 1024;
 const MAX_AUTH_QUEUE_FRAMES = 64;
+
+/** Notifying an owner must never delay the device challenge or its pairing poll. */
+export function sendPairingChallenge(pairing, conn, code) {
+  conn.ws.send(JSON.stringify(out.pair(code)));
+  Promise.resolve().then(() => pairing.notify?.(conn.entryId, code)).then((delivered) => {
+    if (delivered && conn.phase === 'pending') conn.ws.send(JSON.stringify(out.pair(code, true)));
+  }).catch(() => {}); // notification is optional; server/CLI approval is already displayed
+}
 
 /** Store calls share a deadline so a stalled store cannot retain an admission slot. */
 export async function withPairingTimeout(operation, label) {
@@ -14,7 +24,7 @@ export async function withPairingTimeout(operation, label) {
   } finally { clearTimeout(timer); }
 }
 
-/** Read the authoritative OpenClaw allow-list, with a bounded wait. */
+/** Read the authoritative pairing allow-list, with a bounded wait. */
 export async function readAllowed(pairing) {
   const list = await withPairingTimeout(() => pairing.allowed(), 'allow-list read');
   return new Set((Array.isArray(list) ? list : []).map((entry) => String(entry).trim().toLowerCase()));

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TelegramPairing, telegramOwners, sendPairingChallenge, registerTelegramPairing, telegramPairing } from '../src/telegram-pairing.js';
+import { TelegramPairing, telegramOwners, registerTelegramPairing, telegramPairing } from '../src/telegram-pairing.js';
+import { sendPairingChallenge } from '../src/pairing-access.js';
 
 function fixture() {
   let now = 1000;

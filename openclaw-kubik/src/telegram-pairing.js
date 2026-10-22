@@ -1,4 +1,3 @@
-import { out } from './protocol.js';
 import { randomBytes } from 'node:crypto';
 import { createAccountListHelpers, normalizeAccountId, resolveMergedAccountConfig } from 'openclaw/plugin-sdk/account-core';
 
@@ -167,11 +166,3 @@ export function registerTelegramPairing(api) {
 }
 
 export const telegramPairing = () => globalThis[KEY];
-
-/** Sending Telegram must never delay the device challenge or its pairing poll. */
-export function sendPairingChallenge(pairing, conn, code) {
-  conn.ws.send(JSON.stringify(out.pair(code)));
-  Promise.resolve().then(() => pairing.notify?.(conn.entryId, code)).then((delivered) => {
-    if (delivered && conn.phase === 'pending') conn.ws.send(JSON.stringify(out.pair(code, true)));
-  }).catch(() => {}); // notification is optional; server/CLI approval is already displayed
-}
