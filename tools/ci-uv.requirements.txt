@@ -1,0 +1,6 @@
+# PyPI uv 0.13.4 wheels: Linux x86_64, macOS x86_64, macOS arm64.
+# Hashes protect the first download even when the bootstrap pip has older CA roots.
+uv==0.13.4 \
+    --hash=sha256:05e4332791b4d55b6dde8695b7fa6079b26991519f44760887c5dfbd5ca4fe53 \
+    --hash=sha256:b4bbacea78c9db136cd2ec3147cbfd9ed910b4db5e1877109bd74d0e73bb2eaf \
+    --hash=sha256:95f4eb2b991b53b50ec2b18ab612fca8ba1e7a75a47af0331fb8bcd21da3eb03

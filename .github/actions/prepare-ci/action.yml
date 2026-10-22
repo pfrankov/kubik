@@ -27,7 +27,7 @@ runs:
       env:
         CACHE_PREFIX: kubik-v1-${{ runner.os }}-${{ runner.arch }}
         LANE: ${{ inputs.lane }}
-        DEPENDENCIES: ${{ hashFiles('**/package-lock.json', 'tools/accept.py', '.github/actions/prepare-ci/action.yml') }}
+        DEPENDENCIES: ${{ hashFiles('**/package-lock.json', 'tools/accept.py', 'tools/ci-uv.requirements.txt', '.github/actions/prepare-ci/action.yml') }}
       run: |
         echo "download=$CACHE_PREFIX-$LANE-downloads-$DEPENDENCIES" >> "$GITHUB_OUTPUT"
     - name: Restore dependency downloads
@@ -42,7 +42,7 @@ runs:
       shell: bash
       run: |
         python3 -m venv "$RUNNER_TEMP/kubik-ci"
-        "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
+        "$RUNNER_TEMP/kubik-ci/bin/pip" install --require-hashes --only-binary=:all: -r tools/ci-uv.requirements.txt
     - name: Record environment
       shell: bash
       run: |
