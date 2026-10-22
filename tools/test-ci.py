@@ -52,33 +52,47 @@ print('CI: all six stages required; final gate rejects all 15 failure/cancel/ski
 def check_apt_result(installer, failure):
     calls = []
 
-    def run(command, *, check):
-        assert check
+    def run(command, **options):
+        assert options['check']
         calls.append(command)
+        if len(calls) == 1:
+            assert options == {'input': 'https://archive.ubuntu.com/ubuntu/\n', 'text': True, 'check': True}
+        else:
+            assert options == {'check': True}
         if failure and len(calls) - 1 == failure[0]:
             raise subprocess.CalledProcessError(failure[1], command)
 
-    with patch('subprocess.run', run), redirect_stdout(io.StringIO()):
+    with patch('subprocess.run', run), patch.object(Path, 'read_text', return_value='URIs: mirror+file:/etc/apt/apt-mirrors.txt'), redirect_stdout(io.StringIO()):
         try:
             installer(['ffmpeg'])
         except subprocess.CalledProcessError as error:
             assert failure and error.returncode == failure[1]
         else:
             assert failure is None
-    assert len(calls) == (failure[0] + 1 if failure else 2)
-    for command in calls:
+    assert len(calls) == (failure[0] + 1 if failure else 3)
+    assert calls[0] == ['sudo', 'timeout', '--kill-after=5s', '10s', 'tee', '/etc/apt/apt-mirrors.txt']
+    for command in calls[1:]:
         assert command[:5] == ['sudo', 'timeout', '--kill-after=5s', '180s', 'apt-get']
         assert all(option in command for option in ('Acquire::Retries=1', 'Acquire::http::Timeout=15',
                                                     'Acquire::https::Timeout=15', 'DPkg::Lock::Timeout=30'))
-    assert calls[0][-2:] == ['update', '--error-on=any']
-    if len(calls) == 2:
-        assert calls[1][-3:] == ['install', '-y', 'ffmpeg']
+    if len(calls) > 1:
+        assert calls[1][-2:] == ['update', '--error-on=any']
+    if len(calls) == 3:
+        assert calls[2][-3:] == ['install', '-y', 'ffmpeg']
 
 
 def check_apt():
     installer = runpy.run_path(str(ROOT / 'tools/ci-apt.py'))['install']
-    for failure in (None, (0, 100), (0, 124), (1, 100), (1, 124)):
+    for failure in (None, (0, 1), (0, 124), (1, 100), (1, 124), (2, 100), (2, 124)):
         check_apt_result(installer, failure)
+    with patch.object(Path, 'read_text', return_value='URIs: https://unexpected.example/ubuntu/'), patch('subprocess.run') as run:
+        try:
+            installer(['ffmpeg'])
+        except RuntimeError as error:
+            assert str(error) == 'Unexpected Ubuntu CI source layout'
+        else:
+            raise AssertionError('Unknown Ubuntu source layout accepted')
+        run.assert_not_called()
     for packages in ([], ['--allow-unauthenticated'], ['ffmpeg;true']):
         with patch('subprocess.run') as run:
             try:
@@ -94,7 +108,7 @@ def check_apt():
 
 
 check_apt()
-print('CI: shared APT installer bounds mirrors/locks; update, install and timeout failures stay fatal')
+print('CI: official Ubuntu archive, expected layout, bounded mirror setup/update/install and fatal failures passed')
 
 
 def check_sdk_bootstrap():
