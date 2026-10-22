@@ -42,7 +42,7 @@ runs:
       shell: bash
       run: |
         python3 -m venv "$RUNNER_TEMP/kubik-ci"
-        "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.8.22
+        "$RUNNER_TEMP/kubik-ci/bin/pip" install uv==0.13.4
     - name: Record environment
       shell: bash
       run: |
