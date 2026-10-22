@@ -42,7 +42,7 @@ jobs:
           python -m pip install --require-hashes --only-binary=:all: -r tools/ci-uv.requirements.txt
           if ! command -v ffmpeg >/dev/null; then
             if [ "${{ runner.os }}" = Linux ]; then
-              sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg
+              python tools/ci-apt.py ffmpeg
             else
               brew install ffmpeg
             fi

@@ -13,6 +13,8 @@ job validates and packs that accepted source without repeating the test suite.
 A superseded commit is skipped. An already published version is accepted only
 when the packed tarball integrity matches; changed contents require a version bump.
 Network errors and mismatched contents fail the workflow.
+This includes packaged documentation and license notices: updating the packaged `NOTICE`
+requires a new package version even when the JavaScript is unchanged.
 
 Publishing uses npm Trusted Publishing (GitHub OIDC), not a stored npm token.
 The publisher is `pfrankov/kubik`, workflow `publish-npm.yml`, with the npm publish

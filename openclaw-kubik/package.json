@@ -1,6 +1,6 @@
 {
   "name": "openclaw-kubik",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "description": "OpenClaw channel for the Kubik voice desk assistant (ESP32-C6)",
   "type": "module",
   "license": "Apache-2.0",

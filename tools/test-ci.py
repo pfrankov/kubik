@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """The real CI final gate rejects any incomplete acceptance stage."""
 from itertools import product
+from contextlib import redirect_stdout
+import io
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import subprocess
+from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -42,3 +46,51 @@ for lint, checks in product(('success', 'failure', 'cancelled', 'skipped'), repe
     result = subprocess.run(['bash', '-e', '-c', script], env={**os.environ, 'LINT_RESULT': lint, 'CHECKS_RESULT': checks})
     assert (result.returncode == 0) == (lint == checks == 'success'), (lint, checks)
 print('CI: all six stages required; final gate rejects all 15 failure/cancel/skip combinations')
+
+
+def check_apt_result(installer, failure):
+    calls = []
+
+    def run(command, *, check):
+        assert check
+        calls.append(command)
+        if failure and len(calls) - 1 == failure[0]:
+            raise subprocess.CalledProcessError(failure[1], command)
+
+    with patch('subprocess.run', run), redirect_stdout(io.StringIO()):
+        try:
+            installer(['ffmpeg'])
+        except subprocess.CalledProcessError as error:
+            assert failure and error.returncode == failure[1]
+        else:
+            assert failure is None
+    assert len(calls) == (failure[0] + 1 if failure else 2)
+    for command in calls:
+        assert command[:5] == ['sudo', 'timeout', '--kill-after=5s', '180s', 'apt-get']
+        assert all(option in command for option in ('Acquire::Retries=1', 'Acquire::http::Timeout=15',
+                                                    'Acquire::https::Timeout=15', 'DPkg::Lock::Timeout=30'))
+    assert calls[0][-2:] == ['update', '--error-on=any']
+    if len(calls) == 2:
+        assert calls[1][-3:] == ['install', '-y', 'ffmpeg']
+
+
+def check_apt():
+    installer = runpy.run_path(str(ROOT / 'tools/ci-apt.py'))['install']
+    for failure in (None, (0, 100), (0, 124), (1, 100), (1, 124)):
+        check_apt_result(installer, failure)
+    for packages in ([], ['--allow-unauthenticated'], ['ffmpeg;true']):
+        with patch('subprocess.run') as run:
+            try:
+                installer(packages)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('Invalid APT arguments accepted')
+            run.assert_not_called()
+    for ci_steps in (steps, hermes['jobs']['hermes']['steps']):
+        scripts = '\n'.join(step.get('run', '') for step in ci_steps)
+        assert scripts.count('tools/ci-apt.py') == 1 and 'apt-get' not in scripts
+
+
+check_apt()
+print('CI: shared APT installer bounds mirrors/locks; update, install and timeout failures stay fatal')

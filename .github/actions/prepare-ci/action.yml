@@ -27,7 +27,7 @@ runs:
       env:
         CACHE_PREFIX: kubik-v1-${{ runner.os }}-${{ runner.arch }}
         LANE: ${{ inputs.lane }}
-        DEPENDENCIES: ${{ hashFiles('**/package-lock.json', 'tools/accept.py', 'tools/ci-uv.requirements.txt', '.github/actions/prepare-ci/action.yml') }}
+        DEPENDENCIES: ${{ hashFiles('**/package-lock.json', 'tools/accept.py', 'tools/ci-uv.requirements.txt', 'tools/ci-apt.py', '.github/actions/prepare-ci/action.yml') }}
       run: |
         echo "download=$CACHE_PREFIX-$LANE-downloads-$DEPENDENCIES" >> "$GITHUB_OUTPUT"
     - name: Restore dependency downloads
@@ -78,8 +78,7 @@ runs:
         if [ "$RUNNER_OS" = macOS ]; then
           brew install cmake ninja ccache
         else
-          sudo apt-get update
-          sudo apt-get install -y flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev libusb-1.0-0
+          python3 tools/ci-apt.py flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev libusb-1.0-0
         fi
         "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
     - name: Save prepared ESP-IDF tools
