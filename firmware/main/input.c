@@ -2,6 +2,7 @@
 #include "viewpoint.h"
 #include "input.h"
 #include "lift.h"
+#include "motion_activity.h"
 #include "input_touch.h"
 #include <math.h>
 #include <stdlib.h>
@@ -16,6 +17,7 @@
 #include "freertos/task.h"
 #include "input_rub.h"
 static const char *TAG = "input";
+static volatile bool s_dark;
 
 // ------------------------------------------------------------------ QMI8658
 static i2c_master_dev_handle_t s_imu;
@@ -130,6 +132,7 @@ typedef struct {
     int64_t last_view_us;
     int still_ms, shake_peaks, calm_ms, rest_length_ms;
     lift_t lift;
+    motion_activity_t activity;
     int64_t shake_started_ms, last_peak_ms, last_shake_ms;
     int tick;
     // Sampling: every 20 ms while the screen is lit, every 40 ms while it is dark (see input_task).
@@ -332,11 +335,12 @@ static void update_motion(input_state_t *s, int64_t now_ms) {
     update_viewpoint(s, &sample);
     update_rest_state(s, &sample);
     log_motion(s, &sample, now_ms);
+    if (motion_activity_step(&s->activity, s->gravity, sample.rotation, sample.dynamic, now_ms) && !s_dark)
+        app_post(EV_MOTION_ACTIVITY, 0, 0);
     detect_shake(s, &sample, now_ms);
     detect_pickup(s, &sample, now_ms);
 }
 
-static volatile bool s_dark;
 static TaskHandle_t s_input_task;
 void input_set_dark(bool dark) { s_dark = dark; }
 

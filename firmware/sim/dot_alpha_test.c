@@ -28,7 +28,7 @@ static inline R_HOT void reference_dot(const render_dot_t *p, uint32_t halo_step
             int halo = (int)(((uint64_t)(uint32_t)coverage * halo_step) >> 32);
             halo = ((halo * halo / 18) * (p->glow + 1)) >> 8;
             int inside = cr - distance, a = halo;
-            if (inside > 0) a = imax(a, inside >= core_full ? 32 : (int)(((uint32_t)inside * core_step) >> 26));
+            if (!p->blur && inside > 0) a = imax(a, inside >= core_full ? 32 : (int)(((uint32_t)inside * core_step) >> 26));
             if (!a) continue;
             uint16_t background = row[x - x0];
             if (swap) background = rgb565_bswap(background);
@@ -49,7 +49,7 @@ static void clipped_rasters(void) {
         scene.dots[0] = (render_dot_t){.x = (int16_t)((int)(random_word(&seed) % 4608) - 384),
             .y = (int16_t)((int)(random_word(&seed) % 4608) - 384),
             .radius = (int16_t)(random_word(&seed) % 1448),
-            .color = (uint16_t)random_word(&seed), .glow = (uint8_t)random_word(&seed)};
+            .color = (uint16_t)random_word(&seed), .glow = (uint8_t)random_word(&seed), .blur = trial & 1};
         for (int i = 0; i < 64 * R_BAND; i++) before[i] = i % 3 ? 0 : (uint16_t)random_word(&seed);
         memcpy(after, before, sizeof before);
         render_dots_prepare(&scene);
@@ -68,8 +68,19 @@ static void clipped_rasters(void) {
     puts("dot spans: 5000 clipped/overlapping rasters pixel-exact; halo lookup bounded for every supported radius");
 }
 
+static void optical_blur_has_no_flat_core(void) {
+    scene_t scene={.dots_n=1};
+    scene.dots[0]=(render_dot_t){.x=32*16+8,.y=3*16+8,.radius=48,.color=0xFFFF,.glow=255,.blur=1};
+    uint16_t pixels[64*R_BAND]={0};
+    render_dots_prepare(&scene);
+    raster_dot(&scene.dots[0],s_halo_step[0],s_paint_radius2[0],s_paint_radius[0],pixels,0,63,0,R_BAND-1,false);
+    unsigned center=pixels[3*64+32], inner=pixels[3*64+34], middle=pixels[3*64+36], outer=pixels[3*64+38];
+    assert(center<0xFFFF && center>inner && inner>middle && middle>outer && outer>0);
+}
+
 int main(void) {
     clipped_rasters();
+    optical_blur_has_no_flat_core();
     scene_t scene = {0}; scene.dots_n = 1;
     uint16_t before[64 * R_BAND], after[64 * R_BAND];
     unsigned cases = 0;

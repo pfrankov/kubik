@@ -10,7 +10,7 @@
 //   three and four edges away: 4, 6, 4 and 1 of them), so every path meets again at the opposite corner.
 //   Spin opens her: the outer cell flowers out and the two cells twist against each other.
 //   A pull drags one vertex towards the finger; its neighbours follow less the farther they are along edges.
-//   A wall flattens the side that hit it. Wrestling pushes two opposite corners apart.
+//   A wall flattens the side that hit it.
 #define PI 3.14159265f
 #define SHELL_S .12f          // a wave's step from one shell of vertices to the next (the notes stay apart)
 #define RING_W 18.85f         // rad/s: three swings a second
@@ -121,15 +121,6 @@ static void squash_side(const tess_games_t *g, const float (*home)[3]) {
         add(v, -nx * flat - ny * flat * .5f, -ny * flat + nx * flat * .5f, 0);  // flattened, and squeezed sideways
     }
 }
-static void wrestle(const tess_games_t *g, const float (*dir)[2]) {
-    if (g->self_act != SELF_WRESTLE) return;
-    float t = g->self_age, e = t < .9f ? smooth(t / .9f) : 0;  // they strain apart, then let go at once
-    for (int side = 0; side < 2; side++) {
-        int v = side ? g->self_vertex ^ 15 : g->self_vertex;
-        add(v, dir[v][0] * .9f * e, dir[v][1] * .9f * e, .2f * e);
-    }
-}
-
 // A Tess still growing is folded small; her play flashes open along the tesseract she will become,
 // so even a point rings, flowers and reaches with the full shape (inner and outer cell). The same corners,
 // on the panel, are what touch looks up.
@@ -142,9 +133,8 @@ static void unfold_home(tess_games_t *g, const float points[TESS_N][3], float ho
     }
 }
 static bool rings(const tess_games_t *g) {
-    bool any = g->self_act == SELF_WRESTLE;
-    for (int w = 0; w < TESS_WAVES; w++) any = any || g->wave[w].amp != 0;
-    return any;
+    for (int w = 0; w < TESS_WAVES; w++) if (g->wave[w].amp != 0) return true;
+    return false;
 }
 bool tess_play_frame(face_t *f, const float points[TESS_N][3], float k, float bx, float by, float pc, float ps) {
     if (!k_slots.ready) map_slots();
@@ -157,7 +147,6 @@ bool tess_play_frame(face_t *f, const float points[TESS_N][3], float k, float bx
     if (rings(g)) {
         for (int v = 0; v < 16; v++) radial(home[v], dir[v]);
         ring_waves(g, (const float (*)[2])dir);
-        wrestle(g, (const float (*)[2])dir);
     }
     open_bloom(g, home);
     pull_vertex(g, home, fmaxf(k, .05f), bx, by, pc, ps);
@@ -205,7 +194,7 @@ void tess_play_pluck_as(face_t *f, int vertex, bool quiet, float amp, float pace
     if (!slot) slot = oldest;
     pace = clampf(pace, .4f, 1.6f);
     *slot = (tess_wave_t){(uint8_t)(vertex & 15), quiet, 0, 0, quiet ? .6f * amp : amp, SHELL_S * pace, RING_W / pace, 1.f / pace};
-    if (quiet) return;
+    if (quiet) { tess_tone(f, TT_RING, tess_tone_hz(f, .3f), .08f, .3f); return; }
     tess_games_earn(f, BIT_PLUCK);
     if (echo) tess_games_earn(f, BIT_ECHO);
 }
@@ -242,8 +231,4 @@ void tess_play_spin(face_t *f, float dt) {
     g->bloom += (target - g->bloom) * fminf(1, dt * 5.f);
     if (g->bloom > .8f && !(g->progress & (1u << BIT_BLOOM))) tess_tone(f, TT_CHIRP, tess_tone_hz(f, .8f), .5f, .9f);
     if (g->bloom > .8f) tess_games_earn(f, BIT_BLOOM);
-    // Air past her edges: a whoosh every half turn, higher and louder the faster she goes.
-    g->whoosh_turn += spin * dt;
-    if (allowed && spin > 4.f && g->whoosh_turn >= 2 * PI) tess_tone(f, TT_WHOOSH, 160.f + 20.f * spin, fminf(1, spin / 16.f) * .7f, g->bloom);
-    if (g->whoosh_turn >= 2 * PI || spin <= 4.f) g->whoosh_turn = 0;
 }

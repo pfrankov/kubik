@@ -118,7 +118,8 @@ void audio_tess_cue(tess_cue_t cue, float strength, float position) {
 }
 
 void audio_tess_tone(const tess_tone_t *tone) {
-    if (KUBIK_CHARACTER != CHARACTER_TESS || !s_sfx_mtx || audio_mic_is_open() || audio_stream_playing()) return;
+    if (KUBIK_CHARACTER != CHARACTER_TESS || !s_sfx_mtx || !tone) return;
+    if (!tess_tone_release(tone->kind, tone->gain) && (audio_mic_is_open() || audio_stream_busy())) return;
     if (!lock_audible()) return;
     bool played = s_tess && tess_sound_tone(s_tess, tone);
     xSemaphoreGive(s_sfx_mtx);

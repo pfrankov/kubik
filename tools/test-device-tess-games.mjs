@@ -55,11 +55,11 @@ async function pull(fromX,toX,y=255) {
 }
 // Watch the play for a while; returns the strongest of each quantity seen.
 async function watch(ms) {
-  const seen={waves:0,bloom:0,pull:0,speed:0,squash:0,self:0,shaping:false,games:new Set(),burst:0};
+  const seen={waves:0,bloom:0,pull:0,speed:0,squash:0,spin:0,shaping:false,games:new Set(),burst:0};
   const end=performance.now()+ms;
   while(performance.now()<end) {
     const s=await state();
-    for(const k of ['waves','bloom','pull','speed','squash','self','burst']) seen[k]=Math.max(seen[k],s[k]);
+    for(const k of ['waves','bloom','pull','speed','squash','spin','burst']) seen[k]=Math.max(seen[k],s[k]);
     seen.shaping=seen.shaping||s.shaping; seen.games.add(s.game);
     await sleep(30);
   }
@@ -80,7 +80,7 @@ async function sweep() {
 }
 async function previews(saved) {
   await openLab();
-  const expect={26:s=>s.waves>0,27:s=>s.bloom>.5,28:s=>s.pull>.5,29:s=>s.speed>5,30:s=>s.games.has(3),31:s=>s.self>0||s.waves>0};
+  const expect={26:s=>s.waves>0,27:s=>s.bloom>.5,28:s=>s.pull>.5,29:s=>s.speed>5,30:s=>s.games.has(3),31:s=>s.spin>0||s.waves>0};
   for(const index of [26,27,28,29,30,31]) {
     await select(index);
     const seen=await watch(1500);

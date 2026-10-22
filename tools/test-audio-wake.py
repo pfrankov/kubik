@@ -24,9 +24,10 @@ static character_t s_character;
 static void *s_tess;
 static float s_tess_position, s_tess_energy;
 static unsigned queued, kicks;
-static bool mic_open, speaking;
+static bool mic_open, speaking, prebuffering;
 bool audio_mic_is_open(void) { return mic_open; }
 bool audio_stream_playing(void) { return speaking; }
+bool audio_stream_busy(void) { return speaking || prebuffering; }
 static bool tess_sound_event_is_utterance(sfx_t id) { return id == SFX_GIGGLE; }
 static bool tess_sound_cue_is_utterance(tess_cue_t id) { return id == TC_LOVE; }
 static void xSemaphoreTake(int mutex, int timeout) { (void)mutex; (void)timeout; assert(!locked); locked = 1; }
@@ -71,6 +72,16 @@ int main(void) {
     assert(kicks == 3 && queued == 2); // mute cannot suppress capture or wake the codec
     audio_levels_set_interface(70); tess_event(SFX_WAKE, -1);
     assert(kicks == 4 && queued == 3);
+    s_character = CHARACTER_TESS;
+    tess_tone_t pad = {TT_SKY_PAD, 300, .4f, .5f, 0, 0};
+    prebuffering = true;
+    audio_tess_tone(&pad); assert(kicks == 4 && queued == 3);
+    pad.gain = 0; // stops always pass: capture or prebuffer must never strand a held voice
+    audio_tess_tone(&pad); assert(kicks == 5 && queued == 4);
+    prebuffering = false; speaking = true;
+    audio_tess_tone(&pad); assert(kicks == 6 && queued == 5);
+    speaking = false; mic_open = true;
+    audio_tess_tone(&pad); assert(kicks == 7 && queued == 6);
     puts("audio wake: Tess/stepped/PCM publication precedes unlocked speaker notification");
 }
 '''

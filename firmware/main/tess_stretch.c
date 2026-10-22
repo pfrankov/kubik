@@ -8,7 +8,7 @@
 // way. Tilt the device and she rolls downhill; level it and she rolls home. Wherever she goes, the rim of the
 // glass stops her: she flattens on the side that hit, thuds, and her dots rattle; a hard enough hit after a
 // throw shatters her into the burst (tess_gather.c). A tap on her in flight catches her.
-// Left alone she plays by herself, silently, as her temper suggests (tess_temper.c).
+// Left alone she plays softly by herself, as her temper suggests (tess_temper.c).
 #define PI 3.14159265f
 #define BESIDE_PX 120.f      // a finger this far from her centre is beside her, not on her
 #define BODY_PX 90.f         // her own reach: a pull counts from here
@@ -44,8 +44,7 @@ bool tess_stretch_try(face_t *f, float x, float y) {
     g->grab = (uint8_t)vertex;
     g->pull[0] = x; g->pull[1] = y;
     g->pull_k = 0;
-    g->creak_in = 0;
-    if (tess_temper_scared(f)) tess_tone(f, TT_WOBBLE, tess_tone_hz(f, .8f), .35f, .5f);
+    tess_tone(f, tess_temper_scared(f) ? TT_WOBBLE : TT_CREAK, tess_tone_hz(f, .3f), .18f, .2f);
     return true;
 }
 void tess_stretch_move(face_t *f, float x, float y) {
@@ -53,17 +52,11 @@ void tess_stretch_move(face_t *f, float x, float y) {
     if (g->game != TESS_GAME_STRETCH) return;
     g->pull[0] = x; g->pull[1] = y;
 }
-// While held, the taut edge creaks, a little higher and louder the further she is pulled.
+// The pull has a short onset and release sound; holding it does not sustain a tone.
 void tess_stretch_update(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
     g->pull_k = fminf(1, g->pull_k + dt * 6.f);
     g->age += dt;
-    g->creak_in -= dt;
-    float taut = clampf(stretched(f) / 1.8f, 0, 1);
-    if (g->creak_in <= 0 && taut > .08f) {
-        tess_tone(f, tess_temper_scared(f) ? TT_WOBBLE : TT_CREAK, tess_tone_hz(f, .15f + .7f * taut), .2f + .4f * taut, taut);
-        g->creak_in = .35f;
-    }
     if (!g->finger_down && g->age > 1.5f) tess_stretch_release(f);  // (a preview has no finger to lift)
 }
 static void sling(face_t *f, float pulled) {
@@ -165,43 +158,26 @@ bool tess_fly_tap(face_t *f, float x, float y) {
 }
 
 // ---------------------------------------------------------------- alone
-static void reach(face_t *f, float t) {
-    tess_games_t *g = &f->tess_games;
-    float cx, cy;
-    tess_games_centre(f, &cx, &cy);
-    float out = 150.f + 30.f * sinf(t * 5.f);
-    g->grab = g->self_vertex;
-    g->pull[0] = cx + g->self_dir[0] * out; g->pull[1] = cy + g->self_dir[1] * out;
-    g->pull_k = t < .6f ? t / .6f : t < 1.f ? 1.f : 0;  // reach, hold, let go: the twang
-}
 static void begin_self(face_t *f) {
     tess_games_t *g = &f->tess_games;
     float angle = frange(f, 0, 2 * PI);
-    g->self_dir[0] = cosf(angle); g->self_dir[1] = sinf(angle);
-    g->self_vertex = (uint8_t)((int)(frand(f) * 16) & 15);
-    g->self_act = tess_temper_self_act(f);  // (a reach towards the last touch sets its own direction)
-    g->self_age = 0;
+    int vertex = (int)(frand(f) * 16) & 15;
+    tess_self_t act = tess_temper_self_act(f);
+    g->self_spinning = act == SELF_SPIN;
     // Still excited from play, she soon asks for more; otherwise she plays now and then.
     g->self_wait = g->excite > .5f ? frange(f, 3.f, 6.f) : frange(f, SELF_LO, SELF_HI);
-    if (g->self_act == SELF_PLUCK) { tess_play_pluck(f, g->self_vertex, true); g->self_act = SELF_NONE; }
-    else if (g->self_act == SELF_SPIN) {
-        f->tess_mood.drag_speed[0] += g->self_dir[0] * 10.f;
-        f->tess_mood.drag_speed[1] += g->self_dir[1] * 4.f;
-        g->self_act = SELF_NONE;
+    if (act == SELF_PLUCK) tess_play_pluck(f, vertex, true);
+    else if (act == SELF_SPIN) {
+        tess_tone(f, TT_WHOOSH, tess_tone_hz(f, .2f), .08f, .15f);
+        f->tess_mood.drag_speed[0] += cosf(angle) * 10.f;
+        f->tess_mood.drag_speed[1] += sinf(angle) * 4.f;
     }
 }
 void tess_self_end(tess_games_t *g) {
-    if (g->self_act == SELF_REACH) g->pull_k = 0;
-    g->self_act = SELF_NONE;
+    g->self_spinning = false;
 }
 void tess_self_update(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
-    if (g->self_act) {
-        g->self_age += dt;
-        if (g->self_act == SELF_REACH) reach(f, g->self_age);
-        if (g->self_age >= 1.2f) tess_self_end(g);
-        return;
-    }
     g->self_wait -= dt;
     if (g->self_wait <= 0) begin_self(f);
 }

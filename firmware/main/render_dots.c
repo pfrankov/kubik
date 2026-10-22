@@ -49,7 +49,7 @@ void render_dots_prepare(const scene_t *s) {
             uint32_t rr = (uint32_t)(outer * outer), whole = UINT32_MAX / rr, part = UINT32_MAX - whole * rr + 1;
             s_halo_step[i] = 18 * whole + 18 * part / rr + 1;
         }
-        s_paint_radius2[i] = paint_radius2(r, outer, p->glow, s_halo_step[i]);
+        s_paint_radius2[i] = imax(1, paint_radius2(p->blur ? -8 : r, outer, p->glow, s_halo_step[i]));
         int extent = (int)coverage_radius((unsigned)(s_paint_radius2[i] - 1));
         s_paint_radius[i] = (uint16_t)extent;
         int first = imax(0, ((p->y - extent) >> 4) / R_BAND), last = imin(R_BANDS - 1, ((p->y + extent) >> 4) / R_BAND);
@@ -58,15 +58,24 @@ void render_dots_prepare(const scene_t *s) {
 }
 
 typedef struct {
-    uint32_t foreground;
-    uint16_t opaque, black[33];
+    uint32_t foreground, ready;
+    uint16_t opaque, black[32];
 } dot_blend_t;
 
-// Sparse dots mostly cover black. Prepare every exact alpha result once,
+// Sparse dots mostly cover black. Cache only the exact alpha results actually used,
 // including colors that round to zero; overlaps keep the general blend.
 static inline R_HOT uint16_t blend_dot(dot_blend_t *cache, uint16_t background, unsigned alpha, bool swap) {
     if (alpha == 32) return cache->opaque;
-    if (!background) return cache->black[alpha];
+    if (!background) {
+        uint32_t bit=1u<<alpha;
+        if (!(cache->ready & bit)) {
+            uint32_t packed=((cache->foreground*alpha)>>5)&0x07E0F81F;
+            uint16_t color=(uint16_t)(packed|(packed>>16));
+            cache->black[alpha]=swap ? rgb565_bswap(color) : color;
+            cache->ready|=bit;
+        }
+        return cache->black[alpha];
+    }
     uint16_t canonical = swap ? rgb565_bswap(background) : background;
     uint32_t packed = (canonical | ((uint32_t)canonical << 16)) & 0x07E0F81F;
     packed = (packed + (((cache->foreground - packed) * alpha) >> 5)) & 0x07E0F81F;
@@ -78,11 +87,8 @@ static inline R_HOT uint16_t blend_dot(dot_blend_t *cache, uint16_t background, 
 static inline void prepare_blend(dot_blend_t *cache, uint16_t color, bool swap) {
     cache->foreground = (color | ((uint32_t)color << 16)) & 0x07E0F81F;
     cache->opaque = swap ? rgb565_bswap(color) : color;
-    for (unsigned alpha = 0; alpha < 32; alpha++) {
-        uint32_t packed = ((cache->foreground * alpha) >> 5) & 0x07E0F81F;
-        uint16_t blended = (uint16_t)(packed | (packed >> 16));
-        cache->black[alpha] = swap ? rgb565_bswap(blended) : blended;
-    }
+    cache->ready = 0; // tiny specks use only a few alphas; never build unused blend entries
+
 }
 
 // floor(h*h/18), h=0..18. The reciprocal maps covered halo pixels into
@@ -131,13 +137,13 @@ static inline R_HOT void raster_dot(const render_dot_t *p, uint32_t halo_step, i
             int inside = cr - distance, a = 32;
             // An opaque core already dominates the halo: no halo arithmetic or
             // blend is needed there. The antialiased edge keeps both coverages.
-            if (inside <= 0 || inside < core_full) {
+            if (p->blur || inside <= 0 || inside < core_full) {
                 a = 0;
                 if (halo_step) {
                     unsigned halo = (unsigned)(((uint64_t)(uint32_t)(rr - distance) * halo_step) >> 32);
                     a = (s_halo_curve[halo] * (glow + 1)) >> 8;
                 }
-                if (inside > 0) a = imax(a, (int)(((uint32_t)inside * core_step) >> 26));
+                if (!p->blur && inside > 0) a = imax(a, (int)(((uint32_t)inside * core_step) >> 26));
             }
             if (!a) continue;
             row[x - x0] = blend_dot(&cache, row[x - x0], (unsigned)a, swap);

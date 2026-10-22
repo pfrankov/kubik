@@ -1,4 +1,5 @@
 #include "../main/screen_lab.h"
+#include "../main/sound_levels.h"
 #include "../main/face_agent.h"
 #include "../main/tess.h"
 #include "../main/tess_sky_play.h"
@@ -58,6 +59,32 @@ static void qr(void) {
         assert(!screen_lab_controls(&lab));
     }
 }
+static void linked_pair(int a, int b, int target) {
+    int mean=sound_level_mean(a,b), speech=a, interface=b;
+    assert(mean==(a+b+1)/2);
+    sound_level_link(&speech,&interface,target);
+    assert(speech>=0 && speech<=100 && interface>=0 && interface<=100);
+    assert(sound_level_mean(speech,interface)==target);
+    assert(target>=mean ? speech>=a && interface>=b : speech<=a && interface<=b);
+    int sum=speech+interface, room=sum<100 ? sum : 200-sum;
+    int difference=abs(a-b), feasible=difference<room ? difference : room;
+    assert(abs(speech-interface)==feasible);
+    assert((speech-interface)*(a-b)>=0);
+}
+static void linked_sound(void) {
+    for(int a=0;a<=100;a++) for(int b=0;b<=100;b++)
+        for(int target=0;target<=100;target++) linked_pair(a,b,target);
+    int a=50,b=100; sound_level_link(&a,&b,80); assert(a==60 && b==100);
+    a=100;b=100; sound_level_link(&a,&b,50); assert(a==50 && b==50);
+    screen_lab_select(&lab, LAB_SETTINGS);
+    lab.volume=lab.ui_volume=100;
+    tap(72,226); assert(lab.volume==50 && lab.ui_volume==50);
+    screen_lab_event(&lab, LAB_HOLD,72,226);
+    tap(348,82); assert(lab.volume==50 && lab.ui_volume==100);
+    boot(); assert(sound_level_mean(lab.face.menu.volume,lab.face.menu.ui_volume)==75);
+    tap(72,140); assert(lab.volume==60 && lab.ui_volume==100);
+}
+
 static void settings(void) {
     screen_lab_select(&lab, LAB_SETTINGS);
     tap(72, 100); assert(lab.volume > 80);
@@ -223,7 +250,7 @@ static void assert_playing(int screen) {
     bool moving = false;
     for (int frame = 0; frame < 45 && !moving; frame++) {
         screen_lab_update(&lab, 1.f / 30);
-        moving = g->shaping || g->self_act || lab_waves() || g->bloom > .3f || g->game;
+        moving = g->shaping || g->self_spinning || lab_waves() || g->bloom > .3f || g->game;
     }
     assert(moving);
     if (screen == LAB_PLAY_STRETCH) assert(g->game == TESS_GAME_STRETCH || g->game == TESS_GAME_FLY || g->pull_k == 0);
@@ -361,17 +388,30 @@ static void independent_contacts_and_primary_menu(void) {
     screen_lab_select(&lab, LAB_HOME);
     assert(!lab.face.tess_games.sky); assert(!touch_count(&lab.face.touch_in));
 }
+static void home_motion_does_not_add_a_continuous_tone(void) {
+    screen_lab_select(&lab, LAB_HOME);
+    tess_tone_t cleanup;
+    while (screen_lab_take_tone(&lab, &cleanup))
+        assert(cleanup.kind == TT_SKY_RELEASE && cleanup.gain == 0); // prior Skies fixture still releases its music
+    lab.face.tess_mood.drag_speed[0] = 12;
+    for (int i = 0; i < 120; i++) {
+        screen_lab_update(&lab, 1.f / 30); screen_lab_draw(&lab, &scene);
+        tess_tone_t tone;
+        assert(!screen_lab_take_tone(&lab, &tone));
+    }
+}
 int main(void) {
     changing_a_preview_releases_its_sky();
     changing_a_preview_releases_its_music();
     entry(); collision_audio();
     for (int character = 0; character < 2; character++) {
-        screens(character); catalog(); qr(); settings(); voice(); motion(); events();
+        screens(character); catalog(); qr(); linked_sound(); settings(); voice(); motion(); events();
     }
     screen_lab_dispose(&lab);
     screen_lab_init(&lab, CHARACTER_TESS);
     growth_previews_accept_natural_taps();
     independent_contacts_and_primary_menu();
+    home_motion_does_not_add_a_continuous_tone();
     game_previews();
     screen_lab_dispose(&lab);
     puts("Screen Lab: hidden entry, native QR, menus, guide, voice, gestures and bounded scenes passed");

@@ -2,11 +2,11 @@
 // dark, each with a note. A star fills while the stream passes through it and sings as it fills; when every star of
 // the sky has been lit the sky resolves into a chord and the next one grows from it. Each finger makes a temporary
 // invisible black hole; permanent holes and tilt bend the stream. Lit stars keep their light until the next sky.
-// No score, no text, no required timing: the stream makes the music, never a timing challenge.
+// No score or required timing; names appear only after success: the stream makes the music, never a timing challenge.
 //   tess_sky.c          the rounds: invitation, play, resolution, leaving; touch; sound
 //   tess_sky_stream.c   the stream: 112 particles on integers
-//   tess_sky_compose.c  a sky from a seed: harmony, layout and a solution proven by the real stream
-//   tess_sky_plan.c     what a sky holds; tess_sky_melody.c its ending melody
+//   tess_sky_compose.c  fixed chart selection and seeded harmony, with offline physical proof
+//   tess_sky_plan.c     catalog layouts and input routes; tess_sky_melody.c the ending melody
 //   tess_sky_summon.c   how she asks: a warm body vertex with a quiet pad
 //   tess_sky_touch.c    independent temporary black holes under the fingers
 //   tess_sky_draw.c     the picture
@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 #define SKY_PARTICLES 112   // TESS_N: the particles are her dots
-#define SKY_STARS 6
+#define SKY_STARS 7
 #define SKY_HOLES 2
 #define SKY_TOUCHES 2
 #define SKY_HUMS (SKY_HOLES + SKY_TOUCHES)
@@ -24,7 +24,6 @@
 #define SKY_Q3 8            // particle positions: 1/8 px
 #define SKY_W 480
 #define SKY_FULL .8f        // a star this full stays lit and sings for the rest of this sky
-#define SKY_PROBE_N SKY_PARTICLES // prove with the full stream, including its actual source jitter
 #define SKY_HOLD_S 1.6f     // all full this long
 
 typedef enum { SKY_OFF, SKY_UNRAVEL, SKY_PLAY, SKY_RESOLVE, SKY_FADE } sky_phase_t;  // unravel: her dots fly out; fade: no one is playing
@@ -36,13 +35,14 @@ typedef struct {
     int16_t x, y, vx, vy;
     uint16_t wait, age;
     int8_t rx, ry, rvx, rvy; // signed remainders preserve sub-Q3 motion and acceleration between ticks
-    uint8_t color, spare;
+    uint8_t color, channel; // 0: active physics, 1..6: learned stream
 } sky_particle_t;
 
 typedef struct {
     float x, y;             // where it is now (drifting stars move about their anchor)
     float ax, ay, orbit, spin, phase;  // anchor, radius and speed of the drift (orbit 0: still)
     float fill, glow;       // 0..1: how full it is; the flash of becoming full, fading
+    int8_t size;           // optical size offset in percent, from apparent V magnitude
     float hz;               // its note
     uint8_t degree;         // ...as a step of the scale (sky_degree_hz)
     uint8_t color;          // its visual and musical shade (every particle can light every star)
@@ -60,11 +60,19 @@ typedef struct { float x, y, shown; int8_t spin; bool down; uint8_t id; } sky_to
 // Where the stream comes from, its direction (unit vector) and pace (px/s).
 typedef struct { float x, y, dx, dy, speed; } sky_source_t;
 
-// Everything that makes a sky: composed from a seed, traced for its solution, then played.
+// A captured stream: fixed Q3 endpoints and phase increment per 60 Hz tick.
+#define SKY_CHANNEL_DOTS 10
+#define SKY_CHANNELS (SKY_STARS - 1)
+typedef struct { int16_t x[2], y[2]; uint16_t step; uint8_t from, to; } sky_channel_t;
+
+// Everything that makes a sky: a prevalidated star chart with a seeded orientation and harmony.
 typedef struct {
     uint8_t kind, count_stars, count_holes, root;  // root: the chord's first scale degree
-    float gravity[2];       // a verified solving tilt (screen axes); zero for the first, finger-led sky
-    bool touch_solution;
+    bool emitting;           // enabled only after launch; diagnostics may isolate existing channels
+    uint16_t emit_tick;      // bounded cadence for the active source
+    uint8_t emitter, channels; // newest full star and persistent captured streams
+    sky_channel_t channel[SKY_CHANNELS];
+    uint8_t chart, turn;    // fixed catalog ID (0: free Aurora), whole-chart quarter turns
     float t;                // seconds in the sky
     float remainder;        // time carried into the next fixed physics tick
     float feed_scale;       // 1 in both play and the full-stream proof
@@ -85,7 +93,7 @@ typedef struct {
 typedef struct {
     uint8_t n, total_units;
     uint16_t unit_ms;            // 140..200
-    int8_t tour[SKY_STARS];      // the order the melody visits the stars (a constellation line is drawn in this order), rest -1
+    int8_t tour[SKY_STARS];      // the order the melody visits the stars (the music follows play; chart lines keep their real topology), rest -1
     sky_note_t note[SKY_MELODY_MAX];
     int8_t chord[3];             // the closing chord: tonic, its third and fifth as scale steps
 } sky_melody_t;
@@ -93,23 +101,15 @@ typedef struct {
 // How a sky was played, for its melody: the stars in the order they first became full, and when (s into the sky).
 typedef struct { uint8_t n; int8_t order[SKY_STARS]; float at[SKY_STARS]; } sky_played_t;
 
-// What a sky is made from, and the composer that makes it a slice at a time (tess_sky_compose.c).
-typedef struct { uint8_t elements, skill, root; bool first, aurora; float from[2]; } sky_recipe_t;
-typedef struct { uint8_t stars, holes, drift; bool pour; } sky_plan_t;
-typedef struct {
-    sky_world_t *w; uint32_t seed; sky_recipe_t r; sky_plan_t pl;
-    uint8_t attempt, stage, tries; bool simple;
-    uint16_t steps;
-    sky_world_t probe;                  // a copy that is made to flow, to prove the layout before it is shown
-    sky_particle_t light[SKY_PROBE_N];
-} sky_composer_t;
+// A chart is selected directly; the complete physical routes are verified by host tests.
+typedef struct { uint8_t elements, root; uint16_t solved; bool aurora; } sky_recipe_t;
+typedef struct { uint8_t a, b; } sky_edge_t;
 
 typedef struct tess_sky {
     uint8_t phase;
     uint8_t solved_here;    // skies solved this session, saturates at 255
     sky_world_t w, next;    // the sky being played, and the next one growing while it resolves
-    sky_composer_t comp;
-    uint8_t compose;        // the next sky: 0 not begun, 1 growing, 2 grown
+    bool next_ready;       // catalog layouts are prepared directly, without runtime search
     sky_particle_t p[SKY_PARTICLES];
     sky_touch_t touch[SKY_TOUCHES];
     bool finger_down;

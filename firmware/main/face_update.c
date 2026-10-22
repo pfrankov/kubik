@@ -289,8 +289,13 @@ static void update_particles(face_t *f, float dt) {
     }
 }
 
+static void update_charging_hint(face_t *f, float dt) {
+    if (!f->charging || f->dark || f->menu.k >= MENU_SWAP || f->mode == MODE_SETUP) f->charging_age = 0;
+    else f->charging_age = fminf(CHARGING_HINT_S, f->charging_age + dt);
+}
 void face_update(face_t *f, float dt) {
     dt = advance_face_clock(f, dt);
+    update_charging_hint(f, dt);
     update_mode_timers(f, dt);
     update_short_timers(f, dt);
     update_corner_indicators(f, dt);

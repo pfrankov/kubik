@@ -93,6 +93,7 @@ size_t audio_stream_write_ima(const uint8_t *frame, size_t bytes);  // one IMA A
 void audio_stream_end(void);  // no more data will come: play out the tail
 void audio_stream_stop(void);  // stop immediately
 bool audio_stream_playing(void);  // audible speech right now
+bool audio_stream_busy(void);     // prebuffering, queued speech, or the speaker's output tail
 bool audio_stream_drained(void);
 void audio_stream_gaps(uint32_t *count, uint32_t *ms);  // mid-speech underruns of the current stream
 void audio_stream_timing(uint32_t *mix_us, uint32_t *write_us);

@@ -7,7 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 RENDER = ['render', 'render_dots', 'render_glass', 'render_output', 'render_pipeline', 'render_raster', 'render_scene', 'render_text', 'sprite', 'font', 'font_data']
-FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_update', 'face_setup', 'face_menu', 'face_status', 'ui_kit', 'face_plush', 'face_rub', 'tess_geometry', 'tess_growth', 'tess_games', 'tess_gather', 'tess_sky', 'tess_sky_stream', 'tess_sky_compose', 'tess_sky_plan', 'tess_sky_melody', 'tess_sky_touch', 'tess_sky_summon', 'tess_sky_sound', 'tess_sky_draw', 'tess_play_shape', 'tess_stretch', 'tess_temper', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
+FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_update', 'face_setup', 'face_menu', 'sound_levels', 'face_status', 'ui_kit', 'face_plush', 'face_rub', 'tess_geometry', 'tess_growth', 'tess_games', 'tess_gather', 'tess_sky', 'tess_sky_stream', 'tess_sky_compose', 'tess_sky_plan', 'tess_sky_melody', 'tess_sky_touch', 'tess_sky_summon', 'tess_sky_sound', 'tess_sky_draw', 'tess_play_shape', 'tess_stretch', 'tess_temper', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
 
 def face_sources(extra=(), omit=()):
     # Tests that include a .c for a private reference omit that translation unit.
@@ -44,6 +44,7 @@ TESTS = {
     'tess_feel': face_sources(extra=[], omit=['tess_draw']),
     'tess_scatter': face_sources(extra=[], omit=[]),
     'tess_games_integration': face_sources(extra=[], omit=[]),
+    'tess_animation_sound': face_sources(extra=['tess_sound', 'tess_sound_compose', 'tess_sound_body', 'tess_sound_sky', 'tess_sound_rules']),
     'tess_growth': face_sources(extra=[], omit=[]),
     'tess_play': face_sources(extra=[], omit=[]),
     'tess_tremble': face_sources(extra=[], omit=[]),

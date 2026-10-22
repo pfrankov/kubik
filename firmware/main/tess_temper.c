@@ -97,22 +97,16 @@ void tess_temper_pluck(face_t *f, int vertex) {
 }
 
 // ---------------------------------------------------------------- alone
-// What she plays by herself follows her temper: excited, she spins or plucks; curious after a touch, she
-// reaches towards where it was; long alone, two corners wrestle. Cross or scared, she keeps to herself.
+// Her own play is a quiet pluck or spin. Corner pulls belong only to the user's finger.
+// Cross or scared, she keeps to herself.
 uint8_t tess_temper_self_act(face_t *f) {
     tess_games_t *g = &f->tess_games;
     if (g->annoy > .4f || g->fear > .5f) return SELF_NONE;
     mood_t mood = ruling_mood(f);
-    if (g->since_touch < 20.f && (mood == MOOD_CURIOUS || frand(f) < .4f)) {
-        float cx, cy;
-        tess_games_centre(f, &cx, &cy);
-        float dx = g->touch_at[0] - cx, dy = g->touch_at[1] - cy, d = hypotf(dx, dy);
-        if (d > 20.f) { g->self_dir[0] = dx / d; g->self_dir[1] = dy / d; return SELF_REACH; }
-    }
     if (g->excite > .3f || mood == MOOD_PLAYFUL) return frand(f) < .5f ? SELF_SPIN : SELF_PLUCK;
-    static const uint8_t k_alone[3] = {SELF_WRESTLE, SELF_PLUCK, SELF_REACH};  // long alone: quieter play, in turn
-    if (g->since_touch > 60.f) return k_alone[g->self_next++ % 3];
-    return (uint8_t)(SELF_PLUCK + g->self_next++ % 4);
+    static const uint8_t k_alone[] = {SELF_PLUCK, SELF_SPIN};
+    unsigned count = g->since_touch > 60.f ? 1 : 2;
+    return k_alone[g->self_next++ % count];
 }
 
 // ---------------------------------------------------------------- knocks

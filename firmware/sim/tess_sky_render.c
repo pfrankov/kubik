@@ -1,4 +1,4 @@
-// The real face and synth, with the same bounded finger/tilt input that proves each procedural sky.
+// The real face and synth, with the same bounded finger/tilt input that proves each catalog sky.
 // Measures peak level and rises in sounding 100 ms windows; writes a sample for listening.
 // Usage: tess_sky_render OUT.wav [ELEMENTS met at the start, 1..10]
 #include <math.h>

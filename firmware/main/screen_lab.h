@@ -20,7 +20,7 @@ typedef struct {
     touch_primary_t primary;
     menu_service_t service;
     int selected, page, character;
-    bool signal, overlay, sky_release; // pending audio cleanup survives replacing face
+    bool signal, overlay, sky_release; // cleanup survives replacing face
     int volume, ui_volume, brightness;
     uint8_t model_choice[5], event_step;
 } screen_lab_t;
@@ -43,7 +43,7 @@ int screen_lab_control_y(const screen_lab_t *lab);
 
 bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue);
 bool screen_lab_take_cue(screen_lab_t *lab, tess_cue_t *cue, float *strength, float *position);
-// Body sounds belong to growth/play previews; an old sky's release also passes through quiet screens.
+// Body tones belong to growth/play. Releases pass through quiet screens.
 bool screen_lab_tone_allowed(const screen_lab_t *lab, const tess_tone_t *tone);
 bool screen_lab_take_tone(screen_lab_t *lab, tess_tone_t *tone);
 

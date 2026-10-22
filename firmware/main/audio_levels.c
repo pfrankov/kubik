@@ -4,16 +4,20 @@
 
 // Compute gains only when a control changes; the audio loop uses integer math.
 // Gains publish no other state: sample-wise atomic reads need no ordering fence.
-static atomic_int s_speech_gain = 65536; // 100%, squared curve, unity at 100%
-static atomic_int s_interface_gain = 65536; // 100%: logarithmic interface curve, unity at 100%
+static atomic_int s_speech_gain = 65536; // 100%, unity
+static atomic_int s_interface_gain = 65536;
 static int percent(int value) { return value < 0 ? 0 : value > 100 ? 100 : value; }
+// Shared taper: (p / 100)^1.5. The midpoint is -9 dB, 0 is mute, 100 is unity.
+// Quiet body notes remain usable below the midpoint without increasing the ceiling.
+static int gain(int value) {
+    float level = percent(value) / 100.f;
+    return (int)lrintf(level * sqrtf(level) * 65536.f);
+}
 void audio_levels_set_speech(int value) {
-    int p = percent(value);
-    atomic_store(&s_speech_gain, (p * p * 65536LL) / 10000);
+    atomic_store(&s_speech_gain, gain(value));
 }
 void audio_levels_set_interface(int value) {
-    int p = percent(value);
-    atomic_store(&s_interface_gain, p ? (int)lrintf(expf((p - 100) * (2.30258509f / 40.f)) * 65536.f) : 0);
+    atomic_store(&s_interface_gain, gain(value));
 }
 bool audio_levels_interface_enabled(void) { return atomic_load_explicit(&s_interface_gain, memory_order_relaxed) != 0; }
 bool audio_levels_speech_enabled(void) { return atomic_load_explicit(&s_speech_gain, memory_order_relaxed) != 0; }

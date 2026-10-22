@@ -72,32 +72,36 @@ make her fond. Each fades on its own, and they colour her moods.
 - Frightened, she shies away from a pulling finger instead of reaching for it.
   Fond, all of her follows it eagerly.
 - Cross, she won't bloom as far.
-- After play she soon asks for more by herself. Curious, she reaches towards
-  where you last touched her.
+- After play she soon asks for more by herself, with small turns and quiet waves.
 
 ## Her sounds
 
 Her sounds come from what her body does, in the same soft, spacey palette as
 her voice: no bells and no tunes. A pluck makes her whole body resonate at one
 pitch; the corner only changes the overtone and the slow beating over it, so
-plucking corner after corner never plays a melody. A taut pull hums higher and
-beats faster the further you stretch it and glides down as it lets go. She
-whooshes faster as she spins, thuds softly against the rim (lower for a bigger
+plucking corner after corner never plays a melody. Starting and releasing a pull
+make short sounds that fade on their own. She thuds softly against the rim (lower for a bigger
 Tess), and her dots puff as they knock and come home, a little higher from higher
 up the glass. Her mood sets where her voice rests: lower when cross, sad or
 sleepy, higher and trembling when scared; a small Tess has a small voice. Her
 body sounds stay quieter than her words. Her body sounds never play over
-the microphone or a spoken reply, and never in the dark or asleep.
+the microphone or a spoken reply, and never while dimmed, in the dark or asleep.
+
+Tilting, rocking, spinning, inertia and changing shape do not add a continuous
+background tone. Her short reactions and purr remain; Skies and offline particles
+keep their own music and collision sounds.
 
 ## When nobody plays
 
-Left alone for a while, Tess plays by herself, silently, as her temper
-suggests. She plucks herself and a ring runs through her. She reaches one corner
-out, towards where you last touched her if she is curious, and lets it twang
-back. Excited, she gives herself a spin and blooms a little. Long alone, two of
-her opposite corners wrestle apart and snap back. Each of these is something your
-finger can do too. A touch stops her own play at once. Cross or frightened, she
-keeps to herself, and she never plays while sleepy or dozing.
+Left alone for a while, Tess plays by herself as her temper
+suggests. She plucks herself and a ring runs through her, with a barely audible
+soft resonance. She never stretches her corners by herself; stretching follows
+your finger. Excited, she gives herself a spin and blooms a little. Long alone,
+she settles into occasional quiet plucks. Each pluck or spin starts with a short,
+quiet sound; it finishes even while her animation continues.
+A touch stops her own play at once. Cross or frightened, she
+keeps to herself, and she never starts idle play while dimmed, sleepy or dozing.
+Dimming ends current idle play and lets its shape settle without sound.
 
 ## Growing
 
@@ -113,13 +117,19 @@ earlier versions keep their places in the same six steps.
 
 ## Skies
 
+To enter directly from Tess’s home screen, hold two fingers near diagonally
+opposite corners of the glass for 1.5 seconds. Either diagonal works, even upright
+and without an invitation. Keep both fingers in their corner areas; if interrupted,
+release both before trying again. This gesture also works after enabling offline play
+with BOOT. Menus, setup, agent replies and sleep keep their usual priority.
+
 Lay the cube nearly flat. Now and then one of Tess’s own corners warms gently,
 with a quiet low pad that fades in and out; there is no separate floating light;
 standing up, she never asks. To ask her yourself, rock the flat cube three times,
 quickly, side to side. That only summons her. Ignore it and nothing happens. Touch
 the warmed corner, or lift the cube upright while it is visible, and Tess unravels into a
-stream of her own dots; musical stars float in the dark. The first sky has one star.
-Hold a finger on the glass and move it to guide the stream into that star.
+stream of her own dots; musical stars float in the dark. The first sky is Triangulum. One star is already full and emits the stream.
+Hold a finger on the glass and move it to guide the light into another star.
 
 Every touch creates an invisible temporary black hole at that point. The stream
 bends and swirls around it, gaining a little speed. All black holes, including
@@ -128,17 +138,19 @@ of the particles. One or two fingers work the same way
 anywhere on the glass; touching a star, source or fixed black hole never selects,
 moves or turns it. Each field grows over 0.10 seconds and fades over 0.25 seconds
 after release; the other finger keeps controlling its own field. Later skies may
-have up to two permanent black holes that shape the stream, and stars that drift
-in orbits. Tilting is another way to guide the
+have up to two permanent black holes that shape the stream. Stars keep their
+measured relative positions. Tilting is another way to guide the
 flow: it pours the stream under full glass gravity in a pouring sky and has a
 weaker effect in other skies.
 
-Any dot can fill any star, whatever their colours. Passing through a star gives
-the dot that star’s colour. An empty star is a loose gathering of faint lights.
-As the stream fills it, those lights curl inward and gather into a brighter, warmer
-core. The last grains merge into a brief flare; the full star keeps its light.
-If the stream leaves an unfinished star, its core dims and its lights slowly spread
-out again. There are no progress rings or segments. A filling star sparkles softly
+Any active-stream dot can fill any star, whatever their colours. Successful
+streams keep feeding their own completed star. Passing through a star gives
+the dot that star’s colour. An empty star is a faint radial blur with a little RGB separation, like an unfocused telescope image.
+As the stream fills it, the blur narrows and a clear, bright core emerges.
+If the stream leaves an unfinished star, it dims and loses focus again.
+A completed star keeps its light and becomes the new emitter. The successful
+stream from the previous emitter keeps flowing; each discovery adds a lasting stream. There are no orbiting dots, progress rings or segments.
+A filling star sparkles softly
 in the music; once full, it holds a layered low or middle voice. Passing light also
 adds occasional low rhythmic accents, even before a star is full: its octave or
 twelfth gives the small speaker a warm body, and the star briefly glows with the beat.
@@ -146,18 +158,21 @@ No flow means no accents; dense flow never creates a barrage of notes.
 Every full star adds a voice, and black holes hum softly while light swirls nearby.
 When every star is full together for a moment, the sky sings its own melody: the
 stars in the order you filled them, the slower ones held longer, each flashing as
-a constellation line reaches it, then the closing chord. Once the melody ends and
+the chart’s real links appear, then the closing chord. Its English name fades in
+only after success; your filling order changes the melody, not the constellation’s figure. Once the melody ends and
 the next sky is ready, the old sky fades through darkness over 0.65 seconds; the
 new sky begins with a fresh stream from its source. Rarely, a free Aurora sky
-arrives with a colourful stream, two permanent black holes and no stars to fill.
+arrives with a colourful stream, two permanent black holes, one full emitter and no goals to fill.
 After 40 seconds it resolves into the next sky; the game stays open.
 
-Skies grows through ten stages. The number and placement of
-targets and black holes respond to Tess’s remembered history and how you play.
-Each puzzle has a way to solve it with a tilt or one finger and needs your input.
-A simpler layout may appear; in later stages it still has two stars and one or two
-permanent black holes. There is no score, text, game HUD or Skies button, and
-nothing can be lost. Quiet play, ordinary lifts and tilts keep the game open.
+Discover eight bright-star figures, from simple to complex:
+Triangulum, Crux, Corvus, Delphinus, Cassiopeia, Cepheus, Ursa Minor and Orion.
+They grow from three to seven stars. The whole chart may turn, preserving its
+proportions; individual stars never drift out of the figure. The catalog repeats
+after Orion with new orientations and harmony. Each layout has a verified route
+using tilt and one finger, and requires input. There is no score, HUD or Skies
+button; the name appears only on completion, and nothing can be lost.
+Quiet play, ordinary lifts and tilts keep the game open.
 A strong shake or a hardware button ends it; there is no six-sky visit limit.
 Her progress is remembered and her motif starts from your last chord. Skies is Tess only and follows the same agent-first rules as the
 rest of play below. A short BOOT ends it.

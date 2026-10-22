@@ -89,6 +89,7 @@ float tess_scatter_weight(float seconds);                 // how far the cloud i
 void tess_scatter_spot(int slot, float spot[3]);          // where a slot of the burst lands
 void tess_scatter_spot_px(int slot, float *x, float *y);   // and where that is on the panel
 void tess_scatter_frame(const face_t *face, float seconds);                // what the whole cloud does seconds into the burst: once a frame, before the dots
+bool tess_scatter_sky_targets(const face_t *face, float out[TESS_N][3], int parity);
 void tess_scatter_apply(float point[3], int dot, int slot);  // the dot's place in that moment
 void tess_scatter_finish(face_t *face);                   // every dot is home already: the burst ends now
 void tess_scatter_hang_at(int slot, float x, float y);    // a game that holds the burst places a slot (panel px)
@@ -108,6 +109,7 @@ void tess_fall_turn(face_t *face, bool falling);
 void tess_fall_step(face_t *face, float dt);
 #define TESS_GLINT_PEAK 255  // a twinkle with this peak is a glint
 float tess_twinkle_level(const face_t *face, int slot);  // offline shimmer: how lit each of the twinkling points is, 0..1
+float tess_projection_form(const face_t *face);
 void tess_view_matrix(const face_t *face, float matrix[3][3]);
 void tess_transform_point(const float matrix[3][3], const float source[3], float target[3], bool transpose);
 

@@ -346,6 +346,7 @@ typedef struct {
     int offline_icon;                // BUB_NO_WIFI / BUB_NO_SERVER while the connection is lost (0 = online)
     int offline_icon_last;           // retained only for this face while its connection icon fades
     float offline_k;                 // Tess: its corner icon fade 0..1
+    float charging_age;              // visible home-screen seconds; Settings always shows external power
 } face_t;
 
 static inline character_t face_character(const face_t *f) {

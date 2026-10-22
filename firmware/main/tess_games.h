@@ -13,7 +13,7 @@ typedef enum { TESS_GAME_REST, TESS_GAME_SHOW, TESS_GAME_WAIT, TESS_GAME_CELEBRA
 // Developer previews (Screen Lab), one per behaviour.
 typedef enum { TESS_PLAY_PLUCK, TESS_PLAY_BLOOM, TESS_PLAY_STRETCH, TESS_PLAY_FLY, TESS_PLAY_GATHER, TESS_PLAY_SELF, TESS_PLAY_SKY, TESS_PLAY_COUNT } tess_preview_t;
 // What she does by herself when left alone.
-typedef enum { SELF_NONE, SELF_PLUCK, SELF_REACH, SELF_SPIN, SELF_WRESTLE } tess_self_t;
+typedef enum { SELF_NONE, SELF_PLUCK, SELF_SPIN } tess_self_t;
 
 struct tess_sky;  // tess_sky.h
 
@@ -38,8 +38,9 @@ typedef struct {
     float fly[2], fly_v[2];      // the slung body: offset and velocity, units and units/s
     float squash[2], squash_k;   // the wall she last hit (its normal) and how flattened she still is
     float bloom, spin;           // how far spin has opened her, 0..1; her spin, rad/s
-    uint8_t self_act, self_vertex, self_next;  // self_next: her repertoire in turn, so nothing repeats
-    float self_age, self_wait, self_dir[2];
+    uint8_t self_next;           // alternate quiet plucks and spins
+    float self_wait;
+    bool self_spinning;          // distinguishes idle impulse from the user's drag when dimming
     float gather_clock, gather_start;
     uint16_t gathered_at[TESS_GATHER_SLOTS];  // Gather: 1 + centiseconds of gather_clock when swept home; 0 out
     // Her temper, built by what has been happening and fading on its own (each 0..1): excitement from play,
@@ -51,7 +52,6 @@ typedef struct {
     float answer_in;             // s until it, < 0 none
     float tilt[2], tilt_rest[2]; // the device's tilt from how it usually stands (pull on the panel), and that usual
     bool tilt_known;             // the usual pose starts from the first reading, not from level
-    float creak_in, whoosh_turn; // when the next stretch creak and spin whoosh sound
     uint16_t tone_kinds;         // one bit per kind of body sound she has made (for the USB probe)
     float tick_at;               // Gather: when its last dot sounded
     bool shaping;                // any structural play is moving her dots this frame
@@ -73,12 +73,15 @@ typedef struct {
     int8_t rock_side[2];
     uint8_t rock_n[2];
     float sky_invite_t;          // s the star stays; 0: no invitation (it is only offered while she waits for an answer)
+    float sky_hold_t;            // diagonal two-finger hold; negative: consumed until all fingers lift
+    uint32_t sky_hold_contacts;  // corner and contact IDs, independent of report order
+    bool sky_hold_owned;         // suppress a stretch, rub or release tap while this chord owns input
 } tess_games_t;
 
 // What the game probe reports of her games: a few numbers, so the small USB task never holds her whole state.
 typedef struct {
     bool preview, available, shaping;
-    uint8_t progress, game, phase, self_act;
+    uint8_t progress, game, phase;
     uint16_t streak, tone_kinds;
     uint32_t round;
     unsigned waves;

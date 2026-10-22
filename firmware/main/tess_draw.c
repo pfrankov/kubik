@@ -446,9 +446,7 @@ void tess_project_dots(face_t *f, tess_projected_t dots[TESS_N]) {
             for (int j = 0; j < 3; j++) m[i][j] = i == j;
     float heart = f->tess_reaction[TR_HEART];
     // The 4D depth counts only while it is a tesseract (not the globe, the heart or the scatter).
-    float listen = f->live_active ? 0 : f->tess_mode[TM_LISTEN];
-    float form = f->tess_fallen ? 0 : 1 - fmaxf(fmaxf(fmaxf(listen, heart), f->tess_reaction[TR_SCATTER]), f->tess_drift);
-    form *= 1 - f->tess_mode[TM_OFFLINE];
+    float form = tess_projection_form(f);
     float wgain = .9f * form, dust = (1 - .35f * f->tess_drift - .4f * f->tess_reaction[TR_SCATTER]) * f->style.dot;
     float camera = 4.7f + (f->style.cam - 4.7f) * form;  // (a mood's camera is for the tesseract only)
     float depth_range = 1.7f + .6f * form - heart * .7f, depth_gain = 1 / (2 * depth_range);

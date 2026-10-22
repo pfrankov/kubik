@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent interface/speech gain, mute, peak safety and monotonic speech scale."""
+"""Shared audible taper, independent channels, exact mute and unchanged peak safety."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -60,11 +60,27 @@ static void exact_levels(void) {
         assert(audio_levels_limit(value)==reference_limit(value,24576));
         assert(audio_levels_mix(value)==reference_limit(value,32000));
     }
+    int last_gain=-1;
     for(int p=0;p<=100;p++) {
         audio_levels_set_speech(p);
-        int32_t gain=(p*p*65536LL)/10000;
+        audio_levels_set_interface(p);
+        int32_t gain=audio_levels_interface(65536);
+        int32_t expected=(int32_t)lround(pow(p/100.,1.5)*65536.);
+        assert(abs(gain-expected)<=1); // independent double-precision oracle, Q16 rounding
+        assert(gain>last_gain && gain<=65536);
+        assert(audio_levels_interface(-65536)==-gain);
+        assert(audio_levels_speech_enabled()==(p>0));
+        assert(audio_levels_interface_enabled()==(p>0));
+        last_gain=gain;
         for(int sample=-32768;sample<=32767;sample++)
             assert(audio_levels_speech(sample)==reference_limit((int32_t)((int64_t)sample*gain/65536),24576));
+    }
+    // Audible lower/midrange; ceilings and limiter semantics above remain exact.
+    const int levels[]={0,10,25,50,75,100}, amplitudes[]={0,316,1250,3535,6495,10000};
+    for(unsigned i=0;i<sizeof levels/sizeof *levels;i++) {
+        audio_levels_set_speech(levels[i]); audio_levels_set_interface(levels[i]);
+        assert(abs(audio_levels_speech(10000)-amplitudes[i])<=1);
+        assert(audio_levels_interface(10000)==audio_levels_speech(10000));
     }
 }
 
@@ -73,9 +89,9 @@ int main(void) {
     mixed_sources();
     audio_levels_set_interface(70);
     int ui = audio_levels_interface(10000);
-    assert(abs(ui - 1778) <= 1); // Interface has unity gain at 100%; mute remains exact.
+    assert(abs(ui - 5857) <= 1);
     audio_levels_set_speech(70);
-    assert(abs(audio_levels_speech(10000) - 4900) <= 1); // Q16 squared curve without +6 dB.
+    assert(audio_levels_speech(10000) == ui); // both channels share the taper, never an extra boost
     audio_levels_set_speech(0);
     assert(!audio_levels_speech_enabled() && audio_levels_interface_enabled());
     assert(audio_levels_speech(32767) == 0 && audio_levels_interface(10000) == ui);
@@ -107,4 +123,4 @@ with tempfile.TemporaryDirectory(prefix='kubik-levels-') as directory:
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-fsanitize=address,undefined',
                     '-Ifirmware/main', str(path / 'test.c'), 'firmware/main/audio_levels.c', 'firmware/main/audio_signal.c', '-lm', '-o', str(path / 'test')], cwd=ROOT, check=True)
     subprocess.run([str(path / 'test')], check=True)
-print('audio levels: independent mute/gain, unity speech/interface ceilings, smooth bounded peaks passed')
+print('audio levels: shared 0..100 taper, audible midpoint, independent mute, unity ceilings and bounded peaks passed')

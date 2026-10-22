@@ -131,10 +131,12 @@ static void apply_screen(screen_lab_t *lab, int screen) {
 
 void screen_lab_dispose(screen_lab_t *lab) {
     agent_menu_clear_catalog(&lab->face.agent);
+    if (face_character(&lab->face) != CHARACTER_TESS) return;
     tess_games_set_available(&lab->face, false);
     tess_tone_t tone;
-    while (face_take_tone(&lab->face, &tone))
+    while (face_take_tone(&lab->face, &tone)) {
         lab->sky_release |= tone.kind == TT_SKY_RELEASE;
+    }
 }
 void screen_lab_init(screen_lab_t *lab, int character) {
     memset(lab, 0, sizeof *lab);

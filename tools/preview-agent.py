@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='kubik-agent-preview-') as tmp:
                 'guide-plush': ['2', '1', 'plush'], 'guide-plush-live': ['2', '1', 'plush-live'],
                 'guide-live-missing': ['2', '1', 'live-missing'],
                 'guide-offline': ['2', '1', 'offline']}
-    for state in ['connecting', 'mic', 'mic-quiet', 'mic-low', 'thinking', 'speaking', 'mic-card', 'speaking-card', 'mic-charging']:
+    for state in ['connecting', 'mic', 'mic-quiet', 'mic-low', 'thinking', 'speaking', 'mic-card', 'speaking-card', 'mic-charging', 'mic-charging-fade', 'mic-charging-hidden']:
         fixtures['live-' + state] = ['live', state]
     frames = {}
     for name, flags in fixtures.items():

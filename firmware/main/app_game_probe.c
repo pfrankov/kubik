@@ -53,11 +53,11 @@ static void game_state(char *reply, size_t cap) {
              "\"game\":%u,\"phase\":%u,\"streak\":%u,\"round\":%lu,\"available\":%s,"
              "\"x\":%.1f,\"y\":%.1f,\"waves\":%u,\"bloom\":%.3f,\"tones\":%u,\"spin\":%.2f,\"tilt_x\":%.2f,\"tilt_y\":%.2f,"
              "\"excite\":%.2f,\"annoy\":%.2f,\"fear\":%.2f,\"fond\":%.2f,\"pull\":%.3f,"
-             "\"speed\":%.2f,\"squash\":%.3f,\"self\":%u,\"shaping\":%s,\"burst\":%.2f,\"form\":%.3f}",
+             "\"speed\":%.2f,\"squash\":%.3f,\"shaping\":%s,\"burst\":%.2f,\"form\":%.3f}",
              v.preview ? "true" : "false", v.progress, saved,
              v.game, v.phase, v.streak, (unsigned long)v.round, v.available ? "true" : "false",
              v.x, v.y, v.waves, v.bloom, v.tone_kinds, v.spin, v.tilt_x, v.tilt_y, v.excite, v.annoy, v.fear, v.fond, v.pull,
-             v.speed, v.squash, v.self_act, v.shaping ? "true" : "false", v.burst, v.form);
+             v.speed, v.squash, v.shaping ? "true" : "false", v.burst, v.form);
 }
 // Skies diagnostics use real, expiring finger/tilt input; they never move level geometry to solve it.
 static uint32_t s_sky_saved;       // the player's own progress, taken before the first forced sky
@@ -120,14 +120,15 @@ static void sky_state(char *reply, size_t cap) {
                      k ? "true" : "false", g->sky_elements, g->sky_skill, g->sky_solved, g->sky_root, g->sky_invite_t, g->sky_call[0], g->sky_call[1],
                      g->vertex_px[g->sky_call_vertex][0], g->vertex_px[g->sky_call_vertex][1], packed, (unsigned long)g_settings.sky_progress);
     if (k && n > 0 && (size_t)n < cap) {
+        sky_force_t solution; sky_solution(&k->w, &solution);
         int full = 0, touches = 0;
         for (int i = 0; i < k->w.count_stars; i++) full += k->w.star[i].fill >= SKY_FULL;
         for (int i = 0; i < SKY_TOUCHES; i++) touches += k->touch[i].down;
-        snprintf(reply + n, cap - (size_t)n, ",\"phase\":%u,\"kind\":%u,\"stars\":%u,\"full\":%d,\"holes\":%u,\"touches\":%d,\"finger\":%s,"
+        snprintf(reply + n, cap - (size_t)n, ",\"phase\":%u,\"kind\":%u,\"chart\":%u,\"turn\":%u,\"emitter\":%u,\"channels\":%u,\"stars\":%u,\"full\":%d,\"holes\":%u,\"touches\":%d,\"finger\":%s,"
                  "\"gx\":%.2f,\"gy\":%.2f,\"hold\":%.2f,\"t\":%.1f,\"here\":%u,\"sx\":%.0f,\"sy\":%.0f,\"melody\":%u,\"sung\":%u}",
-                 k->phase, k->w.kind, k->w.count_stars, full, k->w.count_holes, touches, k->w.touch_solution ? "true" : "false",
-                 k->w.gravity[0], k->w.gravity[1], k->hold, k->w.t, k->solved_here,
-                 k->w.count_stars ? k->w.star[0].x : 0.f, k->w.count_stars ? k->w.star[0].y : 0.f, k->melody.n, k->melody_next);
+                 k->phase, k->w.kind, k->w.chart, k->w.turn, k->w.emitter, k->w.channels, k->w.count_stars, full, k->w.count_holes, touches, solution.count ? "true" : "false",
+                 solution.gx, solution.gy, k->hold, k->w.t, k->solved_here,
+                 k->w.source.x, k->w.source.y, k->melody.n, k->melody_next);
     } else if (n > 0 && (size_t)n < cap) snprintf(reply + n, cap - (size_t)n, "}");
     face_unlock();
 }

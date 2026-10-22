@@ -22,6 +22,11 @@ with tempfile.TemporaryDirectory(prefix="kubik-state-") as tmp:
         "-Ifirmware/main", "firmware/sim/mood_test.c", "firmware/main/mood.c", "-lm", "-o", mood_exe,
     ], cwd=ROOT, check=True)
     subprocess.run([mood_exe], cwd=ROOT, check=True)
+    motion_exe = str(Path(tmp) / "motion-activity-test")
+    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-Ifirmware/main", "firmware/sim/motion_activity_test.c",
+                    "-lm", "-o", motion_exe], cwd=ROOT, check=True)
+    subprocess.run([motion_exe], cwd=ROOT, check=True)
 
     # Exercise the production native-game eligibility and boot restore helpers.
     runtime = (ROOT / "firmware/main/app_runtime.c").read_text()

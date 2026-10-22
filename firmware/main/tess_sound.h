@@ -34,7 +34,7 @@ typedef struct {
     bool harmony; // accompaniment rather than the word's syllabic lead
     bool body;    // a sound of her body (tess_sound_body.c)
     bool sky_game; // owned by the active Skies round; only these voices are stopped on exit
-    bool held;    // a game's pad (tess_sound_sky.c): sustains until its goal is 0 or nobody tends it for ~0.8 s
+    bool held;    // Skies: sustains until its goal is 0 or nobody tends it for ~0.8 s
     uint8_t slot; // held: which pad
     uint16_t idle;  // held: voice steps since it was last tended
     int32_t goal; // held: the gain (Q15) it glides to

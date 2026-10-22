@@ -1,37 +1,84 @@
 #include "tess_sky_internal.h"
-
+#include <stddef.h>
 #include <math.h>
-#include <string.h>
 
-// A small vocabulary, with new geometry every time: a finger, tilt, one or two black holes, then drifting stars.
-// Ten saved progression steps still fit old progress records; none of them unlocks a removed tool.
-#define PI_F 3.14159265f
-int sky_pick(sky_world_t *w, int lo, int hi) { return lo + (int)(sky_rand(w) % (unsigned)(hi - lo + 1)); }
-static int star_budget(const sky_recipe_t *r) {
-    if (r->elements <= 2) return 1;
-    if (r->elements < 5) return 2;
-    return r->skill < 150 ? 3 : 5;
-}
+// Measured star positions, conventional chart links and offline verified relay input routes.
+// No per-star displacement: only the whole chart turns, preserving the real figure.
+typedef struct { int16_t x, y; int8_t size; } chart_star_t;
+typedef struct {
+    const char *name;
+    uint8_t stars, links, holes;
+    chart_star_t star[SKY_STARS];
+    sky_edge_t edge[8];
+} chart_t;
+#include "tess_sky_catalog.h"
 
-void sky_choose_plan(sky_world_t *w, const sky_recipe_t *r, sky_plan_t *pl) {
-    memset(pl, 0, sizeof *pl);
-    w->kind = r->aurora ? SKY_AURORA : r->elements == 2 ? SKY_POUR : SKY_PUZZLE;
-    pl->pour = w->kind == SKY_POUR;
-    if (r->aurora) { pl->holes = SKY_HOLES; return; }
-    if (r->first) { pl->stars = 1; return; }
-    int most = star_budget(r);
-    pl->stars = (uint8_t)sky_pick(w, most > 2 ? most - 1 : most, most);
-    pl->holes = (uint8_t)(r->elements < 3 ? 0 : r->elements < 6 ? 1 : sky_pick(w, 1, SKY_HOLES));
-    if (r->elements >= 7 && sky_randf(w) < .55f) pl->drift = (uint8_t)sky_pick(w, 1, pl->stars);
+static const chart_t *chart(const sky_world_t *w) {
+    return w->chart > 0 && w->chart <= SKY_CHARTS ? &k_charts[w->chart - 1] : NULL;
 }
-void sky_place_source(sky_world_t *w, const sky_recipe_t *r, bool pour) {
-    sky_source_t *s = &w->source;
-    float angle = sky_range(w, 0.f, 2.f * PI_F), reach = sky_range(w, 140.f, 170.f);
-    s->x = SKY_CX + reach * cosf(angle); s->y = SKY_CY + reach * sinf(angle);
-    if (r->first) { s->x = r->from[0]; s->y = r->from[1]; }
-    float tx = SKY_CX + sky_range(w, -55.f, 55.f), ty = SKY_CY + sky_range(w, -55.f, 55.f);
-    float dx = tx - s->x, dy = ty - s->y, len = hypotf(dx, dy);
-    if (len < 1.f) { dx = 1; dy = 0; len = 1; }
-    s->dx = dx / len; s->dy = dy / len;
-    s->speed = pour ? 112.f : sky_range(w, 115.f, 135.f);
+static void turn(float *x, float *y, unsigned quarters) {
+    for (unsigned i = 0; i < quarters; i++) { float old = *x; *x = -*y; *y = old; }
+}
+static void position(float x, float y, unsigned quarters, float *out_x, float *out_y) {
+    x -= 240; y -= 240; turn(&x, &y, quarters); *out_x = x + 240; *out_y = y + 240;
+}
+const char *sky_constellation_name(const sky_world_t *w) {
+    const chart_t *c = chart(w);
+    return c ? c->name : NULL;
+}
+int sky_constellation_edges(const sky_world_t *w, const sky_edge_t **edges) {
+    const chart_t *c = chart(w);
+    *edges = c ? c->edge : NULL;
+    return c ? c->links : 0;
+}
+static uint8_t choose_chart(const sky_recipe_t *r) {
+    if (r->aurora) return 0;
+    if (r->elements <= SKY_CHARTS) return r->elements ? r->elements : 1;
+    return (uint8_t)(1 + r->solved % SKY_CHARTS);
+}
+static void place_holes(sky_world_t *w) {
+    for (int i = 0; i < w->count_holes; i++) {
+        sky_hole_t *h = &w->hole[i];
+        position(i ? 390 : 90, i ? 390 : 90, w->turn, &h->x, &h->y);
+        h->r = 112; h->spin = i ? -1 : 1;
+    }
+}
+void sky_place_chart(sky_world_t *w, const sky_recipe_t *r) {
+    w->chart = choose_chart(r);
+    w->turn = (uint8_t)(sky_rand(w) & 3u);
+    w->kind = r->aurora ? SKY_AURORA : r->elements == 1 ? SKY_POUR : SKY_PUZZLE;
+    position(50, 240, w->turn, &w->source.x, &w->source.y);
+    w->source.dx = 1; turn(&w->source.dx, &w->source.dy, w->turn);
+    w->source.speed = 120;
+    const chart_t *c = chart(w);
+    w->count_stars = c ? c->stars : 1;
+    w->count_holes = r->aurora ? SKY_HOLES : c ? c->holes : 0;
+    for (int i = 0; i < w->count_stars; i++) {
+        sky_star_t *s = &w->star[i];
+        position(c ? c->star[i].x : 50, c ? c->star[i].y : 240, w->turn, &s->x, &s->y);
+        s->ax = s->x; s->ay = s->y;
+        s->size = c ? c->star[i].size : 0;
+    }
+    w->star[0].fill = 1; w->star[0].sang = true;
+    if (c) sky_emitter(w, 0);
+    place_holes(w);
+}
+// Diagnostics apply ordinary tilt and finger gravity only; no writes to source, fill or particles.
+void sky_solution(const sky_world_t *w, sky_force_t *force) {
+    *force = (sky_force_t){0};
+    if (w->kind == SKY_AURORA) { force->gx = .06f; return; }
+    int target = 0;
+    while (target + 1 < w->count_stars && w->star[target].fill >= SKY_FULL) target++;
+    if (!w->count_stars) return;
+    float ox=0,oy=0;
+    if (w->chart) {
+        ox=k_route[w->chart-1][w->emitter][target][2];
+        oy=k_route[w->chart-1][w->emitter][target][3];
+        turn(&ox,&oy,w->turn);
+        force->gx = k_route[w->chart-1][w->emitter][target][0] * .075f;
+        force->gy = k_route[w->chart-1][w->emitter][target][1] * .075f;
+        turn(&force->gx, &force->gy, w->turn);
+    }
+    force->count = 1;
+    force->touch[0] = (sky_touch_t){.x=w->star[target].x+ox,.y=w->star[target].y+oy,.shown=1,.spin=1,.down=true};
 }

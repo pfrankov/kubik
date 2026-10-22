@@ -106,12 +106,13 @@ static bool handle_control_event(const app_ev_t *e) {
 }
 
 static bool is_touch_event(app_ev_type_t type) {
-    return type == EV_TAP || type == EV_PET || type == EV_SHAKE || type == EV_PICKUP || type == EV_TOUCH_DOWN;
+    return type == EV_TAP || type == EV_PET || type == EV_SHAKE || type == EV_PICKUP || type == EV_TOUCH_DOWN || type == EV_MOTION_ACTIVITY;
 }
 
 static void handle_touch_event(const app_ev_t *e) {
-    if (e->type == EV_TOUCH_DOWN) {  // contact keeps a visible screen bright; the gesture acts separately
-        s_last_touch_or_key = now_ms();
+    if (e->type == EV_PICKUP) wake(false); // also refresh after a recent touch and while menus are open
+    if (e->type == EV_TOUCH_DOWN || e->type == EV_MOTION_ACTIVITY) {
+        if (e->type == EV_TOUCH_DOWN) s_last_touch_or_key = now_ms();
         wake(false);
     } else if (s_setup || (s_pair_code[0] && !s_pair_hidden)) {
         if (e->type != EV_PICKUP) s_last_touch_or_key = now_ms();

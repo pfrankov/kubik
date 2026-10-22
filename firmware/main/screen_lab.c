@@ -1,5 +1,7 @@
 #include "screen_lab.h"
+#include "sound_levels.h"
 #include "face_agent.h"
+#include "tess.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -57,6 +59,12 @@ static bool menu_detail_open(screen_lab_t *lab, int row) {
     else return false;
     return true;
 }
+static void set_volume(screen_lab_t *lab, int value) {
+    if (lab->face.menu.sound) lab->volume = value;
+    else sound_level_link(&lab->volume, &lab->ui_volume, value);
+    lab->face.menu.volume = lab->volume;
+    lab->face.menu.ui_volume = lab->ui_volume;
+}
 static void menu_tap(screen_lab_t *lab, int x, int y) {
     face_t *f = &lab->face;
     if (device_status_tap(&f->status, x, y)) {
@@ -70,7 +78,7 @@ static void menu_tap(screen_lab_t *lab, int x, int y) {
     }
     int value, row = face_menu_hit(f, x, y, &value);
     if (menu_detail_open(lab, row)) return;
-    else if (row == MENU_VOLUME) f->menu.volume = lab->volume = value;
+    else if (row == MENU_VOLUME) set_volume(lab, value);
     else if (row == MENU_UI_VOLUME) f->menu.ui_volume = lab->ui_volume = value;
     else if (row == MENU_BRIGHT) f->menu.brightness = lab->brightness = value;
     else if (row == MENU_AGENT) { agent_menu_show(&f->agent, true); screen_lab_catalog(lab); }
@@ -181,8 +189,6 @@ void screen_lab_update(screen_lab_t *lab, float dt) {
     if (lab->selected != LAB_OFFLINE && lab->selected < LAB_GROW_POINT) {
         tess_cue_t cue; float strength, position;
         while (face_take_cue(f, &cue, &strength, &position)) {}
-        tess_tone_t tone;
-        while (face_take_tone(f, &tone)) lab->sky_release |= tone.kind == TT_SKY_RELEASE;
     }
 }
 
@@ -195,10 +201,12 @@ bool screen_lab_cue_allowed(const screen_lab_t *lab, tess_cue_t cue) {
         cue == TC_DODGE || cue == TC_JOY;
 }
 bool screen_lab_tone_allowed(const screen_lab_t *lab, const tess_tone_t *tone) {
+    if (face_character(&lab->face) != CHARACTER_TESS) return false;
     return tone->kind == TT_SKY_RELEASE ||
         (!lab->face.dark && lab->selected >= LAB_GROW_POINT && lab->selected < LAB_COUNT);
 }
 bool screen_lab_take_tone(screen_lab_t *lab, tess_tone_t *tone) {
+    if (face_character(&lab->face) != CHARACTER_TESS) return false;
     if (lab->sky_release) {
         lab->sky_release = false;
         *tone = (tess_tone_t){.kind = TT_SKY_RELEASE, .hz = 440};

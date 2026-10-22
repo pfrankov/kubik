@@ -23,13 +23,19 @@ static tess_sky_t *begin(unsigned seed, bool check_origin) {
     face.tess_games.sky_elements = 1; face.tess_games.sky_skill = 200;
     for (int i = 0; i < 240; i++) frame();
     face.tess_games.self_wait = 999;
+    face.tess_games.gather_clock = 4;
+    for (int i = 0; i < TESS_N; i++) face.tess_games.gathered_at[i] = 1;
     assert(tess_sky_start(&face));
+    assert(face.tess_games.gather_clock == 0);
+    for (int i = 0; i < TESS_N; i++) assert(face.tess_games.gathered_at[i] == 0);
     tess_sky_t *k = face.tess_games.sky;
     int32_t from[SKY_PARTICLES][2] = {{0}};
     for (int n = 0; n < 1000 && k->phase == SKY_UNRAVEL; n++) {
-        for (int i = 0; check_origin && i < SKY_PARTICLES; i++) {
-            float x, y; tess_scatter_spot_px(i, &x, &y);
-            from[i][0] = (int32_t)(x * SKY_Q3); from[i][1] = (int32_t)(y * SKY_Q3);
+        if (check_origin) {
+            tess_projected_t dots[TESS_N]; tess_project_dots(&face,dots);
+            for (int i=0;i<TESS_N;i++) {
+                int slot=face.tess_scatter_of[i]; from[slot][0]=dots[i].x;from[slot][1]=dots[i].y;
+            }
         }
         frame();
     }
@@ -47,7 +53,8 @@ static void release_input(void) {
 static void solve_first(tess_sky_t *k) {
     for (int i = 0; i < 900 && k->phase == SKY_PLAY; i++) {
         sky_force_t force; sky_solution(&k->w, &force);
-        face.grav_x = force.gx / SKY_TILT_SCALE; face.grav_y = force.gy / SKY_TILT_SCALE;
+        float scale = k->w.kind == SKY_POUR ? 1 : SKY_TILT_SCALE;
+        face.grav_x = force.gx / scale; face.grav_y = force.gy / scale;
         face.touch_in.point[0] = (touch_point_t){.x = force.touch[0].x, .y = force.touch[0].y, .down = true};
         frame();
     }
@@ -81,7 +88,7 @@ static void draw_game(void) {
 
 static bool observe_fade(tess_sky_t *k, float *first, unsigned *previous) {
     if (k->fade <= 0) return false;
-    assert(k->compose == 2 && k->resolve_t >= k->resolve_len);
+    assert(k->next_ready && k->resolve_t >= k->resolve_len);
     if (*first < 0) *first = face.t;
     unsigned alpha = tess_sky_alpha(&face);
     assert(alpha <= *previous); *previous = alpha;
@@ -128,7 +135,32 @@ static void the_initial_burst_still_needs_input(unsigned seeds) {
     printf("Initial burst: %u real runtime seeds, no passive solves\n", seeds);
 }
 
+static void visible_stream_matches_physics(void) {
+    tess_sky_t *k=begin(9,true);
+    for (int n=0;n<120;n++) {
+        float angle=n*.023f;
+        face.view_q[0]=cosf(angle);
+        for(int axis=1;axis<=3;axis++) face.view_q[axis]=sinf(angle)*.577350269f;
+        if(n==40) face.tess_ripple[0].age=0;
+        face.grav_x=.2f;face.grav_y=.4f;
+        frame();
+        tess_projected_t dots[TESS_N]; tess_project_dots(&face,dots);
+        for(int i=0;i<TESS_N;i++) {
+            const sky_particle_t *p=&k->p[face.tess_scatter_of[i]];
+            assert(abs(dots[i].x-p->x)<=2 && abs(dots[i].y-p->y)<=2);
+        }
+    }
+    // Releasing the game hands the same object-space points to the spring-home animation.
+    release_input();
+    tess_projected_t before[TESS_N],after[TESS_N]; tess_project_dots(&face,before);
+    tess_games_leave(&face.tess_games); tess_project_dots(&face,after);
+    for(int i=0;i<TESS_N;i++) assert(before[i].x==after[i].x && before[i].y==after[i].y);
+    for(int n=0;n<150;n++) frame();
+    assert(face.tess_hold[TR_SCATTER]==0);
+}
+
 int main(int argc, char **argv) {
+    visible_stream_matches_physics();
     the_next_sky_needs_its_own_input();
     changing_the_source_happens_in_the_dark();
     the_initial_burst_still_needs_input(argc > 1 ? (unsigned)atoi(argv[1]) : 16);

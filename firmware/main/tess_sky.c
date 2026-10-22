@@ -50,6 +50,7 @@ bool tess_sky_start(face_t *f) {
     tess_sky_t *k = calloc(1, sizeof *k);
     if (!k) return false;
     tess_games_begin(f, TESS_GAME_SKY);
+    tess_gather_clear(g); // A new sky owns every dot, including after a just-finished Gather burst.
     g->sky = k;
     g->sky_audio = true;
     g->sky_invite_t = 0;
@@ -76,23 +77,15 @@ void tess_sky_tick(face_t *f, float dt) {
 bool tess_sky_holds_burst(const face_t *f) { return f->tess_games.game == TESS_GAME_SKY && f->tess_games.sky; }
 
 // ---------------------------------------------------------------- a sky
-// The next sky grows a slice a frame (tess_sky_compose.c) while her dots fly out, every other frame while the last
-// one sings its melody, then a slice a frame again.
+// The next fixed chart is prepared while the current sky sings; no physics search shares the frame.
 static void compose_begin(face_t *f, tess_sky_t *k) {
     tess_games_t *g = &f->tess_games;
-    sky_recipe_t r = {.elements = g->sky_elements ? g->sky_elements : 1, .skill = g->sky_skill, .root = g->sky_root % 5};
-    r.first = r.elements <= 1;
-    r.aurora = !r.first && r.elements >= 6 && k->solved_here >= 2 && frand(f) < .09f;
-    r.from[0] = frand(f) < .5f ? 88.f : 392.f;
-    r.from[1] = SKY_CY + frange(f, -40.f, 40.f);
-    if (g->sky_call[0] > 0) { r.from[0] = clampf(g->sky_call[0], 80.f, 400.f); r.from[1] = clampf(g->sky_call[1], 95.f, 415.f); }   // from the star that called
+    sky_recipe_t r = {.elements = g->sky_elements ? g->sky_elements : 1,
+                      .root = g->sky_root % 5, .solved = g->sky_solved};
+    r.aurora = r.elements >= 6 && k->solved_here >= 2 && frand(f) < .09f;
     k->seed = (uint32_t)(frand(f) * 4294967040.f) | 1u;
-    sky_compose_begin(&k->comp, &k->next, k->seed, &r);
-    k->compose = 1;
-}
-static void compose_slice(tess_sky_t *k, unsigned steps) {
-    if (k->compose != 1) return;
-    if (sky_compose_step(&k->comp, steps)) k->compose = 2;
+    sky_compose(&k->next, k->seed, &r);
+    k->next_ready = true;
 }
 // The grown sky takes the stage; on the first, her dots are let go from where they hang.
 static void make_sky(face_t *f, tess_sky_t *k, bool first_launch) {
@@ -107,11 +100,12 @@ static void make_sky(face_t *f, tess_sky_t *k, bool first_launch) {
     k->finger_down = false;
     k->sparkle_wait = 0;
     k->w = k->next;
-    k->compose = 0;
+    k->next_ready = false;
     k->hold = k->struggle = k->resolve_t = k->fade = 0;
     k->hints = 0;
     k->hint_star = -1;
     k->played = (sky_played_t){0};
+    if (k->w.kind != SKY_AURORA && k->w.count_stars) { k->played.n = 1; k->played.order[0] = 0; }
     if (!first_launch) {
         // Every following world starts with the same source stream its composer proved.
         // The preceding sky has already faded completely, so the reset cannot teleport visible light.
@@ -119,10 +113,11 @@ static void make_sky(face_t *f, tess_sky_t *k, bool first_launch) {
         return;
     }
     int32_t from[SKY_PARTICLES][2];
-    for (int i = 0; i < SKY_PARTICLES; i++) {
-        float x, y;
-        tess_scatter_spot_px(i, &x, &y);
-        from[i][0] = (int32_t)(x * SKY_Q3); from[i][1] = (int32_t)(y * SKY_Q3);
+    tess_projected_t dots[TESS_N];
+    tess_project_dots(f, dots);
+    for (int i = 0; i < TESS_N; i++) {
+        int slot = f->tess_scatter_of[i];
+        from[slot][0] = dots[i].x; from[slot][1] = dots[i].y;
     }
     sky_stream_launch(&k->w, k->p, SKY_PARTICLES, from);
 }
@@ -215,12 +210,8 @@ static void resolve(face_t *f, tess_sky_t *k, float dt) {
     sky_sound_frame(f, k, &hits, dt);
     sky_sound_melody(f, k, (k->resolve_t - SKY_MELODY_AT_S) * 1000.f);
     bool singing = k->resolve_t < k->resolve_len;
-    if (!k->compose) compose_begin(f, k);
-    // Half a verification slice each frame replaces a full slice every other frame:
-    // the same verification throughput, with a smaller proof slice beside melody and display.
-    compose_slice(k, singing ? SKY_COMPOSE_STEPS / 2 : SKY_COMPOSE_STEPS);
+    if (!k->next_ready) compose_begin(f, k);
     if (singing) return;
-    if (k->compose != 2) return;   // (still growing: the stream flows on)
     change_sky(f, k, dt);
 }
 
@@ -237,9 +228,8 @@ static void fade(face_t *f, tess_sky_t *k, float dt) {
 }
 
 static void unravel(face_t *f, tess_sky_t *k) {
-    if (!k->compose) compose_begin(f, k);
-    compose_slice(k, SKY_COMPOSE_STEPS);
-    if (TESS_BURST_S - f->tess_hold[TR_SCATTER] < TESS_HANG_S - .01f || k->compose != 2) return;   // her dots are still flying out
+    if (!k->next_ready) compose_begin(f, k);
+    if (TESS_BURST_S - f->tess_hold[TR_SCATTER] < TESS_HANG_S - .01f) return;   // her dots are still flying out
     make_sky(f, k, true);
     k->phase = SKY_PLAY;
 }

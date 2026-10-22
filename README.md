@@ -60,6 +60,8 @@ Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
 | PWR | Press to turn the screen off/on; hold about two seconds for power off/on |
 
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
+Tilting or lifting keeps the visible screen bright and restores it from dimming. Once movement stops, the usual idle timer resumes.
+Hold two diagonally opposite screen corners for 1.5 seconds to enter [Skies](docs/tess-games.md#skies), Tess’s musical particle game. Either diagonal works.
 
 No connection? Press **BOOT briefly** on the offline points to bring Tess back for local play. Press BOOT again outside Skies to return to the points.
 
@@ -67,11 +69,13 @@ Her body is a toy: tap her and a wave rings through her edges, swipe her a few
 times and she spins open, press beside her and pull to stretch her or sling her
 into the rim, throw her hard and sweep her shattered dots home. Left alone, she
 plays by herself. Six first discoveries grow her from a point into a tesseract.
+Short reactions accompany plucks, pulls and impacts. Movement and inertia do not
+add a continuous background tone. She never stretches her corners by herself.
 There is no game menu or HUD; see [Playing with Tess](docs/tess-games.md).
 
 Press **PWR** to wake a dark screen. After automatic sleep, a touch or lifting Kubik also wakes it; ordinary movement and shaking do not. After switching the screen off with PWR, touch, BOOT, KEY and movement are ignored. An incoming agent reply can wake either sleeping state; background activity and reconnections keep the screen off. Touch restores a dimmed screen to full brightness; holding or dragging keeps it active.
 
-Settings provides speech volume, brightness, **Agent**, **Guide** and **Status** (bottom left, beside Power off). Status shows the current Wi-Fi address, gateway, DNS, MAC, DHCP name and agent endpoint on three swipeable pages; its Wi-Fi button reopens network setup. Hold the volume slider for 0.8 seconds to open **Sound**, with separate **Speech** and **Interface** sliders. Press BOOT to return. Both levels are saved independently. Tess synthesizes its short, syllabic reactions locally, with recognizable motifs, expressive endings and prime-length variation cycles. Emotions have distinct arrangements: warm overlapping pads, airy echoes or crossing voices. Menus, sliders, buttons and touch reactions share the same syllabic voice; simple actions stay brief. Replay the guide any time without resetting your connections. The hidden **Events** journal (five taps on the battery indicator in Settings) shows recent agent events: swipe to browse, tap for details, or enable a translucent overlay to follow events while Tess reacts. [Screen Lab](docs/screen-lab.md) previews situations without calling an agent.
+Settings provides overall volume, brightness, **Agent**, **Guide** and **Status** (bottom left, beside Power off). Status shows the current Wi-Fi address, gateway, DNS, MAC, DHCP name and agent endpoint on three swipeable pages; its Wi-Fi button reopens network setup. Hold the volume slider for 0.8 seconds to open **Sound**, with separate **Speech** and **Interface** sliders. Press BOOT to return. The main slider shows their rounded average and moves both together, preserving their difference until a channel reaches 0 or 100; the other then continues. Both levels are saved independently. Tess synthesizes its short, syllabic reactions locally, with recognizable motifs, expressive endings and prime-length variation cycles. Emotions have distinct arrangements: warm overlapping pads, airy echoes or crossing voices. Menus, sliders, buttons and touch reactions share the same syllabic voice; simple actions stay brief. Replay the guide any time without resetting your connections. The hidden **Events** journal (five taps on the battery indicator in Settings) shows recent agent events: swipe to browse, tap for details, or enable a translucent overlay to follow events while Tess reacts. [Screen Lab](docs/screen-lab.md) previews situations without calling an agent.
 
 ![Settings, Agent, voice modes and models](docs/media/agent-settings.gif)
 

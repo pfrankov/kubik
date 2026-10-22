@@ -52,10 +52,12 @@ hanging dots within 120 px lean towards the finger; swept dots fly home in 0.3 s
 along alternating curves. All 112 home finishes the burst and is the discovery;
 2.2 s without a newly gathered dot ends the round.
 
-**Self-play.** After 16–30 s of quiet (no finger, rub, heart, burst, agitation or
-drowsiness, and eligible), she plays one act of her repertoire in turn, silently:
-a quiet pluck, a reach-and-twang (1.2 s), a spin kick, or two opposite vertices
-wrestling apart (1.2 s). A landing finger ends it. Self-play earns nothing.
+**Self-play.** After 16–30 s of quiet (no finger, rub, heart, burst, agitation,
+dimming or drowsiness, and eligible), she plays a quiet pluck or a spin kick.
+Corner pulls require a finger; there is no autonomous corner-stretch animation.
+Each act starts a low-gain body tone. A landing finger ends it.
+Dimming releases quiet waves and the flagged
+idle-spin impulse, preserving manual drag inertia. Self-play earns nothing.
 
 **Organic burst.** Each burst's spread is best-candidate sampling on the square
 glass (16 px margin): every dot takes the farthest of 5–8 random candidates from
@@ -91,12 +93,12 @@ excited plucks are answered from the opposite corner 0.55–0.85 s later and 10%
 reflect. Pets soothe; rim hits frighten (`ME_JOLT` above 6 units/s); a full
 gather calms and endears (`ME_GLAD`). Fear above 0.5 inverts and weakens a pull;
 fondness strengthens how far her other corners follow. Annoyance damps bloom.
-Self-play is chosen by temper and mood: none when cross or scared, a reach towards
-the last touch when curious, spin or pluck when excited, wrestle/pluck/reach in
-turn when long alone; excited, she asks again within 3–6 s. Knocks (`jolt` above
+Self-play is chosen by temper and mood: none when cross or scared, spin or pluck
+when excited, otherwise alternating plucks and spins. After a minute without touch
+she only plucks; excited, she asks again within 3–6 s. Knocks (`jolt` above
 0.015) rattle up to three corners with quiet plucks and grains.
 
-**Body sound.** `tess_tone` queues up to eight physical tones per frame beside the
+**Body sound.** `tess_tone` queues up to twelve physical tones per frame beside the
 cues (`face_take_tone`), silent when cues are; the display task plays them after
 the face lock through `audio_tess_tone`, which skips them while the microphone is
 open or a reply plays. `tess_sound_body.c` turns each into one synth note shaped by
@@ -105,7 +107,7 @@ her body pitch, the corner choosing the octave or twelfth overtone and the beati
 sinking 1.5% as it settles; a quick wave a fifth up, a recoil a fourth down), creak
 (SWEEP rising with tension, beating faster), twang (falling to rest), thud (HUM,
 200–290 Hz by size, a third harmonic for the small speaker), grain (a short NUDGE
-puff gliding down 20%), whoosh (beating, per half turn, pitch with spin), chirp
+puff gliding down 20%), whoosh (a launch accent), chirp
 (a glide up or down) and wobble (CLUSTER beating). `tess_tone_hz` is continuous,
 not a scale: a 0–1 height lifts her resting pitch up to a fifth; the rest is D4,
 B3 when grumpy, sad or sleepy, F#4 when scared, a fifth up for a Tess smaller than
@@ -114,6 +116,12 @@ sounding. Full-strength levels measure −35 to −44 dB on the speaker weightin
 under her words. `python3 tools/render-particles.py --play OUT.wav` renders a
 scripted play session through the real face and synth and prints its peak,
 loudest 100 ms and biggest rise.
+
+Body movement does not sustain a voice. Plucks, pull onset/release and impacts
+produce finite notes through the existing body-sound path; idle motion, rotation,
+inertia and deformation do not add a background tone. Only Skies uses held pads,
+with its existing release/watchdog behavior and priority over decorative notes.
+The short-note and motion-silence regression is `tess_animation_sound_test.c`.
 
 Discovery bits are 0 Pluck, 1 Echo, 2 Bloom, 3 Twang, 4 Slingshot, 5 Gather. A new
 bit raises `pulse`, `TR_JOY` and `TC_JOY`. Existing six-bit masks keep their

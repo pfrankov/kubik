@@ -78,6 +78,48 @@ static void every_material_value(void) {
     }
 }
 
+static void held_sky_targets(void) {
+    face_t f = {0};
+    float targets[TESS_N][3];
+    f.style.cam=4.2f;
+    f.tess_reaction[TR_SCATTER]=.88f;
+    f.tess_games.ready = true;
+    f.tess_games.game = TESS_GAME_SKY;
+    f.tess_games.sky = (struct tess_sky *)&f;
+    for (int i = 0; i < TESS_RIPPLES; i++) f.tess_ripple[i].age = 99;
+    f.tess_hold[TR_SCATTER] = TESS_BURST_S - TESS_HANG_S;
+    for (int i = 0; i < TESS_N; i++) f.tess_scatter_of[i] = (uint8_t)((i * 17) % TESS_N);
+    for (int frame = 0; frame < 120; frame++) {
+        f.tess_games.gather_clock = frame / 30.f;
+        f.grav_x = sinf(frame); f.grav_y = cosf(frame);
+        f.view_q[0]=cosf(frame*.01f);f.view_q[1]=sinf(frame*.01f);
+        assert(tess_scatter_sky_targets(&f, targets, -1));
+        float view[3][3];tess_view_matrix(&f,view);
+        float camera=4.7f+(f.style.cam-4.7f)*tess_projection_form(&f);
+        for (int i = 0; i < TESS_N; i++) {
+            float projected[3]; tess_transform_point(view,targets[i],projected,false);
+            float perspective=360.f*camera/(4.7f*(camera-projected[2]));
+            int slot=f.tess_scatter_of[i];
+            assert(fabsf(projected[0]*perspective-given.spot_px[slot][0])<.001f);
+            assert(fabsf(projected[1]*perspective-given.spot_px[slot][1])<.001f);
+
+        }
+    }
+    memset(targets, 0, sizeof targets);
+    assert(tess_scatter_sky_targets(&f, targets, 1));
+    for (int i = 0; i < TESS_N; i += 2) for (int axis = 0; axis < 3; axis++) assert(targets[i][axis] == 0);
+    f.tess_hold[TR_SCATTER] += .02f;
+    assert(!tess_scatter_sky_targets(&f, targets, -1)); // entry still uses the body
+    f.tess_hold[TR_SCATTER] -= .04f;
+    assert(!tess_scatter_sky_targets(&f, targets, -1)); // return still uses the body
+    f.tess_hold[TR_SCATTER] += .02f;
+    f.tess_ripple[0].age = 0;
+    assert(tess_scatter_sky_targets(&f, targets, -1)); // hidden body ripples cannot move physics-owned dots
+    f.tess_ripple[0].age = 99;
+    f.tess_games.game = TESS_GAME_GATHER;
+    assert(!tess_scatter_sky_targets(&f, targets, -1));
+}
+
 int main(void) {
     every_material_value();
     face_t f = {0};
@@ -100,5 +142,6 @@ int main(void) {
             }
         }
     }
+    held_sky_targets();
     printf("scatter cached release: %u point transforms byte-exact across all phases\n", checked);
 }

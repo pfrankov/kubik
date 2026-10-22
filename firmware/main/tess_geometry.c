@@ -263,6 +263,7 @@ void tess_point_targets(face_t *f, float out[TESS_N][3], int parity) {
     const float *mw = f->tess_mode;
     tess_form(f, points, wd);
     for (int i = 0; i < TESS_N; i++) f->tess_wdepth[i] = wd[f->tess_form_of[i]];
+    if (tess_scatter_sky_targets(f, out, parity)) return;
     const float *r = f->tess_reaction;
     float time = fmodf(f->t, 20 * PI);
     float heart = r[TR_HEART], other = 1 - heart;
@@ -345,6 +346,13 @@ void tess_springs(face_t *f, const float target[TESS_N][3], float dt) {
 // quarter turn on and is nothing at the half turn: the view is a plain function of the pose.
 #define TESS_TILT_GAIN -.4f
 #define TESS_TILT_FADE_FROM (PI / 4)  // half of the device's turn, at which the share starts to fade
+
+float tess_projection_form(const face_t *f) {
+    if (f->tess_fallen) return 0;
+    float listen = f->live_active ? 0 : f->tess_mode[TM_LISTEN];
+    return (1 - fmaxf(fmaxf(fmaxf(listen, f->tess_reaction[TR_HEART]), f->tess_reaction[TR_SCATTER]), f->tess_drift))
+        * (1 - f->tess_mode[TM_OFFLINE]);
+}
 
 void tess_view_matrix(const face_t *f, float m[3][3]) {
     float w = f->view_q[0], x = f->view_q[1], y = f->view_q[2], z = f->view_q[3];

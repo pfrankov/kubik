@@ -9,12 +9,60 @@
 #define ROCK_GAP_S 1.4f        // swings come at least this close together
 #define ROCK_SWINGS 3
 #define RAISED_G .7f           // raised from flat: gravity along the glass is over this (an answer, like a touch)
+#define CORNER_PX 100          // generous corner squares on the 480 px glass
+#define HOLD_S 1.5f
 
 static bool inviting(const tess_games_t *g) { return g->sky_invite_t > 0; }
 static bool lying(const face_t *f) { return hypotf(f->grav_x, f->grav_y) < LYING_G; }
 static bool available(const face_t *f) { return tess_games_eligible(f) && !f->tess_games.game && !f->dimmed; }
 static bool free_to_ask(const face_t *f) {
     return available(f) && f->tess_hold[TR_SCATTER] <= 0 && f->tess_points_ready && lying(f);
+}
+static int corner(const touch_point_t *p) {
+    if (!p->down || p->x < 0 || p->x >= 480 || p->y < 0 || p->y >= 480) return -1;
+    int x = p->x < CORNER_PX ? 0 : p->x >= 480 - CORNER_PX ? 1 : -1;
+    int y = p->y < CORNER_PX ? 0 : p->y >= 480 - CORNER_PX ? 1 : -1;
+    return x < 0 || y < 0 ? -1 : x + 2 * y;
+}
+static uint32_t diagonal_contacts(const touch_frame_t *in) {
+    const touch_point_t *a = &in->point[0], *b = &in->point[1];
+    int ca = corner(a), cb = corner(b);
+    if (ca < 0 || cb < 0 || (ca ^ cb) != 3 || a->id == b->id) return 0;
+    if (ca > cb) { const touch_point_t *swap = a; a = b; b = swap; ca = cb; }
+    return (uint32_t)(ca + 1) << 16 | (uint32_t)a->id << 8 | b->id;
+}
+static bool hold_ready(const face_t *f) {
+    unsigned game = f->tess_games.game;
+    return tess_games_eligible(f) && !f->dimmed && f->tess_points_ready &&
+        f->tess_hold[TR_SCATTER] <= 0 && (game == TESS_GAME_NONE || game == TESS_GAME_STRETCH);
+}
+// A corner chord takes over the first finger's stretch. Once interrupted it cannot become a sling,
+// or restart on the same contacts: release the glass before trying again.
+static bool hold_corners(face_t *f, float dt) {
+    tess_games_t *g = &f->tess_games;
+    if (!touch_count(&f->touch_in)) {
+        g->sky_hold_owned = false; g->sky_hold_t = 0; g->sky_hold_contacts = 0;
+        return false;
+    }
+    if (g->sky_hold_owned && g->sky_hold_t < 0) return true;
+    uint32_t contacts = diagonal_contacts(&f->touch_in);
+    if (!hold_ready(f) || !contacts) {
+        g->sky_hold_t = g->sky_hold_owned ? -1 : 0;
+        return g->sky_hold_owned;
+    }
+    if (!g->sky_hold_owned) {
+        tess_games_begin(f, TESS_GAME_NONE);
+        g->sky_hold_owned = g->finger_owned = true;
+        g->pressed = false;
+    }
+    if (contacts != g->sky_hold_contacts) g->sky_hold_t = 0;
+    g->sky_hold_contacts = contacts;
+    g->sky_hold_t += dt;
+    if (g->sky_hold_t >= HOLD_S) {
+        tess_sky_start(f);
+        g->sky_hold_t = -1; // allocation failure also requires a fresh gesture, never a per-frame retry
+    }
+    return true;
 }
 static void call_origin(face_t *f) {
     tess_games_t *g = &f->tess_games;
@@ -81,6 +129,7 @@ bool tess_sky_tap(face_t *f, float x, float y) {
 // (every frame) lifting answers the invitation; rocking calls it; it follows Tess and fades. True when a sky has started.
 bool sky_summon_tick(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
+    if (hold_corners(f, dt)) { g->sky_invite_t = 0; return g->game == TESS_GAME_SKY; }
     if (!available(f)) g->sky_invite_t = 0; // invalidate before a lift or new input can answer it
     if (inviting(g) && hypotf(f->grav_x, f->grav_y) > RAISED_G && tess_sky_start(f)) return true;
     if (free_to_ask(f)) rock(f, dt);

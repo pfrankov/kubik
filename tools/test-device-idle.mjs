@@ -55,13 +55,15 @@ async function main() {
     card_open: false, pair_visible: false, live_active: false })) assert.equal(original[key], expected, `${key}: idle main screen required`);
   assert.equal(typeof original.idle_ms, 'number', 'Updated firmware required');
   try {
-    if (original.screen_dark) await sim('boot');
+    if (original.screen_dark) await sim('pwr');
     await control({ cmd: 'card', text: 'A completed text reply before automatic sleep.' });
     await sleep(500); assert.equal((await info()).card_open, true);
     await checkIdle();
     await sim('boot'); await sleep(500);
+    assert.equal((await info()).screen_dark, true, 'BOOT does not wake a dark screen');
+    await sim('pwr'); await sleep(500);
     assert.equal((await info()).screen_dark, false);
-    console.log('PASS physical wake: BOOT restores main screen');
+    console.log('PASS physical wake: BOOT stays dark, PWR restores main screen');
   } finally { await restore(original); }
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

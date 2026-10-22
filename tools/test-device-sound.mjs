@@ -27,6 +27,15 @@ try {
   await sim('mode', {mode:0, ms:0});
   await sim('menu'); await pause(650);
   assert.equal((await info()).menu, true);
+  await command({cmd:'set',volume:100,ui_volume:100});
+  await sim('tap',{x:72,y:226});
+  await settled(s=>s.volume===50 && s.ui_volume===50,'overall 50 must set both equal channels');
+  await command({cmd:'set',volume:50,ui_volume:100});
+  await sim('tap',{x:72,y:141});
+  await settled(s=>s.volume===60 && s.ui_volume===100,'overall 80 must redistribute at interface ceiling');
+  await sim('tap',{x:72,y:311});
+  await settled(s=>s.volume===0 && s.ui_volume===40,'overall 20 must redistribute at speech floor');
+  await command({cmd:'set',volume:original.volume,ui_volume:original.ui_volume});
   const before=await info();
   await sim('drag',{x:72,y:226,first:true});
   assert.equal((await info()).volume,before.volume,'touch-down changes volume');
@@ -44,7 +53,7 @@ try {
   await command({cmd:'reboot'});
   const loaded=await settled(s=>s.ui_volume===ui.ui_volume && s.uptime_ms < original.uptime_ms,'interface volume did not survive reboot');
   assert.equal(loaded.sound_menu,false);
-  console.log('device Sound: hold, independent sliders, set isolation, BOOT and persistence passed');
+  console.log('device Sound: linked levels/limits, hold, independent sliders, set isolation, BOOT and persistence passed');
 } finally {
   await settled(()=>true,'device did not return for restoration');
   const state=await info(); if(state.menu) await sim('menu');

@@ -5,7 +5,7 @@ This product includes the Kubik firmware, the openclaw-kubik OpenClaw channel
 plugin, the device sounds, the on-screen graphics and the documentation.
 They are licensed under the Apache License, Version 2.0 (see LICENSE).
 
-This product also includes third-party software under its own licenses.
+This product also includes third-party software and data under their own licenses.
 Their texts and copyright notices are in the licenses/ directory; licenses/README.txt
 lists what they cover.
 
@@ -20,3 +20,21 @@ License exception: firmware/assets/wake/tessa.tflite is a third-party wake-word
 model with an unspecified upstream license. It is included for reproducible
 builds and is not covered by Apache 2.0. Inclusion grants no usage or
 redistribution rights; see licenses/Tessa-model-notice.txt for its provenance.
+
+Skies uses an adapted 40-star coordinate and apparent-brightness extract from the SIMBAD database,
+operated at CDS, Strasbourg, France. Coordinate data and its generated projected
+table are under the Open Database License 1.0 (ODbL), not Apache 2.0.
+See licenses/ODbL-1.0-SIMBAD.txt and tools/assets/data/skies.json for the source
+extract; firmware/main/tess_sky_catalog.h is its generated projection.
+Database: https://simbad.cds.unistra.fr/simbad/
+Reference: Wenger et al. (2000), A&AS 143, 9, doi:10.1051/aas:2000332.
+Original catalog and projection source: https://github.com/pfrankov/kubik
+Constellation names and chart cross-check: IAU / Sky & Telescope, Roger Sinnott
+and Rick Fienberg, https://iauarchive.eso.org/public/themes/constellations/.
+No chart artwork is included; the simplified bright-star links are teaching figures,
+not official IAU boundaries or a standardized IAU stick figure.
+
+Skies visual magnitudes for gamma Cephei (HR 8974) and eta Ursae Minoris
+(HR 6116) are from the Bright Star Catalogue, 5th Revised Edition
+(Hoffleit et al., 1991), VizieR V/50, https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50.
+Optical sizes are compressed brightness indicators, not physical stellar diameters.

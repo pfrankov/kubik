@@ -60,6 +60,8 @@ static int noise(int dot, int axis, int tick) {
 static struct {
     bool ready;
     uint32_t seed;
+    bool sky;             // once physics owns the dots, no scatter shiver or sag is added
+    float depth[TESS_N];  // stable screen depth, independent of the camera/view inversion
     float spot[TESS_N][3];
     float spot_px[TESS_N][2];      // where each slot hangs (thrown, then slid), panel px from the cloud's centre
     int16_t slide_v[TESS_N][2];    // its sliding speed, px/s
@@ -165,10 +167,11 @@ static void lay_out(uint32_t *seed, float throw_x, float throw_y) {
 }
 static void hand_out(uint32_t seed, float throw_x, float throw_y) {
     given.seed = seed ? seed : 1;
+    given.sky = false;
     uint32_t r = given.seed;
     lay_out(&r, throw_x, throw_y);
     for (int k = 0; k < TESS_N; k++) {
-        given.spot[k][2] = (2 * rand01(&r) - 1) * SPOT_DEPTH;
+        given.depth[k] = given.spot[k][2] = (2 * rand01(&r) - 1) * SPOT_DEPTH;
         given.slide_v[k][0] = given.slide_v[k][1] = 0;
         given.dot[k].leaves = byte01(rand01(&r) * rand01(&r));
         given.dot[k].out_s = byte01(rand01(&r));
@@ -182,6 +185,7 @@ static void hand_out(uint32_t seed, float throw_x, float throw_y) {
     given.ready = true;
 }
 static void place_spot(int k) {
+    given.spot[k][2] = given.depth[k];
     float per_px = (4.7f - given.spot[k][2]) * (1.f / 360);
     given.spot[k][0] = given.spot_px[k][0] * per_px;
     given.spot[k][1] = given.spot_px[k][1] * per_px;
@@ -264,6 +268,7 @@ void tess_scatter_frame(const face_t *f, float t) {
         moment.tremor = SHIVER_UNITS * .45f * (1.f / 32768);
         clock = (t + f->tess_games.gather_clock) * SHIVER_HZ * .5f;
     }
+    if (given.sky) { moment.tremor = 0; moment.sag[0] = moment.sag[1] = 0; }
     moment.tick = (int)clock;
     moment.blend = (int)(256 * smooth01(clock - (float)moment.tick));
 }
@@ -336,6 +341,25 @@ void tess_scatter_apply(float p[3], int dot, int slot) {
         p[axis] += (given.spot[slot][axis] - p[axis]) * away + (axis < 2 ? tremor[axis] + moment.sag[axis] * weight : 0);
     curve_out(p, dot, slot, away);
     lean_to_finger(p, slot, away);
+}
+
+// Physics owns absolute panel coordinates. Invert the same camera/view used to draw Tess,
+// keeping the resulting object-space spots for her existing continuous flight home.
+bool tess_scatter_sky_targets(const face_t *f, float out[TESS_N][3], int parity) {
+    float time = TESS_BURST_S - f->tess_hold[TR_SCATTER];
+    if (!tess_sky_holds_burst(f) || fabsf(time - TESS_HANG_S) > 1e-3f) return false;
+    float view[3][3]; tess_view_matrix(f, view);
+    float camera = 4.7f + (f->style.cam - 4.7f) * tess_projection_form(f);
+    float scale = 4.7f / (360.f * camera);
+    given.sky = true;
+    for (int i = parity < 0 ? 0 : parity; i < TESS_N; i += parity < 0 ? 1 : 2) {
+        int slot = f->tess_scatter_of[i];
+        float z = given.depth[slot], per_px = (camera - z) * scale;
+        float point[3] = {given.spot_px[slot][0] * per_px, given.spot_px[slot][1] * per_px, z};
+        tess_transform_point(view, point, given.spot[slot], true);
+        memcpy(out[i], given.spot[slot], sizeof out[i]);
+    }
+    return true;
 }
 
 // A burst that is under way is left to finish: its dots are mid-flight, and starting again would make them jump.

@@ -192,10 +192,54 @@ static void sky_accents_are_low_layered_and_clean(void) {
     assert(fabs(hz - accent.hz) < 1 && v->chorus_share > 0 && v->layer_share > 0);
     assert(v->layer_step > v->step * 2 && v->sky_game && !v->bright);
 }
+static int held_voices(void) {
+    int held=0;
+    for(int i=0;i<TESS_VOICES;i++) held+=s_body.voices[i].stage&&s_body.voices[i].held;
+    return held;
+}
+// Seven target pads and every permanent/temporary field can coexist; foreground words still own priority.
+static void a_full_constellation_yields_to_foreground_words(void) {
+    tess_sound_reset(&s_body);
+    for (int i=0;i<11;i++) {
+        tess_tone_t tone={.kind=i<7?TT_SKY_PAD:TT_SKY_HUM,.hz=146.83f+i*8,.gain=1,
+                          .slot=(uint8_t)(i<7?i:i-7)};
+        assert(tess_sound_tone(&s_body,&tone));
+    }
+    assert(s_body.active_voices==11);
+    probe_silence(&s_body,20);
+    tess_tone_t contact={.kind=TT_SKY_GAME_PLUCK,.hz=880,.gain=.2f,.shade=1};
+    for(int note=0;note<2;note++) {
+        assert(tess_sound_tone(&s_body,&contact)); probe_silence(&s_body,1);
+        assert(held_voices()==11 && s_body.active_voices<=TESS_VOICES); // a saturated new contact cannot cut a pad
+    }
+    assert(tess_sound_cue(&s_body,TC_LOVE,.6f,0));
+    probe_silence(&s_body,5);
+    int words=0;
+    for (int i=0;i<TESS_VOICES;i++) words+=s_body.voices[i].stage&&!s_body.voices[i].sky_game;
+    assert(words>0 && s_body.active_voices<=TESS_VOICES && s_body.pending_count<=TESS_PENDING);
+    tess_tone_t release={.kind=TT_SKY_RELEASE,.hz=440};
+    assert(tess_sound_tone(&s_body,&release));
+    probe_silence(&s_body,5);
+    for (int i=0;i<TESS_VOICES;i++) assert(!s_body.voices[i].stage || !s_body.voices[i].sky_game);
+    assert(s_body.active_voices>0); // the foreground phrase survives the game's release
+    probe_rest_long(&s_body);
+}
+
 void check_body_tones(void) {
     tess_sound_seed(&s_body, 7);
+    a_full_constellation_yields_to_foreground_words();
     sky_accents_are_low_layered_and_clean();
     each_kind_is_clean();
+    const int idle_kinds[]={TT_RING,TT_CREAK,TT_TWANG,TT_WHOOSH};
+    for (unsigned i=0;i<sizeof idle_kinds/sizeof *idle_kinds;i++) {
+        int kind=idle_kinds[i];
+        probe_t normal=play((tess_tone_kind_t)kind,330,.6f,.15f);
+        double reference=probe_weighted_100ms(&normal,true);
+        probe_t idle=play((tess_tone_kind_t)kind,330,.1f,.15f);
+        double level=probe_weighted_100ms(&idle,true);
+        assert(reference-level>14 && reference-level<18 && probe_onset_ms(&idle)>=8);
+        assert(probe_peak(&idle)>20); // soft audible material, not a silent or truncated note
+    }
     a_tauter_pull_sits_higher();
     a_flood_stays_gentle();
     words_keep_their_voices();

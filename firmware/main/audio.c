@@ -82,15 +82,13 @@ void audio_stream_begin(void) {
                         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     portENTER_CRITICAL(&s_ring_mux);
     ++s_stream_epoch;
-    s_rd = s_wr = 0;
+    s_rd = s_wr = s_played_bytes = 0;
     s_prebuf = true;
     s_prebuf_bytes = PREBUF_BYTES;
     s_start_deadline_us = 0; s_pending_gap_frames = 0; s_gap_write_at = 0;
-    s_gaps = s_gap_frames = s_mix_max_us = 0;
-    s_write_max_us = 0;
+    s_gaps = s_gap_frames = s_mix_max_us = s_write_max_us = 0;
     s_ended = false;
     s_active = have;
-    s_played_bytes = 0;
     s_dec = (ima_state_t){0};
     s_dec_set = false;
     portEXIT_CRITICAL(&s_ring_mux);
@@ -167,13 +165,15 @@ static bool output_idle(void) {
     portEXIT_CRITICAL(&s_ring_mux);
     return ready;
 }
-bool audio_stream_drained(void) {
+static bool stream_busy(bool require_active) {
     int64_t now = esp_timer_get_time();
     portENTER_CRITICAL(&s_ring_mux);
-    bool drained = s_ended && s_wr == s_rd && output_idle_locked(now);
+    bool busy = ((!require_active || s_active) && (!s_ended || s_wr != s_rd)) || !output_idle_locked(now);
     portEXIT_CRITICAL(&s_ring_mux);
-    return drained;
+    return busy;
 }
+bool audio_stream_drained(void) { return !stream_busy(false); }
+bool audio_stream_busy(void) { return stream_busy(true); }
 static void output_written(void) {
     int64_t written = esp_timer_get_time();
     portENTER_CRITICAL(&s_ring_mux);

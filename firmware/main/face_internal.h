@@ -10,6 +10,7 @@
 #include "tess.h"
 #define PI 3.14159265f
 #define CX 240.f
+#define CHARGING_HINT_S 5.5f // five seconds at full opacity, then a half-second fade
 
 enum {
     P_EW = 0, P_EH, P_ER, P_SEP, P_EY, P_SCL, P_SCR, P_LTL, P_LTR, P_LAL, P_LAR, P_LBOT, P_SMILE, P_HEART,

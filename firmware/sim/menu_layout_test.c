@@ -127,6 +127,9 @@ static void power_indicator(void) {
 }
 static void sound_geometry(void) {
     face_t face = {0}; face.menu.open = true; face.menu.k = 1;
+    face.menu.volume=50; face.menu.ui_volume=100; face.menu.pressed=MENU_VOLUME;
+    scene_t overall; face_draw(&face,&overall);
+    assert(text(&overall,"75"));
     face.menu.sound = true; face.menu.volume = 70; face.menu.ui_volume = 0;
     face.menu.pressed = -1;
     int part;
@@ -192,7 +195,54 @@ static void status_navigation(void) {
     assert(device_status_back(&f.status) && !f.status.open && f.menu.open);
     assert(!device_status_tap(&f.status,240,428));
 }
+static int charge_alpha(face_t *f) {
+    scene_t scene; face_draw(f,&scene);
+    const prim_t *bolt=icon(&scene,ICON_ZAP);
+    return bolt ? bolt->alpha : 0;
+}
+static void charge_ticks(face_t *f,int frames) {
+    for (int i=0;i<frames;i++) {
+        face_set_power(f,true,60,true,true); // repeated PMIC reports must not renew the five seconds
+        face_update(f,.05f);
+    }
+}
+static void charging_hint_fades_and_settings_stay_visible(void) {
+    for (int character=0;character<CHARACTER_COUNT;character++) {
+        face_t f; face_init(&f); face_set_character(&f,character); face_set_mode(&f,MODE_IDLE);
+        face_set_power(&f,true,60,true,true);
+        assert(charge_alpha(&f)==255);
+        charge_ticks(&f,98); assert(charge_alpha(&f)==255); // 4.9 seconds: still solid
+        int previous=255;
+        for (int i=0;i<14;i++) {
+            charge_ticks(&f,1); int alpha=charge_alpha(&f);
+            assert(alpha<=previous); previous=alpha;
+            if (i==6) assert(alpha>50 && alpha<210); // halfway through the smooth fade
+        }
+        assert(charge_alpha(&f)==0);
+        f.menu.open=true; f.menu.k=1; charge_ticks(&f,140);
+        assert(charge_alpha(&f)==255); // Settings stays visible well beyond the timeout
+        f.menu.open=false;
+        while (f.menu.k>=.45f) {
+            charge_ticks(&f,1);
+            assert(f.charging_age==0); // closing Settings does not consume visible home time
+        }
+        charge_ticks(&f,1);
+        assert(charge_alpha(&f)==255); // returning home starts a fresh hint
+        charge_ticks(&f,120); assert(charge_alpha(&f)==0);
+        f.dark=true; charge_ticks(&f,3); f.dark=false; charge_ticks(&f,1);
+        assert(charge_alpha(&f)==255); // waking while charging also starts a fresh hint
+        charge_ticks(&f,120); face_set_power(&f,true,60,false,true);
+        assert(charge_alpha(&f)==0); // USB alone still never means charging on home
+        face_set_power(&f,true,60,true,true); assert(charge_alpha(&f)==255);
+        charge_ticks(&f,120); face_set_power(&f,true,10,true,true);
+        scene_t low; face_draw(&f,&low);
+        assert(!icon(&low,ICON_ZAP) && text(&low,"10%")); // low-battery warning survives the hint
+        face_set_power(&f,true,10,false,false); assert(charge_alpha(&f)==0);
+        scene_t scene; face_draw(&f,&scene); assert(text(&scene,"10%"));
+    }
+}
 int main(void) {
+    charging_hint_fades_and_settings_stay_visible();
     status_navigation(); menu_geometry(); power_indicator(); sound_geometry(); home_status_alignment();
     puts("menu: separated finger targets, icon/label spacing, continuous sliders; charging/full/unplugged/unknown power passed");
 }
