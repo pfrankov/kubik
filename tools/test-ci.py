@@ -9,6 +9,7 @@ import re
 import runpy
 import shlex
 import subprocess
+import tempfile
 from unittest.mock import patch
 import yaml
 
@@ -94,3 +95,30 @@ def check_apt():
 
 check_apt()
 print('CI: shared APT installer bounds mirrors/locks; update, install and timeout failures stay fatal')
+
+
+def check_sdk_bootstrap():
+    script = steps[sdk_install]['run']
+    packages = 'flex bison gperf ccache libffi-dev libssl-dev libusb-1.0-0'
+    expected = ['cmake --version', 'ninja --version', f'python3 tools/ci-apt.py {packages}', 'install.sh esp32c6']
+    for failing in (None, 'cmake', 'ninja', 'python3'):
+        with tempfile.TemporaryDirectory(prefix='kubik-ci-bootstrap-') as directory:
+            root = Path(directory)
+            sdk = root / 'esp-idf'
+            sdk.mkdir()
+            trace = root / 'trace'
+            for name in ('cmake', 'ninja', 'python3', 'install.sh'):
+                target = (sdk if name == 'install.sh' else root) / name
+                target.write_text(f'#!/bin/sh\nprintf "%s\\n" "{name} $*" >> "$KUBIK_CI_TRACE"\n'
+                                  f'exit {127 if name == failing else 0}\n')
+                target.chmod(0o755)
+            env = {**os.environ, 'PATH': f'{root}:{os.environ["PATH"]}', 'RUNNER_OS': 'Linux',
+                   'RUNNER_TEMP': str(root), 'KUBIK_CI_TRACE': str(trace)}
+            result = subprocess.run(['bash', '-e', '-c', script], env=env, timeout=10)
+            count = ('cmake', 'ninja', 'python3').index(failing) + 1 if failing else len(expected)
+            assert trace.read_text().splitlines() == expected[:count]
+            assert result.returncode == (127 if failing else 0)
+
+
+check_sdk_bootstrap()
+print('CI: Ubuntu uses image CMake/Ninja; missing tools or APT failure stop SDK preparation')

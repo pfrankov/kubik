@@ -78,7 +78,10 @@ runs:
         if [ "$RUNNER_OS" = macOS ]; then
           brew install cmake ninja ccache
         else
-          python3 tools/ci-apt.py flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev libusb-1.0-0
+          # The Ubuntu image supplies CMake and Ninja outside dpkg.
+          cmake --version
+          ninja --version
+          python3 tools/ci-apt.py flex bison gperf ccache libffi-dev libssl-dev libusb-1.0-0
         fi
         "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
     - name: Save prepared ESP-IDF tools
