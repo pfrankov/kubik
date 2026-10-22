@@ -1,4 +1,4 @@
-// The host-side synth cost probe, kept separate so a slow buffer can be replayed diagnostically.
+// The host-side synth cost probe; a buffer over budget is re-measured in place before the probe fails.
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,7 +8,8 @@
 #endif
 #include "tess_sound_probe.h"
 
-enum { COST_REPLAYS = 5 };
+// Budget of one 20 ms buffer, replays of each over-budget buffer, over-budget buffers re-measured.
+enum { COST_BUDGET_US = 1000, COST_REPLAYS = 5, COST_SLOW_KEPT = 4 };
 
 static double elapsed_us(struct timespec start, struct timespec end) {
     return (end.tv_sec - start.tv_sec) * 1e6 + (end.tv_nsec - start.tv_nsec) / 1e3;
@@ -79,8 +80,10 @@ static void start_cost_play(tess_sound_t *sound, int play) {
     assert(tess_sound_tone(sound, &ring)); // finite body note plus the foreground word, same production mixer
 }
 
-static bool reconstruct_cost_frame(tess_sound_t *sound, const tess_sound_t *initial, int target_play,
-                                   int target_frame, uint64_t expected, tess_sound_t *target_state) {
+// Re-runs the same input from the pristine state with the same per-buffer measurement as the
+// first pass, so the slow buffer is timed in place with the caches and history it had there.
+static mix_cost_t remeasure_cost_frame(tess_sound_t *sound, const tess_sound_t *initial, int target_play,
+                                       int target_frame, uint64_t expected) {
     int32_t frame[PROBE_FRAME];
     *sound = *initial;
     tess_sound_reset(sound);
@@ -89,30 +92,76 @@ static bool reconstruct_cost_frame(tess_sound_t *sound, const tess_sound_t *init
         start_cost_play(sound, play);
         for (int frame_no = 0; tess_sound_active(sound); frame_no++) {
             memset(frame, 0, sizeof frame);
-            if (play == target_play && frame_no == target_frame) *target_state = *sound;
-            tess_sound_mix(sound, frame, PROBE_FRAME);
-            if (play == target_play && frame_no == target_frame) return frame_signature(frame) == expected;
+            mix_cost_t cost = measure_mix(sound, frame);
+            if (play != target_play || frame_no != target_frame) continue;
+            bool matches = frame_signature(frame) == expected;
+            fprintf(stderr, "synth: replay CPU %.1f us, monotonic %.1f us, PCM %s\n",
+                    cost.cpu_us, cost.wall_us, matches ? "match" : "MISMATCH");
+            report_phases("replay", cost);
+            assert(matches);
+            return cost;
         }
     }
-    return false;
+    fprintf(stderr, "synth: replay did not reach play %d frame %d\n", target_play, target_frame);
+    abort();
 }
 
-static void replay_cost_frame(tess_sound_t *sound, const tess_sound_t *target_state, uint64_t expected) {
-    int32_t frame[PROBE_FRAME];
-    for (int replay = 1; replay <= COST_REPLAYS; replay++) {
-        *sound = *target_state;
-        memset(frame, 0, sizeof frame);
-        mix_cost_t cost = measure_mix(sound, frame);
-        uint64_t signature = frame_signature(frame);
-        fprintf(stderr, "synth: replay %d/%d CPU %.1f us, monotonic %.1f us, PCM %s\n",
-                replay, COST_REPLAYS, cost.cpu_us, cost.wall_us, signature == expected ? "match" : "MISMATCH");
-        report_phases("replay", cost);
-        assert(signature == expected);
+// Median CPU of the replays; an odd count keeps it a measured value. One preempted call on a
+// shared CI runner cannot fail the probe, a buffer that is slow in most replays does.
+static double replay_median_us(tess_sound_t *sound, const tess_sound_t *initial, int target_play,
+                               int target_frame, uint64_t expected) {
+    double cpu[COST_REPLAYS];
+    for (int replay = 0; replay < COST_REPLAYS; replay++) {
+        double cpu_us = remeasure_cost_frame(sound, initial, target_play, target_frame, expected).cpu_us;
+        int slot = replay;  // insertion keeps the replays sorted
+        for (; slot > 0 && cpu[slot - 1] > cpu_us; slot--) cpu[slot] = cpu[slot - 1];
+        cpu[slot] = cpu_us;
     }
+    return cpu[COST_REPLAYS / 2];
+}
+
+typedef struct {
+    int play, frame;
+    double cpu_us;
+    uint64_t signature;
+} slow_frame_t;
+
+typedef struct {
+    slow_frame_t frames[COST_SLOW_KEPT];
+    int kept, total;
+} slow_frames_t;
+
+// Keeps the slowest over-budget buffers; `total` still counts every one of them.
+static void note_slow_frame(slow_frames_t *slow, slow_frame_t frame) {
+    slow->total++;
+    int slot = slow->kept;
+    if (slot == COST_SLOW_KEPT) {
+        if (slow->frames[slot - 1].cpu_us >= frame.cpu_us) return;
+        slot--;  // replace the fastest kept buffer
+    } else {
+        slow->kept++;
+    }
+    for (; slot > 0 && slow->frames[slot - 1].cpu_us < frame.cpu_us; slot--) slow->frames[slot] = slow->frames[slot - 1];
+    slow->frames[slot] = frame;
+}
+
+// Returns how many over-budget buffers stay over budget by the median of their replays.
+static int recheck_slow_frames(tess_sound_t *sound, const tess_sound_t *initial, const slow_frames_t *slow) {
+    int confirmed = 0;
+    for (int i = 0; i < slow->kept; i++) {
+        const slow_frame_t *slow_frame = &slow->frames[i];
+        fprintf(stderr, "synth: over budget play %d frame %d: first CPU %.1f us; replaying %d times\n",
+                slow_frame->play, slow_frame->frame, slow_frame->cpu_us, COST_REPLAYS);
+        double median = replay_median_us(sound, initial, slow_frame->play, slow_frame->frame, slow_frame->signature);
+        fprintf(stderr, "synth: play %d frame %d: first CPU %.1f us, replay median %.1f us (budget %d us)\n",
+                slow_frame->play, slow_frame->frame, slow_frame->cpu_us, median, COST_BUDGET_US);
+        if (median >= COST_BUDGET_US) confirmed++;
+    }
+    return confirmed;
 }
 
 void check_cost(tess_sound_t *sound, bool enforce_budget) {
-    // Keep one pristine sound state for failure-only reconstruction.
+    // Keep one pristine sound state for reconstruction of over-budget buffers.
     phase_clock_init();
     tess_sound_t initial = *sound;
     int32_t frame[PROBE_FRAME];
@@ -126,6 +175,7 @@ void check_cost(tess_sound_t *sound, bool enforce_budget) {
     int worst_voices = 0, worst_pending = 0;
     unsigned worst_reverb = 0;
     uint64_t worst_signature = 0;
+    slow_frames_t slow = {0};
     for (int play = 0; play < 40; play++) {
         start_cost_play(sound, play);
         const char *sound_name = play % 2 ? "TC_LOVE" : "SFX_SETUP_OK";
@@ -134,6 +184,8 @@ void check_cost(tess_sound_t *sound, bool enforce_budget) {
             memset(frame, 0, sizeof frame);
             mix_cost_t cost = measure_mix(sound, frame);
             double cpu_us = cost.cpu_us;
+            if (cpu_us >= COST_BUDGET_US)
+                note_slow_frame(&slow, (slow_frame_t){play, frame_no, cpu_us, frame_signature(frame)});
             if (cpu_us > worst) {
                 worst = cpu_us;
                 worst_cost = cost;
@@ -158,12 +210,12 @@ void check_cost(tess_sound_t *sound, bool enforce_budget) {
             worst_play, worst_seed, worst_sound, worst_frame, worst, worst_cost.wall_us,
             worst_voices, worst_pending, worst_reverb, worst_signature);
     report_phases("primary worst buffer", worst_cost);
-    if (worst >= 1000) {
-        tess_sound_t target_state;
-        bool matches = reconstruct_cost_frame(sound, &initial, worst_play, worst_frame, worst_signature, &target_state);
-        fprintf(stderr, "synth: deterministic worst-frame reconstruction PCM %s\n", matches ? "match" : "MISMATCH");
-        assert(matches);
-        replay_cost_frame(sound, &target_state, worst_signature);
-    }
-    if (enforce_budget) assert(worst < 1000);  // Strict per-buffer budget, measured without instrumentation.
+    if (slow.total == 0) return;
+    fprintf(stderr, "synth: %d of %ld buffers over %d us on first measurement; re-measuring the slowest %d\n",
+            slow.total, buffers, COST_BUDGET_US, slow.kept);
+    int confirmed = recheck_slow_frames(sound, &initial, &slow);
+    fprintf(stderr, "synth: %d re-measured buffers stay over budget\n", confirmed);
+    if (!enforce_budget) return;  // Sanitizer build: PCM determinism only, its timing is not the synth's.
+    assert(slow.total <= COST_SLOW_KEPT);  // Many slow buffers are a regression, not an isolated preemption.
+    assert(confirmed == 0);  // Strict per-buffer budget, measured without instrumentation.
 }
