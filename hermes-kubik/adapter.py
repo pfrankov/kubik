@@ -69,7 +69,8 @@ class KubikAdapter(BasePlatformAdapter):
             tls = self.security.tls()
         app = web.Application(client_max_size=4096)
         app.router.add_get('/kubik/v1', self.accept)
-        runner = web.AppRunner(app, access_log=None, handler_cancellation=True)
+        # This listener only upgrades to WebSocket; never decode unauthenticated HTTP bodies.
+        runner = web.AppRunner(app, access_log=None, handler_cancellation=True, auto_decompress=False)
         try:
             await runner.setup()
             await web.TCPSite(runner, bind, port, ssl_context=tls, backlog=32).start()

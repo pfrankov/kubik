@@ -177,6 +177,27 @@ in diagnostic reports.
 
 Updating `openclaw-kubik` from npm does not update Hermes's Python environment.
 
+### Security update: Hermes platform 0.2.1
+
+Platform 0.2.1 disables automatic HTTP request-body decompression on Kubik's
+WebSocket-only listener. This removes the pre-authentication HTTP route into an
+optional vulnerable Brotli decoder ([CVE-2026-111497](https://github.com/pypa/advisory-database/blob/main/vulns/brotlicffi/PYSEC-2026-4323.yaml)).
+The supported device protocol does not use compressed HTTP bodies; TLS, device
+signatures, pairing and WebSocket frames are unchanged.
+
+The pinned Hermes `messaging` extra includes `brotlicffi` 1.2.0.2; upstream fixes
+it in [1.2.1.0](https://github.com/python-hyper/brotlicffi/releases/tag/v1.2.1.0).
+The tested `telegram` profile does not install that optional decoder. Exposure
+requires a vulnerable decoder in the actual Gateway environment and network
+access to this listener; its presence on your deployment is not assumed.
+This platform update blocks that incoming path, but does not update Hermes's
+lockfile or fix other applications or outgoing HTTP clients using Brotli.
+Installing a fixed `Brotli` package alongside old `brotlicffi` is insufficient:
+aiohttp prefers `brotlicffi` when both are present.
+
+Reinstall the updated `hermes-kubik` directory using the steps below, then restart
+the existing Gateway when idle. A firmware flash or npm update is not required.
+
 For an update, rerun `uv pip install --python "$HERMES_PY" -r hermes-kubik/requirements.txt`
 with the interpreter used by Hermes, then repeat installation from the new Kubik
 checkout using the same home. For a PM-managed environment, run
