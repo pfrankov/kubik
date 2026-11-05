@@ -27,7 +27,7 @@
 <li>Send a short text message in the dashboard. Continue when your agent answers.</li>
 <li>Keep the Gateway running. Check its service with the command below. If you used a foreground Gateway, follow the official guide to install its background service before closing the terminal.</li></ol>
 <pre data-copy>openclaw gateway status</pre>
-<p class="note">This release supports OpenClaw from 2026.9.7 up to, but not including, 2027, with Node.js 24.16+ in the 24.x line or 26.1+. The clean installation is checked with 2026.9.7. Windows/WSL and Docker instructions are experimental; they have not been verified on a physical host here.</p>
+<p class="note">This source version supports OpenClaw from 2026.10.8 up to, but not including, 2027, with Node.js 24.22.1+ in the 24.x line or 26.12.1+. The clean installation is checked with 2026.10.8. Windows/WSL and Docker instructions are experimental; they have not been verified on a physical host here.</p>
 <details id="other-agent"><summary>Developer integrations: Hermes and custom agents</summary><p><strong>Hermes:</strong> follow <a href="#voice-hermes">the native Hermes setup</a>. It connects directly to its existing Gateway.</p><p><strong>Your own adapter:</strong> follow the <a href="../agent-sdk.md">Agent SDK</a>. A custom ESM adapter uses kubik-agent-host.</p></details>
 <p class="result"><strong>Continue below:</strong> install the channel from npm, configure voice and check the connection address before scanning Kubik.</p></section>
 
@@ -55,7 +55,7 @@ sudo ufw allow from 192.168.1.0/24 to any port 18790 proto udp</pre>
 <dl class="button-actions"><dt>STT</dt><dd>Classic recognition and speech use separate models. Available with OpenClaw and Hermes.</dd><dt>Realtime</dt><dd>Speak, then pause to send. One voice model, through OpenClaw.</dd><dt>GPT Live</dt><dd>Keep a conversation open until the voice button (C6 KEY; S3 short BOOT). One voice model, through OpenClaw.</dd></dl>
 <p>Already have working speech? Keep it. Otherwise open the instructions for your agent below. An agent’s text model and your voice model are separate; a ChatGPT subscription alone does not provide speech API access.</p>
 <details id="voice-openclaw"><summary>OpenClaw: configure Classic STT and TTS</summary>
-<p>Already working? Keep your speech settings. For a new OpenAI setup, obtain a Platform API key in your OpenAI account. Store it locally; never enter it on Kubik. The following uses the current OpenClaw 2026.9.7 configuration.</p>
+<p>Already working? Keep your speech settings. For a new OpenAI setup, obtain a Platform API key in your OpenAI account. Store it locally; never enter it on Kubik. The following uses the current OpenClaw 2026.10.8 configuration.</p>
 <h3>1. Store one speech key, then connect both consumers</h3><p>On the Gateway computer, use the same operating-system account and OpenClaw state as its service. Inspect the channel bindings and identify the agent routed for your Kubik; without an explicit binding, inspect the default route:</p>
 <pre data-copy>openclaw agents list --bindings
 openclaw secrets store set KUBIK_OPENAI_API_KEY --kind secret</pre><p>The second command prompts privately for the Platform key. Do not use a command-line key value. Then run the wizard, replacing AGENT-ID with Kubik's agent:</p>
@@ -96,7 +96,7 @@ uv pip install --python "$HERMES_PY" -r hermes-kubik/requirements.txt
 <p class="result">Keep only Hermes Gateway running. Its plugin handles the device connection, native speech and device conversation.</p>
 </details>
 <details id="voice-models"><summary>Check model availability before setting up voice</summary>
-<p class="note" id="model-lifecycle">Model examples match the shipped OpenClaw 2026.9.7 and Kubik integration. OpenAI has deprecated GPT-4o Mini TTS; its listed snapshots retire on 6 January 2027. gpt-4o-transcribe retires on 26 February 2027. Before using this guide after those dates, update the integration and verify compatible replacements against the installed Gateway or host catalog and <a href="https://developers.openai.com/api/docs/deprecations">OpenAI model lifecycle</a>; model availability can change.</p>
+<p class="note" id="model-lifecycle">Model examples match the shipped OpenClaw 2026.10.8 and Kubik integration. OpenAI has deprecated GPT-4o Mini TTS; its listed snapshots retire on 6 January 2027. gpt-4o-transcribe retires on 26 February 2027. Before using this guide after those dates, update the integration and verify compatible replacements against the installed Gateway or host catalog and <a href="https://developers.openai.com/api/docs/deprecations">OpenAI model lifecycle</a>; model availability can change.</p>
 </details>
 <details id="assistant"><summary>Ask your agent to help configure Kubik</summary>
 <p>If your agent has access to this computer, copy the request below. Add the actual setup-page link, agent, software folder, voice mode, language and network location. You enter keys locally; the matching pairing-code check still needs you.</p>

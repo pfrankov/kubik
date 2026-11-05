@@ -10,6 +10,7 @@ import { kubikTtsConfig, resolveOpenClawVoiceCapabilities, toDevicePcm } from '.
 import { resolveAccount } from '../src/config.js';
 import { account, config, fakeCore, tone } from './helpers.js';
 import { fakeSpeechSdk, speechConfig } from './fake-speech-sdk.js';
+import { nativeSdk } from './native-sdk.js';
 
 async function speechEngine(voice, { core, cfg = {}, ...options }) {
   const engine = createEngine(voice, { core, cfg: speechConfig(cfg), speechSdk: fakeSpeechSdk(core), ...options });
@@ -74,9 +75,7 @@ test('native capability refresh skips classic STT discovery and retains notifica
     let nativeChecks = 0, classicChecks = 0;
     core.mediaUnderstanding = { get transcribeAudioFile() { classicChecks++; return () => {}; } };
     const provider = { resolveConfig: ({ rawConfig }) => rawConfig, isConfigured: () => { nativeChecks++; return available; } };
-    const engine = new OpenClawEngine({ ...openclawVoice(), mode }, { core, cfg, nativeOptions: { sdk: {
-      getRealtimeVoiceProvider: () => provider, resolveRealtimeVoiceProviderCapabilities: () => ({}),
-    } } });
+    const engine = new OpenClawEngine({ ...openclawVoice(), mode }, { core, cfg, nativeOptions: { sdk: nativeSdk(provider) } });
     const caps = await engine.refreshCapabilities({ agentId: 'device-agent' });
     assert.equal(nativeChecks, 1); assert.equal(classicChecks, 0);
     assert.equal(caps.stt.available, available); assert.equal(engine.canListen, available);

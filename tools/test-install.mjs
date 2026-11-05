@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // End-to-end test of the documented installation on a clean OpenClaw (target: under 3 minutes, no hidden steps).
 //
-//   node tools/test-install.mjs [--openclaw 2026.9.7] [--kit dist/kubik-kit-tess.zip] [--keep]
+//   node tools/test-install.mjs [--openclaw VERSION] [--kit dist/kubik-kit-tess.zip] [--keep]
 //
-// Installs the OpenClaw version named by --openclaw into a temp prefix with an isolated HOME/state/config and a
+// Installs the package's pinned OpenClaw SDK (or explicit --openclaw) into a temp prefix with an isolated HOME/state/config and a
 // random Gateway port, then types the commands from docs/KIT.ru.md (the kit's README.md) and lets a simulated
 // device (tools/test-install/device.mjs) discover, pin, pair, talk, reconnect and fail like the firmware would.
 // STT/TTS/LLM are tools/mock-openai. Needs openssl, UDP 18790 free (the plugin's fixed discovery port) and network
@@ -40,7 +40,9 @@ async function preflight() {
   await assertUdpFree(18790);
   ctx.lanPortBusy = !(await tcpFree(18790));
   ctx.pluginManifest = JSON.parse(await readFile(join(ROOT, 'openclaw-kubik/package.json'), 'utf8'));
-  ctx.openclawVersion = option('openclaw', '2026.9.7');
+  const sdkVersion = ctx.pluginManifest.devDependencies.openclaw;
+  assert.match(sdkVersion, /^\d+\.\d+\.\d+$/, 'the plugin must pin an exact OpenClaw SDK version');
+  ctx.openclawVersion = option('openclaw', sdkVersion);
   const range = ctx.pluginManifest.peerDependencies.openclaw;
   assert.ok(satisfiesRange(range, ctx.openclawVersion), `OpenClaw ${ctx.openclawVersion} is outside the plugin's declared range ${range}`);
   ctx.dir = await mkdtemp(join(tmpdir(), 'kubik-install-test-'));

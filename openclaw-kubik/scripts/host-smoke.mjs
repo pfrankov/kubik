@@ -12,6 +12,8 @@ const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 process.chdir(root);
 try { import.meta.resolve('openclaw/plugin-sdk/core'); } catch { throw new Error('Install the pinned host first: npm install'); }
 const hostVersion = JSON.parse(await readFile(join(root, 'node_modules/openclaw/package.json'), 'utf8')).version;
+const packageMetadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+assert.equal(hostVersion, packageMetadata.devDependencies.openclaw, 'packed smoke must use the authoritative pinned SDK');
 await mkdir('.tmp', { recursive: true });
 const dir = await mkdtemp(join(root, '.tmp', 'host-'));
 try {

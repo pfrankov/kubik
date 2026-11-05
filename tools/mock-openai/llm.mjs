@@ -21,7 +21,7 @@ function messageText(message) {
   return '';
 }
 
-const INTERNAL_RE = /<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>[\s\S]*?(?:<<<END_OPENCLAW_INTERNAL_CONTEXT>>>|$)/g;
+const INTERNAL_RE = /OpenClaw runtime context:[\s\S]*?(?:End OpenClaw runtime context\.|$)/g;
 /** The latest thing the human said: skips OpenClaw's internal-context user blocks and the envelope timestamp. */
 export function lastUserUtterance(messages = []) {
   for (const message of [...messages].reverse()) {

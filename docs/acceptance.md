@@ -70,7 +70,7 @@ ADC/RX через `waitForIdleCapture`, затем проверяет свежи
 
 - ESP-IDF **5.5.1**, активированный через его `export.sh`, с установленными
   toolchain для `esp32c6` и `esp32s3` (`install.sh esp32c6 esp32s3`).
-- Node.js 24.16+ в ветке 24.x либо 26.1+, npm, Python 3, C-компилятор и Clang,
+- Node.js 24.22.1+ в ветке 24.x либо 26.12.1+, npm, Python 3, C-компилятор и Clang,
   Git, uv/uvx, tar, unzip, OpenSSL, CMake/Ninja из среды ESP-IDF.
 - Chrome для браузерной проверки. Однократная установка на CI/Linux:
   `uv run --with playwright==1.63.0 playwright install chrome`.
@@ -573,7 +573,7 @@ Linux вызывает `tools/test-frames.py --structure-only`: размер к�
 На каждой ОС этап `build` собирает TESS и PLUSH для C6 и S3, проверяет размеры
 и каждый комплект, затем выполняет чистую установку общей host-интеграции.
 
-Задания работают обычным пользователем, устанавливают ESP-IDF 5.5.1 и Node 24.16.0;
+Задания работают обычным пользователем, устанавливают ESP-IDF 5.5.1 и Node 24.22.1;
 на обеих ОС закреплён Python 3.12.10. На macOS используется Chrome из образа runner,
 на Linux Chrome устанавливается только для agent/native. Версии ОС, компилятора и SDK
 macOS записываются в журнал: метка `macos-15` обновляется и не фиксирует образ навсегда.

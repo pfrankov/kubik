@@ -34,7 +34,7 @@ def check_cloudflared_source():
     installer_path = "deploy/cloudflared/install-systemd.sh"
     installer = (source_root / installer_path).read_text()
     assert "`cloudflared` 2025.4.0 или новее" in guide
-    assert "Node.js 24.16 или новее (24.x) либо 26.1 или новее" in guide
+    assert "Node.js 24.22.1 или новее (24.x) либо 26.12.1 или новее" in guide
     assert not re.search(r"\b(or later|only|or >=)\b", guide.replace("`", "")), "English words in the Russian guide"
     assert "http://127.0.0.1:18789" in guide  # the OpenClaw Gateway port: the plugin serves /kubik/v1 there
     assert "Path: `/kubik/v1` (только этот путь" in guide

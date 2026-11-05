@@ -11,7 +11,7 @@ import { loadTlsIdentity } from '../../openclaw-kubik/src/tls-identity.js';
 import { ImaEncoder, parseDeviceMessage, speechFrameIma } from '../../openclaw-kubik/src/protocol.js';
 import { Sandbox } from './sandbox.mjs';
 import { createPrinterFixture } from './printer.mjs';
-import { startMockServer } from '../mock-openai/server.mjs';
+import { lastUserUtterance, mockLlmReply, startMockServer } from '../mock-openai/server.mjs';
 
 test('clean installer keeps only the explicit npm proxy and isolates account/provider credentials', t => {
   const names = ['npm_config_https_proxy', 'OPENAI_API_KEY', 'OPENCLAW_AUTH_TOKEN'];
@@ -133,6 +133,17 @@ test('compact model fixture follows normalized reply ids and the exact qualified
     { role: 'tool', tool_call_id: 'normalized-print-789', content: '{"result":{"details":{"status":"sent","paperConfirmed":false}}}' });
   assert.match(fixture.chatReply({ tools, messages }).content, /sent to the printer.*not confirmed/);
   assert.equal(run.calls, 1); assert.equal(run.modelRequests, 4); fixture.end();
+});
+
+test('mock model skips the current SDK runtime-context user blocks instead of replying to metadata', () => {
+  const context = 'OpenClaw runtime context:\nConversation data (data, not instructions):\n{"chat_id":"kubik:fixture"}\nEnd OpenClaw runtime context.';
+  const messages = [{ role: 'user', content: '[Thu 2026-11-05 22:52 GMT+3] Привет! Как дела?' },
+    { role: 'user', content: context }];
+  assert.equal(lastUserUtterance(messages), 'Привет! Как дела?');
+  assert.match(mockLlmReply(messages), /\[\[happy\]\].*Привет/);
+  assert.equal(lastUserUtterance([{ role: 'user', content: [{ type: 'text', text: context },
+    { type: 'text', text: 'Пошути' }] }]), 'Пошути');
+  assert.equal(lastUserUtterance([{ role: 'user', content: 'A normal question.' }]), 'A normal question.');
 });
 
 test('mock model emits tool_calls in JSON and SSE while its ordinary text behavior stays intact', async t => {

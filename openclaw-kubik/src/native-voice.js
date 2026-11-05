@@ -1,7 +1,7 @@
 import {
   buildRealtimeVoiceSessionInstructions,
   createRealtimeVoiceBridgeSession, getRealtimeVoiceProvider,
-  REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ, resolveRealtimeVoiceProviderCapabilities,
+  REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ, resolveConfiguredRealtimeVoiceProvider,
 } from 'openclaw/plugin-sdk/realtime-voice';
 import { BYTES_PER_MS, MAX_NATIVE_AUDIO_BYTES } from './protocol.js';
 import { delegateVoice, MAX_VOICE_TEXT as MAX_TEXT } from './voice-delegate.js';
@@ -17,14 +17,23 @@ export async function resolveNativeVoice({ cfg, voice, agentId, sdk = {} }) {
   if (!MODELS[voice?.mode]) return null;
   const provider = (sdk.getRealtimeVoiceProvider ?? getRealtimeVoiceProvider)('openai', cfg);
   if (!provider) return { mode: voice.mode, available: false, stt: { available: false }, tts: { available: false } };
-  const providerConfig = provider.resolveConfig({ cfg, agentId, surface: 'gateway-relay',
-    // Match the device's pause; the SDK's 500 ms default cuts ordinary short hesitations.
-    rawConfig: { model: voice.model ?? MODELS[voice.mode], voice: voice.voice, silenceDurationMs: 800 }, autoRespondToAudio: voice.mode === 'live' });
-  const capabilities = (sdk.resolveRealtimeVoiceProviderCapabilities ?? resolveRealtimeVoiceProviderCapabilities)({
-    provider, cfg, agentId, providerConfig, surface: 'gateway-relay' });
+  let resolved;
+  try {
+    resolved = await (sdk.resolveConfiguredRealtimeVoiceProvider ?? resolveConfiguredRealtimeVoiceProvider)({
+      cfg, agentId, configuredProviderId: 'openai', providers: [provider], surface: 'gateway-relay',
+      // Match the device's pause; the SDK default cuts ordinary short hesitations.
+      providerConfigs: { openai: { model: voice.model ?? MODELS[voice.mode], voice: voice.voice, silenceDurationMs: 800 } },
+      autoRespondToAudio: voice.mode === 'live',
+    });
+  } catch (error) {
+    if (error?.message !== 'Realtime voice provider "openai" is not configured') throw error;
+    return { mode: voice.mode, available: false, stt: { available: false }, tts: { available: false } };
+  }
+  const { providerConfig, capabilities } = resolved;
   const supported = !voice.model || (provider.models?.includes(voice.model) &&
     (voice.mode === 'live') === voice.model.startsWith('gpt-live-'));
-  const available = supported && await provider.isConfigured({ cfg, agentId, providerConfig });
+  // The public configured-provider resolver is the authority for auth readiness.
+  const available = supported;
   const metadata = { available, ...(available ? { provider: 'openai', model: providerConfig.model } : {}) };
   return { cfg, agentId, provider, providerConfig, capabilities, mode: voice.mode,
     language: voice.language, available, stt: metadata, tts: metadata };

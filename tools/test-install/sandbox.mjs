@@ -41,7 +41,7 @@ export function assertUdpFree(port) {
   });
 }
 
-/** Lowest supported OpenClaw version of a range such as ">=2026.9.3 <2027", checked against `version`. */
+/** Check an exact version against the plugin's explicit supported range, e.g. ">=2026.10.8 <2027". */
 export function satisfiesRange(range, version) {
   const parts = (text) => text.split('.').map(Number);
   const [, low, high] = /^>=\s*([\d.]+)\s*<\s*([\d.]+)$/.exec(range) ?? [];

@@ -2,6 +2,7 @@
 """Single acceptance entry point. Default: lint, host, fresh firmware and clean kit install."""
 import argparse
 import ipaddress
+import json
 import os
 import re
 from pathlib import Path
@@ -46,6 +47,25 @@ def require_device_voice():
         raise RuntimeError("Install the Russian Milena voice before device acceptance")
 
 
+def node_supported(version, specification):
+    current = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", version)
+    ranges = [re.fullmatch(r">=(\d+)\.(\d+)\.(\d+)(?: <(\d+))?", part)
+              for part in specification.split(" || ")]
+    if not ranges or any(match is None for match in ranges):
+        raise RuntimeError("Unsupported Node.js engines declaration; update the acceptance contract")
+    if not current: return False
+    actual = tuple(map(int, current.groups()))
+    return any(actual >= tuple(map(int, match.groups()[:3])) and
+               (match[4] is None or actual[0] < int(match[4])) for match in ranges)
+
+
+def require_node_runtime():
+    specification = json.loads((ROOT / "openclaw-kubik/package.json").read_text())["engines"]["node"]
+    version = subprocess.check_output(["node", "--version"], text=True, timeout=10).strip()
+    if not node_supported(version, specification):
+        raise RuntimeError(f"Node.js {version} is unsupported; activate {specification}")
+
+
 def preflight(level):
     required = ["node", "npm", "uv", "uvx", "cc", "git", "tar", "unzip", "openssl"]
     required.extend(IDF_TOOLS.get(level, ()))
@@ -55,6 +75,7 @@ def preflight(level):
         validate_device_environment()
     missing = [tool for tool in required if not shutil.which(tool)]
     if missing: raise RuntimeError("Missing required tools: " + ", ".join(missing))
+    require_node_runtime()
     if level == "device": require_device_voice()
     if level in {"agent", "host", "host-portable", "native", "native-portable", "ci"} and hasattr(os, "geteuid") and os.geteuid() == 0:
         raise RuntimeError("Run acceptance as a regular user: root skips the private-key permission test")
@@ -108,7 +129,8 @@ def build():
                  f"-DKUBIK_CHARACTER={character}", "reconfigure", "build"], timeout=1200)
             for test in ("package", "kit"):
                 run([sys.executable, f"tools/test-{test}.py", "--character", character, "--target", target])
-    run(["node", "tools/test-install.mjs", "--kit", "dist/kubik-kit-tess.zip", "--openclaw", "2026.9.7"])
+    sdk_version = json.loads((ROOT / "openclaw-kubik/package.json").read_text())["devDependencies"]["openclaw"]
+    run(["node", "tools/test-install.mjs", "--kit", "dist/kubik-kit-tess.zip", "--openclaw", sdk_version])
 
 
 def device():

@@ -12,7 +12,7 @@ openclaw channels add --channel kubik --enable
 openclaw channels status --probe
 ```
 
-Requires OpenClaw **2026.9.7 or newer in the 2026 series**, Node.js **24.16+ in 24.x or 26.1+**, and Kubik firmware **0.6.2**. Review the plugin's capabilities before accepting them. A running Gateway applies the installation through its managed update; allow the device to reconnect. If the Gateway is stopped, use `openclaw gateway start` for an installed service or `openclaw gateway run` in a terminal.
+Requires OpenClaw **2026.10.8 or newer in the 2026 series**, Node.js **24.22.1+ in 24.x or 26.12.1+**, and Kubik firmware **0.6.2**. The package is built and tested against the OpenClaw **2026.10.8** SDK; native voice uses its public configured-provider resolver. Review the plugin's capabilities before accepting them. A running Gateway applies the installation through its managed update; allow the device to reconnect. If the Gateway is stopped, use `openclaw gateway start` for an installed service or `openclaw gateway run` in a terminal.
 
 To update the plugin, repeat the installation command. Preserve the OpenClaw state directory and device settings. Do not reset Kubik for an ordinary update.
 

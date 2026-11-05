@@ -3,6 +3,7 @@ import test from 'node:test';
 import { HttpEngine, OpenClawEngine, createEngine } from '../src/engines/index.js';
 import { pcmRms } from './audio-analysis.js';
 import { mockOpenAI, tone } from './helpers.js';
+import { nativeSdk } from './native-sdk.js';
 
 const voiceFor = (url, extra = {}) => {
   const voice = { provider: 'openai-http', baseUrl: url, voice: 'marin', transcribeModel: 'gpt-4o-transcribe',
@@ -33,11 +34,8 @@ test('late stale voice capability refresh cannot overwrite a newer committed mod
   const voices = [], nativeReady = deferred();
   let nativeEntered;
   const entered = new Promise(resolve => { nativeEntered = resolve; });
-  const sdk = {
-    getRealtimeVoiceProvider: () => ({ models: ['gpt-realtime-2.1'], resolveConfig: () => ({ model: 'gpt-realtime-2.1' }),
-      isConfigured: () => { nativeEntered(); return nativeReady.promise; } }),
-    resolveRealtimeVoiceProviderCapabilities: () => ({}),
-  };
+  const sdk = nativeSdk({ models: ['gpt-realtime-2.1'], resolveConfig: () => ({ model: 'gpt-realtime-2.1' }),
+    isConfigured: () => { nativeEntered(); return nativeReady.promise; } });
   const engine = new OpenClawEngine({ provider: 'openclaw', mode: 'classic' }, { core: {}, cfg: {}, nativeOptions: { sdk } });
   engine.getVoice = () => { const voice = deferred(); voices.push(voice); return voice.promise; };
   const stale = engine.refreshCapabilities({ agentId: 'stale' });
@@ -56,11 +54,9 @@ test('late stale voice capability refresh cannot overwrite a newer committed mod
 });
 
 test('failed voice capability refresh leaves the last committed voice state intact', async () => {
-  const engine = new OpenClawEngine({ provider: 'openclaw', mode: 'classic' }, { core: {}, cfg: {}, nativeOptions: { sdk: {
-    getRealtimeVoiceProvider: () => ({ models: ['gpt-realtime-2.1'], resolveConfig: () => ({ model: 'gpt-realtime-2.1' }),
-      async isConfigured() { throw Error('auth lookup failed'); } }),
-    resolveRealtimeVoiceProviderCapabilities: () => ({}),
-  } } });
+  const engine = new OpenClawEngine({ provider: 'openclaw', mode: 'classic' }, { core: {}, cfg: {}, nativeOptions: { sdk:
+    nativeSdk({ models: ['gpt-realtime-2.1'], resolveConfig: () => ({ model: 'gpt-realtime-2.1' }),
+      async isConfigured() { throw Error('auth lookup failed'); } }) } });
   await engine.refreshCapabilities({ agentId: 'current' });
   const voice = engine.voice, nativeVoice = engine.nativeVoice;
   engine.getVoice = async () => ({ provider: 'openclaw', mode: 'realtime' });
@@ -74,11 +70,8 @@ test('failed voice capability refresh leaves the last committed voice state inta
 
 test('an older successful capability refresh still commits after a newer refresh fails', async () => {
   const voices = [];
-  const sdk = {
-    getRealtimeVoiceProvider: () => ({ models: ['gpt-realtime-2.1'], resolveConfig: () => ({ model: 'gpt-realtime-2.1' }),
-      async isConfigured() { throw Error('auth lookup failed'); } }),
-    resolveRealtimeVoiceProviderCapabilities: () => ({}),
-  };
+  const sdk = nativeSdk({ models: ['gpt-realtime-2.1'], resolveConfig: () => ({ model: 'gpt-realtime-2.1' }),
+    async isConfigured() { throw Error('auth lookup failed'); } });
   const engine = new OpenClawEngine({ provider: 'openclaw', mode: 'classic' }, { core: {}, cfg: {}, nativeOptions: { sdk } });
   await engine.refreshCapabilities({ agentId: 'initial' });
   engine.getVoice = () => { const voice = deferred(); voices.push(voice); return voice.promise; };

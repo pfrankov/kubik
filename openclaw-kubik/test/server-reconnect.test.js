@@ -4,6 +4,7 @@ import test from 'node:test';
 import { OpenClawEngine } from '../src/engines/openclaw.js';
 import { connectDevice, DEFAULT_DEVICE_KEY, deviceKey, FAKE_GATEWAY_BIND, fakeEngine, fakePairing } from './helpers.js';
 import { start } from './server-fixture.js';
+import { nativeSdk } from './native-sdk.js';
 
 function deferred() {
   let resolve, reject;
@@ -170,9 +171,8 @@ test('an accepted initial session keeps its admission priority when capability p
 
 test('a closed reconnect cannot commit voice capabilities for a different device fingerprint', { timeout: 10_000 }, async t => {
   const configured = deferred(), entered = deferred();
-  const sdk = { getRealtimeVoiceProvider: () => ({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig,
-    isConfigured: () => { entered.resolve(); return configured.promise; } }),
-  resolveRealtimeVoiceProviderCapabilities: () => ({}) };
+  const sdk = nativeSdk({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig,
+    isConfigured: () => { entered.resolve(); return configured.promise; } });
   const otherKey = deviceKey(DEFAULT_DEVICE_KEY.device);
   const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry, otherKey.entry] });
   const preparations = [], refreshes = [];
@@ -233,8 +233,7 @@ test('a closed reconnect cannot commit voice capabilities for a different device
 test('a voice write finishing after reconnect refreshes the current session voice profile', { timeout: 10_000 }, async t => {
   const currentKey = deviceKey(DEFAULT_DEVICE_KEY.device);
   const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry, currentKey.entry] });
-  const sdk = { getRealtimeVoiceProvider: () => ({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig,
-    isConfigured: () => true }), resolveRealtimeVoiceProviderCapabilities: () => ({}) };
+  const sdk = nativeSdk({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig, isConfigured: () => true });
   const started = deferred(), write = deferred();
   t.after(() => write.resolve());
   const selected = new Map();
@@ -298,8 +297,7 @@ test('a newer admitted candidate commits its voice snapshot after an older contr
   const otherKey = deviceKey(DEFAULT_DEVICE_KEY.device);
   const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry, otherKey.entry] });
   const candidateVoice = deferred(), candidateReading = deferred();
-  const sdk = { getRealtimeVoiceProvider: () => ({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig,
-    isConfigured: () => true }), resolveRealtimeVoiceProviderCapabilities: () => ({}) };
+  const sdk = nativeSdk({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig, isConfigured: () => true });
   const started = deferred(), write = deferred();
   t.after(() => { write.resolve(); candidateVoice.resolve({ provider: 'openclaw', mode: 'classic', voice: 'candidate-device' }); });
   const selected = new Map();
@@ -371,8 +369,7 @@ async function simultaneousCapabilityRefreshes(t, releaseOrder) {
   const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry, otherKey.entry] });
   const candidateVoice = deferred(), candidateReading = deferred();
   const controlVoice = deferred(), controlReading = deferred();
-  const sdk = { getRealtimeVoiceProvider: () => ({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig,
-    isConfigured: () => true }), resolveRealtimeVoiceProviderCapabilities: () => ({}) };
+  const sdk = nativeSdk({ models: ['gpt-realtime-2.1'], resolveConfig: ({ rawConfig }) => rawConfig, isConfigured: () => true });
   const started = deferred(), write = deferred();
   t.after(() => {
     write.resolve();

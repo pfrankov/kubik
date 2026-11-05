@@ -9,7 +9,7 @@
     "url": "https://github.com/pfrankov"
   },
   "engines": {
-    "node": ">=24.16.0 <25 || >=26.1.0"
+    "node": ">=24.22.1 <25 || >=26.12.1"
   },
   "keywords": [
     "openclaw",
@@ -45,7 +45,7 @@
     "ws": "^8.22.0"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.9.7 <2027"
+    "openclaw": ">=2026.10.8 <2027"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -54,12 +54,12 @@
   },
   "openclaw": {
     "compat": {
-      "pluginApi": ">=2026.9.7",
-      "minGatewayVersion": "2026.9.7"
+      "pluginApi": ">=2026.10.8",
+      "minGatewayVersion": "2026.10.8"
     },
     "build": {
-      "openclawVersion": "2026.9.7",
-      "pluginSdkVersion": "2026.9.7"
+      "openclawVersion": "2026.10.8",
+      "pluginSdkVersion": "2026.10.8"
     },
     "extensions": [
       "./src/index.js"
@@ -115,7 +115,7 @@
     }
   },
   "devDependencies": {
-    "openclaw": "2026.9.7"
+    "openclaw": "2026.10.8"
   },
   "repository": {
     "type": "git",

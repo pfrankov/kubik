@@ -34,14 +34,27 @@ function fixture(t, { mode = 'realtime', dispatch, quietMs = 20, connect } = {})
 
 test('native metadata uses the SDK gateway-relay contract without connecting a provider', async () => {
   const seen = [];
-  const provider = { resolveConfig: (request) => { seen.push(request); return request.rawConfig; },
+  const provider = { id: 'openai', capabilities: { inputAudio: true }, resolveConfig: (request) => { seen.push(request); return request.rawConfig; },
     isConfigured: (request) => { seen.push(request); return true; }, createBridge() { throw Error('Must not connect'); } };
   const result = await resolveNativeVoice({ cfg: {}, agentId: 'device-agent', voice: { mode: 'live', voice: 'marin' },
-    sdk: { getRealtimeVoiceProvider: () => provider, resolveRealtimeVoiceProviderCapabilities: (request) => {
-      assert.equal(request.provider, provider); assert.equal(request.surface, 'gateway-relay'); return {};
-    } } });
+    sdk: { getRealtimeVoiceProvider: () => provider } });
   assert.equal(result.providerConfig.model, 'gpt-live-1'); assert.equal(result.providerConfig.silenceDurationMs, 800); assert.equal(result.stt.available, true);
   assert.ok(seen.every(request => request.agentId === 'device-agent'));
+  assert.equal(seen.length, 2, 'the actual SDK resolves config and checks readiness once');
+  assert.equal(seen[0].surface, 'gateway-relay');assert.equal(seen[0].autoRespondToAudio, true);
+  assert.equal(result.capabilities, provider.capabilities);
+});
+
+test('actual configured-provider resolution reports unavailable auth and propagates unrelated SDK errors', async () => {
+  for (const mode of ['realtime', 'live']) {
+    let checks = 0;
+    const provider = { id: 'openai', capabilities: {}, resolveConfig: ({ rawConfig }) => rawConfig,
+      isConfigured: () => { checks++;return false; }, createBridge() { throw Error('Must not connect'); } };
+    const result = await resolveNativeVoice({ cfg: {}, voice: { mode }, sdk: { getRealtimeVoiceProvider: () => provider } });
+    assert.equal(result.available, false);assert.equal(result.stt.available, false);assert.equal(result.tts.available, false);assert.equal(checks, 1);
+    provider.isConfigured = () => { throw Error('auth lookup failed'); };
+    await assert.rejects(resolveNativeVoice({ cfg: {}, voice: { mode }, sdk: { getRealtimeVoiceProvider: () => provider } }), /auth lookup failed/);
+  }
 });
 
 test('removed native provider reports unavailability without losing the device settings connection', async () => {

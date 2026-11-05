@@ -13,6 +13,16 @@ import { validateJsonSchemaValue } from 'openclaw/plugin-sdk/json-schema-runtime
 const manifest = JSON.parse(readFileSync(new URL('../openclaw.plugin.json', import.meta.url), 'utf8'));
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
+test('package compatibility and build metadata use the one pinned SDK and its required Node runtime', () => {
+  const sdk = JSON.parse(readFileSync(new URL('../node_modules/openclaw/package.json', import.meta.url), 'utf8'));
+  assert.equal(sdk.version, pkg.devDependencies.openclaw);
+  assert.deepEqual(pkg.openclaw.build, { openclawVersion: sdk.version, pluginSdkVersion: sdk.version });
+  assert.equal(pkg.openclaw.compat.minGatewayVersion, sdk.version);
+  assert.equal(pkg.openclaw.compat.pluginApi, `>=${sdk.version}`);
+  assert.equal(pkg.peerDependencies.openclaw, `>=${sdk.version} <2027`);
+  assert.equal(pkg.engines.node, sdk.engines.node);
+});
+
 test('Gateway schema rejects incompatible native settings before saving or starting the channel', () => {
   const accepts = (voice) => validateJsonSchemaValue({ schema: channelSchema, value: { voice } }).ok;
   for (const mode of ['realtime', 'live']) {

@@ -3,6 +3,7 @@
 from pathlib import Path
 from contextlib import redirect_stderr, redirect_stdout
 import io
+import json
 import runpy
 import subprocess
 import tempfile
@@ -44,7 +45,7 @@ def check_preflight():
     def installed(name):
         return None if name in {'idf.py', 'clang', 'ninja'} else name
     with patch('shutil.which', installed), patch('os.geteuid', return_value=501), \
-            patch.dict(globals_, run=lambda *args, **kwargs: None):
+            patch.dict(globals_, run=lambda *args, **kwargs: None, require_node_runtime=lambda: None):
         accept['preflight']('agent')
         try:
             accept['preflight']('native')
@@ -77,6 +78,8 @@ def check_build_targets():
                                '--character', character, '--target', target]
             assert timeout == 600
     assert len(calls) == 13 and calls[-1][0][:2] == ['node', 'tools/test-install.mjs']
+    pinned_sdk = json.loads((ROOT / 'openclaw-kubik/package.json').read_text())['devDependencies']['openclaw']
+    assert calls[-1][0][-2:] == ['--openclaw', pinned_sdk], 'Clean installation must test the package SDK pin'
     assert len(set(accept['HOST_TESTS'])) == len(accept['HOST_TESTS'])
     assert {'board', 'target-memory'} <= set(accept['HOST_TESTS'])
 
@@ -99,8 +102,25 @@ def check_compile_flags():
             assert subprocess.check_output([exe]) == expected
 
 
+def check_node_runtime():
+    supported = accept['node_supported']
+    specification = json.loads((ROOT / 'openclaw-kubik/package.json').read_text())['engines']['node']
+    for version, expected in [('24.16.0', False), ('24.22.0', False), ('24.22.1', True),
+                              ('24.23.0', True), ('25.0.0', False), ('26.12.0', False),
+                              ('26.12.1', True), ('not-a-version', False)]:
+        assert supported(version, specification) is expected, version
+    assert supported((ROOT / '.node-version').read_text().strip(), specification)
+    try:
+        supported('24.22.1', '*')
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('An unknown engines syntax must not silently accept a runtime')
+
+
 check_stages()
 check_preflight()
 check_build_targets()
 check_compile_flags()
+check_node_runtime()
 print('acceptance: four target/character builds, split/full coverage, missing SDK, failure and compiler flag isolation passed')

@@ -1,6 +1,6 @@
 {
   "inputs": {
-    "docs/buyer/START.html": "07adc7914bab813f9896a624cde1c5ed6d13a5824fb24a9b5a2faeaf07713012",
+    "docs/buyer/START.html": "3482eb9cbd7ac6fbb6fbb27a0a8073b37c80887651a5b004812207f24d484d2d",
     "docs/buyer/assets/first-conversation.png": "48668b0e94f61f6e8f0136d5ded895f3c75269c220868713c2227541dcdae13e",
     "docs/buyer/assets/hello-tess.png": "4e5c546627c831b7e4aebf2c2e3bf237ee4372bef733e5b005b42f89f9192a9d",
     "docs/buyer/assets/prepare-agent.png": "f7ebfdf99fafd0b15f00250c8aecc9d715ff6bc2472df76928645e2c6574c50d",
@@ -16,7 +16,7 @@
     "tools/font/sources/PT_Sans-Web-Regular.ttf": "9cc831490532009bae2b3ce0d39c62adfc889060beb421593bfd9d2396d0f10a"
   },
   "outputs": {
-    "kubik-getting-started-A6.pdf": "1e2c41263532cb848f376f18f7c1d87ea8181e701d9734372fd18d26b3856bf0",
+    "kubik-getting-started-A6.pdf": "48d88026236ba348f3e538043a9898ae88443a592cc9c1a2399963396fda9e15",
     "kubik-booklet-A5-duplex.pdf": "5089ebcb5961a0b7382e77d8f97de1ae454a1b4fd3041f51d93aeb8ad6e3238d"
   }
 }

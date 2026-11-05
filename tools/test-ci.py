@@ -16,6 +16,11 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 prepare = yaml.load((ROOT / '.github/actions/prepare-ci/action.yml').read_text(), Loader=yaml.BaseLoader)
 steps = prepare['runs']['steps']
+node_setup = next(step for step in steps if step.get('uses', '').startswith('actions/setup-node@'))
+publish = yaml.load((ROOT / '.github/workflows/publish-npm.yml').read_text(), Loader=yaml.BaseLoader)
+publish_node = next(step for step in publish['jobs']['publish']['steps'] if step.get('uses', '').startswith('actions/setup-node@'))
+assert node_setup['with']['node-version-file'] == publish_node['with']['node-version-file'] == '.node-version'
+assert re.fullmatch(r'\d+\.\d+\.\d+', (ROOT / '.node-version').read_text().strip()), 'CI must select one exact Node runtime'
 sdk_install = next(i for i, step in enumerate(steps) if '/esp-idf/install.sh' in step.get('run', ''))
 path_exports = [i for i, step in enumerate(steps) if 'GITHUB_PATH' in step.get('run', '')]
 assert path_exports and all(i > sdk_install for i in path_exports), 'SDK install must not use the uv virtualenv Python'
