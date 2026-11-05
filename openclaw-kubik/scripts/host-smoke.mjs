@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { config, connectDevice, DEFAULT_DEVICE_KEY, DEVICE, fakeEngine, fakePairing, installRuntime } from '../test/helpers.js';
+import { runNpm } from './npm-command.mjs';
 
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 process.chdir(root);
@@ -17,9 +18,8 @@ assert.equal(hostVersion, packageMetadata.devDependencies.openclaw, 'packed smok
 await mkdir('.tmp', { recursive: true });
 const dir = await mkdtemp(join(root, '.tmp', 'host-'));
 try {
-  const npm = process.env.npm_execpath;
   const args = ['pack', '--ignore-scripts', '--json', '--pack-destination', dir];
-  const [pack] = JSON.parse(npm ? execFileSync(process.execPath, [npm, ...args], { encoding: 'utf8' }) : execFileSync('npm', args, { encoding: 'utf8' }));
+  const [pack] = JSON.parse(runNpm(args, { encoding: 'utf8' }));
   execFileSync('tar', ['-xzf', join(dir, pack.filename), '-C', dir]);
   const base = join(dir, 'package');
   const files = pack.files.map((f) => f.path).sort();

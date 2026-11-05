@@ -5,6 +5,7 @@ import { randomInt } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runNpm } from './npm-command.mjs';
 
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const cli = join(root, 'node_modules', '.bin', 'openclaw');
@@ -25,7 +26,7 @@ const runCli = (args) => {
 async function checkStandalone(artifact) {
   const consumer = join(dir, 'standalone');
   await mkdir(consumer);
-  execFileSync('npm', ['install', '--omit=dev', '--no-audit', '--no-fund', artifact], {
+  runNpm(['install', '--omit=dev', '--no-audit', '--no-fund', artifact], {
     cwd: consumer, env, stdio: 'inherit', timeout: 120_000,
   });
   execFileSync(process.execPath, ['--input-type=module', '-e', `
@@ -42,7 +43,7 @@ async function checkStandalone(artifact) {
 }
 
 try {
-  const [pack] = JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', dir], {
+  const [pack] = JSON.parse(runNpm(['pack', '--ignore-scripts', '--json', '--pack-destination', dir], {
     cwd: root, encoding: 'utf8',
   }));
   assert.equal(pack.name, 'openclaw-kubik');
