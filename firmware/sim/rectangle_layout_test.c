@@ -70,7 +70,6 @@ static void status(void) {
 }
 static void setup(void) {
     static const int sizes[] = {21, 25, 29, 33, 37, 41};
-    static const int sides[] = {266, 278, 288, 296, 302, 307}; // maximal native squares with four-module quiet zone
     static uint8_t qr[41 * 41];
     face_t f; face_init(&f); face_set_mode(&f, MODE_SETUP);
     for (unsigned i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
@@ -79,10 +78,7 @@ static void setup(void) {
         unsigned count = 0;
         for (int n = 0; n < s.n; n++) if (s.p[n].kind == PK_QR) {
             const prim_t *p = &s.p[n]; count++;
-            assert(p->b == sides[i]);
-            int quiet = (4*p->b+p->a-1)/p->a;
-            assert(p->sub_x >= quiet && p->sub_x + p->b + quiet <= 368);
-            assert(p->sub_y - quiet >= 35 && p->sub_y + p->b + quiet <= 406);
+            assert(p->b == 368 && p->sub_x == 0 && p->sub_y == 36);
             assert(abs((p->bx1 - p->bx0) - (p->by1 - p->by0)) <= 1); // inverse design bounds round independently
         }
         assert(count == 1 && word(&s, "192.168.4.1")->by0 > 520);

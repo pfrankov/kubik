@@ -1,4 +1,4 @@
-// Real setup layout and renderer: integer S3 QR cells, quiet zones and native exports.
+// Real setup layout and renderer: complete edge-to-edge S3 QR patterns and native exports.
 #include "../main/face_internal.h"
 #include "../main/qr.h"
 #include "qrcodegen.h"
@@ -70,15 +70,15 @@ static void original_c6_pixels(const prim_t *qr) {
 static void native_pixels(const prim_t *qr) {
 #if CONFIG_IDF_TARGET_ESP32S3
     int n=qr->a,side=qr->b,ox=qr->sub_x,oy=qr->sub_y;
-    int quiet=(4*side+n-1)/n;
-    assert(side+2*quiet<=368 && side+1+2*((4*(side+1)+n-1)/n)>368);
-    assert(ox>=quiet && ox+side+quiet<=368);
-    assert(oy-quiet>=35 && oy+side+quiet<=406);
-    if(n<=41)assert(side+2*quiet>=367);
-    for(int y=oy-quiet;y<oy+side+quiet;y++)for(int x=ox-quiet;x<ox+side+quiet;x++) {
-        bool ink=x>=ox && x<ox+side && y>=oy && y<oy+side;
-        uint16_t want=ink && modules[((y-oy)*n/side)*n+(x-ox)*n/side] ? rgb565(0xE6ECEA) : 0;
-        assert(panel[y][x]==want); // Includes all four quiet strips: title and chip cannot intrude.
+    assert(side==368 && ox==0 && oy==36);
+    for(int y=oy;y<oy+side;y++)for(int x=0;x<368;x++) {
+        uint16_t want=modules[((y-oy)*n/side)*n+x*n/side] ? rgb565(0xE6ECEA) : 0;
+        assert(panel[y][x]==want); // Includes x=0 and x=367: no source cells or edge pixels are cropped.
+    }
+    for(int x=0;x<368;x++) {
+        assert(!panel[oy-2][x] && !panel[oy-1][x]);
+        if(panel[oy+side][x] || panel[oy+side+1][x])fprintf(stderr,"QR footer AA enters clearance at x=%d y=%d/%d values=%x/%x\n",x,oy+side,oy+side+1,panel[oy+side][x],panel[oy+side+1][x]);
+        assert(!panel[oy+side][x] && !panel[oy+side+1][x]);
     }
 
 #else
@@ -111,5 +111,5 @@ int main(int argc,char **argv) {
         memset(modules,1,(size_t)n*n);const prim_t *qr=setup(n,1);render();native_pixels(qr);
     }
 #endif
-    puts(CONFIG_IDF_TARGET_ESP32S3 ? "S3 QR layout: real setup/render path, six SDK sizes, 21..65 bounds and four-module quiet zones passed" : "C6 QR layout: original six source sizes, both steps and exact canvas geometry preserved");
+    puts(CONFIG_IDF_TARGET_ESP32S3 ? "S3 QR layout: real setup/render path, six SDK sizes, 21..65 bounds and complete edge-to-edge 368px patterns passed" : "C6 QR layout: original six source sizes, both steps and exact canvas geometry preserved");
 }

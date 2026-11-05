@@ -36,9 +36,15 @@ static inline __attribute__((always_inline)) void composite(uint16_t *dst, uint1
     else *dst = rgb565_blend(color, *dst, alpha);
 }
 
+// Endpoints are 4-bit coverage or its Q8 interpolation (at most3840).
+// Signed differences keep a decreasing edge exact without an extra multiply.
+static inline __attribute__((always_inline)) unsigned linear_q8(unsigned a, unsigned b, unsigned fraction) {
+    return (unsigned)((int)a * 256 + ((int)b - (int)a) * (int)fraction);
+}
+
 static unsigned bilinear(unsigned a, unsigned b, unsigned c, unsigned d, int fx, int fy) {
-    unsigned top = a * (256 - fx) + b * fx, bottom = c * (256 - fx) + d * fx;
-    return (top * (256 - fy) + bottom * fy + 128) >> 8;
+    unsigned top = linear_q8(a, b, (unsigned)fx), bottom = linear_q8(c, d, (unsigned)fx);
+    return (linear_q8(top, bottom, (unsigned)fy) + 128) >> 8;
 }
 
 // A uint8_t glyph width projects to at most this many physical columns,
@@ -46,6 +52,7 @@ static unsigned bilinear(unsigned a, unsigned b, unsigned c, unsigned d, int fx,
 #define GLYPH_COLUMNS (((UINT8_MAX + 2) * UI_SCALE_NUM + UI_SCALE_DEN - 1) / UI_SCALE_DEN + 1)
 typedef struct {
     uint8_t first[GLYPH_COLUMNS], fraction[GLYPH_COLUMNS];
+    uint16_t first_used, last_used;
 } glyph_columns_t;
 
 static inline __attribute__((always_inline)) void glyph_decode_row(const font_t *font, const font_glyph_t *glyph,
@@ -56,14 +63,27 @@ static inline __attribute__((always_inline)) void glyph_decode_row(const font_t 
     for (int x = 0; x < glyph->w; x++) pixels[x + 1] = (uint8_t)((src[x / 2] >> ((x & 1) * 4)) & 15);
 }
 
-static inline __attribute__((always_inline)) void glyph_prepare_columns(glyph_columns_t *columns, int xa, int xb,
+static inline __attribute__((always_inline)) bool glyph_prepare_columns(glyph_columns_t *columns, int xa, int xb,
                                                                         int gx, int glyph_width) {
+    columns->first_used = UINT8_MAX + 1; columns->last_used = 0;
     for (int x = xa; x < xb; x++) {
         int sx = design_q8(x) - gx * 256, ix = floor_div(sx, 256);
-        bool valid = ix >= -1 && ix < glyph_width;
-        columns->first[x - xa] = valid ? (uint8_t)(ix + 1) : 0;
-        columns->fraction[x - xa] = valid ? (uint8_t)(sx - ix * 256) : 0;
+        columns->first[x - xa] = columns->fraction[x - xa] = 0;
+        if (ix < -1 || ix >= glyph_width) continue;
+        unsigned index = (unsigned)(ix + 1);
+        columns->first[x - xa] = (uint8_t)index;
+        columns->fraction[x - xa] = (uint8_t)(sx - ix * 256);
+        columns->first_used = (uint16_t)minimum(columns->first_used, index);
+        columns->last_used = (uint16_t)maximum(columns->last_used, index + 1);
     }
+    return columns->first_used <= columns->last_used;
+}
+
+static inline __attribute__((always_inline)) void glyph_vertical_row(uint16_t coverage[UINT8_MAX + 2],
+        const uint8_t *top, const uint8_t *bottom, int first, int last, unsigned fraction) {
+    // Out-of-source columns map to the transparent prefix with fraction zero.
+    coverage[0] = coverage[1] = 0;
+    for (int x = first; x <= last; x++) coverage[x] = (uint16_t)linear_q8(top[x], bottom[x], fraction);
 }
 
 static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, uint16_t *out,
@@ -75,18 +95,19 @@ static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, u
     int yb = minimum(minimum(y0 + rows, UI_OUTPUT_H), native_ceil(gy + glyph->h + 1));
     if (xa >= xb || ya >= yb) return;
     glyph_columns_t columns;
-    glyph_prepare_columns(&columns, xa, xb, gx, glyph->w);
+    if (!glyph_prepare_columns(&columns, xa, xb, gx, glyph->w)) return;
+    uint16_t vertical[UINT8_MAX + 2];
     uint8_t pixels[2][UINT8_MAX + 2]; int keys[2] = {INT32_MIN, INT32_MIN};
     for (int y = ya; y < yb; y++) {
         int sy = design_q8(y) - gy * 256, iy = floor_div(sy, 256), fy = sy - iy * 256;
         int k = (unsigned)iy & 1u, next = k ^ 1;
         if (keys[k] != iy) { glyph_decode_row(font, glyph, iy, pixels[k]); keys[k] = iy; }
         if (keys[next] != iy + 1) { glyph_decode_row(font, glyph, iy + 1, pixels[next]); keys[next] = iy + 1; }
+        glyph_vertical_row(vertical, pixels[k], pixels[next], columns.first_used, columns.last_used, (unsigned)fy);
         uint16_t *row = out + (y - y0) * stride;
         for (int x = xa; x < xb; x++) {
             unsigned index = columns.first[x - xa];
-            unsigned coverage = bilinear(pixels[k][index], pixels[k][index + 1], pixels[next][index], pixels[next][index + 1],
-                                          columns.fraction[x - xa], fy);
+            unsigned coverage = (linear_q8(vertical[index], vertical[index + 1], columns.fraction[x - xa]) + 128) >> 8;
             if (coverage) composite(&row[x - x0], color, opacity, coverage, swap);
         }
     }
@@ -164,12 +185,15 @@ static R_HOT void qr_overlay(const scene_t *scene, const prim_t *p, uint16_t *ou
     if (side <= 0 || !scene->qr) return;
     int xa = maximum(maximum(x0, 0), ox), xb = minimum(minimum(x0 + width, UI_OUTPUT_W), ox + side);
     int ya = maximum(maximum(y0, 0), oy), yb = minimum(minimum(y0 + rows, UI_OUTPUT_H), oy + side);
+    if (xa >= xb || ya >= yb) return;
+    int columns[UI_OUTPUT_W];
+    for (int x = xa; x < xb; x++) columns[x - xa] = (x - ox) * p->a / side;
     unsigned alpha = (p->alpha * 32u + 127u) / 255u;
     for (int y = ya; y < yb; y++) {
         uint16_t *row = out + (y - y0) * stride;
         int source = ((y - oy) * p->a / side) * p->a;
         for (int x = xa; x < xb; x++)
-            if (scene->qr[source + (x - ox) * p->a / side]) edge_composite(&row[x - x0], p->color, alpha, swap);
+            if (scene->qr[source + columns[x - xa]]) edge_composite(&row[x - x0], p->color, alpha, swap);
     }
 }
 

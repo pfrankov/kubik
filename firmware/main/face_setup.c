@@ -34,7 +34,7 @@ void face_set_setup(face_t *f, const uint8_t *mods, int n, int step, const char 
 // and accent; it does not add another row or reduce the camera target.
 #if CONFIG_IDF_TARGET_ESP32S3
 #define SETUP_TITLE_Y 33.f
-#define SETUP_CHIP_Y (UI_H - 36.f)
+#define SETUP_CHIP_Y (UI_H - 34.f)
 #else
 #define SETUP_TITLE_Y 37.f
 #define SETUP_CHIP_Y (UI_H - 40.f)
@@ -82,16 +82,9 @@ static void draw_result(face_t *f, scene_t *s, float cx, float cy, float a, uint
 
 static int setup_qr_side(int n, float *cy) {
 #if CONFIG_IDF_TARGET_ESP32S3
-    // Titles are capitals; include baseline overshoot and one native AA pixel.
-    float title_bottom = SETUP_TITLE_Y + g_fonts[g_text[TXT_HEADING].font].cap * .5f + 2;
-    int top = (int)ceilf(title_bottom * UI_SCALE_NUM / UI_SCALE_DEN) + 1;
-    int bottom = (int)floorf((SETUP_CHIP_Y - 17) * UI_SCALE_NUM / UI_SCALE_DEN) - 1;
-    int avail = bottom - top < UI_OUTPUT_W ? bottom - top : UI_OUTPUT_W;
-    if (n <= 0) return 0;
-    int side = avail * n / (n + 8);
-    // Rounding the quiet zone up can consume one more pixel than the ratio.
-    for (int i = 0; i < 2 && side + 2 * ((4 * side + n - 1) / n) > avail; i++) side--;
-    *cy = ((top + bottom) / 2) * (float)UI_SCALE_DEN / UI_SCALE_NUM;
+    // The complete source pattern reaches both physical edges, without cropping.
+    if (n > 0) *cy = (UI_OUTPUT_H / 2 - 4) * (float)UI_SCALE_DEN / UI_SCALE_NUM;
+    int side = n > 0 ? UI_OUTPUT_W : 0;
 
 #else
     (void)cy;

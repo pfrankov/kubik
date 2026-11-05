@@ -141,10 +141,11 @@ def selected_compile_commands(build, components):
     return entries
 
 
-def sdkconfig_inputs(build, target):
-    cache = (build / 'CMakeCache.txt').read_text()
-    configured = re.search(r'^SDKCONFIG_DEFAULTS:[^=]+=(.*)$', cache, re.MULTILINE)
-    defaults = configured[1].split(';') if configured and configured[1] else ['sdkconfig.defaults']
+def sdkconfig_inputs(description, target):
+    configured = description.get('config_defaults')
+    if not isinstance(configured, str) or not configured:
+        raise ValueError("Missing SDK configuration defaults; reconfigure and rebuild firmware")
+    defaults = configured.split(';')
     inputs = set()
     for name in defaults:
         path = Path(name)
@@ -170,7 +171,7 @@ def build_inputs(build):
     lock = 'dependencies.lock' if target == 'esp32c6' else 'dependencies.lock.esp32s3'
     inputs.update([ROOT / "firmware/main/CMakeLists.txt", ROOT / "firmware/CMakeLists.txt",
                    partition_table(character), Path(description['config_file']),
-                   ROOT / 'firmware' / lock, *sdkconfig_inputs(build, target),
+                   ROOT / 'firmware' / lock, *sdkconfig_inputs(description, target),
                    ROOT / "tools/font/gen-font.swift", ROOT / "tools/font/write-font.py",
                    *(ROOT / "tools/font/sources").glob("*.ttf")])
     if target == 'esp32c6' and character == 'PLUSH':
