@@ -20,9 +20,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--character", choices=("TESS", "PLUSH"), default="TESS")
 parser.add_argument("--target", choices=tuple(TARGETS), default="esp32c6")
 arguments = parser.parse_args()
-character, target = arguments.character, arguments.target
-firmware_name = firmware_filename(character, target)
-kit_path = Path(__file__).resolve().parent.parent / "dist" / kit_filename(character, target)
+character, chip_target = arguments.character, arguments.target
+firmware_name = firmware_filename(character, chip_target)
+kit_path = Path(__file__).resolve().parent.parent / "dist" / kit_filename(character, chip_target)
 source_root = kit_path.parent.parent
 version_header = (source_root / "firmware/main/version.h").read_text()
 firmware_version = re.search(r'#define KUBIK_FW_VERSION "([^"]+)"', version_header).group(1)
@@ -57,7 +57,7 @@ check_cloudflared_source()
 
 def package_hashes():
     subprocess.run([sys.executable, str(source_root / "tools/package-kit.py"), "--character", character,
-                    "--target", target], check=True)
+                    "--target", chip_target], check=True)
     data = kit_path.read_bytes()
     with zipfile.ZipFile(BytesIO(data)) as package:
         manifest = json.loads(package.read("manifest.json"))
@@ -158,8 +158,9 @@ with zipfile.ZipFile(kit_path) as kit:
     if character == "TESS":
         assert kit.read("Getting-started.pdf") == (source_root / "docs/buyer/kubik-getting-started-A6.pdf").read_bytes()
     manifest = json.loads(kit.read("manifest.json"))
-    assert manifest["chip"] == target and manifest["board"] == TARGETS[target]["board"]
+    assert manifest["chip"] == chip_target and manifest["board"] == TARGETS[chip_target]["board"]
     revision = check_acceptance_links(kit.read("docs/acceptance.md").decode())
+    assert f"https://github.com/pfrankov/kubik/blob/{revision}/README.md" in kit.read("README.md").decode()
     hardware = (source_root / "docs/hardware-s3.md").read_text()
     scenario = f"https://github.com/pfrankov/kubik/blob/{revision}/docs/scenarios/tess-skies-entry.md"
     assert kit.read("docs/hardware-s3.md").decode() == hardware.replace(
@@ -179,7 +180,7 @@ with zipfile.ZipFile(kit_path) as kit:
             parts = []
             for part in resolved.parts:
                 if part == "..":
-                    assert parts
+                    assert parts, (name, target)
                     parts.pop()
                 elif part not in ("", "."):
                     parts.append(part)
@@ -212,7 +213,7 @@ with zipfile.ZipFile(kit_path) as kit:
     with zipfile.ZipFile(BytesIO(kit.read(manifest["firmware"]))) as firmware:
         firmware_manifest = json.loads(firmware.read("manifest.json"))
         assert firmware_manifest["version"] == firmware_version
-        assert firmware_manifest["chip"] == target and firmware_manifest["board"] == TARGETS[target]["board"]
+        assert firmware_manifest["chip"] == chip_target and firmware_manifest["board"] == TARGETS[chip_target]["board"]
         assert firmware_manifest["character"] == manifest["character"] == character.title()
         notices = {file.name: file.read_bytes() for file in (source_root / "licenses").iterdir() if file.is_file()}
         assert {"flash-device.py", "firmware_layout.py", "INSTALL.ru.txt", "LICENSE", "NOTICE"} | {f"licenses/{name}" for name in notices} <= set(firmware.namelist())

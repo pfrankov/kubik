@@ -59,8 +59,8 @@ Each act starts a low-gain body tone. A landing finger ends it.
 Dimming releases quiet waves and the flagged
 idle-spin impulse, preserving manual drag inertia. Self-play earns nothing.
 
-**Organic burst.** Each burst's spread is best-candidate sampling on the square
-glass (16 px margin): every dot takes the farthest of 5–8 random candidates from
+**Organic burst.** Each burst's spread is best-candidate sampling on the panel
+glass (16 px margin; square C6, full-height portrait S3): every dot takes the farthest of 5–8 random candidates from
 the dots already placed (integer distances, a 60 px neighbourhood grid), so there
 are no clumps, overlaps or big holes and no grid. It is laid out ahead, 16 dots a
 frame while she is whole (`tess_scatter_prepare`). At the burst a throw leans

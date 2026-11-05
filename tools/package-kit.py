@@ -108,6 +108,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         if character == "TESS":
             write_member(bundle, "Getting-started.pdf", (buyer / "kubik-getting-started-A6.pdf").read_bytes())
         readme = ((root / "docs/KIT.ru.md").read_text().replace("(../deploy/", "(deploy/")
+                  .replace("(../README.md)", f"(https://github.com/pfrankov/kubik/blob/{revision}/README.md)")
                   .replace("(native-voice.md)", "(docs/native-voice.md)")
                   .replace("(hardware-s3.md)", "(docs/hardware-s3.md)")
                   .replace("(hardware-s3.md#", "(docs/hardware-s3.md#")
