@@ -86,6 +86,7 @@ async function frameWindow(chip, label, view, action, before = view, step) {
   assert.ok(isProfileScreen(await info(), view, step), `${label}: screen changed during measurement`);
   const sample=await flushStats({sim});
   console.log(`PROFILE ${label}: ${JSON.stringify(sample)}`);
+  assert.equal(sample.modes, 1 << 1, `${label}: a preceding setup/sleep screen entered the profile`);
   assert.ok(guideProfileVerdict(sample, chip), `${label}: ${chip} guide budget failed: ` +
     `fps=${sample.fps}, iteration_late=${sample.late}, iteration_max_ms=${sample.maxMs}, presented=${sample.presented}/${sample.frames}, ` +
     `overflows=${sample.overflows}, gap_us=${sample.gap_us}, deadline_misses=${sample.deadline_misses}`);
@@ -93,6 +94,9 @@ async function frameWindow(chip, label, view, action, before = view, step) {
 }
 async function profileGuide(original,g) {
   await prepareHome();
+  // Flags change before the setup/menu exit animation and its submitted frame finish.
+  // Match the existing Settings settle interval before measuring a new opening.
+  await sleep(550);
   await frameWindow(original.chip,'Settings opening', 'settings', ()=>sim('menu'), 'home');
   await frameWindow(original.chip,'Settings steady', 'settings');
   await frameWindow(original.chip,'Guide opening', 'guide', ()=>tap(356,g.settingsGuide), 'settings', 0);
