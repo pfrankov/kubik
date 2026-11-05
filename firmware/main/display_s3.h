@@ -25,8 +25,11 @@ bool display_s3_touch(int native_x, int native_y, int16_t *logical_x, int16_t *l
 
 // Measurements for the most recently presented frame, excluding scene rendering.
 typedef struct {
-    int64_t render_us, te_us, burst_us;
+    int64_t render_us, expand_us, edge_us, text_us, te_us, burst_us;
     // Composed native work includes repeated writes to overlapping windows.
     uint32_t input_pixels, native_pixels, windows;
 } display_s3_profile_t;
 display_s3_profile_t display_s3_last_profile(void);
+
+// Attribute native composition work separately from staging and TE wait.
+void display_s3_account_render(int64_t expand, int64_t edge, int64_t text);

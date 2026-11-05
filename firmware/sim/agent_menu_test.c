@@ -215,9 +215,10 @@ static void test_view_bounds(void) {
         for (int i = 0; i < scene.text_n; i++) assert((unsigned char)scene.text[i] < 128);
         int x0, y0, x1, y1;
         render_text_signature(&scene, &x0, &y0, &x1, &y1);
-        // Bounds use the 240px canvas. The 40px heading starts at native y14;
-        // include two bilinear-neighbour pixels (minimum y5).
-        assert(x0 >= 10 && x1 <= 232 && y0 >= 5 && y1 <= UI_H / 2 - 8);
+        // Design margins projected to this target's half-resolution canvas;
+        // the exclusive right/bottom bounds include two filter neighbours.
+        assert(x0 >= ui_canvas(20) && x1 <= ui_canvas(UI_W - 20) + 2 &&
+               y0 >= ui_canvas(10) && y1 <= ui_canvas(UI_H - 20) + 2);
     }
     agent_menu_clear_catalog(&menu);
 }

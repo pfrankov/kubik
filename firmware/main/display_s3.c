@@ -107,9 +107,10 @@ static void report_slow_phases(void) {
     int64_t total = s_last_profile.render_us + s_last_profile.te_us + s_last_profile.burst_us;
     if (reported >= 4 || total <= 25000) return;
     reported++;
-    ESP_LOGI("s3frame", "in=%u native=%u windows=%u render=%lld TE=%lld burst=%lld us",
+    ESP_LOGI("s3frame", "in=%u native=%u windows=%u render=%lld (expand=%lld edge=%lld text=%lld) TE=%lld burst=%lld us",
         (unsigned)s_last_profile.input_pixels, (unsigned)s_last_profile.native_pixels, (unsigned)s_last_profile.windows,
-        (long long)s_last_profile.render_us, (long long)s_last_profile.te_us, (long long)s_last_profile.burst_us);
+        (long long)s_last_profile.render_us, (long long)s_last_profile.expand_us, (long long)s_last_profile.edge_us,
+        (long long)s_last_profile.text_us, (long long)s_last_profile.te_us, (long long)s_last_profile.burst_us);
 #endif
 }
 
@@ -143,4 +144,8 @@ bool display_s3_touch(int native_x, int native_y, int16_t *logical_x, int16_t *l
     *logical_x = (int16_t)(((2 * native_x + 1) * UI_W) / (2 * DISPLAY_S3_WIDTH));
     *logical_y = (int16_t)(((2 * native_y + 1) * UI_H) / (2 * DISPLAY_S3_HEIGHT));
     return true;
+}
+
+void display_s3_account_render(int64_t expand, int64_t edge, int64_t text) {
+    s_profile.expand_us += expand; s_profile.edge_us += edge; s_profile.text_us += text;
 }
