@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TessContinuity, repeatScatter } from './tess-memory.mjs';
 
-const info = (uptime_ms = 10000) => ({uptime_ms,heap_failures:0});
+const info = (uptime_ms = 10000) => ({uptime_ms,heap_failures:0,chip:'esp32s3',app_stack_free:4096});
 const bridge = () => ({ok:true,instance:'test-bridge',faults:0,boots:1,disconnects:0});
 test('continuity accepts elapsed uptime and unchanged bridge fault history', () => {
   const proof = new TessContinuity(info(), bridge(), 1000);
@@ -45,4 +45,11 @@ test('a fixture that never scatters fails instead of claiming the stack path was
 });
 test('the physical repro cannot request an unbounded number of rounds', async () => {
   for (const cycles of [0,9,Infinity]) await assert.rejects(repeatScatter({cycles}));
+});
+
+test('physical rematching must retain at least one KiB on the S3 app task', () => {
+  const proof = new TessContinuity(info(), bridge(), 1000);
+  for (const app_stack_free of [undefined, -1, 0, 1023])
+    assert.throws(() => proof.check({...info(15000),app_stack_free}, bridge(), 6000), /stack reserve/);
+  proof.check({...info(15000),app_stack_free:1024}, bridge(), 6000);
 });

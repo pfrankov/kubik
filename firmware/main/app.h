@@ -56,6 +56,8 @@ extern SemaphoreHandle_t g_face_mtx;
 
 extern atomic_bool g_mode_report;  // "sim" "mode": acknowledge the next presented frame, even if unchanged
 void app_start(void);
+// Minimum unused app-task stack in bytes since boot; -1 before task creation.
+int app_stack_free(void);
 void app_post(app_ev_type_t type, int a, int b);
 // Display requests, applied by the display task (the panel IO is not shared).
 void disp_brightness_fade(int level, int ms);  // glides there over ms

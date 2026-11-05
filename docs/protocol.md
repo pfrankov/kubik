@@ -19,6 +19,8 @@ BOOT opens/closes Settings. Classic S3 uses press-to-start and press/tap-to-send
 with the same 60-second limit; held-KEY recording remains C6 behavior.
 References to manual KEY below describe the logical voice action, not an S3 GPIO.
 See [the exact S3 board profile](hardware-s3.md); other S3 boards are not implied.
+USB diagnostics expose `app_stack_free`, the minimum unused app-task stack in bytes
+since boot (`-1` before task creation); this is separate from display-task stack logs.
 
 The device never talks to OpenAI directly and never stores provider keys. It
 holds its own ECDSA P-256 private key, generated locally and never sent by the

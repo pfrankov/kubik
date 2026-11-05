@@ -5,6 +5,8 @@ export class TessContinuity {
   constructor(info, bridge, now) {
     assert.ok(Number.isSafeInteger(info.uptime_ms) && info.uptime_ms >= 0, 'device uptime required');
     assert.ok(Number.isSafeInteger(info.heap_failures) && info.heap_failures >= 0, 'allocation diagnostics required');
+    this.minimumStack = info.chip === 'esp32s3' ? 1024 : 1;
+    this.stack(info);
     assert.equal(bridge.ok, true);
     assert.ok(typeof bridge.instance === 'string' && bridge.instance.length, 'bridge identity required');
     for (const key of ['faults', 'boots', 'disconnects'])
@@ -13,7 +15,12 @@ export class TessContinuity {
     this.first = info.uptime_ms; this.last = info.uptime_ms; this.start = now;
     this.bridge = {...bridge}; this.heapFailures = info.heap_failures;
   }
+  stack(info) {
+    assert.ok(Number.isSafeInteger(info.app_stack_free) && info.app_stack_free >= this.minimumStack,
+      `app-task stack reserve too small: ${info.app_stack_free}`);
+  }
   check(info, bridge, now) {
+    this.stack(info);
     assert.ok(Number.isSafeInteger(info.uptime_ms) && info.uptime_ms >= this.last, 'device uptime reset');
     assert.ok(info.uptime_ms >= this.first + now - this.start - 1000, 'device uptime did not advance continuously');
     assert.equal(info.heap_failures, this.heapFailures, 'device allocation failure');

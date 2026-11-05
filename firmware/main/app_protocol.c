@@ -229,7 +229,6 @@ static void sim_mood_hook(cJSON *j) {  // Native Tess mood diagnostics.
         face_unlock();
     }
 }
-
 // Test hooks beyond plain input events: force a face mode, open the setup screen, show a pairing code, flush the
 // display statistics (tools/test-device.mjs).
 static bool sim_screen_hook(cJSON *j, const char *event) {
@@ -447,6 +446,7 @@ static void config_info(char *reply, size_t cap) {
     status_json_integer(info, "heap_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     status_json_integer(info, "heap_dma", heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     status_json_integer(info, "heap_min", esp_get_minimum_free_heap_size());
+    status_json_integer(info, "app_stack_free", app_stack_free());
     status_json_integer(info, "heap_failures", hp_allocation_failures());
     muse_state_t muse = muse_store_state();
     status_json_string(info, "native_agent", muse == MUSE_OFF ? "" : "Muse");

@@ -93,7 +93,7 @@ static void draw(int x0,int y0,int x1,int y1,int rows) {
 }
 static unsigned channel(uint16_t value,int shift,unsigned mask) {return (value>>shift)&mask;}
 static void verify(void) {
-    board_display_wait_idle();
+    assert(!pending);  // present owns the complete DMA burst, including its tail.
     for(int y=0;y<448;y++)for(int x=0;x<368;x++) {
         double sx=(x+.5)*480./368.-.5,sy=(y+.5)*584./448.-.5;
         int ax=(int)sx,ay=(int)sy; double fx=sx-ax,fy=sy-ay;

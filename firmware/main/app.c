@@ -465,6 +465,10 @@ static void app_task(void *arg) {
     }
 }
 
+int app_stack_free(void) {
+    return s_app_task ? (int)uxTaskGetStackHighWaterMark(s_app_task) : -1;
+}
+
 void app_start(void) {
     s_boot_ms = now_ms();
     s_last_activity = s_boot_ms;

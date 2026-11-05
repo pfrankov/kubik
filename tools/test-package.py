@@ -34,7 +34,6 @@ def run_check(bundle, *extra, env=None):
         [sys.executable, str(bundle / "flash-device.py"), "--bundle", str(bundle), *extra],
         capture_output=True, text=True, env=env,
     )
-
 def check_size_margin():
     """The app partition must keep 2% free: the packager refuses a firmware that leaves less."""
     spec = importlib.util.spec_from_file_location("package_firmware", ROOT / "tools/package-firmware.py")
@@ -249,6 +248,8 @@ def check_compiler_inputs():
         description_path = BUILD / 'project_description.json'
         commands_path = BUILD / 'compile_commands.json'
         shutil.copyfile(description_path, build / description_path.name)
+        (build / 'config').mkdir()
+        shutil.copyfile(BUILD / 'config/sdkconfig.h', build / 'config/sdkconfig.h')
         commands = json.loads(commands_path.read_text())
         missing_source = (ROOT / 'firmware/main/main.c').resolve()
         assert any((Path(entry['directory']) / entry['file']).resolve() == missing_source for entry in commands)

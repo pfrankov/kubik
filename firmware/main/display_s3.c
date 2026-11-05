@@ -273,6 +273,8 @@ int64_t display_s3_present(void) {
         if (!start) start = esp_timer_get_time();
         stream_area(x0, x1, first * DISPLAY_S3_ROWS, band * DISPLAY_S3_ROWS);
     }
+    // Attribute the DMA tail to this frame, rather than the next TE wait.
+    board_display_wait_idle();
     s_profile.burst_us = esp_timer_get_time() - start;
     s_last_profile = s_profile;
     report_slow_phases();
