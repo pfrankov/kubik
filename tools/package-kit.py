@@ -10,13 +10,17 @@ import subprocess
 import tarfile
 import tempfile
 import zipfile
+from firmware_layout import TARGETS, firmware_filename, kit_filename
 
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--character", choices=("TESS", "PLUSH"), default="TESS")
-character = parser.parse_args().character
-output = root / f"dist/kubik-kit-{character.lower()}.zip"
-firmware_name = f"kubik-firmware-{character.lower()}.zip"
+parser.add_argument("--target", choices=tuple(TARGETS), default="esp32c6")
+arguments = parser.parse_args()
+character = arguments.character
+target = arguments.target
+output = root / "dist" / kit_filename(character, target)
+firmware_name = firmware_filename(character, target)
 
 
 def validate_buyer_documents():
@@ -44,7 +48,7 @@ def rewrite_acceptance_links(document, revision):
             source_path = "docs/" + path
         elif path == "screen-lab.md":
             source_path = "docs/screen-lab.md"
-        elif path == "../firmware/dependencies.lock" or path.startswith("../.github/"):
+        elif path in {"../firmware/dependencies.lock", "../firmware/dependencies.lock.esp32s3"} or path.startswith("../.github/"):
             source_path = path[3:]
         else:
             return match.group(0)
@@ -59,7 +63,8 @@ revision = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
                           check=True, capture_output=True, text=True).stdout.strip()
 if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
     raise ValueError("Cannot determine source revision for acceptance links")
-subprocess.run(["python3", str(root / "tools/package-firmware.py"), "--character", character], check=True)
+subprocess.run(["python3", str(root / "tools/package-firmware.py"), "--character", character,
+                "--target", target], check=True)
 with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
     result = subprocess.run(
         ["npm", "pack", "--json", "--pack-destination", temporary],
@@ -77,6 +82,8 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
             raise ValueError("Plugin package is incomplete")
     items = [root / "dist" / firmware_name, plugin]
     manifest = {"name": "Kubik kit", "firmware": firmware_name, "character": character.title(),
+                "chip": target,
+                "board": TARGETS[target]['board'],
                 "plugin": plugin.name, "pluginVersion": packages[0]["version"], "parts": {}}
     for item in items:
         manifest["parts"][item.name] = hashlib.sha256(item.read_bytes()).hexdigest()
@@ -100,7 +107,13 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
             write_member(bundle, f"assets/{name}", (root / "tools/font/sources" / name).read_bytes())
         if character == "TESS":
             write_member(bundle, "Getting-started.pdf", (buyer / "kubik-getting-started-A6.pdf").read_bytes())
-        write_member(bundle, "README.md", (root / "docs/KIT.ru.md").read_text().replace("(../deploy/", "(deploy/").replace("(native-voice.md)", "(docs/native-voice.md)").replace("(hermes.md)", "(docs/hermes.md)").replace("(pairing.md)", "(docs/pairing.md)").replace("(buyer/", "(").encode("utf-8"))
+        readme = ((root / "docs/KIT.ru.md").read_text().replace("(../deploy/", "(deploy/")
+                  .replace("(native-voice.md)", "(docs/native-voice.md)")
+                  .replace("(hardware-s3.md)", "(docs/hardware-s3.md)")
+                  .replace("(hardware-s3.md#", "(docs/hardware-s3.md#")
+                  .replace("(hermes.md)", "(docs/hermes.md)").replace("(pairing.md)", "(docs/pairing.md)")
+                  .replace("(buyer/", "("))
+        write_member(bundle, "README.md", readme.encode("utf-8"))
         sdk = re.sub(r"\(protocol\.md(?=[)#])", "(docs/protocol.md",
                      (root / "docs/agent-sdk.md").read_text()).replace("(../openclaw-kubik/", "(openclaw-kubik/").replace("(buyer/", "(").replace("(muse.md)", "(docs/muse.md)").replace("(hermes.md)", "(docs/hermes.md)")
         write_member(bundle, "agent-sdk.md", sdk.encode("utf-8"))
@@ -108,10 +121,13 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         write_member(bundle, "docs/agent-controls.md", controls.encode("utf-8"))
         native = (root / "docs/native-voice.md").read_text().replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
         write_member(bundle, "docs/native-voice.md", native.encode("utf-8"))
-        for document in ("protocol.md", "acceptance.md", "muse.md", "hermes.md", "events.md", "pairing.md"):
+        for document in ("protocol.md", "acceptance.md", "muse.md", "hermes.md", "events.md", "pairing.md", "hardware-s3.md"):
             content = (root / "docs" / document).read_text()
             if document == "acceptance.md":
                 content = rewrite_acceptance_links(content, revision)
+            if document == "hardware-s3.md":
+                target = f"https://github.com/pfrankov/kubik/blob/{revision}/docs/scenarios/tess-skies-entry.md"
+                content = content.replace("(scenarios/tess-skies-entry.md)", f"({target})")
             content = content.replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
             write_member(bundle, f"docs/{document}", content.encode("utf-8"))
         write_member(bundle, "docs/scenarios/hermes.md", (root / "docs/scenarios/hermes.md").read_bytes())

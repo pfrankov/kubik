@@ -117,11 +117,14 @@ earlier versions keep their places in the same six steps.
 
 ## Skies
 
-To enter directly from Tess’s home screen, hold two fingers near diagonally
-opposite corners of the glass for 1.5 seconds. Either diagonal works, even upright
-and without an invitation. Keep both fingers in their corner areas; if interrupted,
-release both before trying again. This gesture also works after enabling offline play
-with BOOT. Menus, setup, agent replies and sleep keep their usual priority.
+To enter directly from Tess’s home screen, hold for 1.5 seconds. On C6, use two
+fingers near diagonally opposite corners of the glass; either diagonal works.
+On S3 1.8 V2, use any one corner of the full portrait screen: CST820 reports
+one contact, and all four panel corners are active. Either gesture
+works upright and without an invitation. Keep the contact(s) in the corner(s);
+if interrupted, release and start again. One hold starts Skies once; lift your
+finger(s) before another attempt. Menus, guide, setup, replies, sleep, Plush and
+the offline dots block the gesture; offline Tess works after BOOT enables local play.
 
 Lay the cube nearly flat. Now and then one of Tess’s own corners warms gently,
 with a quiet low pad that fades in and out; there is no separate floating light;
@@ -134,8 +137,8 @@ Hold a finger on the glass and move it to guide the light into another star.
 Every touch creates an invisible temporary black hole at that point. The stream
 bends and swirls around it, gaining a little speed. All black holes, including
 permanent ones, are completely invisible; their only visual effect is the motion
-of the particles. One or two fingers work the same way
-anywhere on the glass; touching a star, source or fixed black hole never selects,
+of the particles. One finger works on either board; C6 also accepts two
+independent contacts. Inside the picture, touching a star, source or fixed black hole never selects,
 moves or turns it. Each field grows over 0.10 seconds and fades over 0.25 seconds
 after release; the other finger keeps controlling its own field. Later skies may
 have up to two permanent black holes that shape the stream. Stars keep their
@@ -183,7 +186,7 @@ playback rules.
 
 ## The agent comes first
 
-Play never gets in the way. Pressing KEY, saying Hi Tessa, starting voice
+Play never gets in the way. Pressing KEY on C6, saying Hi Tessa, starting voice
 capture or Live, receiving text, speech or a notification, going offline,
 opening Setup or a menu, or the screen going dark stops all of it at once. Her
 dots spring home and nothing resumes on its own. A touch that arrives together
@@ -201,5 +204,5 @@ When Tess has fallen into offline points, press **BOOT briefly** to bring her ba
 for local play. Touch games and Skies work without Wi-Fi or an agent. The network
 indicator stays visible and reconnection continues in the background. In Skies,
 BOOT ends the current game; press it again to return to the offline points.
-KEY cannot record while disconnected. Reconnection restores normal agent use;
+The voice button cannot record while disconnected (C6 KEY; S3 short BOOT on the connected home screen). Reconnection restores normal agent use;
 your pairing and preferences stay unchanged.

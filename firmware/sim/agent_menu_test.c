@@ -1,5 +1,6 @@
 #include "../main/agent_menu.h"
 #include "../main/face_agent.h"
+#include "../main/device_controls.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -146,9 +147,9 @@ static void test_ui_and_taps(void) {
     assert(agent_menu_accept_reply(&menu, &reply, 2));
     assert(face_agent_hit(&menu, 88, 52) == AGENT_HIT_NONE);
     assert(face_agent_hit(&menu, 240, 196) == AGENT_HIT_MODELS);
-    assert(face_agent_hit(&menu, 127, 306) == AGENT_HIT_VOICE);
-    assert(face_agent_hit(&menu, 353, 410) == AGENT_HIT_VOICE);
-    assert(face_agent_hit(&menu, 240, 254) == AGENT_HIT_NONE);
+    assert(face_agent_hit(&menu, 127, 306 + 3 * (UI_H - 480) / 4) == AGENT_HIT_VOICE);
+    assert(face_agent_hit(&menu, 353, 410 + 3 * (UI_H - 480) / 4) == AGENT_HIT_VOICE);
+    assert(face_agent_hit(&menu, 240, 254 + (UI_H - 480) / 2) == AGENT_HIT_NONE);
     menu.view = AGENT_VIEW_MODELS;
     // Rows are 66 px tall on a 78 px pitch from y 84; the whole first wire page shows at once.
     assert(face_agent_hit(&menu, 40, 101) == AGENT_HIT_MODEL_0);
@@ -157,7 +158,7 @@ static void test_ui_and_taps(void) {
     assert(face_agent_hit(&menu, 40, 195) == (AGENT_HIT_MODEL_0 + 1));
     assert(face_agent_hit(&menu, 440, 273) == (AGENT_HIT_MODEL_0 + 2));
     assert(face_agent_hit(&menu, 40, 351) == (AGENT_HIT_MODEL_0 + 3));
-    assert(face_agent_hit(&menu, 392, 428) == AGENT_HIT_NONE);  // no paging buttons
+    assert(face_agent_hit(&menu, 392, UI_FOOTER_Y) == AGENT_HIT_NONE);  // no paging buttons
     assert(face_agent_hit(&menu, 19, 164) == AGENT_HIT_NONE);
     menu.request_pending = true; menu.waiting_kind = AGENT_REQUEST_SELECT;
     assert(face_agent_hit(&menu, 40, 195) == AGENT_HIT_NONE);
@@ -166,10 +167,10 @@ static void test_ui_and_taps(void) {
     menu.request_pending = false; menu.waiting_kind = AGENT_REQUEST_NONE;
     strcpy(menu.error, "timeout");
     menu.retry_kind = AGENT_REQUEST_OPTIONS;
-    assert(face_agent_hit(&menu, 240, 428) == AGENT_HIT_RETRY);
+    assert(face_agent_hit(&menu, 240, UI_FOOTER_Y) == AGENT_HIT_RETRY);
     menu.target = AGENT_TARGET_STT; menu.error[0] = 0; menu.count = menu.total = 0;
     // Empty voice catalogs remain refreshable without an extra details page.
-    assert(face_agent_hit(&menu, 240, 428) == AGENT_HIT_REFRESH);
+    assert(face_agent_hit(&menu, 240, UI_FOOTER_Y) == AGENT_HIT_REFRESH);
     menu.view = AGENT_VIEW_MODELS;
     menu.online = false;
     assert(face_agent_hit(&menu, 40, 164) == AGENT_HIT_NONE);
@@ -216,7 +217,7 @@ static void test_view_bounds(void) {
         render_text_signature(&scene, &x0, &y0, &x1, &y1);
         // Bounds use the 240px canvas. The 40px heading starts at native y14;
         // include two bilinear-neighbour pixels (minimum y5).
-        assert(x0 >= 10 && x1 <= 232 && y0 >= 5 && y1 <= 232);
+        assert(x0 >= 10 && x1 <= 232 && y0 >= 5 && y1 <= UI_H / 2 - 8);
     }
     agent_menu_clear_catalog(&menu);
 }
@@ -225,21 +226,21 @@ static void check_refresh_bounds(agent_menu_t *m) {
     for (unsigned frame = 0; frame < 7; frame++) {
         m->guide_elapsed = frame / 30.f;
         scene_t scene; scene_begin(&scene, 0); face_agent_draw(&scene, m, false);
-        assert(face_agent_hit(m, 240, 328) == AGENT_HIT_REFRESH);
-        assert(face_agent_hit(m, 240, 384) == AGENT_HIT_REFRESH);
-        assert(face_agent_hit(m, 240, 327) == AGENT_HIT_NONE);
-        assert(face_agent_hit(m, 240, 385) == AGENT_HIT_NONE);
+        assert(face_agent_hit(m, 240, 328 + UI_H - 480) == AGENT_HIT_REFRESH);
+        assert(face_agent_hit(m, 240, 384 + UI_H - 480) == AGENT_HIT_REFRESH);
+        assert(face_agent_hit(m, 240, 327 + UI_H - 480) == AGENT_HIT_NONE);
+        assert(face_agent_hit(m, 240, 385 + UI_H - 480) == AGENT_HIT_NONE);
         bool found = false;
         for (int i = 0; i < scene.n; i++) {
             const prim_t *p = &scene.p[i];
-            if (p->kind == PK_RBOX && p->cy == 356 * 16) found = true;
+            if (p->kind == PK_RBOX && p->cy == (356 + UI_H - 480) * 16) found = true;
         }
         assert(found); // The refresh tile fades but never moves away from its touch rectangle.
     }
 }
 
 static void text_ink_height(const scene_t *s, const prim_t *p, int *top, int *bottom) {
-    *top = 480; *bottom = 0;
+    *top = UI_H; *bottom = 0;
     for (int i = 0; i < p->b; i++) {
         const font_glyph_t *g = &g_fonts[p->r].g[s->text[p->a + i]];
         if (!g->h) continue;
@@ -247,6 +248,9 @@ static void text_ink_height(const scene_t *s, const prim_t *p, int *top, int *bo
         if (y < *top) *top = y;
         if (y + g->h > *bottom) *bottom = y + g->h;
     }
+}
+static bool texts_separated(const prim_t *p, int py0, int py1, const prim_t *q, int qy0, int qy1) {
+    return py1 + 8 <= qy0 || qy1 + 8 <= py0 || p->bx1 + 8 <= q->bx0 || q->bx1 + 8 <= p->bx0;
 }
 static void check_guide_spacing(const scene_t *scene) {
     for (int i = 0; i < scene->n; i++) {
@@ -260,8 +264,7 @@ static void check_guide_spacing(const scene_t *scene) {
             const prim_t *q = &scene->p[j];
             if (q->kind != PK_TEXT || !q->alpha) continue;
             int qy0, qy1; text_ink_height(scene, q, &qy0, &qy1);
-            assert(py1 + 8 <= qy0 || qy1 + 8 <= py0 ||
-                   p->bx1 + 8 <= q->bx0 || q->bx1 + 8 <= p->bx0);
+            assert(texts_separated(p, py0, py1, q, qy0, qy1));
         }
     }
 }
@@ -280,17 +283,17 @@ static void test_guide(void) {
             check_guide_spacing(&scene);
             check_guide_cue(&scene, &m);
             int x0, y0, x1, y1; render_text_signature(&scene, &x0, &y0, &x1, &y1);
-            assert(x0 >= 10 && x1 <= 232 && y0 >= 5 && y1 <= 232);
-            assert(face_agent_hit(&m, 240, 428) == (step == 3 ? AGENT_HIT_GUIDE_DONE : AGENT_HIT_GUIDE_NEXT));
+            assert(x0 >= 10 && x1 <= 232 && y0 >= 5 && y1 <= UI_H / 2 - 8);
+            assert(face_agent_hit(&m, 240, UI_FOOTER_Y) == (step == 3 ? AGENT_HIT_GUIDE_DONE : AGENT_HIT_GUIDE_NEXT));
         }
     }
     m.guide_step = 0; agent_menu_guide_move(&m, -1); assert(m.guide_step == 0);
     agent_menu_guide_move(&m, 1); assert(m.guide_step == 1 && m.guide_elapsed == 0);
     m.capabilities_known = true; m.stt_available = false;
     check_refresh_bounds(&m);
-    assert(face_agent_hit(&m, 240, 360) == AGENT_HIT_REFRESH);
-    m.request_pending = true; assert(face_agent_hit(&m, 240, 360) == AGENT_HIT_NONE);
-    m.request_pending = false; m.online = false; assert(face_agent_hit(&m, 240, 360) == AGENT_HIT_NONE);
+    assert(face_agent_hit(&m, 240, 360 + UI_H - 480) == AGENT_HIT_REFRESH);
+    m.request_pending = true; assert(face_agent_hit(&m, 240, 360 + UI_H - 480) == AGENT_HIT_NONE);
+    m.request_pending = false; m.online = false; assert(face_agent_hit(&m, 240, 360 + UI_H - 480) == AGENT_HIT_NONE);
     m.guide_step = 3; agent_menu_guide_move(&m, 1); assert(m.guide_step == 3);
     agent_menu_start_guide(&m, true); assert(m.guide_step == 0);
     assert(!agent_menu_request_model(&m, "unlisted", 0));
@@ -307,6 +310,7 @@ static bool scene_has_label(const scene_t *s, const char *text) {
     }
     return false;
 }
+#if !KUBIK_VOICE_BUTTON_IS_BOOT
 static int cue_stroke(const prim_t *p, bool boot) {
     float x = p->cx / 16.f, y = p->cy / 16.f;
     if (p->kind != PK_RBOX || y >= 64 || x <= 120 || x >= 350) return -1;
@@ -317,15 +321,22 @@ static int cue_stroke(const prim_t *p, bool boot) {
     assert(boot ? x + dx < 210 : x - dx > 270);
     return y - dy < 12; // Whether this stroke reaches the physical-button edge.
 }
-static void check_guide_cue(const scene_t *scene, const agent_menu_t *m) {
-    bool boot = m->guide_step == 0 || m->guide_step == 3;
-    bool key = m->guide_step == 1 && m->online && m->capabilities_known && m->stt_available;
-    assert(scene_has_label(scene, "BOOT") == boot);
-    assert(scene_has_label(scene, "KEY") == key);
-    assert(!scene_has_label(scene, "PWR")); // No power instruction on these four pages.
+#endif
+#if KUBIK_VOICE_BUTTON_IS_BOOT
+static void check_cue_geometry(const scene_t *scene, bool boot, bool key) {
+    unsigned edge_tips = 0;
+    for (int i = 0; i < scene->n; i++) {
+        const prim_t *p = &scene->p[i];
+        if (p->kind != PK_RBOX) continue;
+        float x = p->cx / 16.f, y = p->cy / 16.f;
+        if (x > 460 && y > 72 && y < 100) edge_tips++;
+    }
+    assert(edge_tips == ((boot || key) ? 2u : 0u));
+}
+#else
+static void check_cue_geometry(const scene_t *scene, bool boot, bool key) {
     unsigned strokes = 0, tips = 0;
     for (int i = 0; i < scene->n; i++) {
-        // Real pointer geometry between progress and Skip. Neither gets covered.
         int reaches_edge = cue_stroke(&scene->p[i], boot);
         if (reaches_edge < 0) continue;
         strokes++;
@@ -333,7 +344,40 @@ static void check_guide_cue(const scene_t *scene, const agent_menu_t *m) {
     }
     assert(strokes == ((boot || key) ? 4u : 0u));
     assert(tips == ((boot || key) ? 3u : 0u));
-    assert(face_agent_hit(m, 240, 42) == AGENT_HIT_NONE); // Cue is not a screen button.
+}
+#endif
+static void check_guide_cue(const scene_t *scene, const agent_menu_t *m) {
+    bool boot = m->guide_step == 0 || m->guide_step == 3;
+    bool key = m->guide_step == 1 && m->online && m->capabilities_known && m->stt_available;
+#if KUBIK_VOICE_BUTTON_IS_BOOT
+    assert(scene_has_label(scene, "BOOT") == (boot || key));
+    assert(!scene_has_label(scene, "KEY"));
+#else
+    assert(scene_has_label(scene, "BOOT") == boot);
+    assert(scene_has_label(scene, "KEY") == key);
+#endif
+    assert(!scene_has_label(scene, "PWR"));
+    check_cue_geometry(scene, boot, key);
+    assert(face_agent_hit(m, 240, 42) == AGENT_HIT_NONE);
+}
+static void check_voice_labels(const scene_t *scene, bool tess, int mode, bool wake) {
+    assert(scene_has_label(scene, "Home: 'Hi Tessa', then talk.") == wake);
+#if KUBIK_VOICE_BUTTON_IS_BOOT
+    assert(!scene_has_label(scene, "Hold KEY to talk.") && !scene_has_label(scene, "Press KEY, then talk."));
+    assert(scene_has_label(scene, "Press BOOT, then talk.") == !tess);
+    assert(scene_has_label(scene, "Say 'Hi Tessa' or press BOOT.") == (tess && mode == VOICE_LIVE));
+    assert(scene_has_label(scene, "Press BOOT to end GPT Live.") == (mode == VOICE_LIVE));
+    assert(scene_has_label(scene, "Press again to send.") == (!tess && mode == VOICE_CLASSIC));
+    assert(scene_has_label(scene, "Or press BOOT twice.") == (tess && mode == VOICE_CLASSIC));
+    assert(!scene_has_label(scene, "Release to send."));
+#else
+    assert(scene_has_label(scene, "Hold KEY to talk.") == (!tess && mode == VOICE_CLASSIC));
+    assert(scene_has_label(scene, "Press KEY, then talk.") == (!tess && mode != VOICE_CLASSIC));
+    assert(scene_has_label(scene, "Say 'Hi Tessa' or press KEY.") == (tess && mode == VOICE_LIVE));
+    assert(scene_has_label(scene, "Press KEY to end GPT Live.") == (mode == VOICE_LIVE));
+    assert(scene_has_label(scene, "Pause to send.") == (wake || mode == VOICE_REALTIME));
+    assert(scene_has_label(scene, "Or hold KEY; release to send.") == (tess && mode == VOICE_CLASSIC));
+#endif
 }
 static void test_voice_instructions(void) {
     agent_menu_t m; agent_menu_reset(&m); agent_menu_start_guide(&m, true);
@@ -343,13 +387,7 @@ static void test_voice_instructions(void) {
         m.voice_mode = mode;
         scene_t scene; scene_begin(&scene, 0); face_agent_draw(&scene, &m, tess);
         bool wake = tess && mode != VOICE_LIVE;
-        assert(scene_has_label(&scene, "Home: 'Hi Tessa', then talk.") == wake);
-        assert(scene_has_label(&scene, "Hold KEY to talk.") == (!tess && mode == VOICE_CLASSIC));
-        assert(scene_has_label(&scene, "Press KEY, then talk.") == (!tess && mode != VOICE_CLASSIC));
-        assert(scene_has_label(&scene, "Say 'Hi Tessa' or press KEY.") == (tess && mode == VOICE_LIVE));
-        assert(scene_has_label(&scene, "Press KEY to end GPT Live.") == (mode == VOICE_LIVE));
-        assert(scene_has_label(&scene, "Pause to send.") == (wake || mode == VOICE_REALTIME));
-        assert(scene_has_label(&scene, "Or hold KEY; release to send.") == (tess && mode == VOICE_CLASSIC));
+        check_voice_labels(&scene, tess, mode, wake);
         check_guide_spacing(&scene);
         check_guide_cue(&scene, &m);
     }
@@ -393,8 +431,8 @@ static void test_voice_modes_and_parents(void) {
     set_model(&r.models[2], "live", "GPT Live"); r.models[2].disabled = true;
     assert(agent_menu_accept_reply(&m, &r, 20) && m.voice_mode == VOICE_CLASSIC);
     assert(face_agent_hit(&m, 44, 100) == AGENT_HIT_MODEL_0);
-    assert(face_agent_hit(&m, 440, 280) == (AGENT_HIT_MODEL_0 + 1));
-    assert(face_agent_hit(&m, 240, 350) == AGENT_HIT_NONE);
+    assert(face_agent_hit(&m, 440, 280 + (UI_H - 480) / 3) == (AGENT_HIT_MODEL_0 + 1));
+    assert(face_agent_hit(&m, 240, 350 + 2 * ((UI_H - 480) / 3)) == AGENT_HIT_NONE);
     assert(!agent_menu_request_model(&m, "live", 30));
     rid = agent_menu_request_model(&m, "realtime", 30); assert(rid);
     assert(m.voice_mode == VOICE_CLASSIC); // No optimistic switch.
@@ -409,7 +447,7 @@ static void test_voice_modes_and_parents(void) {
     agent_menu_back(&m); assert(m.view == AGENT_VIEW_VOICE_MODES);
     m.voice_mode = VOICE_CLASSIC; agent_menu_voice_models(&m); assert(m.view == AGENT_VIEW_CLASSIC);
     assert(face_agent_hit(&m, 240, 200) == AGENT_HIT_STT);
-    assert(face_agent_hit(&m, 240, 360) == AGENT_HIT_TTS);
+    assert(face_agent_hit(&m, 240, 360 + 3 * (UI_H - 480) / 4) == AGENT_HIT_TTS);
     agent_menu_visit(&m, AGENT_VIEW_MODELS, AGENT_TARGET_STT); agent_menu_back(&m);
     assert(m.view == AGENT_VIEW_CLASSIC);
     agent_menu_back(&m); assert(m.view == AGENT_VIEW_VOICE_MODES);

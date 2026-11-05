@@ -1,6 +1,7 @@
 #include "face_internal.h"
 #include "ui_theme.h"
 #include "sound_levels.h"
+#include "viewport.h"
 
 // ------------------------------------------------------------------ settings menu
 // Full screen control centre: narrow sliders, three large navigation targets,
@@ -16,22 +17,23 @@
 
 typedef struct { float cx, cy, hw, hh; } tile_t;
 // 20 px outer inset, 12 px gutters. The header leaves both status and navigation room.
+// C6 vertical geometry below; portrait keeps these outer insets and 12 px gutters.
 //   Settings                          battery  (y  16..56)
 //   volume | brightness | Agent                (y  68..220)
 //                       | Guide                (y 232..384)
 //   status | power off                          (y 396..460; hidden reset joins in service mode)
 static const tile_t k_tiles[] = {
-    [MENU_VOLUME] = {72, 226, 52, 158},
-    [MENU_BRIGHT] = {188, 226, 52, 158},
-    [MENU_AGENT] = {356, 144, 104, 76},
-    [MENU_GUIDE] = {356, 308, 104, 76},
+    [MENU_VOLUME] = {72, UI_CY - 14, 52, (UI_H - 164) / 2},
+    [MENU_BRIGHT] = {188, UI_CY - 14, 52, (UI_H - 164) / 2},
+    [MENU_AGENT] = {356, 144 + (UI_H - 480) / 4, 104, 76 + (UI_H - 480) / 4},
+    [MENU_GUIDE] = {356, 308 + 3 * (UI_H - 480) / 4, 104, 76 + (UI_H - 480) / 4},
 };
 static const tile_t k_events = {272, 36, 54, 28};
-static const tile_t k_sound[2] = {{132, 226, 100, 158}, {348, 226, 100, 158}};
+static const tile_t k_sound[2] = {{132, UI_CY - 14, 100, (UI_H - 164) / 2}, {348, UI_CY - 14, 100, (UI_H - 164) / 2}};
 // Wi-Fi setup lives in Status. The bottom row is Status | Power off; service mode adds the hidden reset between.
-static const tile_t k_service_actions[3] = {{0}, {240, 428, 68, 32}, {390, 428, 68, 32}};
-static const tile_t k_public_power = {353, 428, 107, 32};
-static const tile_t k_status_public = {127, 428, 107, 32}, k_status_service = {90, 428, 68, 32};
+static const tile_t k_service_actions[3] = {{0}, {240, UI_FOOTER_Y, 68, 32}, {390, UI_FOOTER_Y, 68, 32}};
+static const tile_t k_public_power = {353, UI_FOOTER_Y, 107, 32};
+static const tile_t k_status_public = {127, UI_FOOTER_Y, 107, 32}, k_status_service = {90, UI_FOOTER_Y, 68, 32};
 
 static const tile_t *status_tile(const face_menu_t *menu) { return menu->service ? &k_status_service : &k_status_public; }
 
@@ -259,8 +261,8 @@ void draw_menu(face_t *f, scene_t *s) {
     draw_menu_sliders(s, m, k, pt);
     if (!m->sound) { draw_menu_actions(s, m, k, pt); draw_navigation(s, m, k); }
     else {
-        sc_label(s, TXT_ACTION, "Speech", k_sound[0].cx, 424, 0, COL_MINT, 1);
-        sc_label(s, TXT_ACTION, "Interface", k_sound[1].cx, 424, 0, COL_MINT, 1);
+        sc_label(s, TXT_ACTION, "Speech", k_sound[0].cx, UI_FOOTER_Y - 4, 0, COL_MINT, 1);
+        sc_label(s, TXT_ACTION, "Interface", k_sound[1].cx, UI_FOOTER_Y - 4, 0, COL_MINT, 1);
     }
     sc_label(s, TXT_ACTION, m->sound ? "Sound" : "Settings", 52, 36, -1, COL_PLUSH, 1);
     if (!m->sound && m->service) {
@@ -273,7 +275,7 @@ void draw_menu(face_t *f, scene_t *s) {
 // The character dims to black while the menu opens (and back while it closes).
 void draw_menu_fade(face_t *f, scene_t *s) {
     float k = clampf(f->menu.k / MENU_SWAP, 0, 1);
-    if (k > 0.004f) sc_rbox(s, CX, 240, 240, 240, 0, 0, 0x000000u, smooth01(k));
+    if (k > 0.004f) sc_rbox(s, CX, UI_CY, UI_W / 2, UI_H / 2, 0, 0, 0x000000u, smooth01(k));
 }
 
 // Cron jobs, top-right: a clock whose hands spin while a job runs; the countdown to the next one-shot job

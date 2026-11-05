@@ -3,13 +3,15 @@
 // --wifi profiles 8 s of burst PCM over real TLS; --paced tests incremental delivery.
 // --single-delta tests one 8 s callback; --small-deltas tests 20 ms callbacks.
 // --stress requires --wifi --speech-only and checks 12 replies in one Live session.
-// Point the USB bridge at ws://127.0.0.1:18999/kubik/v1. No paid calls or wake-phrase audio.
+// USB bridge: ws://127.0.0.1:18999/kubik/v1, or kubik://127.0.0.1:18999 with KUBIK_TEST_TLS_IDENTITY.
+// Explicit TLS USB also supports an offline device with empty SSID/endpoint. No paid calls or wake-phrase audio.
 import assert from 'node:assert/strict';
 import { EchoCleaner } from '../openclaw-kubik/src/echo-cleaner.js';
 import { nearSpeechProof } from './test-device/live-acoustic.mjs';
 import { writeFileSync } from 'node:fs';
 import { nativeTransport } from './test-device/native-transport.mjs';
-import { waitForDeviceLink } from './test-device/diagnostics.mjs';
+import { fixtureBaseline, routeRestored } from './test-device/fixture-baseline.mjs';
+import { restoreNativeFixture } from './test-device/native-cleanup.mjs';
 import { speechProfile, PROFILE_MS } from './test-device/speech-profile.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { KubikServer } from '../openclaw-kubik/src/server.js';
@@ -365,7 +367,7 @@ async function restoreTransport(transport, paused) {
 }
 
 async function main() {
-  const original = await waitForDeviceLink(info);
+  const { original, offlineFixture } = await fixtureBaseline(info, { wifi });
   console.log('BASELINE', Object.fromEntries(['online', 'via', 'voice_mode', 'wifi_connected'].map(key => [key, original[key]])));
   assert.ok(['Tess', 'Plush'].includes(original.character));
   assert.ok(original.voice_mode, 'Flash the native voice firmware before this check');
@@ -397,18 +399,21 @@ async function main() {
       }
     });
     if ((await info()).screen_dark) await sim('pwr');
+    if ((await info()).setup_ap) { await sim('boot'); await until(device => !device.setup_ap, 'initial setup closed before native voice'); }
     if ((await info()).menu) await sim('menu');
     await nativeProofs(server, state, original.character);
   } finally {
-    try {
-      // Release the mock stream/TLS before writing settings, including after heap exhaustion.
-      await server.stop();
-      await until(device => Number.isInteger(device.heap) && typeof device.url === 'string', 'complete status before restoration', 45000);
-      try { if ((await info()).mic_open) { await sim('ptt_up'); await sim('ptt_down'); await sim('ptt_up'); } }
-      finally { await restoreTransport(transport, paused); }
-    } finally { await transport?.close(); }
-    const restored = await until(device => device.via === original.via && device.wifi_connected === original.wifi_connected && device.voice_mode === original.voice_mode && Boolean(device.key),
-      'original network route', 45000);
+    const cancelCapture = async () => {
+      if ((await info()).mic_open) { await sim('ptt_up'); await sim('ptt_down'); await sim('ptt_up'); }
+    };
+    await restoreNativeFixture({ offlineFixture,
+      restoreMode: async () => { if (server.getSession(state.device)) await setMode(server, state, original.voice_mode); },
+      stopServer: () => server.stop(),
+      waitForStatus: () => until(device => Number.isInteger(device.heap) && typeof device.url === 'string',
+        'complete status before restoration', 45000),
+      cancelCapture, restoreRoute: () => restoreTransport(transport, paused), close: async () => { await transport?.close(); } });
+    const restored = await until(device => routeRestored(device, original) && device.voice_mode === original.voice_mode && Boolean(device.key),
+      offlineFixture ? 'original offline state' : 'original network route', 45000);
     for (const key of ['volume', 'ui_volume', 'brightness', 'ssid', 'url', 'key', 'character', 'server_pinned', 'guide_done'])
       assert.ok(restored[key] === original[key], `${key} changed`);
     if (restored.screen_dark !== original.screen_dark) await sim('pwr');

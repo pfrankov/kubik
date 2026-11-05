@@ -109,7 +109,7 @@ static void context_targets(const face_t *f, float to[TP_COUNT], float *spin) {
 void tess_mood_kick(face_t *f, int kind, float s, float tx, float ty) {
     tess_mood_t *m = &f->tess_mood;
     float side = frand(f) < .5f ? -1.f : 1.f;
-    float dx = clampf((tx - 240) / 150, -1, 1), dy = clampf((ty - 255) / 150, -1, 1);
+    float dx = clampf((tx - 240) / 150, -1, 1), dy = clampf((ty - TESS_CY) / 150, -1, 1);
     switch (kind) {
     case KICK_HOP: m->shift_rate[1] -= (3.2f + .8f * frand(f)) * s; break;  // boing
     case KICK_WIGGLE: m->wiggle = fmaxf(m->wiggle, .16f * s); break;

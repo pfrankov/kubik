@@ -7,7 +7,7 @@
 _Static_assert(SKY_TOUCHES == TOUCH_POINTS, "Skies must cover every panel contact");
 
 static bool on_glass(const touch_point_t *point) {
-    return point->down && point->x >= 0 && point->x < SKY_W && point->y >= 0 && point->y < SKY_W;
+    return point->down && point->x >= 0 && point->x < SKY_W && point->y >= 0 && point->y < SKY_H;
 }
 
 bool sky_touch(const face_t *f, tess_sky_t *k, sky_force_t *force, float dt) {

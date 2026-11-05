@@ -13,12 +13,12 @@ static void catalog(screen_lab_t *lab, scene_t *s) {
     for (int i = 0; i < 3; i++) {
         int index = lab->page * 3 + i;
         if (index >= LAB_COUNT) break;
-        button(s, screen_lab_name(index), 240, 144 + i * 88, 440, i == 1 ? UI_GOLD : UI_ACCENT);
+        button(s, screen_lab_name(index), 240, 144 + i * LAB_ROW_H, 440, i == 1 ? UI_GOLD : UI_ACCENT);
     }
-    button(s, "Previous", 124, 428, 208, UI_MUTED);
-    button(s, "Next", 356, 428, 208, UI_GOLD);
+    button(s, "Previous", 124, UI_FOOTER_Y, 208, UI_MUTED);
+    button(s, "Next", 356, UI_FOOTER_Y, 208, UI_GOLD);
     char page[16]; snprintf(page, sizeof page, "%d / %d", lab->page + 1, (LAB_COUNT + 2) / 3);
-    sc_label(s, TXT_CAPTION, page, 240, 382, 0, UI_MUTED, 1);
+    sc_label(s, TXT_CAPTION, page, 240, UI_H - 98, 0, UI_MUTED, 1);
 }
 void screen_lab_draw(screen_lab_t *lab, scene_t *s) {
     if (lab->face.dark) { scene_begin(s, 0); return; }

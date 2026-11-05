@@ -323,11 +323,20 @@ static void report_presented_mode(bool presented, face_mode_t mode, bool request
     ESP_LOGI(TAG, "mode %d on screen", (int)mode); // same clock as the app's "key down"
 }
 
+static frame_out_t *allocate_display_frame(void) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    const unsigned frame_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+#else
+    const unsigned frame_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+#endif
+    return heap_caps_calloc(1, sizeof(frame_out_t), frame_caps);
+}
+
 static void display_task(void *arg) {
     static scene_t scene;
     static render_state_t rs;
     static uint16_t bands[2][R_W * R_BAND] __attribute__((aligned(4)));  // the canvas hashes pixel pairs
-    frame_out_t *f = heap_caps_calloc(1, sizeof(*f), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    frame_out_t *f = allocate_display_frame();
     assert(f);
     f->scene = &scene;
     f->bands[0] = bands[0];
@@ -396,7 +405,7 @@ void app_main(void) {
     // The no-sleep lock is held before light sleep is enabled: USB must never see a sleep window at boot.
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "awake", &s_awake_lock));
     ESP_ERROR_CHECK(esp_pm_lock_acquire(s_awake_lock));
-    const esp_pm_config_t power = {.max_freq_mhz = 160, .min_freq_mhz = CONFIG_XTAL_FREQ, .light_sleep_enable = true};
+    const esp_pm_config_t power = {.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ, .min_freq_mhz = CONFIG_XTAL_FREQ, .light_sleep_enable = true};
     ESP_ERROR_CHECK(esp_pm_configure(&power));
     settings_load();
     muse_state_t muse = muse_store_state();

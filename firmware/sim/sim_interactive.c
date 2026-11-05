@@ -31,7 +31,9 @@ static void frame(int steps) {
 static void frame_command(int fields, int steps) {
     if (fields == 2 && steps >= 1 && steps <= 60) frame(steps);
 }
-static bool valid_event(int event) { return event >= LAB_TAP && event <= LAB_HOLD; }
+static bool valid_event(int kind, int x, int y) {
+    return kind >= LAB_TAP && kind <= LAB_HOLD && x >= 0 && x < UI_W && y >= 0 && y < UI_H;
+}
 static void event(int kind, int x, int y) {
     // The physical app closes the lab to its real Settings at this boundary.
     // The emulator has temporary settings only, so enter their native preview.
@@ -39,26 +41,34 @@ static void event(int kind, int x, int y) {
     else screen_lab_event(&lab, kind, x, y);
 }
 static bool contact_valid(int down, int x, int y, int id) {
-    return down >= 0 && down <= 1 && x >= 0 && x < 480 && y >= 0 && y < 480 && id >= 0 && id <= 15;
+    return down >= 0 && down <= 1 && x >= 0 && x < UI_W && y >= 0 && y < UI_H && id >= 0 && id <= 15;
 }
 static void contacts(const char *line) {
     int d0, x0, y0, id0, d1, x1, y1, id1;
     if (sscanf(line, "touches %d %d %d %d %d %d %d %d", &d0, &x0, &y0, &id0, &d1, &x1, &y1, &id1) != 8) return;
     if (!contact_valid(d0, x0, y0, id0) || !contact_valid(d1, x1, y1, id1)) return;
-    if (d0 && d1 && id0 == id1) return;
+    if (d0 && d1 && (id0 == id1 || SIM_TOUCH_CAPACITY < 2)) return;
     touch_frame_t frame = {.point = {{x0, y0, d0 != 0, id0}, {x1, y1, d1 != 0, id1}}};
     screen_lab_contacts(&lab, &frame);
+}
+static void catalog(void) {
+    fputs("[", stdout);
+    for (int i = 0; i < LAB_COUNT; i++) printf("%s\"%s\"", i ? "," : "", screen_lab_name(i));
+    puts("]"); fflush(stdout);
+}
+static void metadata(void) {
+    printf("{\"target\":\"%s\",\"width\":%d,\"height\":%d,\"render_height\":%d,\"touch_capacity\":%d,\"key_button\":%s}\n",
+           SIM_TARGET, UI_W, UI_H, PANEL_H, SIM_TOUCH_CAPACITY, SIM_KEY_BUTTON ? "true" : "false");
+    fflush(stdout);
 }
 static void command(const char *line) {
     char name[24]; int a = 0, b = 0, c = 0;
     int fields = sscanf(line, "%23s %d %d %d", name, &a, &b, &c);
     if (fields < 1) return;
-    if (!strcmp(name, "catalog")) {
-        fputs("[", stdout);
-        for (int i = 0; i < LAB_COUNT; i++) printf("%s\"%s\"", i ? "," : "", screen_lab_name(i));
-        puts("]"); fflush(stdout);
-    } else if (!strcmp(name, "select")) screen_lab_select(&lab, a);
-    else if (!strcmp(name, "event") && valid_event(a)) event(a, b, c);
+    if (!strcmp(name, "catalog")) catalog();
+    else if (!strcmp(name, "metadata")) metadata();
+    else if (!strcmp(name, "select")) screen_lab_select(&lab, a);
+    else if (!strcmp(name, "event") && valid_event(a, b, c)) event(a, b, c);
     else if (!strcmp(name, "touches")) contacts(line);
     else if (!strcmp(name, "tilt")) { tilt_x = a; tilt_y = b; }
     else if (!strcmp(name, "character")) { screen_lab_dispose(&lab); screen_lab_init(&lab, a == CHARACTER_PLUSH ? CHARACTER_PLUSH : CHARACTER_TESS); }

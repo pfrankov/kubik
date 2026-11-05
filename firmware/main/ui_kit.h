@@ -1,6 +1,7 @@
 // Shared sub-page primitives: one header, one chip, one pager and one enter transition.
 #pragma once
 #include "render.h"
+#include "viewport.h"
 
 #define UI_ENTER_SECONDS 0.18f
 

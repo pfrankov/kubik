@@ -18,10 +18,19 @@
 // Measured on C6 / ESP-NN 1.4.1: 6536 B activation/scratch, 16436 B
 // persistent tensors including the recording allocator's overhead. The SDK's
 // split arenas preserve the model while fitting the post-TLS heap fragments.
-static constexpr size_t SCRATCH_BYTES = 8 * 1024, PERSISTENT_BYTES = 17 * 1024, VARIABLES_BYTES = 1024;
+#if CONFIG_IDF_TARGET_ESP32S3
+static constexpr unsigned WORKSPACE_CAPS = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+static constexpr unsigned TENSOR_CAPS = WORKSPACE_CAPS;
+static constexpr size_t SCRATCH_BYTES = 16 * 1024; // ESP-NN S3 requests 11824 B, plus allocator alignment.
+#else
+static constexpr unsigned WORKSPACE_CAPS = MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT;
+static constexpr unsigned TENSOR_CAPS = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+static constexpr size_t SCRATCH_BYTES = 8 * 1024;
+#endif
+static constexpr size_t PERSISTENT_BYTES = 17 * 1024, VARIABLES_BYTES = 1024;
 // Used only by the SDK's fft_util.c, never by I2S or Wi-Fi DMA allocations.
 extern "C" void *kubik_wake_fft_alloc(size_t bytes) {
-    return heap_caps_malloc(bytes, MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT);
+    return heap_caps_malloc(bytes, WORKSPACE_CAPS);
 }
 static tflite::MicroMutableOpResolver<13> s_ops;
 static bool s_registered;
@@ -76,10 +85,10 @@ void wake_model_stop() {
     if (s_clock_held) { esp_pm_lock_release(s_clock); s_clock_held = false; }
 }
 static tflite::MicroAllocator *reserve_tensors(tflite::MicroResourceVariables **variables) {
-    s_persistent = static_cast<uint8_t *>(heap_caps_malloc(PERSISTENT_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-    s_scratch = static_cast<uint8_t *>(heap_caps_malloc(SCRATCH_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    s_persistent = static_cast<uint8_t *>(heap_caps_malloc(PERSISTENT_BYTES, TENSOR_CAPS));
+    s_scratch = static_cast<uint8_t *>(heap_caps_malloc(SCRATCH_BYTES, TENSOR_CAPS));
     // Resource variables are CPU-only; wake releases this LP lease before voice I/O.
-    s_variables = static_cast<uint8_t *>(heap_caps_malloc(VARIABLES_BYTES, MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT));
+    s_variables = static_cast<uint8_t *>(heap_caps_malloc(VARIABLES_BYTES, WORKSPACE_CAPS));
     if (!s_persistent || !s_scratch || !s_variables) return nullptr;
     auto allocator = tflite::MicroAllocator::Create(s_variables, VARIABLES_BYTES);
     if (!allocator) return nullptr;

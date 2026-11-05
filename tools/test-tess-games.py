@@ -50,7 +50,9 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
                        'void tess_feel_event(face_t *f,mood_event_t e,float s,float d){(void)f;(void)e;(void)s;(void)d;}\n'
                        'void tess_project_dots(face_t *f,tess_projected_t d[TESS_N]){(void)f;for(int i=0;i<TESS_N;i++)d[i]=(tess_projected_t){1920,2040,16,0,0};}\n')
     for name, source, defines in (("model", ROOT / "firmware/sim/tess_games_test.c", []),
-                                   ("touch", app_test, []), ("plush-touch", app_test, ["-DKUBIK_CHARACTER=0"])):
+                                   ("touch", app_test, []), ("plush-touch", app_test, ["-DKUBIK_CHARACTER=0"]),
+                                   ("c6-entry", ROOT / "firmware/sim/tess_sky_s3_entry_test.c", ["-DCONFIG_IDF_TARGET_ESP32S3=0"]),
+                                   ("s3-entry", ROOT / "firmware/sim/tess_sky_s3_entry_test.c", ["-DCONFIG_IDF_TARGET_ESP32S3=1"])):
         exe = temp / name
         subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra",
                         "-fsanitize=address,undefined", "-Ifirmware/main", *defines, str(source),
@@ -62,18 +64,16 @@ with tempfile.TemporaryDirectory(prefix="kubik-games-") as directory:
                     "-fsanitize=address,undefined", "-Ifirmware/main", "firmware/sim/tess_sky_physics_test.c",
                     "firmware/main/tess_sky_stream.c", "-lm", "-o", str(physics)], cwd=ROOT, check=True)
     subprocess.run([str(physics)], cwd=ROOT, check=True)
-    # Skies: deterministic, on the scale, solvable by real input, and not completed without action.
-    sky = temp / "sky"
-    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-Ifirmware/main",
-                    "firmware/sim/tess_sky_test.c", "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",
-                    "-lm", "-o", str(sky)], cwd=ROOT, check=True)
-    subprocess.run([str(sky), "40"], cwd=ROOT, check=True)
-    relay = temp / "relay"
-    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-                    "-fsanitize=address,undefined", "-Ifirmware/main", "firmware/sim/tess_sky_relay_test.c",
-                    "firmware/main/tess_sky_stream.c", "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",
-                    "-lm", "-o", str(relay)], cwd=ROOT, check=True)
-    subprocess.run([str(relay)], cwd=ROOT, check=True)
+    # Both viewports: real input solves the catalog, while passive skies stay unfinished.
+    for target in (0, 1):
+        for source, args in (("tess_sky_test", ["40"]), ("tess_sky_relay_test", [])):
+            exe = temp / f"{source}-{target}"
+            subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                            "-fsanitize=address,undefined", "-Ifirmware/main", f"-DCONFIG_IDF_TARGET_ESP32S3={target}",
+                            f"firmware/sim/{source}.c", "firmware/main/tess_sky_stream.c",
+                            "firmware/main/tess_sky_compose.c", "firmware/main/tess_sky_plan.c",
+                            "-lm", "-o", str(exe)], cwd=ROOT, check=True)
+            subprocess.run([str(exe), *args], cwd=ROOT, check=True)
     # Skies: the ending melody visits every star, stays singable and comes home to the tonic.
     melody = temp / "melody"
     subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",

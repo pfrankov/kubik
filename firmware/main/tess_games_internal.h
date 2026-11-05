@@ -3,8 +3,8 @@
 #pragma once
 #include "tess_internal.h"
 
-#define GAME_CX 240.f
-#define GAME_CY 255.f
+#define GAME_CX TESS_CX
+#define GAME_CY TESS_CY
 
 // Discoveries: one per behaviour she can be played into.
 enum { BIT_PLUCK, BIT_ECHO, BIT_BLOOM, BIT_TWANG, BIT_BOUNCE, BIT_GATHERED };

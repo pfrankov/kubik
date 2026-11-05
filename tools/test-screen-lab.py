@@ -27,10 +27,12 @@ assert device_names == firmware_names, "Device Screen Lab catalog differs from f
 
 sources = runpy.run_path(str(ROOT / "tools/test-frames.py"))["SOURCES"]
 sources = [item for item in sources if not item.startswith("sim/")]
-sources += ["main/screen_lab", "main/screen_lab_events", "main/screen_lab_fixture", "main/screen_lab_draw", "sim/screen_lab_test"]
+sources += ["main/screen_lab", "main/screen_lab_events", "main/screen_lab_fixture", "main/screen_lab_draw"]
 with tempfile.TemporaryDirectory(prefix="kubik-screen-lab-") as directory:
-    output = Path(directory) / "test"
-    subprocess.run(["cc", "-O1", "-g", "-fsanitize=address,undefined", "-Ifirmware/main",
-                    "-Ifirmware/managed_components/espressif__qrcode",
-                    *[f"firmware/{item}.c" for item in sources], "-lm", "-o", str(output)], cwd=ROOT, check=True)
-    subprocess.run([str(output)], cwd=ROOT, check=True)
+    for fixture, target in (("screen_lab_test", 0), ("screen_lab_rectangle_test", 1)):
+        output = Path(directory) / fixture
+        subprocess.run(["cc", "-O1", "-g", "-fsanitize=address,undefined", "-Ifirmware/main",
+                        "-Ifirmware/managed_components/espressif__qrcode", f"-DCONFIG_IDF_TARGET_ESP32S3={target}",
+                        *[f"firmware/{item}.c" for item in sources], f"firmware/sim/{fixture}.c",
+                        "-lm", "-o", str(output)], cwd=ROOT, check=True)
+        subprocess.run([str(output)], cwd=ROOT, check=True)

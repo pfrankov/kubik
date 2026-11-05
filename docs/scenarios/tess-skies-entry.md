@@ -1,4 +1,7 @@
-# Скрытый запуск Skies
+# Скрытый запуск Skies на C6
+
+На C6 доступен двухконтактный жест. Для S3 1.8 V2 с одноконтактным CST820
+действуют [BRD-06 и BRD-07](hardware.md).
 
 Связано: [игра Skies](tess-skies.md), [игры Tess](tess-games.md),
 [сеть и сон](power-network.md).

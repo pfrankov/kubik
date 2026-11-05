@@ -96,7 +96,7 @@ void sim_render_reset(void) { rs = (render_state_t){0}; memset(fb, 0, sizeof fb)
 
 void sim_emit_frame(void) {
     static unsigned char row[PANEL_W * 3];
-    for (int y = 0; y < PANEL_H; y++) {
+    for (int y = 0; y < UI_H; y++) {
         for (int x = 0; x < PANEL_W; x++) sim_to_rgb(panel[y][x], row + x * 3);
         fwrite(row, 1, sizeof(row), stdout);
     }

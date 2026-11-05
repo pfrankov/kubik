@@ -1,4 +1,5 @@
 #include "ui_text.h"
+#include "device_controls.h"
 
 static const char *const k_en[STR_COUNT] = {
     [STR_NOT_HEARD] = "Didn’t catch that",
@@ -6,7 +7,7 @@ static const char *const k_en[STR_COUNT] = {
     [STR_NO_ANSWER] = "No answer",
     [STR_OPENCLAW_OFFLINE] = "Agent offline",
     [STR_WAITING_FOR_TIME] = "Waiting for network time",
-    [STR_HOLD_TO_TALK] = "Hold the button to talk",
+    [STR_HOLD_TO_TALK] = KUBIK_TALK_INSTRUCTION,
     [STR_ADD_TO_OPENCLAW] = "Connect agent adapter",
     [STR_NOT_ALLOWED] = "Not allowed",
     [STR_SERVER_KEY_CHANGED] = "Server key changed",

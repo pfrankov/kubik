@@ -11,13 +11,42 @@
 #include "esp_system.h"
 #include "freertos/task.h"
 #include "ui_text.h"
+#include "device_controls.h"
+#include "muse_pair.h"
 
 static const char *TAG = "app";
 
+static bool boot_home_voice(void) {
+#if KUBIK_VOICE_BUTTON_IS_BOOT
+    face_lock();
+    bool sky_ended = KUBIK_CHARACTER == CHARACTER_TESS && tess_games_end_sky(&g_face);
+    bool card = g_face.card_n || g_face.card_hold;
+    if (!sky_ended && card) face_card(&g_face, NULL);
+    face_unlock();
+    if (sky_ended || card) return true;
+    if (!s_online || s_pair_code[0]) return false;
+    ptt_tap();
+    return true;
+#else
+    return false;
+#endif
+}
+static bool boot_special_voice(void) {
+#if KUBIK_VOICE_BUTTON_IS_BOOT
+    if (muse_pair_confirm_button()) return true;
+    if (!app_voice_live_active()) return false;
+    ptt_tap();
+    return true;
+#else
+    return false;
+#endif
+}
 static void handle_boot_short(void) {
     if (power_is_dark(s_power)) return;
     wake(false);
-    if (s_setup) {
+    if (boot_special_voice()) {
+        // GPT Live stop and Muse physical confirmation use the shared talk button.
+    } else if (s_setup) {
         setup_leave();
         audio_sfx(SFX_MENU_CLOSE);
     } else if (s_pair_code[0] && !s_pair_hidden) {
@@ -27,6 +56,8 @@ static void handle_boot_short(void) {
         menu_back();
     } else if (app_offline_play_button()) {
         // BOOT assembles offline points into an explicit, interactive local toy.
+    } else if (boot_home_voice()) {
+        // S3: card/Skies Back takes precedence; otherwise a short BOOT is a complete talk press.
     } else {
         face_lock();
         if (KUBIK_CHARACTER != CHARACTER_TESS || !tess_games_end_sky(&g_face)) face_card(&g_face, NULL);

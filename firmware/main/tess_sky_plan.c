@@ -20,7 +20,7 @@ static void turn(float *x, float *y, unsigned quarters) {
     for (unsigned i = 0; i < quarters; i++) { float old = *x; *x = -*y; *y = old; }
 }
 static void position(float x, float y, unsigned quarters, float *out_x, float *out_y) {
-    x -= 240; y -= 240; turn(&x, &y, quarters); *out_x = x + 240; *out_y = y + 240;
+    x -= 240; y -= 240; turn(&x, &y, quarters); *out_x = x + 240; *out_y = y + UI_CY;
 }
 const char *sky_constellation_name(const sky_world_t *w) {
     const chart_t *c = chart(w);
@@ -36,10 +36,14 @@ static uint8_t choose_chart(const sky_recipe_t *r) {
     if (r->elements <= SKY_CHARTS) return r->elements ? r->elements : 1;
     return (uint8_t)(1 + r->solved % SKY_CHARTS);
 }
+static float free_y(float y) {
+    return UI_CY + (y - UI_CY) * (UI_H - 2 * SKY_MARGIN) / (UI_W - 2 * SKY_MARGIN);
+}
 static void place_holes(sky_world_t *w) {
     for (int i = 0; i < w->count_holes; i++) {
         sky_hole_t *h = &w->hole[i];
         position(i ? 390 : 90, i ? 390 : 90, w->turn, &h->x, &h->y);
+        if (!w->chart) h->y = free_y(h->y);
         h->r = 112; h->spin = i ? -1 : 1;
     }
 }
@@ -49,6 +53,7 @@ void sky_place_chart(sky_world_t *w, const sky_recipe_t *r) {
     w->kind = r->aurora ? SKY_AURORA : r->elements == 1 ? SKY_POUR : SKY_PUZZLE;
     position(50, 240, w->turn, &w->source.x, &w->source.y);
     w->source.dx = 1; turn(&w->source.dx, &w->source.dy, w->turn);
+    if (!w->chart) w->source.y = free_y(w->source.y);
     w->source.speed = 120;
     const chart_t *c = chart(w);
     w->count_stars = c ? c->stars : 1;
@@ -56,6 +61,7 @@ void sky_place_chart(sky_world_t *w, const sky_recipe_t *r) {
     for (int i = 0; i < w->count_stars; i++) {
         sky_star_t *s = &w->star[i];
         position(c ? c->star[i].x : 50, c ? c->star[i].y : 240, w->turn, &s->x, &s->y);
+        if (!w->chart) s->y = free_y(s->y);
         s->ax = s->x; s->ay = s->y;
         s->size = c ? c->star[i].size : 0;
     }

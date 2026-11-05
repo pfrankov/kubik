@@ -2,9 +2,11 @@
 // Physical Agent UI regression through USB control. No recording or inference calls.
 // Opt-in selections change only device settings, never invoke a model, and restore the original.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
 import { assertIdleCapture } from './test-device/diagnostics.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 const url = process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
+let g;
 const select = process.argv.includes('--select');
 const voiceSelect = process.argv.includes('--voice-select');
 const modeSelect = process.argv.includes('--mode-select');
@@ -34,7 +36,7 @@ function preserved(s, original) {
 async function openAgent() {
   let s=await info(); if(s.screen_dark){await sim('pwr'); await sleep(200)}
   s=await info(); if(s.menu){await sim('menu');await sleep(200)}
-  await sim('menu');await sleep(550); await tap(356,144);
+  await sim('menu');await sleep(550); await tap(356,g.settingsAgent);
   return until(s=>s.agent_open&&s.agent_view==='overview'&&s.agent_status==='ready'&&s.agent_model, 'Agent overview');
 }
 async function dragRejected(original,x,y) {
@@ -62,37 +64,37 @@ async function fullList() {
 async function moveTo(index) {
   for(let i=0;i<40;i++) {
     const y=ROW_Y(index)-(await info()).agent_scroll;
-    if(y>=130&&y<=420) return y;
-    await flick(y>420?400:200, y>420?220:380);
+    if(y>=130&&y<=g.listY(420)) return y;
+    await flick(y>g.listY(420)?g.listY(400):200, y>g.listY(420)?220:g.listY(380));
   }
   throw Error(`row ${index} not reachable`);
 }
 async function browse(original) {
-  await dragRejected(original,127,196); await dragRejected(original,353,196);
+  await dragRejected(original,127,g.agentModel); await dragRejected(original,353,g.agentModel);
   const modes = await voiceModes();
-  await tap(240, 144 + ['classic','realtime','live'].indexOf(modes.voice_mode) * 124);
+  await tap(240, g.modeRow(['classic','realtime','live'].indexOf(modes.voice_mode)));
   if (modes.voice_mode === 'classic') {
     await until(s=>s.agent_view==='classic'&&s.agent_status==='ready','STT settings');
-    for (const [target,y] of [['stt',214],['tts',366]]) {
+    for (const [target,y] of [['stt',g.recognition],['tts',g.speech]]) {
       await tap(240,y); await until(s=>s.agent_view==='models'&&s.agent_target===target&&s.agent_status==='ready',`${target} models`);
       await sim('boot'); await until(s=>s.agent_view==='classic'&&s.agent_status==='ready','BOOT to STT settings');
     }
   } else await until(s=>s.agent_view==='models'&&s.agent_target==='voice'&&s.agent_status==='ready','shared voice models');
   await backToAgent();
-  await tap(240,196);let s=await until(s=>s.agent_view==='models'&&s.agent_status==='ready','model picker');
+  await tap(240,g.agentModel);let s=await until(s=>s.agent_view==='models'&&s.agent_status==='ready','model picker');
   s=await fullList(); const ids=[...s.agent_models];
   assert.equal(ids.length,s.agent_listed); preserved(s,original);
   if(ids.length>5) {
     const top=await settled(); assert.equal(top,0);
-    const first=await flick(400,150); assert.ok(first>0,'drag scrolls the list');
-    for(let i=0;i<8;i++) await flick(150,420);
+    const first=await flick(g.listY(400),150); assert.ok(first>0,'drag scrolls the list');
+    for(let i=0;i<8;i++) await flick(150,g.listY(420));
     assert.equal(await settled(),0,'list stops at the first row');
     // A short drag released at speed keeps gliding: far past where the finger left it.
-    await sim('drag',{x:240,y:400,first:true}); await sim('drag',{x:240,y:384}); await sleep(40);
-    await sim('drag',{x:240,y:350}); await sleep(40); await sim('drag',{x:240,y:316});
-    await sim('drag',{x:240,y:316,last:true}); const atRelease=(await info()).agent_scroll;
+    await sim('drag',{x:240,y:g.listY(400),first:true}); await sim('drag',{x:240,y:g.listY(384)}); await sleep(40);
+    await sim('drag',{x:240,y:g.listY(350)}); await sleep(40); await sim('drag',{x:240,y:g.listY(316)});
+    await sim('drag',{x:240,y:g.listY(316),last:true}); const atRelease=(await info()).agent_scroll;
     const glided=await settled(); assert.ok(glided>atRelease+30,'list keeps coasting after release');
-    for(let i=0;i<8;i++) await flick(150,420);
+    for(let i=0;i<8;i++) await flick(150,g.listY(420));
     assert.equal(await settled(),0,'list stops at the first row');
   }
   await dragRejected(original,127,164);
@@ -112,7 +114,7 @@ async function roundTrip(originalModel,ids) {
   finally {await choose(originalModel,ids);console.log('PASS original paired-session model restored')}
 }
 async function voiceModes() {
-  await tap(240,350);
+  await tap(240,g.agentVoice);
   return until(s=>s.agent_view==='voice_modes'&&s.agent_target==='mode'&&s.agent_status==='ready','voice modes');
 }
 async function backToAgent() {
@@ -124,7 +126,7 @@ async function backToAgent() {
 }
 async function voicePicker() {
   const modes=await voiceModes();
-  await tap(240,144+['classic','realtime','live'].indexOf(modes.voice_mode)*124);
+  await tap(240,g.modeRow(['classic','realtime','live'].indexOf(modes.voice_mode)));
   return until(s=>s.agent_view==='models'&&s.agent_target==='voice'&&s.agent_status==='ready','native voice models');
 }
 async function voiceRoundTrip(agentModel) {
@@ -147,7 +149,7 @@ async function voiceRoundTrip(agentModel) {
 async function chooseMode(mode) {
   await openAgent(); const modes=await voiceModes();
   const index=modes.agent_models.indexOf(mode); assert.ok(index>=0,`Missing mode ${mode}`);
-  await tap(240,144+index*124);
+  await tap(240,g.modeRow(index));
   const s=await until(s=>s.voice_mode===mode&&s.agent_status==='ready'&&
     s.agent_view===(mode==='classic'?'classic':'models'),'mode saved and relevant settings opened');
   assertIdleCapture(s); return s;
@@ -156,7 +158,7 @@ async function modeRoundTrip(original) {
   try {
     await openAgent(); const before=await voiceModes();
     const target=original.voice_mode==='live'?'realtime':'live';
-    await sim('tap',{x:240,y:144+before.agent_models.indexOf(target)*124});
+    await sim('tap',{x:240,y:g.modeRow(before.agent_models.indexOf(target))});
     await sim('boot');
     await until(s=>s.agent_view==='overview'&&s.agent_status==='ready'&&s.voice_mode===target,'BOOT during mode save');
     console.log('PASS immediate BOOT during save; parent catalog recovers without Busy');
@@ -169,6 +171,7 @@ async function modeRoundTrip(original) {
 }
 async function main() {
   const original=await until(s=>s.online&&s.key,'initialized paired device');
+  g=deviceGeometry(original);
   try {
     const loaded=await openAgent();
     if(modeSelect) await modeRoundTrip(loaded);
@@ -182,8 +185,8 @@ async function main() {
     await sim('boot');const end=await until(s=>!s.agent_open&&s.menu,'back to device settings');
     preserved(end,original);
     // Contrasting case: the underlying settings slider still responds to a drag.
-    const y=original.volume>=50?300:180;
-    await sim('drag',{x:72,y:226,first:true});
+    const y=g.slider(original.volume>=50?300:180);
+    await sim('drag',{x:72,y:g.sliderCenter,first:true});
     await sim('drag',{x:72,y});await tap(72,y);
     assert.notEqual((await info()).volume,original.volume);
     await control({cmd:'set',volume:original.volume});await sim('menu');

@@ -3,9 +3,10 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include "viewport.h"
 
 #define CANVAS_W 240
-#define CANVAS_H 240
+#define CANVAS_H (UI_RENDER_H / 2)
 
 typedef struct { int x0, y0, x1, y1; } canvas_rect_t; // exclusive end
 

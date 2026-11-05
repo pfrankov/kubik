@@ -22,6 +22,7 @@
 // then a physical voice turn; combine with --skip-voice for geometry/FPS alone.
 // Full reset also changes the device key and requires new pairing; this non-destructive suite never performs it.
 import fs from 'node:fs';
+import {deviceGeometry} from './test-device/geometry.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { frameVerdict } from './test-device/frames.mjs';
@@ -48,7 +49,8 @@ const KEY_TO_SCREEN_MS = 50;
 const REPLY_LATENCY_MS = 8000;  // ptt_up -> speech header received; PCM timing is measured by the server
 const MODE = { idle: 1, listening: 2, thinking: 3, speaking: 4, offline: 7 };  // face_mode_t
 const CARD = 'Погода в Москве сегодня облачно, плюс двенадцать градусов, к вечеру возможен небольшой дождь.';
-const MENU_TILE = { volume: [72, 226], brightness: [188, 226], reset: [240, 428] };
+let g;
+const menuTile = tile => ({volume:[72,g.sliderCenter],brightness:[188,g.sliderCenter],reset:[240,g.footer]})[tile];
 const LIVE = process.env.KUBIK_TEST_LIVE === '1';  // voice turns against the real server: they spend money
 const MOCK_PORT = Number(process.env.KUBIK_TEST_MOCK_PORT || 18999);
 const MOCK_HOLD_MS = 240000;  // the longest the Wi-Fi session stays paused (the test releases it earlier)
@@ -172,9 +174,9 @@ const SCREENS = [
   // Tess's moods: each held for a window (forced by the hook, which also keeps it from fading), and the worst stacks: the colours,
   // the camera and the dots' own effects on top of a rub with a finger, a burst, a fling.
   ...MOODS.map((mood) => ({ name: `mood ${mood}`, only: 'Tess', enter: () => setMood(mood), leave: () => setMood('calm'), settle: 600, window: 3000, after: 300 })),
-  { name: 'loved + rub + finger', active: true, only: 'Tess', enter: () => stacked('loved', [['rub', { ms: 7000 }], ['pet', { x: 240, y: 255 }, 2500]]), leave: () => setMood('calm'), settle: 200, window: 6500, after: 4500 },
-  { name: 'scared + burst', active: true, only: 'Tess', enter: () => stacked('scared', [['shake', { x: 240, y: 255 }]]), leave: () => setMood('calm'), settle: 100, window: 3600, after: 3000 },
-  { name: 'playful + fling', active: true, only: 'Tess', enter: () => stacked('playful', [['rub', { ms: 3000 }], ['tap', { x: 240, y: 255 }, 3200]]), leave: () => setMood('calm'), settle: 200, window: 4500, after: 3000 },
+  { name: 'loved + rub + finger', active: true, only: 'Tess', enter: () => stacked('loved', [['rub', { ms: 7000 }], ['pet', { x: 240, y: g.tessY }, 2500]]), leave: () => setMood('calm'), settle: 200, window: 6500, after: 4500 },
+  { name: 'scared + burst', active: true, only: 'Tess', enter: () => stacked('scared', [['shake', { x: 240, y: g.tessY }]]), leave: () => setMood('calm'), settle: 100, window: 3600, after: 3000 },
+  { name: 'playful + fling', active: true, only: 'Tess', enter: () => stacked('playful', [['rub', { ms: 3000 }], ['tap', { x: 240, y: g.tessY }, 3200]]), leave: () => setMood('calm'), settle: 200, window: 4500, after: 3000 },
 ];
 
 // The mood at once, then each of the touches [event, arguments, ms later (0: now)].
@@ -188,7 +190,7 @@ async function stacked(mood, touches) {
 
 async function touches() {
   for (const ev of ['tap', 'tap', 'tap', 'tap', 'tap', 'tap', 'shake', 'pet']) {
-    await sim(ev, { x: 240, y: 255 });
+    await sim(ev, { x: 240, y: g.tessY });
     await sleep(300);
   }
 }
@@ -199,7 +201,7 @@ async function measureBurst(character) {
   await sim('mode', { mode: MODE.idle, ms: 0 });
   await sleep(3000);
   const start = await beginWindow();
-  await sim('shake', { x: 240, y: 255 });
+  await sim('shake', { x: 240, y: g.tessY });
   await sleep(3600);
   judgeFrames(`${character} hard shake burst`, await endWindow(start), 'reaction');
   await sleep(3000);
@@ -269,7 +271,7 @@ async function closeMenu() {
   return waitForLine(/settings menu closed/, from);
 }
 async function tapTile(tile) {
-  await sim('tap', { x: MENU_TILE[tile][0], y: MENU_TILE[tile][1] });
+  await sim('tap', { x: menuTile(tile)[0], y: menuTile(tile)[1] });
   await sleep(500);
 }
 
@@ -281,11 +283,11 @@ async function menuWalk(original) {
   await tapTile('volume');
   const moved = await device({ cmd: 'info' });
   check('menu volume tile sets the volume', moved.volume !== volume, `${volume} -> ${moved.volume}`);
-  await sim('drag', { x: 72, y: 226, first: true });
-  await sim('hold', { x: 72, y: 226 });
+  await sim('drag', { x: 72, y: g.sliderCenter, first: true });
+  await sim('hold', { x: 72, y: g.sliderCenter });
   const sound = await waitForDeviceState(() => device({cmd:'info'}), s => s.sound_menu === true, 'Sound after volume hold');
   check('volume hold opens Sound', sound.sound_menu === true);
-  await sim('tap', { x: 348, y: 300 });
+  await sim('tap', { x: 348, y: g.slider(300) });
   const split = await waitForDeviceState(() => device({cmd:'info'}), s => s.ui_volume !== sound.ui_volume, 'Interface slider change');
   check('interface slider is independent', split.ui_volume !== sound.ui_volume && split.volume === sound.volume);
   await sim('boot'); await sleep(250);
@@ -457,6 +459,7 @@ async function main() {
     console.error(`Cannot reach the bridge at ${CONTROL} (${e.message}). Start it:\n  nohup node tools/usb-bridge/bridge.mjs --port /dev/cu.usbmodem101 > ${LOG} 2>&1 &`);
     process.exit(2);
   }
+  g=deviceGeometry(original);
   requireCharacter(original.character);
   check('device online through the bridge', original.ok && (original.online || VOICE_ONLY), `${original.device} fw ${original.fw} via ${original.via}`);  // voice-only: the mock is not up yet
   check('bridge log readable', fs.existsSync(LOG), LOG);

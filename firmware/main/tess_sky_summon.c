@@ -1,4 +1,7 @@
 #include "tess_sky_play.h"
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
 
 // A quiet invitation lives on one of Tess's own vertices. It never leaves her body.
 #define INVITE_CHANCE .55f
@@ -9,7 +12,7 @@
 #define ROCK_GAP_S 1.4f        // swings come at least this close together
 #define ROCK_SWINGS 3
 #define RAISED_G .7f           // raised from flat: gravity along the glass is over this (an answer, like a touch)
-#define CORNER_PX 100          // generous corner squares on the 480 px glass
+#define CORNER_PX 100          // generous corner squares on the logical glass
 #define HOLD_S 1.5f
 
 static bool inviting(const tess_games_t *g) { return g->sky_invite_t > 0; }
@@ -19,24 +22,32 @@ static bool free_to_ask(const face_t *f) {
     return available(f) && f->tess_hold[TR_SCATTER] <= 0 && f->tess_points_ready && lying(f);
 }
 static int corner(const touch_point_t *p) {
-    if (!p->down || p->x < 0 || p->x >= 480 || p->y < 0 || p->y >= 480) return -1;
-    int x = p->x < CORNER_PX ? 0 : p->x >= 480 - CORNER_PX ? 1 : -1;
-    int y = p->y < CORNER_PX ? 0 : p->y >= 480 - CORNER_PX ? 1 : -1;
+    if (!p->down || p->x < 0 || p->x >= UI_W || p->y < 0 || p->y >= UI_H) return -1;
+    int x = p->x < CORNER_PX ? 0 : p->x >= UI_W - CORNER_PX ? 1 : -1;
+    int y = p->y < CORNER_PX ? 0 : p->y >= UI_H - CORNER_PX ? 1 : -1;
     return x < 0 || y < 0 ? -1 : x + 2 * y;
 }
-static uint32_t diagonal_contacts(const touch_frame_t *in) {
+static uint32_t hold_contacts(const touch_frame_t *in) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    // The 1.8 V2 CST820 reports one contact; its native corner hold takes ownership.
+    if (touch_count(in) != 1) return 0;
+    const touch_point_t *p = in->point[0].down ? &in->point[0] : &in->point[1];
+    int at = corner(p);
+    return at < 0 ? 0 : (uint32_t)(at + 1) << 16 | (uint32_t)p->id << 8 | p->id;
+#else
     const touch_point_t *a = &in->point[0], *b = &in->point[1];
     int ca = corner(a), cb = corner(b);
     if (ca < 0 || cb < 0 || (ca ^ cb) != 3 || a->id == b->id) return 0;
     if (ca > cb) { const touch_point_t *swap = a; a = b; b = swap; ca = cb; }
     return (uint32_t)(ca + 1) << 16 | (uint32_t)a->id << 8 | b->id;
+#endif
 }
 static bool hold_ready(const face_t *f) {
     unsigned game = f->tess_games.game;
     return tess_games_eligible(f) && !f->dimmed && f->tess_points_ready &&
         f->tess_hold[TR_SCATTER] <= 0 && (game == TESS_GAME_NONE || game == TESS_GAME_STRETCH);
 }
-// A corner chord takes over the first finger's stretch. Once interrupted it cannot become a sling,
+// A corner hold takes over the ordinary stretch. Once interrupted it cannot become a sling,
 // or restart on the same contacts: release the glass before trying again.
 static bool hold_corners(face_t *f, float dt) {
     tess_games_t *g = &f->tess_games;
@@ -45,7 +56,7 @@ static bool hold_corners(face_t *f, float dt) {
         return false;
     }
     if (g->sky_hold_owned && g->sky_hold_t < 0) return true;
-    uint32_t contacts = diagonal_contacts(&f->touch_in);
+    uint32_t contacts = hold_contacts(&f->touch_in);
     if (!hold_ready(f) || !contacts) {
         g->sky_hold_t = g->sky_hold_owned ? -1 : 0;
         return g->sky_hold_owned;
@@ -71,7 +82,7 @@ static void call_origin(face_t *f) {
     g->sky_call_vertex = 0;
     for (int i = 0; i < 16; i++) {
         float x = g->vertex_px[i][0], y = g->vertex_px[i][1];
-        if (x < 24 || x > 456 || y < 24 || y > 456) continue;
+        if (x < 24 || x > 456 || y < 24 || y > UI_H - 24) continue;
         float out = (x - SKY_CX) * c + (y - SKY_CY) * sn;
         if (out <= best) continue;
         best = out; g->sky_call_vertex = (uint8_t)i;

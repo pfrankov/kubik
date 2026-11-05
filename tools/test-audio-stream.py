@@ -34,6 +34,7 @@ mock = r'''
 #define MALLOC_CAP_INTERNAL 1
 #define MALLOC_CAP_8BIT 2
 #define MALLOC_CAP_RTCRAM 4
+#define MALLOC_CAP_SPIRAM 8
 #define portMAX_DELAY 1
 #define pdTRUE 1
 #define ESP_LOGW(...) ((void)0)
@@ -50,7 +51,7 @@ static bool probe_kick;
 static int xSemaphoreTake(SemaphoreHandle_t m, int timeout) { return (timeout ? pthread_mutex_lock(m) : pthread_mutex_trylock(m)) == 0; }
 static void xSemaphoreGive(SemaphoreHandle_t m) { assert(!pthread_mutex_unlock(m)); }
 static void *heap_caps_malloc(size_t bytes, int flags) {
-    assert(bytes==RING_BLOCK_BYTES && flags==((allocations%RING_BLOCKS < RING_BLOCKS*2/3 ? MALLOC_CAP_RTCRAM : MALLOC_CAP_INTERNAL)|MALLOC_CAP_8BIT));
+    assert(bytes==RING_BLOCK_BYTES && flags==(CONFIG_IDF_TARGET_ESP32S3 ? (MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT) : ((allocations%RING_BLOCKS < RING_BLOCKS*2/3 ? MALLOC_CAP_RTCRAM : MALLOC_CAP_INTERNAL)|MALLOC_CAP_8BIT)));
     if (allocations++ >= allocation_limit) return NULL;
     held++; return malloc(bytes);
 }
@@ -224,7 +225,8 @@ with tempfile.TemporaryDirectory(prefix="kubik-audio-stream-") as tmp:
     source = Path(tmp) / "audio.c"
     source.write_text(mock + state + reader + power_mock + doze + test)
     exe = Path(tmp) / "audio"
-    subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
-                    "-pthread", "-fsanitize=address,undefined", "-I", str(ROOT / "firmware/main"),
-                    str(source), "-o", str(exe)], check=True)
-    subprocess.run([str(exe)], check=True, timeout=10)
+    for s3 in (0, 1):
+        subprocess.run([os.environ.get("CC", "cc"), "-std=c11", f"-DCONFIG_IDF_TARGET_ESP32S3={s3}", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
+                        "-pthread", "-fsanitize=address,undefined", "-I", str(ROOT / "firmware/main"),
+                        str(source), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=10)

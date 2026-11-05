@@ -251,8 +251,8 @@ static bool sim_screen_hook(cJSON *j, const char *event) {
 static bool sim_drag_hook(cJSON *j, const char *event) {
     if (strcmp(event, "drag")) return false;
     cJSON *x = cJSON_GetObjectItem(j, "x"), *y = cJSON_GetObjectItem(j, "y");
-    if (!cJSON_IsNumber(x) || !cJSON_IsNumber(y) || x->valueint < 0 || x->valueint > 479 ||
-        y->valueint < 0 || y->valueint > 479) return false;
+    if (!cJSON_IsNumber(x) || !cJSON_IsNumber(y) || x->valueint < 0 || x->valueint >= UI_W ||
+        y->valueint < 0 || y->valueint >= UI_H) return false;
     bool first = cJSON_IsTrue(cJSON_GetObjectItem(j, "first"));
     bool last = cJSON_IsTrue(cJSON_GetObjectItem(j, "last"));
     app_post(EV_DRAG, x->valueint | (first ? 1 << 16 : 0) | (last ? 1 << 17 : 0), y->valueint);
@@ -284,7 +284,7 @@ static void config_sim(cJSON *j, char *reply, size_t cap) {
     bool found = event && sim_hook(j, event);
     for (size_t i = 0; event && i < sizeof(events) / sizeof(events[0]); i++) {
         if (!strcmp(event, events[i].name)) {
-            app_post(events[i].ev, cJSON_IsNumber(x) ? x->valueint : 240, cJSON_IsNumber(y) ? y->valueint : 240);
+            app_post(events[i].ev, cJSON_IsNumber(x) ? x->valueint : 240, cJSON_IsNumber(y) ? y->valueint : UI_CY);
             found = true;
         }
     }
@@ -426,6 +426,8 @@ static void config_info(char *reply, size_t cap) {
     status_json_integer(info, "cpu_mhz", esp_clk_cpu_freq() / 1000000);
     esp_pm_config_t clocks; ESP_ERROR_CHECK(esp_pm_get_configuration(&clocks));
     status_json_integer(info, "cpu_min_mhz", clocks.min_freq_mhz);
+    status_json_integer(info, "cpu_max_mhz", clocks.max_freq_mhz);
+    status_json_string(info, "chip", CONFIG_IDF_TARGET);
     status_json_bool(info, "screen_sleeping", power_is_asleep(s_power));
     status_json_integer(info, "idle_ms", now_ms() - s_last_activity);
     status_json_bool(info, "sfx_playing", audio_sfx_playing());
@@ -442,6 +444,8 @@ static void config_info(char *reply, size_t cap) {
     status_json_bool(info, "network_diagnostic", now_ms() < s_debug_network_until);
     status_json_bool(info, "cpu_light_sleep", power_light_sleep_enabled());
     status_json_integer(info, "heap", esp_get_free_heap_size());
+    status_json_integer(info, "heap_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    status_json_integer(info, "heap_dma", heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     status_json_integer(info, "heap_min", esp_get_minimum_free_heap_size());
     status_json_integer(info, "heap_failures", hp_allocation_failures());
     muse_state_t muse = muse_store_state();

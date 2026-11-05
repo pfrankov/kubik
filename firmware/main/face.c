@@ -1,3 +1,4 @@
+#include "device_controls.h"
 #include "face_internal.h"
 
 #include <math.h>
@@ -22,15 +23,15 @@ emotion_t face_emotion_from_name(const char *n) {
 
 static void draw_live_recording(const face_t *f, scene_t *s) {
     const uint32_t mint = 0x62E5C8, ink = 0x15171B;
-    sc_rbox(s, 240, 414, 170, 25, 25, 0, mint, 1);
-    sc_icon(s, ICON_MIC, 104, 414, 30, ink, 1);
-    sc_label(s, TXT_ACTION, "Listening", 130, 414, -1, ink, 1);
+    sc_rbox(s, 240, UI_H - 66, 170, 25, 25, 0, mint, 1);
+    sc_icon(s, ICON_MIC, 104, UI_H - 66, 30, ink, 1);
+    sc_label(s, TXT_ACTION, "Listening", 130, UI_H - 66, -1, ink, 1);
     // Level bars stay visible in silence; only measured microphone energy moves them.
     static const float weights[] = {.45f, .7f, .9f, 1.f, .9f, .7f, .45f};
     float level = f->mic_level;
     for (int i = 0; i < 7; i++) {
         float half_height = 1 + 12 * clampf(level, 0, 1) * weights[i];
-        sc_rbox(s, 314 + i * 10, 414, 2.5f, half_height, 1, 0, ink, .85f);
+        sc_rbox(s, 314 + i * 10, UI_H - 66, 2.5f, half_height, 1, 0, ink, .85f);
     }
 }
 
@@ -44,10 +45,10 @@ static void draw_live_status(const face_t *f, scene_t *s) {
         int icon = !f->live_ready ? ICON_PLUG :
                    f->mode == MODE_SPEAKING ? ICON_AUDIO_LINES : ICON_BRAIN;
         float left = 240 - (label_width(TXT_ACTION, status) + 42) * .5f;
-        sc_icon(s, icon, left + 15, 414, 30, gold, 1);
-        sc_label(s, TXT_ACTION, status, left + 42, 414, -1, gold, 1);
+        sc_icon(s, icon, left + 15, UI_H - 66, 30, gold, 1);
+        sc_label(s, TXT_ACTION, status, left + 42, UI_H - 66, -1, gold, 1);
     }
-    sc_label(s, TXT_ACTION, "KEY to end", 240, 452, 0, ink, .8f);
+    sc_label(s, TXT_ACTION, KUBIK_VOICE_BUTTON " to end", 240, UI_H - 28, 0, ink, .8f);
 }
 
 static void draw_menu_screen(face_t *f, scene_t *s) {
@@ -85,7 +86,7 @@ void face_init(face_t *f) {
     f->sent_t = -1;
     f->pickup_t = -1;
     f->scr_cx = 240;
-    f->scr_cy = 200;
+    f->scr_cy = 200 + FACE_Y_OFFSET;
     f->scr_hw = 80;
     f->scr_hh = 68;
     f->scr_vis = 1;
@@ -197,6 +198,8 @@ static void face_tap(face_t *f, float x, float y) {
             f->body.req = f->body.req == BA_JOY ? -1 : f->body.req;  // no full jump for a tickle
             return;
         }
+    } else {
+        y -= FACE_Y_OFFSET;
     }
     float ey = f->cur.v[P_EY];
     float sep = f->cur.v[P_SEP] * 0.5f;
@@ -214,7 +217,7 @@ static void face_tap(face_t *f, float x, float y) {
             f->body.req = -1;  // joy face + hop, keep the body
             f->hop_v -= 80;
         } else {
-            face_spawn(f, 1, x, y);
+            face_spawn(f, 1, x, y + FACE_Y_OFFSET);
         }
     }
     f->look_tx = clampf((x - CX) * 0.12f, -26, 26);

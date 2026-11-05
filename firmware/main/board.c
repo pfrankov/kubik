@@ -4,7 +4,13 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "esp_lcd_touch_cst816s.h"
+#include "display_s3.h"
+#include "display_te_s3.h"
+#else
 #include "esp_lcd_touch_cst9217.h"
+#endif
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -28,6 +34,32 @@ static spi_transaction_ext_t s_lcd_trans[LCD_TRANS];
 #define LCD_TRANS_COMMAND ((void *)2)
 static bool s_lcd_stream, s_lcd_first, s_lcd_held;  // held: an ended window may still be in flight
 static unsigned s_lcd_next;
+
+#if CONFIG_IDF_TARGET_ESP32S3
+static i2c_master_dev_handle_t s_expander;
+static void expander_output(uint8_t value) {
+    const uint8_t data[] = {0x01, value};
+    ESP_ERROR_CHECK(i2c_master_transmit(s_expander, data, sizeof(data), 100));
+}
+static void expander_init(void) {
+    const i2c_device_config_t cfg = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = 0x20, .scl_speed_hz = 400000};
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(g_i2c_bus, &cfg, &s_expander));
+    const uint8_t config[] = {0x03, 0x78};  // LCD reset, DSI power, TP reset, SD CS outputs.
+    ESP_ERROR_CHECK(i2c_master_transmit(s_expander, config, sizeof(config), 100));
+    expander_output(0x80);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    expander_output(0x87);
+    vTaskDelay(pdMS_TO_TICKS(150));
+}
+#endif
+bool board_key_down(void) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    return false;  // 1.8 V2 has BOOT/PWR only; EXIO4 is inverted PWRON, not KEY.
+#else
+    return !gpio_get_level(PIN_KEY);
+#endif
+}
 
 // ---------------------------------------------------------------- AXP2101
 
@@ -64,18 +96,28 @@ static void pmic_init(void) {
     // From off, only a hold longer than 2 s turns DCDC/LDO back on. A short press does not.
     axp_write(0x22, 0b110);
     axp_write(0x27, 0x23);
-    // DC1 = 3.3 V (MCU), ALDO1..4 = 3.3 V (mic bias, display power enable, panel, sensors).
+    // DC1 = 3.3 V (MCU). S3 powers only MIC bias through ALDO1;
+    // its CO5300 panel is reset by the I/O expander, not the C6 ALDO3 rail.
     axp_write(0x80, 0x01);
     axp_write(0x82, (3300 - 1500) / 100);
     axp_write(0x92, (3300 - 500) / 100);
+#if !CONFIG_IDF_TARGET_ESP32S3
     axp_write(0x93, (3300 - 500) / 100);
     axp_write(0x94, (3300 - 500) / 100);
     axp_write(0x95, (3300 - 500) / 100);
     axp_write(0x90, 0x0F);
-    // Charger: 4.2 V, 500 mA, 50 mA precharge, 25 mA termination.
-    axp_write(0x64, 0x03);
+#else
+    axp_write(0x90, 0x01);
+#endif
+    // Preserve each board BSP charger profile; 50 mA precharge, 25 mA termination.
+#if CONFIG_IDF_TARGET_ESP32S3
+    axp_write(0x64, 0x02);  // 4.1 V
+    axp_write(0x62, 0x08);  // 200 mA (BSP register value)
+#else
+    axp_write(0x64, 0x03);  // 4.2 V
+    axp_write(0x62, 0x0B);  // 500 mA
+#endif
     axp_write(0x61, 0x02);
-    axp_write(0x62, 0x0B);
     axp_write(0x63, 0x01);
     // Battery detection, voltage ADC and fuel gauge.
     axp_set_bits(0x68, 0x01, true);
@@ -119,7 +161,9 @@ int pmic_pwr_keys(void) {
 
 void pmic_power_off(void) { axp_set_bits(0x10, 0x01, true); }
 
+#if !CONFIG_IDF_TARGET_ESP32S3
 static void aldo3(bool on) { axp_set_bits(0x90, 0x04, on); }
+#endif
 
 // ---------------------------------------------------------------- Display
 
@@ -130,19 +174,31 @@ static const struct {
     uint16_t delay_ms;
 } lcd_init_cmds[] = {
     {0x11, (uint8_t[]){0x00}, 0, 120},
+#if !CONFIG_IDF_TARGET_ESP32S3
     {0xFE, (uint8_t[]){0x20}, 1, 0},
     {0x19, (uint8_t[]){0x10}, 1, 0},
     {0x1C, (uint8_t[]){0xA0}, 1, 0},
+#endif
     {0xFE, (uint8_t[]){0x00}, 1, 0},
     {0xC4, (uint8_t[]){0x80}, 1, 0},
     {0x3A, (uint8_t[]){0x55}, 1, 0},
     {0x35, (uint8_t[]){0x00}, 1, 0},
+#if CONFIG_IDF_TARGET_ESP32S3
+    {0x36, (uint8_t[]){0x00}, 1, 0},  // CO5300: RGB, native orientation
+    {0x44, (uint8_t[]){0x00, 0x00}, 2, 0},  // TE high only during the vertical porch.
+#else
     {0x36, (uint8_t[]){0x30}, 1, 0},
+#endif
     {0x53, (uint8_t[]){0x20}, 1, 0},
     {0x51, (uint8_t[]){0x00}, 1, 0},
     {0x63, (uint8_t[]){0xFF}, 1, 0},
+#if CONFIG_IDF_TARGET_ESP32S3
+    {0x2A, (uint8_t[]){0x00, 0x10, 0x01, 0x7F}, 4, 0},
+    {0x2B, (uint8_t[]){0x00, 0x00, 0x01, 0xBF}, 4, 0},
+#else
     {0x2A, (uint8_t[]){0x00, 0x00, 0x01, 0xDF}, 4, 0},
     {0x2B, (uint8_t[]){0x00, 0x00, 0x01, 0xDF}, 4, 0},
+#endif
     {0x29, (uint8_t[]){0x00}, 0, 20},
 };
 
@@ -172,7 +228,7 @@ static void display_init(void) {
         .data1_io_num = PIN_LCD_D1,
         .data2_io_num = PIN_LCD_D2,
         .data3_io_num = PIN_LCD_D3,
-        .max_transfer_sz = LCD_W * LCD_STRIPE_MAX_ROWS * 2,
+        .max_transfer_sz = PANEL_W * LCD_STRIPE_MAX_ROWS * 2,
     };
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO));
     spi_device_interface_config_t dev = {
@@ -202,28 +258,38 @@ void display_panel_refresh(void) {
 // Panel power cycle, register sequence and a black frame. Also recovers a panel that stopped taking frames.
 void display_panel_init(void) {
     // Preserve the manufacturer's panel power and register sequence.
+#if CONFIG_IDF_TARGET_ESP32S3
+    expander_output(0x86);  // LCD reset only; keep touch, display power and SD high.
+    vTaskDelay(pdMS_TO_TICKS(20));
+    expander_output(0x87);
+    vTaskDelay(pdMS_TO_TICKS(150));
+#else
     aldo3(true);
     vTaskDelay(pdMS_TO_TICKS(50));
     aldo3(false);
     vTaskDelay(pdMS_TO_TICKS(100));
     aldo3(true);
     vTaskDelay(pdMS_TO_TICKS(100));
+#endif
     for (unsigned i = 0; i < sizeof(lcd_init_cmds) / sizeof(lcd_init_cmds[0]); i++) {
         lcd_param(lcd_init_cmds[i].cmd, lcd_init_cmds[i].data, lcd_init_cmds[i].data_bytes);
         if (lcd_init_cmds[i].delay_ms) vTaskDelay(pdMS_TO_TICKS(lcd_init_cmds[i].delay_ms));
     }
     // Clear panel RAM before increasing brightness.
-    uint16_t *black = heap_caps_calloc(LCD_W * 8, sizeof(*black), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    uint16_t *black = heap_caps_calloc(PANEL_W * 8, sizeof(*black), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     ESP_ERROR_CHECK(black ? ESP_OK : ESP_ERR_NO_MEM);
-    display_begin(0, 0, LCD_W, LCD_H);
-    for (int y = 0; y < LCD_H; y += 8) display_write(black, LCD_W * 8, y + 8 == LCD_H);
-    display_end();
-    display_wait_idle(); // every DMA transaction is done before its source is freed
+    board_display_begin(0, 0, PANEL_W, PANEL_H);
+    for (int y = 0; y < PANEL_H; y += 8) board_display_write(black, PANEL_W * 8, y + 8 == PANEL_H);
+    board_display_end();
+    board_display_wait_idle(); // every DMA transaction is done before its source is freed
     free(black);
+#if CONFIG_IDF_TARGET_ESP32S3
+    ESP_ERROR_CHECK(display_s3_init() ? ESP_OK : ESP_ERR_NO_MEM);
+#endif
 
 }
 
-void display_wait_idle(void) {
+void board_display_wait_idle(void) {
     for (int i = 0; i < LCD_TRANS; i++) xSemaphoreTake(s_lcd_free, portMAX_DELAY);
     for (int i = 0; i < LCD_TRANS; i++) xSemaphoreGive(s_lcd_free);
     if (s_lcd_held) {
@@ -250,20 +316,20 @@ static void lcd_queue_param(uint8_t cmd, int a, int b) {
     ESP_ERROR_CHECK(spi_device_queue_trans(s_lcd, &t->base, portMAX_DELAY));
 }
 
-void display_begin(int x0, int y0, int x1, int y1) {
-    assert(!s_lcd_stream && x0 >= 0 && x1 <= LCD_W && y0 >= 0 && y1 <= LCD_H && x1 > x0 && y1 > y0);
+void board_display_begin(int x0, int y0, int x1, int y1) {
+    assert(!s_lcd_stream && x0 >= 0 && x1 <= PANEL_W && y0 >= 0 && y1 <= PANEL_H && x1 > x0 && y1 > y0);
     // The previous window may still be sending: this one queues behind it.
     if (!s_lcd_held) {
         ESP_ERROR_CHECK(spi_device_acquire_bus(s_lcd, portMAX_DELAY));
         s_lcd_held = true;
     }
     s_lcd_stream = s_lcd_first = true;
-    lcd_queue_param(0x2A, x0, x1 - 1);
+    lcd_queue_param(0x2A, x0 + PANEL_X_GAP, x1 - 1 + PANEL_X_GAP);
     lcd_queue_param(0x2B, y0, y1 - 1);
 }
 
-void display_write(const uint16_t *pixels, int count, bool last) {
-    assert(s_lcd_stream && count > 0 && count <= LCD_W * LCD_STRIPE_MAX_ROWS);
+void board_display_write(const uint16_t *pixels, int count, bool last) {
+    assert(s_lcd_stream && count > 0 && count <= PANEL_W * LCD_STRIPE_MAX_ROWS);
     xSemaphoreTake(s_lcd_slots, portMAX_DELAY);
     spi_transaction_ext_t *t = lcd_trans_next();
     *t = (spi_transaction_ext_t){
@@ -275,9 +341,9 @@ void display_write(const uint16_t *pixels, int count, bool last) {
     ESP_ERROR_CHECK(spi_device_queue_trans(s_lcd, &t->base, portMAX_DELAY));
 }
 
-void display_end(void) {
+void board_display_end(void) {
     assert(s_lcd_stream);
-    // The tail keeps going while the next window or frame is prepared; display_wait_idle() waits for it.
+    // The tail keeps going while the next window or frame is prepared; board_display_wait_idle() waits for it.
     s_lcd_stream = false;
 }
 
@@ -289,21 +355,34 @@ void display_power(bool on) { lcd_param(on ? 0x29 : 0x28, NULL, 0); }
 
 static void touch_init(void) {
     esp_lcd_touch_config_t cfg = {
-        .x_max = LCD_W,
-        .y_max = LCD_H,
+        .x_max = PANEL_W,
+        .y_max = PANEL_H,
         .rst_gpio_num = PIN_TP_RST,
         .int_gpio_num = PIN_TP_INT,
         .levels = {.reset = 0, .interrupt = 0},
+#if CONFIG_IDF_TARGET_ESP32S3
+        .flags = {.swap_xy = 0, .mirror_x = 0, .mirror_y = 0},
+#else
         .flags = {.swap_xy = 1, .mirror_x = 0, .mirror_y = 1},
+#endif
     };
     esp_lcd_panel_io_handle_t io = NULL;
+#if CONFIG_IDF_TARGET_ESP32S3
+    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_CST816S_CONFIG();
+#else
     esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
+#endif
     io_cfg.scl_speed_hz = 400000;
+#if CONFIG_IDF_TARGET_ESP32S3
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(g_i2c_bus, &io_cfg, &io));
+    ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_cst816s(io, &cfg, &s_touch));
+#else
     if (esp_lcd_new_panel_io_i2c(g_i2c_bus, &io_cfg, &io) != ESP_OK ||
         esp_lcd_touch_new_i2c_cst9217(io, &cfg, &s_touch) != ESP_OK) {
         ESP_LOGW(TAG, "touch controller not available");
         s_touch = NULL;
     }
+#endif
 }
 
 bool touch_read(touch_frame_t *frame) {
@@ -315,15 +394,17 @@ bool touch_read(touch_frame_t *frame) {
     uint8_t n = 0;
     if (esp_lcd_touch_get_data(s_touch, pt, &n, TOUCH_POINTS) != ESP_OK || n > TOUCH_POINTS) return false;
     touch_contact_t contacts[TOUCH_POINTS];
+    unsigned count = 0;
     for (uint8_t i = 0; i < n; i++) {
-        if (pt[i].x > LCD_W || pt[i].y > LCD_H) return false;
-        // Espressif mirrors around x_max/y_max; the exact far edge still belongs to the glass.
-        contacts[i] = (touch_contact_t){
-            .x = pt[i].x < LCD_W ? pt[i].x : LCD_W - 1,
-            .y = pt[i].y < LCD_H ? pt[i].y : LCD_H - 1, .id = pt[i].track_id,
-        };
+        if (pt[i].x > PANEL_W || pt[i].y > PANEL_H) return false;
+        int16_t x = pt[i].x < PANEL_W ? pt[i].x : PANEL_W - 1;
+        int16_t y = pt[i].y < PANEL_H ? pt[i].y : PANEL_H - 1;
+#if CONFIG_IDF_TARGET_ESP32S3
+        if (!display_s3_touch(x, y, &x, &y)) continue;
+#endif
+        contacts[count++] = (touch_contact_t){.x = x, .y = y, .id = pt[i].track_id};
     }
-    touch_tracker_update(&tracker, contacts, n, frame);
+    touch_tracker_update(&tracker, contacts, count, frame);
     return true;
 }
 
@@ -340,16 +421,51 @@ void board_init(void) {
     };
     ESP_ERROR_CHECK(i2c_new_master_bus(&bus, &g_i2c_bus));
     pmic_init();
+#if CONFIG_IDF_TARGET_ESP32S3
+    expander_init();
+#endif
     display_init();
     touch_init();
+#if CONFIG_IDF_TARGET_ESP32S3
+    ESP_ERROR_CHECK(display_te_init());
+#endif
 
     gpio_config_t keys = {
+#if CONFIG_IDF_TARGET_ESP32S3
+        .pin_bit_mask = 1ULL << PIN_BOOT,
+#else
         .pin_bit_mask = (1ULL << PIN_KEY) | (1ULL << PIN_BOOT),
+#endif
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
     };
-    gpio_config(&keys);
+    ESP_ERROR_CHECK(gpio_config(&keys));
+#if !CONFIG_IDF_TARGET_ESP32S3
     gpio_config_t pwr = {.pin_bit_mask = 1ULL << PIN_PWR, .mode = GPIO_MODE_INPUT};
-    gpio_config(&pwr);
+    ESP_ERROR_CHECK(gpio_config(&pwr));
+#endif
     ESP_LOGI(TAG, "board ready");
 }
+
+void display_begin(int x0, int y0, int x1, int y1) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    display_s3_begin(x0, y0, x1, y1);
+#else
+    board_display_begin(x0, y0, x1, y1);
+#endif
+}
+void display_write(const uint16_t *pixels, int count, bool last) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    display_s3_write(pixels, count, last);
+#else
+    board_display_write(pixels, count, last);
+#endif
+}
+void display_end(void) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    display_s3_end();
+#else
+    board_display_end();
+#endif
+}
+void display_wait_idle(void) { board_display_wait_idle(); }

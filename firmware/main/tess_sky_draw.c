@@ -97,7 +97,7 @@ static void draw_constellation(scene_t *s, const tess_sky_t *k, float appear) {
         }
     }
     const char *name = sky_constellation_name(w);
-    if (name) sc_label(s, TXT_CAPTION, name, 240, 446, 0, 0xF4D8A3,
+    if (name) sc_label(s, TXT_CAPTION, name, UI_CX, UI_H - 34, 0, 0xF4D8A3,
                        appear * smooth01(k->resolve_t / .65f));
 }
 

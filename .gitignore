@@ -2,6 +2,8 @@ ref/
 backup/
 **/build/
 **/build-plush/
+**/build-s3/
+**/build-s3-plush/
 **/managed_components/
 **/dependencies.lock
 !firmware/dependencies.lock

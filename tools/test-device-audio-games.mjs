@@ -1,5 +1,7 @@
 // Local native touch workload in isolated Screen Lab; no provider calls or saved-setting changes.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
+let g;
 import {setTimeout as sleep} from 'node:timers/promises';
 import {setDeviceScreen, waitForDeviceLink, waitForDeviceState, waitForIdleCapture,
   flushStats, combineStats} from './test-device/diagnostics.mjs';
@@ -20,17 +22,17 @@ async function exercise() {
   await flushStats({sim});
   const start=performance.now();
   for(let round=0;round<3;round++) {
-    for(let n=0;n<8;n++) { await tap(240,255); await sleep(100); }
+    for(let n=0;n<8;n++) { await tap(240,g.tessY); await sleep(100); }
     await sleep(800);
     windows.push(await flushStats({sim}));
     for(let n=0;n<8;n++) {
-      for(let x=170;x<=330;x+=40) { await pointer(true,x,255); await sleep(20); }
-      await pointer(false,370,255); await sleep(140);
+      for(let x=170;x<=330;x+=40) { await pointer(true,x,g.tessY); await sleep(20); }
+      await pointer(false,370,g.tessY); await sleep(140);
     }
     await sleep(600);
     windows.push(await flushStats({sim}));
-    for(let x=390;x<=470;x+=10) { await pointer(true,x,255); await sleep(50); }
-    await pointer(false,470,255); await sleep(1500);
+    for(let x=390;x<=470;x+=10) { await pointer(true,x,g.tessY); await sleep(50); }
+    await pointer(false,470,g.tessY); await sleep(1500);
     await sim('gravity',{x:round%2?.7:-.7,y:.5,ms:1500}); await sleep(1800);
     windows.push(await flushStats({sim}));
   }
@@ -56,7 +58,7 @@ function verifyAudio(result) {
 async function autonomousSound() {
   await sim('boot');
   await waitForDeviceState(info,s=>s.lab_screen==='Screen Lab','Lab catalog');
-  for(let n=0;n<2;n++) { await sim('tap',{x:356,y:428}); await sleep(100); }
+  for(let n=0;n<2;n++) { await sim('tap',{x:356,y:g.footer}); await sleep(100); }
   await sim('audio-stats',{reset:true});
   await sim('tap',{x:240,y:232});
   await waitForDeviceState(info,s=>s.lab_screen==='Play: alone','finite autonomous reaction preview');
@@ -83,7 +85,7 @@ async function autonomousSound() {
 }
 async function main() {
   await waitForDeviceLink(info);
-  const original=await waitForIdleCapture(info);
+  const original=await waitForIdleCapture(info);g=deviceGeometry(original);
   assert.equal(original.character,'Tess'); assert.equal(original.screen_lab,false);
   assert.equal(original.card_open,false); assert.equal(original.live_active,false);
   try {
@@ -93,7 +95,7 @@ async function main() {
     for(let n=0;n<5;n++) { await sim('tap',{x:90,y:36}); await sleep(90); }
     await sim('hold',{x:90,y:36});
     await waitForDeviceState(info,state=>state.screen_lab,'Screen Lab entry before audio workload');
-    for(let n=0;n<8;n++) { await sim('tap',{x:356,y:428}); await sleep(90); }
+    for(let n=0;n<8;n++) { await sim('tap',{x:356,y:g.footer}); await sleep(90); }
     await sim('tap',{x:240,y:320}); await sleep(600);
     assert.equal((await info()).lab_screen,'Play: pluck');
     await sim('audio-stats',{reset:true});
@@ -108,7 +110,7 @@ async function main() {
     }
     assert.equal(after.heap_failures,original.heap_failures);
   } finally {
-    await pointer(false,240,255); await sim('gravity',{x:0,y:0,ms:0});
+    await pointer(false,240,g.tessY); await sim('gravity',{x:0,y:0,ms:0});
     if((await info()).screen_lab) await sim('menu');
     if((await info()).menu!==original.menu) await sim('menu');
     await setDeviceScreen(info,sim,original.screen_dark);

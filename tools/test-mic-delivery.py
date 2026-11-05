@@ -72,7 +72,7 @@ static void *checked_malloc(size_t n) {
 }
 static void checked_free(void *p) { if(p) { held--; } free(p); }
 static void *heap_caps_malloc(size_t n, unsigned caps) {
-    assert(((n==4096 || n==3072) && caps==(MALLOC_CAP_RTCRAM|MALLOC_CAP_8BIT)) || (n==972 && n<=largest_internal && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));
+    assert(((n==4096 || n==3072) && caps==((CONFIG_IDF_TARGET_ESP32S3 ? MALLOC_CAP_INTERNAL : MALLOC_CAP_RTCRAM)|MALLOC_CAP_8BIT)) || (n==972 && n<=largest_internal && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));
     return checked_malloc(n);
 }
 static void heap_caps_free(void *p) { checked_free(p); }
@@ -194,7 +194,8 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix='c6-mic-delivery-') as directory:
     path = Path(directory)
     (path / 'test.c').write_text(fixture + source + tests)
-    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pthread',
-                    '-Wno-deprecated-declarations', '-fsanitize=address,undefined',
-                    '-I', str(ROOT / 'firmware/main'), str(path / 'test.c'), str(ROOT / 'firmware/main/ima_adpcm.c'), '-o', str(path / 'test')], check=True)
-    subprocess.run([str(path / 'test')], check=True, timeout=15)
+    for s3 in (0, 1):
+        subprocess.run(['cc', '-std=c11', f'-DCONFIG_IDF_TARGET_ESP32S3={s3}', '-Wall', '-Wextra', '-Werror', '-pthread',
+                        '-Wno-deprecated-declarations', '-fsanitize=address,undefined',
+                        '-I', str(ROOT / 'firmware/main'), str(path / 'test.c'), str(ROOT / 'firmware/main/ima_adpcm.c'), '-o', str(path / 'test')], check=True)
+        subprocess.run([str(path / 'test')], check=True, timeout=15)

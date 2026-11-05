@@ -1,0 +1,15 @@
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+# Sequential RGB565 buffers use full cache-line bursts without enlarging the cache.
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+# Keep DMA and task stacks internal; use PSRAM for explicitly CPU-only workspaces.
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=2048
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=n
+
+# Keep firmware task scheduling on one core; floating-point/SIMD use the S3 CPU.
+CONFIG_FREERTOS_UNICORE=y

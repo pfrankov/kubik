@@ -186,7 +186,7 @@ typedef struct {
 } anchor_t;
 
 static anchor_t head_anchor(const face_t *f) {
-    anchor_t a = {CX, 240.f, 200.f, 20.f};
+    anchor_t a = {CX, UI_CY, 200.f, 20.f + FACE_Y_OFFSET};
     if (has_body(f)) {
         a.x = f->scr_cx;
         a.y = f->scr_cy;
@@ -215,7 +215,7 @@ static void draw_listening(face_t *f, scene_t *s, uint32_t col, anchor_t h, bool
     if (iw >= 1) sc_edge(s, iw, (int)SCREEN_R, COL_REC);
 
     if (f->sent_t >= 0 && f->mode == MODE_THINKING) {
-        float k = f->sent_t / 0.8f, top = body ? h.top : 60.f;
+        float k = f->sent_t / 0.8f, top = body ? h.top : 60.f + FACE_Y_OFFSET;
         for (int i = 0; i < 3; i++) {  // the phrase flies off, upwards
             float u = clampf((k - 0.1f - i * 0.08f) / 0.6f, 0, 1);
             if (u <= 0 || u >= 1) continue;
@@ -227,7 +227,7 @@ static void draw_listening(face_t *f, scene_t *s, uint32_t col, anchor_t h, bool
 
 static void draw_state_overlays(face_t *f, scene_t *s, uint32_t col, anchor_t h, bool body) {
     if (f->mode == MODE_THINKING) {
-        float bx = body ? h.x + h.hw * 0.72f : 330.f, by = body ? h.top + 8.f : 124.f;
+        float bx = body ? h.x + h.hw * 0.72f : 330.f, by = body ? h.top + 8.f : 124.f + FACE_Y_OFFSET;
         float st = body ? 20.f : 27.f;
         for (int i = 0; i < 3; i++) {
             float ph = f->mode_t * 3.2f - i * 0.8f;
@@ -236,11 +236,11 @@ static void draw_state_overlays(face_t *f, scene_t *s, uint32_t col, anchor_t h,
         }
     }
     if (!body) {
-        if (f->mode == MODE_SETUP) draw_wifi(s, CX, 96, col, 1, f->t * 3);
-        if (f->mode == MODE_OFFLINE) draw_server_disconnected(s, CX, 96, COL_GREY, 0.8f);
+        if (f->mode == MODE_SETUP) draw_wifi(s, CX, 96 + FACE_Y_OFFSET, col, 1, f->t * 3);
+        if (f->mode == MODE_OFFLINE) draw_server_disconnected(s, CX, 96 + FACE_Y_OFFSET, COL_GREY, 0.8f);
     }
     if (f->emotion == EMO_CONFUSED && f->mode != MODE_LISTENING) {
-        float bx = body ? h.x + h.hw * 0.95f : 382.f, by = (body ? h.top + 14.f : 104.f) + sinf(f->t * 4) * 3;
+        float bx = body ? h.x + h.hw * 0.95f : 382.f, by = (body ? h.top + 14.f : 104.f + FACE_Y_OFFSET) + sinf(f->t * 4) * 3;
         sc_arc(s, bx, by - 14, 12, 1.9f, 7, PI + 0.5f, col, 1);
         sc_capsule(s, bx + 3, by + 2, bx, by + 12, 7, col, 1);
         sc_circle(s, bx, by + 26, 4.5f, col, 1);
@@ -250,13 +250,13 @@ static void draw_state_overlays(face_t *f, scene_t *s, uint32_t col, anchor_t h,
 static void draw_status_overlays(face_t *f, scene_t *s, uint32_t col, bool body) {
     if (f->notify_t > 0 && !body) {
         float k = f->notify_t / 1.2f;
-        sc_ring(s, CX, 240, 150 + (1 - k) * 70, 6, col, k * 0.7f);
+        sc_ring(s, CX, UI_CY, 150 + (1 - k) * 70, 6, col, k * 0.7f);
     }
     if (!body && f->volume_show > 0) {
         float a = clampf(f->volume_show * 2, 0, 1);
         int lit = (int)(f->volume_level * 5 + 0.5f);
         for (int i = 0; i < 5; i++)
-            sc_circle(s, CX + (i - 2) * 26, 418, i < lit ? 8 : 5, i < lit ? col : COL_GREY, a * (i < lit ? 1 : 0.6f));
+            sc_circle(s, CX + (i - 2) * 26, UI_H - 62, i < lit ? 8 : 5, i < lit ? col : COL_GREY, a * (i < lit ? 1 : 0.6f));
     }
 }
 
@@ -306,8 +306,21 @@ static bool draw_screen_status(face_t *f, scene_t *s, uint32_t col) {
     return mouth_taken;
 }
 
+static void draw_cheeks(face_t *f, scene_t *s, bool body) {
+    const float *v = f->cur.v;
+    // Cheeks first so everything else sits on top of the blush.
+    float cheek = clampf(v[P_CHEEK], 0, 1);
+    if (cheek > 0.02f) {
+        float bob = body ? 0.f : f->hop * 0.9f;
+        for (int i = -1; i <= 1; i += 2) {
+            prim_t *c = sc_rbox(s, CX + i * 152 + v[P_LOOKX] * 0.5f, 296 + v[P_LOOKY] * 0.4f + bob, 30, 17, 17, 0,
+                                COL_CHEEK, cheek * 0.7f);
+            pr_soft(c, 16);
+        }
+    }
+}
+
 void face_plush_draw(face_t *f, scene_t *s, uint32_t col) {
-    float *v = f->cur.v;
     bool body = has_body(f);
 
     if (body) {
@@ -338,16 +351,11 @@ void face_plush_draw(face_t *f, scene_t *s, uint32_t col) {
                           SPRITE_GLASS_N);
     }
 
-    // Cheeks first so everything else sits on top of the blush.
-    float cheek = clampf(v[P_CHEEK], 0, 1);
-    if (cheek > 0.02f) {
-        float bob = body ? 0.f : f->hop * 0.9f;
-        for (int i = -1; i <= 1; i += 2) {
-            prim_t *c = sc_rbox(s, CX + i * 152 + v[P_LOOKX] * 0.5f, 296 + v[P_LOOKY] * 0.4f + bob, 30, 17, 17, 0,
-                                COL_CHEEK, cheek * 0.7f);
-            pr_soft(c, 16);
-        }
-    }
+#if UI_H != 480
+    if (!body) scene_xform(s, 0, 0, 0, FACE_Y_OFFSET, 1.f, 0);
+#endif
+
+    draw_cheeks(f, s, body);
     draw_eye(f, s, 0, col);
     draw_eye(f, s, 1, col);
     bool mouth_taken = body ? draw_screen_status(f, s, col) : false;
@@ -358,6 +366,9 @@ void face_plush_draw(face_t *f, scene_t *s, uint32_t col) {
         scene_clip_all(s, NULL);
         scene_xform_off(s);
     }
+#if UI_H != 480
+    if (!body) scene_xform_off(s);
+#endif
     draw_overlays(f, s, col);
     draw_cron(f, s);
     draw_card(f, s);

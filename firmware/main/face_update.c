@@ -252,7 +252,7 @@ static void update_pickup(face_t *f, float dt) {
             face_set_emotion(f, EMO_LOVE, 2.8f);
             body_request(f, BA_LOVE);
             f->hop_v -= 110;
-            for (int i = 0; i < 4; i++) face_spawn(f, 0, frange(f, 140, 340), frange(f, 300, 380));
+            for (int i = 0; i < 4; i++) face_spawn(f, 0, frange(f, 140, 340), frange(f, 300 + FACE_Y_OFFSET, 380 + FACE_Y_OFFSET));
             f->pickup_t = -1;
         }
     }
@@ -273,11 +273,11 @@ static void update_particles(face_t *f, float dt) {
     f->spawn_t -= dt;
     if (f->spawn_t <= 0) {
         f->spawn_t = 0.45f;
-        if (f->emotion == EMO_LOVE) face_spawn(f, 0, frange(f, 120, 360), frange(f, 340, 400));
-        if (f->emotion == EMO_JOY || f->emotion == EMO_PROUD) face_spawn(f, 1, frange(f, 90, 390), frange(f, 90, 360));
+        if (f->emotion == EMO_LOVE) face_spawn(f, 0, frange(f, 120, 360), frange(f, 340 + FACE_Y_OFFSET, 400 + FACE_Y_OFFSET));
+        if (f->emotion == EMO_JOY || f->emotion == EMO_PROUD) face_spawn(f, 1, frange(f, 90, 390), frange(f, 90 + FACE_Y_OFFSET, 360 + FACE_Y_OFFSET));
         if (f->mode == MODE_SLEEP && frand(f) < 0.45f) {
             if (has_body(f)) face_spawn(f, 2, f->scr_cx + f->scr_hw * 1.3f, f->scr_cy - f->scr_hh * 1.1f);
-            else face_spawn(f, 2, 330, 150);
+            else face_spawn(f, 2, 330, 150 + FACE_Y_OFFSET);
         }
     }
     for (int i = 0; i < FACE_MAX_PARTICLES; i++) {

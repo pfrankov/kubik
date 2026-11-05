@@ -1,12 +1,12 @@
 const canvas = document.querySelector('canvas'), context = canvas.getContext('2d');
 const screen = document.querySelector('#screen');
-fetch('/catalog').then(response => response.json()).then(names => names.forEach((name,index) => screen.add(new Option(name,index))));
 let queue = Promise.resolve(), running = true, hold, moved = false;
 let pendingMove = null, frameTimer = 0, inFlight = false, lastTouchSent = 0;
 let primaryPointer = null, start, last, nextId = 0;
-const contacts = new Map(), touchCapacity = 2;
+const contacts = new Map();
+let touchCapacity = 0;
 function snapshot() {
-  const points = Array.from({length:touchCapacity},() => [0,0,0,0]);
+  const points = Array.from({length:2},() => [0,0,0,0]);
   for (const p of contacts.values()) points[p.slot] = [1,p.x,p.y,p.id];
   return points.flat();
 }
@@ -33,7 +33,7 @@ document.querySelector('#character').onchange = event => { cancelContacts(); sen
 for (const id of ['tilt-x','tilt-y']) document.querySelector(`#${id}`).oninput = () => send('tilt',[Number(document.querySelector('#tilt-x').value),Number(document.querySelector('#tilt-y').value)]);
 function point(event) {
   const rect = canvas.getBoundingClientRect();
-  return [Math.round(Math.max(0,Math.min(479,(event.clientX-rect.left)*480/rect.width))),Math.round(Math.max(0,Math.min(479,(event.clientY-rect.top)*480/rect.height)))];
+  return [Math.round(Math.max(0,Math.min(canvas.width-1,(event.clientX-rect.left)*canvas.width/rect.width))),Math.round(Math.max(0,Math.min(canvas.height-1,(event.clientY-rect.top)*canvas.height/rect.height)))];
 }
 function contactId() {
   const used = new Set([...contacts.values()].map(p => p.id));
@@ -94,7 +94,9 @@ async function frame(steps = 1) {
     const response = await fetch(`/frame?steps=${steps}`,{signal:AbortSignal.timeout(5000)});
     if (!response.ok) throw new Error('Native renderer unavailable');
     const state = JSON.parse(response.headers.get('X-Kubik-State'));
-    const image = await createImageBitmap(await response.blob()); context.drawImage(image,0,0); image.close();
+    const image = await createImageBitmap(await response.blob());
+    if (image.width !== canvas.width || image.height !== canvas.height) { image.close(); throw new Error('Native frame dimensions changed'); }
+    context.drawImage(image,0,0); image.close();
     document.querySelector('#state').textContent = `${state.name} · preview only`;
     screen.value = String(state.screen);
   } catch(error) { document.querySelector('#error').textContent = error.message; running = false; }
@@ -107,4 +109,23 @@ document.addEventListener('visibilitychange',() => {
 });
 window.addEventListener('blur',cancelContacts);
 window.addEventListener('pagehide',() => { cancelContacts(); running = false; clearTimeout(frameTimer); });
-frame();
+async function startPreview() {
+  try {
+    const response = await fetch('/config',{signal:AbortSignal.timeout(5000)});
+    if (!response.ok) throw new Error('Native preview configuration unavailable');
+    const config = await response.json();
+    canvas.width = config.width; canvas.height = config.height; touchCapacity = config.touch_capacity;
+    canvas.style.setProperty('--display-aspect',`${config.width}/${config.height}`);
+    document.querySelector('#board').textContent = `${config.target.toUpperCase().replace('ESP32','ESP32-')} · ${config.width} × ${config.height}`;
+    document.querySelector('[data-key="2"]').hidden = !config.key_button;
+    if (!config.key_button) {
+      const help = document.querySelector('#input-help');
+      help.textContent = help.textContent.replace('Next or KEY','Next').replace('KEY changes the voice preview signal or ends Live. ','');
+    }
+    const catalog = await fetch('/catalog',{signal:AbortSignal.timeout(5000)});
+    if (!catalog.ok) throw new Error('Native screen catalog unavailable');
+    (await catalog.json()).forEach((name,index) => screen.add(new Option(name,index)));
+    frame();
+  } catch (error) { document.querySelector('#error').textContent = error.message; running = false; }
+}
+startPreview();

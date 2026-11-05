@@ -1,3 +1,4 @@
+#include "device_controls.h"
 #include "face_agent.h"
 #include "font.h"
 #include "ui_kit.h"
@@ -14,6 +15,14 @@
 #define MUTED UI_MUTED
 #define TEXT UI_TEXT
 #define DISABLED UI_DISABLED
+
+#define EXTRA (UI_H - 480)
+#define MODEL_Y (168 + EXTRA / 4)
+#define MODEL_HH (80 + EXTRA / 4)
+#define VOICE_Y (350 + 3 * EXTRA / 4)
+#define VOICE_HH (88 + EXTRA / 4)
+#define CLASSIC_HH (64 + EXTRA / 4)
+#define GUIDE_REFRESH_Y (356 + EXTRA)
 
 // Geometry follows the main settings: 20px outer margin, 12px gaps, rounded tiles.
 static void tile(scene_t *s, const agent_menu_t *m, face_agent_hit_t hit,
@@ -93,28 +102,28 @@ static const char *voice_name(voice_mode_t mode) {
     return names[mode];
 }
 static void overview_voice(scene_t *s, const agent_menu_t *m) {
-    tile(s, m, AGENT_HIT_VOICE, 240, 350, 220, 88, TILE);
-    sc_icon(s, ICON_MIC, 62, 294, 30, ACCENT, 1);
-    sc_label(s, TXT_CHOICE, "Voice", 92, 294, -1, MUTED, 1);
-    sc_label(s, TXT_PAGE_BODY, voice_name(m->voice_mode), 44, 344, -1, TEXT, 1);
-    fitted(s, capability_status(m, true), TXT_CHOICE, 44, 398, -1, 352, capability_color(m, true));
-    chevron(s, 428, 344, true, ACCENT);
+    tile(s, m, AGENT_HIT_VOICE, 240, VOICE_Y, 220, VOICE_HH, TILE);
+    sc_icon(s, ICON_MIC, 62, 294 + 3 * EXTRA / 4, 30, ACCENT, 1);
+    sc_label(s, TXT_CHOICE, "Voice", 92, 294 + 3 * EXTRA / 4, -1, MUTED, 1);
+    sc_label(s, TXT_PAGE_BODY, voice_name(m->voice_mode), 44, 344 + 3 * EXTRA / 4, -1, TEXT, 1);
+    fitted(s, capability_status(m, true), TXT_CHOICE, 44, 398 + 3 * EXTRA / 4, -1, 352, capability_color(m, true));
+    chevron(s, 428, 344 + 3 * EXTRA / 4, true, ACCENT);
 }
 static void overview(scene_t *s, const agent_menu_t *m) {
-    tile(s, m, AGENT_HIT_MODELS, 240, 168, 220, 80, TILE);
-    sc_icon(s, ICON_BLOCKS, 62, 120, 30, UI_GOLD, 1);
-    sc_label(s, TXT_CHOICE, "Agent model", 92, 120, -1, MUTED, 1);
+    tile(s, m, AGENT_HIT_MODELS, 240, MODEL_Y, 220, MODEL_HH, TILE);
+    sc_icon(s, ICON_BLOCKS, 62, 120 + EXTRA / 4, 30, UI_GOLD, 1);
+    sc_label(s, TXT_CHOICE, "Agent model", 92, 120 + EXTRA / 4, -1, MUTED, 1);
     const char *name = m->model[0] ? model_name(m) : m->online ? "Loading..." : "Unknown";
-    fitted(s, name, TXT_PAGE_BODY, 44, 169, -1, 352, TEXT);
+    fitted(s, name, TXT_PAGE_BODY, 44, 169 + EXTRA / 4, -1, 352, TEXT);
     char provider[AGENT_MODEL_ID_MAX + 1]; model_provider(provider, sizeof provider, m->model);
-    fitted(s, provider, TXT_CHOICE, 44, 216, -1, 392, MUTED);
-    chevron(s, 428, 169, true, UI_GOLD);
+    fitted(s, provider, TXT_CHOICE, 44, 216 + EXTRA / 4, -1, 392, MUTED);
+    chevron(s, 428, 169 + EXTRA / 4, true, UI_GOLD);
     overview_voice(s, m);
 }
 static void classic_setting(scene_t *s, const agent_menu_t *m, bool stt) {
-    float y = stt ? 214 : 366;
+    float y = stt ? 214 + EXTRA / 4 : 366 + 3 * EXTRA / 4;
     face_agent_hit_t hit = stt ? AGENT_HIT_STT : AGENT_HIT_TTS;
-    tile(s, m, hit, 240, y, 220, 64, TILE);
+    tile(s, m, hit, 240, y, 220, CLASSIC_HH, TILE);
     sc_icon(s, stt ? ICON_MIC : ICON_VOLUME_2, 62, y - 28, 30, stt ? ACCENT : UI_GOLD, 1);
     sc_label(s, TXT_PAGE_BODY, stt ? "Recognition" : "Speech", 94, y - 28, -1, TEXT, 1);
     const char *name = stt ? m->stt_model : m->tts_model;
@@ -133,7 +142,7 @@ static float row_y(const agent_menu_t *m, unsigned i) {
 }
 // Rows dissolve under the title and into the bottom edge instead of being cut off.
 static float row_alpha(float y) {
-    float top = y - ROW_HH, in = (top - 52) / 30.f, out = (466 - top) / 66.f;
+    float top = y - ROW_HH, in = (top - 52) / 30.f, out = (UI_H - 14 - top) / 66.f;
     in = in < out ? in : out;
     return in < 0 ? 0 : in > 1 ? 1 : in;
 }
@@ -148,7 +157,7 @@ static bool row_saving(const agent_menu_t *m, unsigned i) {
 }
 static void model_row(scene_t *s, const agent_menu_t *m, unsigned i) {
     float y = row_y(m, i), alpha = row_alpha(y);
-    if (alpha <= 0 || y - ROW_HH >= 480) return;
+    if (alpha <= 0 || y - ROW_HH >= UI_H) return;
     int first = s->n;
     bool selected = agent_menu_current(m, i), saving = row_saving(m, i);
     tile(s, m, (face_agent_hit_t)(AGENT_HIT_MODEL_0 + i), 240, y, 220, ROW_HH, selected ? SELECTED : TILE);
@@ -166,12 +175,12 @@ static bool show_retry(const agent_menu_t *m) {
 }
 static void navigation(scene_t *s, const agent_menu_t *m) {
     if (show_retry(m)) {
-        tile(s, m, AGENT_HIT_RETRY, 240, 428, 220, 32, TILE);
-        sc_label(s, TXT_CHOICE, "Retry", 240, 428, 0, ACCENT, 1); return;
+        tile(s, m, AGENT_HIT_RETRY, 240, UI_FOOTER_Y, 220, 32, TILE);
+        sc_label(s, TXT_CHOICE, "Retry", 240, UI_FOOTER_Y, 0, ACCENT, 1); return;
     }
     if (m->count || !m->online || m->request_pending) return;
-    tile(s, m, AGENT_HIT_REFRESH, 240, 428, 220, 32, TILE);
-    sc_label(s, TXT_CHOICE, "Refresh", 240, 428, 0, ACCENT, 1);
+    tile(s, m, AGENT_HIT_REFRESH, 240, UI_FOOTER_Y, 220, 32, TILE);
+    sc_label(s, TXT_CHOICE, "Refresh", 240, UI_FOOTER_Y, 0, ACCENT, 1);
 }
 static const char *empty_voice_hint(const agent_menu_t *m) {
     if (!m->online) return "";
@@ -197,11 +206,11 @@ static void models(scene_t *s, const agent_menu_t *m) {
     bool loading = models_loading(m);
     int first_prim = s->n;
     if (!m->count || loading) {
-        sc_icon(s, ICON_BRAIN, 240, 190, 48, ACCENT, 1);
+        sc_icon(s, ICON_BRAIN, 240, UI_CY - 50, 48, ACCENT, 1);
         const char *line = loading ? (m->view == AGENT_VIEW_VOICE_MODES ? "Loading modes..." : "Loading models...") : !m->online ? "Connect your agent" : "No selectable models";
-        fitted(s, line, TXT_PAGE_BODY, 240, 260, 0, 404, TEXT);
+        fitted(s, line, TXT_PAGE_BODY, 240, UI_CY + 20, 0, 404, TEXT);
         if (!loading && m->target != AGENT_TARGET_AGENT) {
-            fitted(s, empty_voice_hint(m), TXT_CHOICE, 240, 312, 0, 408, MUTED);
+            fitted(s, empty_voice_hint(m), TXT_CHOICE, 240, UI_CY + 72, 0, 408, MUTED);
         }
     } else {
         for (unsigned i = 0; i < m->count; i++) model_row(s, m, i);
@@ -216,7 +225,7 @@ static const char *mode_hint(const agent_model_t *choice) {
     if (!strcmp(choice->id, "realtime")) return "Stream voice with your agent";
     return "Continuous conversation";
 }
-static int mode_height(const agent_menu_t *m) { return show_retry(m) ? 92 : 112; }
+static int mode_height(const agent_menu_t *m) { return (show_retry(m) ? 92 : 112) + EXTRA / 3; }
 static void mode_row(scene_t *s, const agent_menu_t *m, unsigned i) {
     int height = mode_height(m);
     float y = 88 + height / 2 + i * (height + 12);
@@ -238,11 +247,27 @@ static void voice_modes(scene_t *s, const agent_menu_t *m) {
 
 }
 static void guide_line(scene_t *s, const char *text, float y, uint32_t color) {
-    fitted(s, text, TXT_PAGE_BODY, 40, y, -1, 400, color);
+    fitted(s, text, TXT_PAGE_BODY, 40, y + EXTRA * .5f, -1, 400, color);
 }
 static void guide_hint(scene_t *s, const char *text, float y) {
-    fitted(s, text, TXT_CHOICE, 40, y, -1, 400, MUTED);
+    fitted(s, text, TXT_CHOICE, 40, y + EXTRA * .5f, -1, 400, MUTED);
 }
+#if KUBIK_VOICE_BUTTON_IS_BOOT
+static void guide_button_cue(scene_t *s, const agent_menu_t *m) {
+    if (m->guide_step != 0 && m->guide_step != 3 &&
+        !(m->guide_step == 1 && m->online && capability_ready(m, true))) return;
+    const float right = 478, y = 86;
+    float start = 240 + label_width(TXT_CHOICE, "BOOT") * .5f + 12;
+    sc_label(s, TXT_CHOICE, "BOOT", 240, 42, 0, UI_GOLD, 1);
+    // Front view: BOOT is above USB on the right side, PWR below it.
+    // Route below Skip rather than drawing a nonexistent third top-edge button.
+    sc_capsule(s, start, 42, 330, 42, 2, UI_GOLD, 1);
+    sc_capsule(s, 330, 42, 330, y, 2, UI_GOLD, 1);
+    sc_capsule(s, 330, y, right, y, 2, UI_GOLD, 1);
+    sc_capsule(s, right - 9, y - 8, right, y, 2, UI_GOLD, 1);
+    sc_capsule(s, right, y, right - 9, y + 8, 2, UI_GOLD, 1);
+}
+#else
 static void guide_button_cue(scene_t *s, const agent_menu_t *m) {
     enum { BOOT, PWR, KEY } button;
     if (m->guide_step == 0 || m->guide_step == 3) button = BOOT;
@@ -263,6 +288,7 @@ static void guide_button_cue(scene_t *s, const agent_menu_t *m) {
     sc_capsule(s, x - 8, y + 9, x, y, 2, UI_GOLD, 1);
     sc_capsule(s, x, y, x + 8, y + 9, 2, UI_GOLD, 1);
 }
+#endif
 static void guide_voice_missing(scene_t *s, const agent_menu_t *m, bool stt, bool known, float dy) {
     if (!known) {
         guide_line(s, m->online ? "Checking voice..." : "Agent is offline", 216 + dy, TEXT);
@@ -272,23 +298,23 @@ static void guide_voice_missing(scene_t *s, const agent_menu_t *m, bool stt, boo
         guide_hint(s, m->voice_mode != VOICE_CLASSIC ? "Set up voice on your agent" :
                    stt ? "Enable STT on your agent" : "Enable TTS on your agent", 260 + dy);
     }
-    tile(s, m, AGENT_HIT_REFRESH, 240, 356, 220, 28, TILE);
-    sc_label(s, TXT_CHOICE, m->request_pending ? "Checking..." : "Check again", 240, 356, 0,
+    tile(s, m, AGENT_HIT_REFRESH, 240, GUIDE_REFRESH_Y, 220, 28, TILE);
+    sc_label(s, TXT_CHOICE, m->request_pending ? "Checking..." : "Check again", 240, GUIDE_REFRESH_Y, 0,
              m->online ? ACCENT : MUTED, 1);
 }
 static void guide_voice_input(scene_t *s, const agent_menu_t *m, float dy, bool voice_wake) {
     if (m->voice_mode == VOICE_LIVE) {
-        guide_line(s, voice_wake ? "Say 'Hi Tessa' or press KEY." : "Press KEY, then talk.", 216 + dy, TEXT);
+        guide_line(s, voice_wake ? "Say 'Hi Tessa' or press " KUBIK_VOICE_BUTTON "." : "Press " KUBIK_VOICE_BUTTON ", then talk.", 216 + dy, TEXT);
         guide_line(s, "Keep talking after replies.", 260 + dy, TEXT);
-        guide_hint(s, "Press KEY to end GPT Live.", 316 + dy);
+        guide_hint(s, "Press " KUBIK_VOICE_BUTTON " to end GPT Live.", 316 + dy);
         return;
     }
     bool native = m->voice_mode != VOICE_CLASSIC;
-    const char *start = voice_wake ? "Home: 'Hi Tessa', then talk." : native ? "Press KEY, then talk." : "Hold KEY to talk.";
-    const char *hint = voice_wake ? (native ? "KEY also works." : "Or hold KEY; release to send.") :
-                       native ? "KEY also ends recording." : "Mic is off in between.";
+    const char *start = voice_wake ? "Home: 'Hi Tessa', then talk." : native ? "Press " KUBIK_VOICE_BUTTON ", then talk." : KUBIK_MANUAL_TALK;
+    const char *hint = voice_wake ? (native ? KUBIK_VOICE_BUTTON " also works." : KUBIK_MANUAL_TALK_HINT) :
+                       native ? KUBIK_VOICE_BUTTON " also ends recording." : "Mic is off in between.";
     guide_line(s, start, 216 + dy, TEXT);
-    guide_line(s, voice_wake || native ? "Pause to send." : "Release to send.", 260 + dy, TEXT);
+    guide_line(s, voice_wake || native ? "Pause to send." : KUBIK_MANUAL_SEND, 260 + dy, TEXT);
     guide_hint(s, hint, 316 + dy);
 }
 static void guide_voice(scene_t *s, const agent_menu_t *m, bool stt, float dy, bool voice_wake) {
@@ -308,8 +334,8 @@ static void guide_heading(scene_t *s, const agent_menu_t *m, float dy) {
         bool known = m->online && m->capabilities_known;
         if (!known || !capability_ready(m, m->guide_step == 1)) color = known ? CORAL : MUTED;
     }
-    sc_icon(s, icons[m->guide_step], 68, 120 + dy, 56, color, 1);
-    fitted(s, titles[m->guide_step], TXT_PAGE_BODY, 116, 120 + dy, -1, 324, TEXT);
+    sc_icon(s, icons[m->guide_step], 68, 120 + dy + EXTRA * .25f, 56, color, 1);
+    fitted(s, titles[m->guide_step], TXT_PAGE_BODY, 116, 120 + dy + EXTRA * .25f, -1, 324, TEXT);
 }
 static void guide_content(scene_t *s, const agent_menu_t *m, float dy, bool voice_wake) {
     guide_heading(s, m, dy);
@@ -320,12 +346,12 @@ static void guide_content(scene_t *s, const agent_menu_t *m, float dy, bool voic
         guide_hint(s, "Hold BOOT to open/close Settings.", 316 + dy);
     } else {
         // Explain the two real destinations without a pretend interactive tile.
-        sc_icon(s, ICON_BRAIN, 64, 220 + dy, 40, ACCENT, 1);
-        sc_label(s, TXT_PAGE_BODY, "Agent", 104, 204 + dy, -1, TEXT, 1);
-        sc_label(s, TXT_CHOICE, "Model and voice", 104, 240 + dy, -1, MUTED, 1);
-        sc_icon(s, ICON_CIRCLE_HELP, 64, 300 + dy, 40, UI_GOLD, 1);
-        sc_label(s, TXT_PAGE_BODY, "Guide", 104, 284 + dy, -1, TEXT, 1);
-        sc_label(s, TXT_CHOICE, "Replay this tour", 104, 320 + dy, -1, MUTED, 1);
+        sc_icon(s, ICON_BRAIN, 64, 220 + dy + EXTRA * .5f, 40, ACCENT, 1);
+        sc_label(s, TXT_PAGE_BODY, "Agent", 104, 204 + dy + EXTRA * .5f, -1, TEXT, 1);
+        sc_label(s, TXT_CHOICE, "Model and voice", 104, 240 + dy + EXTRA * .5f, -1, MUTED, 1);
+        sc_icon(s, ICON_CIRCLE_HELP, 64, 300 + dy + EXTRA * .5f, 40, UI_GOLD, 1);
+        sc_label(s, TXT_PAGE_BODY, "Guide", 104, 284 + dy + EXTRA * .5f, -1, TEXT, 1);
+        sc_label(s, TXT_CHOICE, "Replay this tour", 104, 320 + dy + EXTRA * .5f, -1, MUTED, 1);
         guide_hint(s, "Hold BOOT to open/close Settings.", 364 + dy);
     }
 }
@@ -343,10 +369,10 @@ static void guide(scene_t *s, const agent_menu_t *m, bool voice_wake) {
     guide_content(s, m, 10 * (1 - ease), voice_wake);
     ui_enter(s, first, m->guide_elapsed);
     face_agent_hit_t hit = m->guide_step == 3 ? AGENT_HIT_GUIDE_DONE : AGENT_HIT_GUIDE_NEXT;
-    tile(s, m, hit, 240, 428, 220, 32, UI_GOLD);
+    tile(s, m, hit, 240, UI_FOOTER_Y, 220, 32, UI_GOLD);
     sc_label(s, TXT_CHOICE, m->guide_save_failed ? "Couldn't save. Try again" :
              m->guide_step == 3 ? "Open settings" : m->guide_step ? "Next" : "Let's go",
-             240, 428, 0, UI_INK, 1);
+             240, UI_FOOTER_Y, 0, UI_INK, 1);
 }
 void face_agent_draw(scene_t *s, const agent_menu_t *m, bool is_tess) {
     if (!s || !m || !m->open) return;
@@ -365,7 +391,7 @@ __attribute__((noinline)) static bool inside(int x, int y, int x0, int y0, int x
     return x >= x0 && x <= x1 && y >= y0 && y <= y1;
 }
 static face_agent_hit_t hit_model_navigation(const agent_menu_t *m, int x, int y) {
-    if (!inside(x, y, 20, 396, 460, 460)) return AGENT_HIT_NONE;
+    if (!inside(x, y, 20, UI_FOOTER_Y - 32, 460, UI_FOOTER_Y + 32)) return AGENT_HIT_NONE;
     if (show_retry(m)) return AGENT_HIT_RETRY;
     return m->count ? AGENT_HIT_NONE : AGENT_HIT_REFRESH;
 }
@@ -374,21 +400,21 @@ static face_agent_hit_t hit_models(const agent_menu_t *m, int x, int y) {
     face_agent_hit_t nav = hit_model_navigation(m, x, y);
     if (nav != AGENT_HIT_NONE) return nav;
     if (m->request_pending && !m->count) return AGENT_HIT_NONE;
-    if (show_retry(m) && y >= 396) return AGENT_HIT_NONE;
-    if (y < 96 || y > 448) return AGENT_HIT_NONE;  // rows still fading in or out are not targets
+    if (show_retry(m) && y >= UI_FOOTER_Y - 32) return AGENT_HIT_NONE;
+    if (y < 96 || y > UI_H - 32) return AGENT_HIT_NONE;  // rows still fading in or out are not targets
     for (unsigned i = 0; i < m->count; i++) {
         if (fabsf(y - row_y(m, i)) <= ROW_HH) return (face_agent_hit_t)(AGENT_HIT_MODEL_0 + i);
     }
     return AGENT_HIT_NONE;
 }
 static face_agent_hit_t hit_overview(int x, int y) {
-    if (inside(x, y, 20, 88, 460, 248)) return AGENT_HIT_MODELS;
-    if (inside(x, y, 20, 262, 460, 438)) return AGENT_HIT_VOICE;
+    if (inside(x, y, 20, MODEL_Y - MODEL_HH, 460, MODEL_Y + MODEL_HH)) return AGENT_HIT_MODELS;
+    if (inside(x, y, 20, VOICE_Y - VOICE_HH, 460, VOICE_Y + VOICE_HH)) return AGENT_HIT_VOICE;
     return AGENT_HIT_NONE;
 }
 static face_agent_hit_t hit_voice_modes(const agent_menu_t *m, int x, int y) {
     if (!m->online || m->request_pending) return AGENT_HIT_NONE;
-    if (show_retry(m) && inside(x, y, 20, 396, 460, 460)) return AGENT_HIT_RETRY;
+    if (show_retry(m) && inside(x, y, 20, UI_FOOTER_Y - 32, 460, UI_FOOTER_Y + 32)) return AGENT_HIT_RETRY;
     if (!m->count) return hit_model_navigation(m, x, y);
     for (unsigned i = 0; i < m->count && i < 3; ++i) {
         if (inside(x, y, 20, 88 + i * (mode_height(m) + 12), 460, 88 + i * (mode_height(m) + 12) + mode_height(m)) &&
@@ -398,20 +424,20 @@ static face_agent_hit_t hit_voice_modes(const agent_menu_t *m, int x, int y) {
 }
 static face_agent_hit_t hit_classic(const agent_menu_t *m, int x, int y) {
     if (!m->online || m->request_pending) return AGENT_HIT_NONE;
-    if (inside(x, y, 20, 150, 460, 278)) return AGENT_HIT_STT;
-    if (inside(x, y, 20, 302, 460, 430)) return AGENT_HIT_TTS;
+    if (inside(x, y, 20, 214 + EXTRA / 4 - CLASSIC_HH, 460, 214 + EXTRA / 4 + CLASSIC_HH)) return AGENT_HIT_STT;
+    if (inside(x, y, 20, 366 + 3 * EXTRA / 4 - CLASSIC_HH, 460, 366 + 3 * EXTRA / 4 + CLASSIC_HH)) return AGENT_HIT_TTS;
     return AGENT_HIT_NONE;
 }
 static face_agent_hit_t hit_guide(const agent_menu_t *m, int x, int y) {
     if (inside(x, y, 356, 12, 460, 72)) return AGENT_HIT_GUIDE_SKIP;
-    if (inside(x, y, 20, 396, 460, 460)) return m->guide_step == 3 ? AGENT_HIT_GUIDE_DONE : AGENT_HIT_GUIDE_NEXT;
-    if (inside(x, y, 20, 328, 460, 384) && (m->guide_step == 1 || m->guide_step == 2) &&
+    if (inside(x, y, 20, UI_FOOTER_Y - 32, 460, UI_FOOTER_Y + 32)) return m->guide_step == 3 ? AGENT_HIT_GUIDE_DONE : AGENT_HIT_GUIDE_NEXT;
+    if (inside(x, y, 20, GUIDE_REFRESH_Y - 28, 460, GUIDE_REFRESH_Y + 28) && (m->guide_step == 1 || m->guide_step == 2) &&
             m->online && !m->request_pending && (!m->capabilities_known || !capability_ready(m, m->guide_step == 1)))
             return AGENT_HIT_REFRESH;
     return AGENT_HIT_NONE;
 }
 face_agent_hit_t face_agent_hit(const agent_menu_t *m, int x, int y) {
-    if (!m || !m->open || !inside(x, y, 20, 0, 460, 479)) return AGENT_HIT_NONE;
+    if (!m || !m->open || !inside(x, y, 20, 0, 460, UI_H - 1)) return AGENT_HIT_NONE;
     if (m->view == AGENT_VIEW_GUIDE) return hit_guide(m, x, y);
     switch (m->view) {
     case AGENT_VIEW_MODELS: return hit_models(m, x, y);

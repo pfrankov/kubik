@@ -20,7 +20,6 @@
 #include "audio_output_profile.h"
 static const char *TAG = "audio";
 #define SPK_FRAME AUDIO_SPEAKER_FRAMES  // 20 ms
-// 900 ms of ADPCM: 100 ms above host credit, leaving RAM for TLS and Wi-Fi.
 #define RING_BYTES_PER_MS (AUDIO_RATE / 2 / 1000)
 #define RING_BYTES 10800
 #define RING_BLOCKS 9
@@ -29,9 +28,7 @@ _Static_assert(RING_BYTES == 900 * RING_BYTES_PER_MS, "the ring holds 900 ms of 
 #define PREBUF_BYTES (800 * RING_BYTES_PER_MS)  // fill the existing host credit before playback
 #define REBUF_BYTES (300 * RING_BYTES_PER_MS)   // after running dry mid-speech
 #define FRAME_BYTES (SPK_FRAME / 2)
-// TDM slots: MIC1, speaker loop-back, MIC2, unused. PTT sends MIC1 alone.
-#define MIC_SLOTS 4
-#define MIC1_SLOT 0
+#include "audio_target.h"
 #define MIC_CHUNK 240  // frames per read (10 ms); MIC_FRAME_SAMPLES is a whole number of them
 static bool s_duplex;
 static esp_codec_dev_handle_t s_out;
@@ -49,7 +46,6 @@ static int64_t s_start_deadline_us;
 static uint32_t s_pending_gap_frames;
 static size_t s_gap_write_at;
 static portMUX_TYPE s_ring_mux = portMUX_INITIALIZER_UNLOCKED;
-// A stream is one ADPCM sequence; initialize its decoder from the first frame.
 static ima_state_t s_dec;
 static bool s_dec_set;
 static void ring_free_locked(void) {
@@ -58,10 +54,13 @@ static void ring_free_locked(void) {
 }
 static bool ring_acquire_locked(void) {
     if (s_ring_cap) return true;
-    // CPU-only ADPCM belongs in LP SRAM; leave ordinary DMA-capable SRAM for Wi-Fi.
-    // Six 1200-byte LP blocks fit beside Live's 3072-byte sender stack.
+    // CPU-only ADPCM: C6 LP SRAM / S3 PSRAM; preserve internal DMA memory.
     for (int i = 0; i < RING_BLOCKS; i++) {
+#if CONFIG_IDF_TARGET_ESP32S3
+        unsigned caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+#else
         unsigned caps = i < 6 ? MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT : MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+#endif
         s_ring[i] = heap_caps_malloc(RING_BLOCK_BYTES, caps);
         if (!s_ring[i]) { ring_free_locked(); return false; }
     }
@@ -221,13 +220,13 @@ static void doze_while_quiet(void) {
     portEXIT_CRITICAL(&s_audio_mux);
     if (!reserved) return;
     int64_t t0 = esp_timer_get_time();
-    s_out_codec->enable(s_out_codec, false);
-    i2s_channel_disable(s_tx);
+    ESP_ERROR_CHECK(s_out_codec->enable(s_out_codec, false));
+    ESP_ERROR_CHECK(i2s_channel_disable(s_tx));
     s_speech_audible = false; s_spk_level = 0.f; // no stale speech/work flag while output sleeps
     ESP_LOGI(TAG, "codecs dozing");
     while (may_doze()) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));
-    i2s_channel_enable(s_tx);
-    s_out_codec->enable(s_out_codec, true);
+    ESP_ERROR_CHECK(i2s_channel_enable(s_tx));
+    ESP_ERROR_CHECK(s_out_codec->enable(s_out_codec, true));
     ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(s_out, 100));
     portENTER_CRITICAL(&s_audio_mux);
     s_codecs_down = false;
@@ -478,8 +477,8 @@ static bool task_duplex(void *context) { (void)context; return s_duplex && !s_wa
 static uint32_t task_epoch(void *context) { (void)context; return audio_capture_epoch(); }
 static const mic_task_config_t s_mic_task_config = {
     .context = &s_capture, .requested = task_requested, .sync = task_sync, .read = task_read,
-    .deliver = task_deliver, .epoch = task_epoch, .duplex = task_duplex, .slots = MIC_SLOTS, .chunk_samples = MIC_CHUNK,
-    .frame_samples = MIC_FRAME_SAMPLES, .voice_slot = MIC1_SLOT, .timeout_ms = 20,
+    .deliver = task_deliver, .epoch = task_epoch, .duplex = task_duplex, .slots = AUDIO_CAPTURE_CHANNELS, .chunk_samples = MIC_CHUNK,
+    .frame_samples = MIC_FRAME_SAMPLES, .voice_slot = AUDIO_MIC_SLOT, .timeout_ms = 20,
 };
 void audio_set_volume(int pct) { audio_levels_set_speech(pct); }
 void audio_set_ui_volume(int pct) {
@@ -491,7 +490,7 @@ void audio_init(int volume) {
     s_mic_read_lock = xSemaphoreCreateMutex();
     assert(s_ring_lock);
     assert(s_mic_read_lock);
-    if (!audio_board_init(&s_capture, &s_out, &s_out_codec, &s_tx)) return;
+    ESP_ERROR_CHECK(audio_board_init(&s_capture, &s_out, &s_out_codec, &s_tx) ? ESP_OK : ESP_FAIL);
     audio_set_volume(volume);
     ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(s_out, 100));
     ESP_ERROR_CHECK(xTaskCreate(speaker_task, "spk", 4096, NULL, 10, &s_spk_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);

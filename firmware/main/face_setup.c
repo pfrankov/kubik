@@ -1,5 +1,6 @@
 #include "face_internal.h"
 #include "ui_theme.h"
+#include "viewport.h"
 
 // The card is set in capitals: Latin and Cyrillic, in place (same byte length).
 static void upper_utf8(char *s) {
@@ -32,9 +33,9 @@ void face_set_setup(face_t *f, const uint8_t *mods, int n, int step, const char 
 // Keep all available room for the QR. Step two changes the existing heading
 // and accent; it does not add another row or reduce the camera target.
 #define SETUP_TITLE_Y 37.f
-#define SETUP_CHIP_Y 440.f
+#define SETUP_CHIP_Y (UI_H - 40.f)
 #define SETUP_CARD_TOP 54.f
-#define SETUP_CARD_BOTTOM 426.f
+#define SETUP_CARD_BOTTOM (UI_H - 54.f)
 #define QR_INK 0xE6ECEAu  // nearly white on the black screen: no bright card to throw off a phone camera's exposure
 
 // Connecting: a ring with Tess's point running round it, a long trail behind (Plush: a turning arc).
@@ -76,7 +77,8 @@ static void draw_result(face_t *f, scene_t *s, float cx, float cy, float a, uint
 
 void draw_setup_card(face_t *f, scene_t *s) {
     int n = f->qr_n;
-    int avail = (int)((SETUP_CARD_BOTTOM - SETUP_CARD_TOP) / R_SCALE);
+    // Keep the established 372 px camera target while portrait adds room around it.
+    int avail = (int)(fminf(UI_W - 108.f, SETUP_CARD_BOTTOM - SETUP_CARD_TOP) / R_SCALE);
     int module = n > 0 ? avail / (n + 2) : 0;  // a module of black margin each side; the screen is the rest of the quiet zone
     if (module > 8) module = 8;
     if (n > 0 && module < 2) module = 2;
@@ -173,16 +175,16 @@ void draw_pair_card(face_t *f, scene_t *s) {
     float kk = clampf(t / 0.4f, 0, 1);
     float kpop = 1.f - (1.f - kk) * (1.f - kk) * (1.f + 2.2f * kk);
     float breathe = 0.5f + 0.5f * sinf(f->t * 2.1f);
-    prim_t *halo = sc_circle(s, cx, 92, 44, UI_ACCENT, a * (0.14f + 0.12f * breathe));
+    prim_t *halo = sc_circle(s, cx, 92 + (UI_H - 480) * .25f, 44, UI_ACCENT, a * (0.14f + 0.12f * breathe));
     pr_soft(halo, 22);
-    sc_icon(s, ICON_KEY_ROUND, cx, 92, 48 * (0.7f + 0.3f * kpop), UI_ACCENT, a);
+    sc_icon(s, ICON_KEY_ROUND, cx, 92 + (UI_H - 480) * .25f, 48 * (0.7f + 0.3f * kpop), UI_ACCENT, a);
     float ta = clampf((t - 0.15f) / 0.3f, 0, 1);
-    sc_label(s, TXT_HEADING, "PAIR WITH AGENT", cx, 157, 0, UI_TEXT, ta);
+    sc_label(s, TXT_HEADING, "PAIR WITH AGENT", cx, 157 + (UI_H - 480) * .25f, 0, UI_TEXT, ta);
     // The command, as it is typed.
     const char *cmd = f->pair_telegram ? "Match this code in Telegram" : "Approve this code on the server";
     float w = label_width(TXT_CAPTION, cmd);
-    sc_rbox(s, cx, 214, w * 0.5f + 18, 19, 19, 0, COL_CHIP, ta);
-    sc_label(s, TXT_CAPTION, cmd, cx, 214, 0, UI_ACCENT, ta);
+    sc_rbox(s, cx, 214 + (UI_H - 480) * .25f, w * 0.5f + 18, 19, 19, 0, COL_CHIP, ta);
+    sc_label(s, TXT_CAPTION, cmd, cx, 214 + (UI_H - 480) * .25f, 0, UI_ACCENT, ta);
     // The code: one tile per character.
     int n = (int)strlen(f->pair_code);
     if (n > 8) n = 8;
@@ -192,7 +194,7 @@ void draw_pair_card(face_t *f, scene_t *s) {
     for (int i = 0; i < n; i++) {
         float k = clampf((t - 0.3f - i * 0.06f) / 0.3f, 0, 1);
         float pop = 1.f - (1.f - k) * (1.f - k) * (1.f + 2.4f * k);
-        float ty = 296 + (1 - pop) * 14;
+        float ty = 296 + (UI_H - 480) * .5f + (1 - pop) * 14;
         sc_rbox(s, x, ty, tw * (0.85f + 0.15f * pop), th * (0.85f + 0.15f * pop), 12, 0, UI_TEXT, k);
         char ch[2] = {f->pair_code[i], 0};
         sc_label(s, TXT_CODE, ch, x, ty, 0, UI_INK, clampf((k - 0.3f) / 0.7f, 0, 1));
@@ -202,19 +204,19 @@ void draw_pair_card(face_t *f, scene_t *s) {
     bool hermes = f->pair_hermes;
     char approval[48];
     if (f->pair_telegram) {
-        sc_label(s, TXT_CAPTION, "Open your agent's Telegram chat", cx, 364, 0, UI_TEXT, ta);
-        sc_label(s, TXT_CAPTION, "Match this code, then tap Allow", cx, 398, 0, UI_ACCENT, ta);
+        sc_label(s, TXT_CAPTION, "Open your agent's Telegram chat", cx, 364 + (UI_H - 480) * .75f, 0, UI_TEXT, ta);
+        sc_label(s, TXT_CAPTION, "Match this code, then tap Allow", cx, 398 + (UI_H - 480) * .75f, 0, UI_ACCENT, ta);
     } else {
-        sc_label(s, TXT_CAPTION, hermes ? "In your Hermes environment:" : "On your OpenClaw server:", cx, 350, 0, UI_TEXT, ta);
-        sc_label(s, TXT_CAPTION, hermes ? "cd <home>/plugins/kubik" : "openclaw pairing approve \\", cx, 382, 0, UI_ACCENT, ta);
+        sc_label(s, TXT_CAPTION, hermes ? "In your Hermes environment:" : "On your OpenClaw server:", cx, 350 + (UI_H - 480) * .75f, 0, UI_TEXT, ta);
+        sc_label(s, TXT_CAPTION, hermes ? "cd <home>/plugins/kubik" : "openclaw pairing approve \\", cx, 382 + (UI_H - 480) * .75f, 0, UI_ACCENT, ta);
         snprintf(approval, sizeof approval, hermes ? "python pair.py %.8s" : "  kubik %.8s", f->pair_code);
-        sc_label(s, TXT_CAPTION, approval, cx, 410, 0, UI_ACCENT, ta);
+        sc_label(s, TXT_CAPTION, approval, cx, 410 + (UI_H - 480) * .75f, 0, UI_ACCENT, ta);
     }
     // Waiting for the approval.
     float da = clampf((t - 0.9f) / 0.4f, 0, 1);
     for (int i = 0; i < 3; i++) {
         float ph = fmodf(f->t * 1.2f - i * 0.18f, 1.f);
         float up = ph < 0.4f ? sinf(ph / 0.4f * PI) : 0;
-        sc_circle(s, cx + (i - 1) * 20.f, 442 - up * 7, 5.5f, UI_ACCENT, da * (0.45f + 0.55f * up));
+        sc_circle(s, cx + (i - 1) * 20.f, UI_H - 38 - up * 7, 5.5f, UI_ACCENT, da * (0.45f + 0.55f * up));
     }
 }

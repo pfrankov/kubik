@@ -58,6 +58,29 @@ def check_preflight():
         assert accept['main']() == 1
 
 
+def check_build_targets():
+    calls = []
+    with patch.dict(globals_, run=lambda command, cwd=ROOT, timeout=600: calls.append((command, timeout))):
+        accept['build']()
+    expected = [
+        ('esp32c6', 'TESS', 'build'), ('esp32c6', 'PLUSH', 'build-plush'),
+        ('esp32s3', 'TESS', 'build-s3'), ('esp32s3', 'PLUSH', 'build-s3-plush'),
+    ]
+    for index, (target, character, directory) in enumerate(expected):
+        group = calls[index * 3:index * 3 + 3]
+        assert group[0] == ([
+            'idf.py', '-C', 'firmware', '-B', str(ROOT / 'firmware' / directory),
+            f'-DIDF_TARGET={target}', f'-DKUBIK_CHARACTER={character}', 'build',
+        ], 1200)
+        for (command, timeout), name in zip(group[1:], ('package', 'kit')):
+            assert command == [accept['sys'].executable, f'tools/test-{name}.py',
+                               '--character', character, '--target', target]
+            assert timeout == 600
+    assert len(calls) == 13 and calls[-1][0][:2] == ['node', 'tools/test-install.mjs']
+    assert len(set(accept['HOST_TESTS'])) == len(accept['HOST_TESTS'])
+    assert {'board', 'target-memory'} <= set(accept['HOST_TESTS'])
+
+
 def check_compile_flags():
     compile_object = runpy.run_path(str(ROOT / 'tools/test-render.py'))['compile_object']
     with tempfile.TemporaryDirectory(prefix='kubik-compile-isolation-') as directory:
@@ -78,5 +101,6 @@ def check_compile_flags():
 
 check_stages()
 check_preflight()
+check_build_targets()
 check_compile_flags()
-print('acceptance: split/full coverage, missing SDK, failure and compiler flag isolation passed')
+print('acceptance: four target/character builds, split/full coverage, missing SDK, failure and compiler flag isolation passed')

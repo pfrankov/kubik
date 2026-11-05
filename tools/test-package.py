@@ -4,6 +4,7 @@
 import argparse
 import importlib.util
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -16,22 +17,23 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-
+from firmware_layout import (TARGETS, build_directory, firmware_filename, kit_filename,
+                             target_chip_id)
 
 ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--character", choices=("TESS", "PLUSH"), default="TESS")
-CHARACTER = parser.parse_args().character
-BUILD = ROOT / ("firmware/build" if CHARACTER == "TESS" else "firmware/build-plush")
-FIRMWARE = ROOT / f"dist/kubik-firmware-{CHARACTER.lower()}.zip"
-
+parser.add_argument("--target", choices=tuple(TARGETS), default="esp32c6")
+arguments = parser.parse_args()
+CHARACTER, TARGET = arguments.character, arguments.target
+BUILD = build_directory(CHARACTER, TARGET)
+FIRMWARE = ROOT / "dist" / firmware_filename(CHARACTER, TARGET)
 
 def run_check(bundle, *extra, env=None):
     return subprocess.run(
         [sys.executable, str(bundle / "flash-device.py"), "--bundle", str(bundle), *extra],
         capture_output=True, text=True, env=env,
     )
-
 
 def check_size_margin():
     """The app partition must keep 2% free: the packager refuses a firmware that leaves less."""
@@ -49,7 +51,44 @@ def check_size_margin():
     else:
         raise AssertionError("a firmware leaving under 2% of the app partition free was accepted")
 
-
+def check_target_metadata():
+    assert (TARGETS['esp32c6']['board'], TARGETS['esp32s3']['board']) == (
+        'waveshare-esp32c6-touch-amoled-2.16', 'waveshare-esp32s3-touch-amoled-1.8-v2')
+    assert (firmware_filename('TESS', 'esp32c6'), firmware_filename('TESS', 'esp32s3'),
+            kit_filename('PLUSH', 'esp32s3')) == ('kubik-firmware-tess.zip', 'kubik-firmware-tess-esp32s3.zip',
+                                                   'kubik-kit-plush-esp32s3.zip')
+    module = runpy.run_path(str(ROOT / 'tools/package-firmware.py'))
+    with tempfile.TemporaryDirectory(prefix='kubik-target-metadata-') as temporary:
+        build = Path(temporary)
+        (build / 'character.txt').write_text('TESS')
+        (build / 'config').mkdir()
+        for target in TARGETS:
+            (build / 'project_description.json').write_text(json.dumps({'target': target}))
+            (build / 'config/sdkconfig.h').write_text(f'#define CONFIG_IDF_TARGET "{target}"\n')
+            assert module['build_target'](build) == target
+            try:
+                module['package'](build, build / 'unused.zip', 'TESS', 'esp32s3' if target == 'esp32c6' else 'esp32c6')
+            except ValueError as error:
+                assert 'Build target is' in str(error)
+            else:
+                raise AssertionError('cross-target build packaging was accepted')
+        (build / 'config/sdkconfig.h').write_text('#define CONFIG_IDF_TARGET "esp32c6"\n')
+        try:
+            module['build_target'](build)
+        except ValueError as error:
+            assert 'metadata differs' in str(error)
+        else:
+            raise AssertionError('conflicting generated target metadata was accepted')
+    for target, other in (('esp32c6', 'esp32s3'), ('esp32s3', 'esp32c6')):
+        image = bytearray(16); image[0] = 0xE9
+        image[12:14] = target_chip_id(target).to_bytes(2, 'little')
+        runpy.run_path(str(ROOT / 'tools/firmware_layout.py'))['validate_image_chip'](image, target, 'app')
+        try:
+            runpy.run_path(str(ROOT / 'tools/firmware_layout.py'))['validate_image_chip'](image, other, 'app')
+        except ValueError as error:
+            assert 'chip ID' in str(error)
+        else:
+            raise AssertionError('cross-target ESP image header was accepted')
 
 def check_network_memory_profile():
     # Check the generated build, not defaults that an existing sdkconfig can ignore.
@@ -69,8 +108,6 @@ def check_network_memory_profile():
     for direction in ('RX', 'TX'):
         key = f'CONFIG_ESP_WIFI_AMPDU_{direction}_ENABLED'
         assert key not in config, f'{CHARACTER}: unexpected Wi-Fi aggregation'
-
-
 
 def check_plush_config():
     spec = importlib.util.spec_from_file_location('plush_config', ROOT / 'tools/configure-plush.py')
@@ -92,8 +129,6 @@ def check_plush_config():
         module.configure(source, defaults, output)
         assert output.read_text().startswith(defaults.read_text())
         assert output.read_text().count('="partitions-plush.csv"') == 2
-
-
 
 def check_compiler_inputs():
     module = runpy.run_path(str(ROOT / 'tools/package-firmware.py'))
@@ -148,7 +183,6 @@ def check_compiler_inputs():
         assert relative_actual == mixed_actual == expected, (relative_actual, mixed_actual, expected)
         assert (source / 'excluded.c').resolve() not in mixed_actual
         assert (include / 'excluded header.h').resolve() not in mixed_actual
-
         duplicate_alias = [dict(selected_relative[0]), dict(selected_relative[1])]
         duplicate_alias[1]['output'] = str((build / duplicate_alias[0]['output']).resolve())
         for invalid, label in (
@@ -162,7 +196,6 @@ def check_compiler_inputs():
                 pass
             else:
                 raise AssertionError(label)
-
         deps_log = build / '.ninja_deps'
         assert deps_log.is_file() and deps_log.stat().st_size > 0
         record = subprocess.run([ninja, '-C', str(build), '-t', 'deps', selected[0]['output']],
@@ -182,9 +215,7 @@ def check_compiler_inputs():
                 raise AssertionError('stale Ninja compiler dependencies were accepted')
         finally:
             os.utime(output, ns=(output_stat.st_atime_ns, output_stat.st_mtime_ns))
-
         deps_log.unlink()
-
         def rejects_invalid_log(message):
             try:
                 module['compiler_inputs'](build, selected)
@@ -195,7 +226,6 @@ def check_compiler_inputs():
         rejects_invalid_log('missing .ninja_deps was accepted')
         deps_log.write_bytes(b'not a Ninja dependency log')
         rejects_invalid_log('corrupt .ninja_deps was accepted')
-
         fake_ninja = build / 'failing-ninja'
         fake_ninja.write_text(
             '#!/usr/bin/env python3\n'
@@ -235,10 +265,22 @@ def check_compiler_inputs():
     print('package freshness: mixed relative/absolute Ninja outputs normalized; duplicate aliases, outside '
           'outputs, stale/missing/corrupt records, failed-query diagnostics and incomplete compile databases checked')
 
+def check_config_freshness_inputs(inputs):
+    other = 'esp32s3' if TARGET == 'esp32c6' else 'esp32c6'
+    defaults = [ROOT / f'firmware/sdkconfig.defaults.{name}' for name in (TARGET, other)]
+    locks = ('dependencies.lock', 'dependencies.lock.esp32s3') if TARGET == 'esp32c6' else (
+        'dependencies.lock.esp32s3', 'dependencies.lock')
+    checks = [(defaults[0], True), (defaults[1], False)]
+    checks += [(ROOT / 'firmware' / name, selected) for name, selected in zip(locks, (True, False))]
+    checks.append((ROOT / 'firmware/sdkconfig.defaults.plush', TARGET == 'esp32s3' and CHARACTER == 'PLUSH'))
+    assert all((path in inputs) == selected for path, selected in checks)
+    return checks
+
 
 def check_freshness():
     module = runpy.run_path(str(ROOT / 'tools/package-firmware.py'))
     inputs = module['build_inputs'](BUILD)
+    config_checks = check_config_freshness_inputs(inputs)
     wake = ROOT / 'firmware/main/wake_model.cc'
     wake_header = ROOT / 'firmware/main/wake_probability.h'
     selected_sources = (
@@ -251,9 +293,8 @@ def check_freshness():
     assert (wake_header in inputs) == (CHARACTER == 'TESS')
     assert all(path in inputs for path in selected_sources), [path for path in selected_sources if path not in inputs]
     module['check_build_freshness'](BUILD)
-
     checks = [(wake, CHARACTER == 'TESS'), (wake_header, CHARACTER == 'TESS')]
-    checks.extend((path, True) for path in selected_sources)
+    checks += [(path, True) for path in selected_sources] + config_checks
     with tempfile.TemporaryDirectory(prefix='kubik-freshness-') as temporary:
         directory = Path(temporary)
         image = directory / 'kubik.bin'
@@ -263,7 +304,6 @@ def check_freshness():
         image_mtime = image.stat().st_mtime_ns
         baseline_stat = baseline.stat()
         os.utime(baseline, ns=(baseline_stat.st_atime_ns, image_mtime))
-
         for index, (path, stale) in enumerate(checks):
             candidate = directory / f'candidate-{index}.c'
             candidate.write_bytes(b'candidate source')
@@ -297,7 +337,6 @@ def check_bridge_selection():
     assert not module.bridge_uses_port("node other.mjs 'unterminated", target)
     assert not module.bridge_uses_port("node other.mjs --port " + target, target)
 
-
 def check_web_assets():
     compress = runpy.run_path(str(ROOT / 'tools/assets/compress-web.py'))['compress']
     image = (BUILD / 'kubik.bin').read_bytes()
@@ -308,7 +347,6 @@ def check_web_assets():
         assert packed == compress(source) and packed[4:8] == bytes(4)
         assert image.count(packed) == 1 and source not in image
     print('web assets: exact reproducible gzip, one embedded copy, no plain duplicate')
-
 
 def check_build_choice():
     cmake = (ROOT / 'firmware/main/CMakeLists.txt').read_text()
@@ -328,7 +366,6 @@ def check_build_choice():
             assert 'must be TESS or PLUSH' in configure('BOTH').stderr
             assert (directory / 'character.txt').read_text().strip() == character
 
-
 def check_wake_workspace(symbols):
     # Validate the real compiler boundary: no global allocator redirection and
     # no silent return to DMA SRAM after a component/CMake update.
@@ -340,7 +377,6 @@ def check_wake_workspace(symbols):
         assert 'kubik_wake_fft_alloc' in symbols, 'wake FFT allocator was not linked'
     else:
         assert not routed and 'kubik_wake_fft_alloc' not in symbols
-
 
 def check_character_symbols():
     cache = (BUILD / 'CMakeCache.txt').read_text()
@@ -360,18 +396,17 @@ def check_character_symbols():
     assert not absent & symbols, absent & symbols
     print(f'{CHARACTER}: only the selected character renderer, motion and sound are linked')
 
-
 def check_manifest_character(path, manifest):
     manifest_path = path / 'manifest.json'
-    for value in (None, '', 'Both', 'tess'):
+    invalids = [('character', v) for v in (None, '', 'Both', 'tess')] + [
+        ('board', v) for v in (None, '', TARGETS['esp32s3' if TARGET == 'esp32c6' else 'esp32c6']['board'])]
+    for field, value in invalids:
         invalid = dict(manifest)
-        if value is None: invalid.pop('character')
-        else: invalid['character'] = value
-        manifest_path.write_text(json.dumps(invalid))
-        result = run_check(path, '--check')
-        assert result.returncode != 0 and 'character' in result.stderr
+        if value is None: invalid.pop(field)
+        else: invalid[field] = value
+        manifest_path.write_text(json.dumps(invalid)); result = run_check(path, '--check')
+        assert result.returncode != 0 and field in result.stderr
     manifest_path.write_text(json.dumps(manifest))
-
 
 def check_sound_inventory():
     directory = ROOT / 'firmware/assets/sfx'
@@ -382,8 +417,8 @@ def check_sound_inventory():
     for entry in entries:
         assert (directory / entry['file']).stat().st_size == entry['ms'] * 48
 
-
 def main():
+    check_target_metadata()
     check_network_memory_profile()
     check_size_margin()
     check_plush_config()
@@ -394,13 +429,16 @@ def main():
     check_freshness()
     check_build_choice()
     check_sound_inventory()
-    subprocess.run([sys.executable, str(ROOT / "tools/package-firmware.py"), "--character", CHARACTER], check=True)
+    subprocess.run([sys.executable, str(ROOT / "tools/package-firmware.py"), "--character", CHARACTER,
+                    "--target", TARGET], check=True)
     with tempfile.TemporaryDirectory(prefix="kubik-bundle-test-") as temporary:
         path = Path(temporary)
         with zipfile.ZipFile(FIRMWARE) as release:
             release.extractall(path)
         manifest = json.loads((path / "manifest.json").read_text())
         assert manifest["character"] == CHARACTER.title()
+        assert (manifest['chip'] == TARGET and manifest['board'] == TARGETS[TARGET]['board']
+                and (path / 'firmware_layout.py').is_file())
         check_manifest_character(path, manifest)
         assets = (path / "assets.bin").read_bytes()
         if CHARACTER == "TESS":
@@ -411,7 +449,6 @@ def main():
             assert len(assets) > 10_000_000 and b"wake/tessa" not in assets[:8192]
         assert (path / "licenses/OFL-PT-Sans.txt").is_file()
         assert run_check(path, "--check").returncode == 0
-
         module = path / "esptool"
         module.mkdir()
         (module / "__init__.py").write_text("")
@@ -423,8 +460,10 @@ def main():
         env = {**os.environ, "PYTHONPATH": str(path), "KUBIK_FLASH_ARGS": str(args_file)}
         flashed = run_check(path, "--port", "/dev/kubik-mock", env=env)
         assert flashed.returncode == 0, (flashed.stdout, flashed.stderr)
-        assert "Запись завершена" in flashed.stdout and "PWR" in flashed.stdout
+        assert ("Запись завершена" in flashed.stdout and "PWR" in flashed.stdout
+                and TARGETS[TARGET]['board'] in flashed.stdout)
         args = json.loads(args_file.read_text())
+        assert args[args.index('--chip') + 1] == TARGET
         assert args[:args.index("write_flash")].count("/dev/kubik-mock") == 1
         for part in manifest["parts"]:
             expected = [hex(part["offset"]), str(path.resolve() / part["file"])]
@@ -439,16 +478,22 @@ def main():
         assert no_sync.returncode == 1
         assert "отключите USB-C" in no_sync.stderr and "PWR" in no_sync.stderr
         assert "Command '['" not in no_sync.stderr
-
         image = path / manifest["parts"][2]["file"]
-        data = bytearray(image.read_bytes())
+        original = image.read_bytes()
+        data = bytearray(original)
         data[-1] ^= 1
         image.write_bytes(data)
         failed = run_check(path, "--check")
         assert failed.returncode != 0 and "integrity check" in failed.stderr
         assert run_check(path, "--port", "/dev/kubik-mock", env=env).returncode != 0
+        data = bytearray(original)
+        data[12:14] = target_chip_id('esp32s3' if TARGET == 'esp32c6' else 'esp32c6').to_bytes(2, 'little')
+        image.write_bytes(data)
+        manifest['parts'][2]['sha256'] = hashlib.sha256(data).hexdigest()
+        (path / 'manifest.json').write_text(json.dumps(manifest))
+        rejected = run_check(path, '--check')
+        assert rejected.returncode != 0 and 'chip ID' in rejected.stderr
     print("release: 2% app partition margin enforced, real images verified, mock flash layout exact, tampering rejected before write")
-
 
 if __name__ == "__main__":
     main()

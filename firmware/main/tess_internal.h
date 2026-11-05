@@ -4,6 +4,13 @@
 #include "tess.h"
 #include "face_math.h"
 #include "tess_points.h"
+#include "viewport.h"
+
+// C6 keeps its established 15 px optical offset; portrait S3 centres the body.
+#define TESS_CX ((float)UI_CX)
+#define TESS_CY ((float)(UI_H == 480 ? 255 : UI_CY))
+#define TESS_CX_Q3 (UI_CX * 8)
+#define TESS_CY_Q3 ((UI_H == 480 ? 255 : UI_CY) * 8)
 
 #define PI 3.14159265f
 #define TESS_PX_PER_UNIT 77.f  // panel pixels to one unit of the cloud, in the plane of its middle (90 px * 4 / 4.7)

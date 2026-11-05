@@ -6,8 +6,8 @@
 #define SKY_ZONE_R 36.f         // a star lights from particles this near its centre, px
 #define SKY_STAR_PULL_R 84.f    // and it gently draws in the stream from this far
 #define SKY_FINGER_R 160.f
-#define SKY_CX 240.f
-#define SKY_CY 255.f
+#define SKY_CX ((float)UI_CX)
+#define SKY_CY ((float)(UI_H == 480 ? 255 : UI_CY))
 #define SKY_MAX_SPEED 340.f     // total px/s, including overlapping fields and diagonal tilt
 #define SKY_STEP_S (1.f / 60.f)
 #define SKY_TILT_SCALE .3f

@@ -1,4 +1,5 @@
 #include "input_rub.h"
+#include "viewport.h"
 
 #include <math.h>
 
@@ -30,7 +31,7 @@ void input_rub_script(float t, bool cloud, bool down) {
     const float turn = 6.2831853f;
     touch_frame_t frame = {.point = {{
         .x = (int)(240 + 60 * sinf(turn * 3.5f * t)),
-        .y = (int)((cloud ? 255 : 370) + 15 * sinf(turn * 1.7f * t)), .down = down,
+        .y = (int)((cloud ? (UI_H == 480 ? 255 : UI_CY) : 370 + UI_CY - 240) + 15 * sinf(turn * 1.7f * t)), .down = down,
     }}};
     input_rub_sample(&frame, down ? 0 : -1);
 }

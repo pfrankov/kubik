@@ -31,8 +31,8 @@ static size_t wrap_prefix(const char *text) {
 }
 static void detail(const event_journal_t *j, scene_t *s) {
     if (j->detail_expired) {
-        sc_label(s, TXT_ACTION, "This event has expired", 240, 230, 0, UI_TEXT, 1);
-        sc_label(s, TXT_CAPTION, "BOOT returns to recent events", 240, 278, 0, UI_MUTED, 1);
+        sc_label(s, TXT_ACTION, "This event has expired", 240, UI_CY - 10, 0, UI_TEXT, 1);
+        sc_label(s, TXT_CAPTION, "BOOT returns to recent events", 240, UI_CY + 38, 0, UI_MUTED, 1);
         return;
     }
     const journal_entry_t *e = event_journal_at(j, j->selected);
@@ -41,7 +41,7 @@ static void detail(const event_journal_t *j, scene_t *s) {
     sc_label(s, TXT_CAPTION, event_journal_kind(e->kind), 28, 150, -1, UI_GOLD, 1);
     sc_label(s, TXT_CAPTION, time, 452, 150, 1, UI_MUTED, 1);
     const char *at = e->text;
-    for (int i = 0; i < 7 && *at; i++) {
+    for (int i = 0; i < 7 + (UI_H - 480) / 28 && *at; i++) {
         size_t n = wrap_prefix(at);
         if (!n) break;
         char row[JOURNAL_TEXT]; memcpy(row, at, n); row[n] = 0;
@@ -49,8 +49,8 @@ static void detail(const event_journal_t *j, scene_t *s) {
         at += n;
         while (*at == ' ') at++;
     }
-    line(s, TXT_CAPTION, e->reaction, 28, 412, 424, UI_ACCENT);
-    sc_label(s, TXT_CAPTION, "Message excerpt / BOOT returns", 240, 452, 0, UI_MUTED, 1);
+    line(s, TXT_CAPTION, e->reaction, 28, UI_H - 68, 424, UI_ACCENT);
+    sc_label(s, TXT_CAPTION, "Message excerpt / BOOT returns", 240, UI_H - 28, 0, UI_MUTED, 1);
 }
 static void chevron(scene_t *s, float x, float y, bool next, uint32_t color) {
     float d = next ? 1 : -1;
@@ -60,30 +60,30 @@ static void chevron(scene_t *s, float x, float y, bool next, uint32_t color) {
 // Same pager look as the Agent models page: two chevron tiles around "n / N".
 static void pager(const event_journal_t *j, scene_t *s) {
     bool prev = j->offset > 0, next = j->offset + 3u < j->count;
-    sc_rbox(s, 88, 450, 68, 28, UI_RADIUS, 0, UI_SURFACE, 1);
-    sc_rbox(s, 392, 450, 68, 28, UI_RADIUS, 0, UI_SURFACE, 1);
-    chevron(s, 88, 450, false, prev ? UI_TEXT : UI_DISABLED);
-    chevron(s, 392, 450, true, next ? UI_TEXT : UI_DISABLED);
+    sc_rbox(s, 88, JOURNAL_PAGER_Y, 68, 28, UI_RADIUS, 0, UI_SURFACE, 1);
+    sc_rbox(s, 392, JOURNAL_PAGER_Y, 68, 28, UI_RADIUS, 0, UI_SURFACE, 1);
+    chevron(s, 88, JOURNAL_PAGER_Y, false, prev ? UI_TEXT : UI_DISABLED);
+    chevron(s, 392, JOURNAL_PAGER_Y, true, next ? UI_TEXT : UI_DISABLED);
     char count[24]; unsigned pages = (j->count + 2u) / 3u, page = j->offset / 3u + 1u;
     snprintf(count, sizeof count, "%u / %u", page > pages ? pages : page, pages);
-    sc_label(s, TXT_CHOICE, count, 240, 450, 0, UI_MUTED, 1);
+    sc_label(s, TXT_CHOICE, count, 240, JOURNAL_PAGER_Y, 0, UI_MUTED, 1);
 }
 static void list(const event_journal_t *j, scene_t *s) {
     if (!j->count) {
-        sc_label(s, TXT_ACTION, "No agent events yet", 240, 230, 0, UI_TEXT, 1);
-        sc_label(s, TXT_CAPTION, "Connect or talk to your agent", 240, 278, 0, UI_MUTED, 1);
+        sc_label(s, TXT_ACTION, "No agent events yet", 240, UI_CY - 10, 0, UI_TEXT, 1);
+        sc_label(s, TXT_CAPTION, "Connect or talk to your agent", 240, UI_CY + 38, 0, UI_MUTED, 1);
         return;
     }
     for (unsigned i = 0; i < 3; i++) {
         const journal_entry_t *e = event_journal_at(j, j->offset + i);
         if (!e) break;
-        int top = 128 + i * 100;
-        sc_rbox(s, 240, top + 46, 220, 46, 22, 0, UI_SURFACE, 1);
+        int top = event_journal_row_top(i), height = event_journal_row_top(i + 1) - top;
+        sc_rbox(s, 240, top + (height - 8) / 2.f, 220, (height - 8) / 2.f, 22, 0, UI_SURFACE, 1);
         char time[32]; stamp(e, time, sizeof time);
         sc_label(s, TXT_CAPTION, event_journal_kind(e->kind), 36, top + 17, -1, UI_GOLD, 1);
         sc_label(s, TXT_CAPTION, time, 444, top + 17, 1, UI_MUTED, 1);
-        line(s, TXT_ACTION, e->text, 36, top + 45, 408, UI_TEXT);
-        line(s, TXT_CAPTION, e->reaction, 36, top + 75, 408, UI_ACCENT);
+        line(s, TXT_ACTION, e->text, 36, top + 45 + (height - 100) * .5f, 408, UI_TEXT);
+        line(s, TXT_CAPTION, e->reaction, 36, top + 75 + height - 100, 408, UI_ACCENT);
     }
     pager(j, s);
 }

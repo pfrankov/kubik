@@ -162,7 +162,7 @@ assert.equal(getElement('serverDetails').hidden,true);
 assert.equal(getElement('museDetails').hidden,false);
 assert.match(getElement('agentHint').textContent,/Bluetooth is used only for pairing/);
 assert.match(getElement('pairingHint').textContent,/MuseGadget/);
-assert.match(getElement('approvalHint').textContent,/press KEY/);
+assert.match(getElement('approvalHint').textContent,/press the button shown on Kubik/);
 getElement('sdkToken').value = 'mgst_' + 'A'.repeat(43);
 await getElement('form').onsubmit({preventDefault(){}});
 const museRequest=JSON.parse(requests.filter(r=>r.path==='/api/connect').at(-1).options.body);

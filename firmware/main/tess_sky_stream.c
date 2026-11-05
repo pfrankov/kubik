@@ -125,7 +125,7 @@ static bool move_particle(const field_t *f, sky_particle_t *p, sky_hits_t *hits)
     p->vx = (int16_t)vx; p->vy = (int16_t)vy;
     p->x = (int16_t)clamp32(p->x + integrate(vx, &p->rx), -4000, 7000);
     p->y = (int16_t)clamp32(p->y + integrate(vy, &p->ry), -4000, 7000);
-    bool out = p->x < -30 * SKY_Q3 || p->x > (SKY_W + 30) * SKY_Q3 || p->y < -30 * SKY_Q3 || p->y > (SKY_W + 30) * SKY_Q3;
+    bool out = p->x < -30 * SKY_Q3 || p->x > (SKY_W + 30) * SKY_Q3 || p->y < -30 * SKY_Q3 || p->y > (SKY_H + 30) * SKY_Q3;
     return !out && ++p->age <= MAX_AGE;
 }
 static void update_stars(sky_world_t *w, field_t *f, sky_hits_t *hits) {
@@ -154,7 +154,7 @@ void sky_emitter(sky_world_t *w, unsigned star) {
     w->emit_tick = 0;
     sky_source_t *s = &w->source;
     s->x = w->star[star].x; s->y = w->star[star].y;
-    float dx = 240 - s->x, dy = 240 - s->y, length = hypotf(dx, dy);
+    float dx = 240 - s->x, dy = UI_CY - s->y, length = hypotf(dx, dy);
     s->dx = length > 1 ? (star ? dx : -dy) / length : 1;
     s->dy = length > 1 ? (star ? dy : dx) / length : 0;
     s->speed = 60;

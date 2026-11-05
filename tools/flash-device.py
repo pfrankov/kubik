@@ -10,27 +10,50 @@ import signal
 import subprocess
 import sys
 import time
+from firmware_layout import TARGETS, validate_image_chip
+
+
+def validate_target_character(manifest):
+    chip = manifest.get("chip")
+    if not isinstance(chip, str) or chip not in TARGETS or manifest.get("flash_size") != "16MB":
+        raise ValueError("This bundle is not for a supported 16 MB Kubik target")
+    board = manifest.get('board')
+    if board != TARGETS[chip]['board']:
+        raise ValueError('Bundle board profile does not match its manifest chip')
+    if manifest.get("character") not in {"Tess", "Plush"}:
+        raise ValueError("Firmware character is missing or invalid")
+    return chip, board, 0x320000 if manifest['character'] == 'Tess' else 0x200000
+
+
+def validate_manifest_parts(parts, assets_offset):
+    if any(not isinstance(part, dict) or type(part.get('offset')) is not int
+           or not isinstance(part.get('file'), str) for part in parts):
+        raise ValueError("Invalid flash image entry")
+    expected = {(0, 'bootloader.bin'), (0x8000, 'partition-table.bin'),
+                (0x20000, 'kubik.bin'), (assets_offset, 'assets.bin')}
+    if {(part.get('offset'), part.get('file')) for part in parts} != expected:
+        raise ValueError("Unexpected flash layout")
+
+
+def validate_manifest(manifest):
+    if not isinstance(manifest, dict):
+        raise ValueError("Invalid firmware manifest")
+    chip, board, assets_offset = validate_target_character(manifest)
+    parts = manifest.get('parts')
+    if not isinstance(parts, list) or len(parts) != 4:
+        raise ValueError("Expected bootloader, partition table, app and assets")
+    validate_manifest_parts(parts, assets_offset)
+    return chip, board, sorted(parts, key=lambda part: part["offset"])
 
 
 def bundle_files(directory):
     manifest = json.loads((directory / "manifest.json").read_text())
-    if manifest.get("chip") != "esp32c6" or manifest.get("flash_size") != "16MB":
-        raise ValueError("This bundle is not for the 16 MB Kubik ESP32-C6")
-    if manifest.get("character") not in {"Tess", "Plush"}:
-        raise ValueError("Firmware character is missing or invalid")
-    parts = manifest.get("parts")
-    if not isinstance(parts, list) or len(parts) != 4:
-        raise ValueError("Expected bootloader, partition table, app and assets")
-    assets_offset = 0x320000 if manifest['character'] == 'Tess' else 0x200000
-    expected_offsets = {0, 0x8000, 0x20000, assets_offset}
-    if {part.get("offset") for part in parts} != expected_offsets:
-        raise ValueError("Unexpected flash layout")
-    ordered = sorted(parts, key=lambda part: part["offset"])
-    validate_images(directory, ordered)
+    chip, _, ordered = validate_manifest(manifest)
+    validate_images(directory, ordered, chip)
     return manifest
 
 
-def validate_images(directory, ordered):
+def validate_images(directory, ordered, chip):
     for index, part in enumerate(ordered):
         name = part.get("file")
         if not isinstance(name, str) or Path(name).name != name:
@@ -38,6 +61,8 @@ def validate_images(directory, ordered):
         data = (directory / name).read_bytes()
         if len(data) != part.get("size") or hashlib.sha256(data).hexdigest() != part.get("sha256"):
             raise ValueError(f"Image failed integrity check: {name}")
+        if name in {'bootloader.bin', 'kubik.bin'}:
+            validate_image_chip(data, chip, name)
         if part["offset"] + len(data) > 0x1000000:
             raise ValueError(f"Image exceeds the device flash: {name}")
         if index + 1 < len(ordered) and part["offset"] + len(data) > ordered[index + 1]["offset"]:
@@ -108,11 +133,11 @@ def main():
     args = parser.parse_args()
     directory = args.bundle.resolve()
     manifest = bundle_files(directory)
-    print(f"Kubik {manifest['version']} · {manifest['character']}: all four images verified")
+    print(f"Bundle profile {manifest['board']} · Kubik {manifest['version']} {manifest['character']}: images verified")
     if args.check:
         return
     port = select_port(args.port)
-    command = [sys.executable, "-m", "esptool", "--chip", "esp32c6", "--port", port,
+    command = [sys.executable, "-m", "esptool", "--chip", manifest['chip'], "--port", port,
                "--baud", "460800", "--before", "default_reset", "--after", "hard_reset",
                "write_flash", "--flash_mode", "dio", "--flash_size", "16MB", "--flash_freq", "80m"]
     for part in sorted(manifest["parts"], key=lambda part: part["offset"]):

@@ -1,9 +1,24 @@
 # Kubik device protocol v5 · USB transport v2
 
-Transport between the desk device (ESP32-C6) and an agent host, including the `kubik` OpenClaw channel
+Transport between the desk device (Waveshare C6 2.16 or S3 1.8 V2) and an agent host, including the `kubik` OpenClaw channel
 plugin. The same frames are carried either over a WebSocket (Wi-Fi) or over the
 USB tether (see "USB link" below; the host bridge converts USB frames into the
 same WebSocket session, so the plugin sees one protocol).
+
+The S3 1.8 V2 uses the full CO5300 368×448 panel with a visible 480×584 logical
+viewport. Layout uses the portrait height while geometry keeps the same scale
+in both axes. CST820 supplies one touch contact, mapped across the entire panel
+including all four corners. The internal 480×592 render buffer is band-padded;
+rows below the visible 584 are not part of the UI or touch coordinates.
+C6 retains its square 480×480 viewport.
+Its single ES8311 handles ADC and DAC over stereo I2S; it has no ES7210 four-slot
+TDM microphone path. The WebSocket/USB wire formats below remain the same.
+S3 has BOOT and PWR only: short BOOT on the connected home screen supplies the
+voice-button action; in menus/setup/pairing/cards/Skies it remains Back. Holding
+BOOT opens/closes Settings. Classic S3 uses press-to-start and press/tap-to-send,
+with the same 60-second limit; held-KEY recording remains C6 behavior.
+References to manual KEY below describe the logical voice action, not an S3 GPIO.
+See [the exact S3 board profile](hardware-s3.md); other S3 boards are not implied.
 
 The device never talks to OpenAI directly and never stores provider keys. It
 holds its own ECDSA P-256 private key, generated locally and never sent by the

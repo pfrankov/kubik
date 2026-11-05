@@ -18,6 +18,7 @@
 #include "connection_record.h"
 #include "version.h"
 #include "setup_request.h"
+#include "device_controls.h"
 
 // The real recursive NVS lock is exercised by test-settings.py.
 static esp_err_t app_nvs_lock(void) { return ESP_OK; }
@@ -245,6 +246,7 @@ static uint32_t link_pairing_mark_provisioning_active(void){return generation;}
 static bool link_pairing_commit_provisioning(uint32_t g,bool (*commit)(void)){return g==generation&&!expire_join&&commit();}
 static uint32_t link_pairing_handle_client_finished(void){return generation;}
 static bool link_pairing_arm_confirmation(uint32_t g){confirmation_armed=g==generation;return confirmation_armed;}
+static bool link_pairing_confirmation_required(void){return confirmation_armed&&!confirmed;}
 static uint32_t link_pairing_confirm_active_session(void){if(!confirmation_armed)return 0;confirmed=true;return generation;}
 static char statuses[8][48];static unsigned status_count;
 static char *link_pairing_encrypt_status(const char *status,uint32_t g,uint32_t *record){
@@ -464,13 +466,16 @@ static void check_provision(void) {
     unsigned before=wipes;dispatch_command("{\"access_token\":\"private\"}",true,1);assert(wipes>before);
 }
 static void check_pair(void) {
+    assert(!muse_pair_confirm_button());
     assert(muse_store_select(true)==ESP_OK);
     // Exercise the real pairing startup path so its expected store generation
     // is initialized alongside the credentials used by provisioning.
     assert(muse_pair_start()==ESP_OK&&muse_pair_active());
+    assert(!muse_pair_confirm_button()); // Active pairing is not yet a confirmation request.
     cJSON *o=parse("{\"action\":\"pairing_client_finished\"}");finish_handshake(o);muse_json_clear(o);
     assert(status_count==1&&!strcmp(statuses[0],"confirm_required")&&confirmation_armed);
-    assert(muse_pair_key()&&confirmed&&!strcmp(statuses[1],"pairing_confirmed"));
+    assert(muse_pair_confirm_button()&&confirmed&&!strcmp(statuses[1],"pairing_confirmed"));
+    assert(!muse_pair_confirm_button()); // A later Back press cannot reconfirm an already confirmed session.
     check_provision();
 }
 int main(void) {

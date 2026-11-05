@@ -1,7 +1,7 @@
 // The frame output: the scene is composed completely first (the rows kept in a lossless store, what changed
 // found by the canvas' hashes), and only then sent to the panel as windows, all in one burst, so a change of the
-// whole screen is not painted while the next band is still being composed. The panel has no wired TE signal:
-// the burst is as short as the panel bus allows. Host-testable: the panel and the clock are board.h / esp_timer.h.
+// whole screen is not painted while the next band is still being composed. C6 has no wired TE; S3 prepares
+// its native image before a TE-synchronized burst. Host-testable: board.h / esp_timer.h own the hardware.
 #pragma once
 
 #include <stdint.h>

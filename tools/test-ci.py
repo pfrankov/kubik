@@ -40,6 +40,9 @@ matrix = checks['strategy']['matrix']
 assert set(matrix['os']) == {'macos-15', 'ubuntu-24.04'}
 assert set(matrix['stage']) == {'agent', 'native', 'build'}
 assert len(matrix['os']) * len(matrix['stage']) == 6
+assert checks['timeout-minutes'] == "${{ matrix.stage == 'build' && 95 || 30 }}"
+sdk_checkout = next(step['run'] for step in steps if step.get('id') == 'idf')
+assert 'idf5.5.1-esp32c6-esp32s3-' in sdk_checkout, 'Both target toolchains must have a distinct cache key'
 gate = workflow['jobs']['acceptance']
 assert gate['needs'] == ['lint', 'checks'] and gate['if'] == 'always()'
 script = gate['steps'][0]['run']
@@ -114,7 +117,7 @@ print('CI: official Ubuntu archive, expected layout, bounded mirror setup/update
 def check_sdk_bootstrap():
     script = steps[sdk_install]['run']
     packages = 'flex bison gperf ccache libffi-dev libssl-dev libusb-1.0-0'
-    expected = ['cmake --version', 'ninja --version', f'python3 tools/ci-apt.py {packages}', 'install.sh esp32c6']
+    expected = ['cmake --version', 'ninja --version', f'python3 tools/ci-apt.py {packages}', 'install.sh esp32c6 esp32s3']
     for failing in (None, 'cmake', 'ninja', 'python3'):
         with tempfile.TemporaryDirectory(prefix='kubik-ci-bootstrap-') as directory:
             root = Path(directory)

@@ -113,10 +113,12 @@ static void hit_rim(face_t *f, float nx, float ny, float into) {
     tess_scatter_begin(f);  // her dots hang for a sweep, or to be poured home
 }
 static void rim(face_t *f, float *p, float *v) {
-    float r = hypotf(p[0], p[1]);
+    float extra_y = (UI_H - UI_W) / (2.f * TESS_PX_PER_UNIT);
+    float cy = clampf(p[1], -extra_y, extra_y), dy = p[1] - cy;
+    float r = hypotf(p[0], dy);
     if (r <= RIM_UNITS) return;
-    float nx = p[0] / r, ny = p[1] / r, into = v[0] * nx + v[1] * ny;
-    p[0] = nx * RIM_UNITS; p[1] = ny * RIM_UNITS;
+    float nx = p[0] / r, ny = dy / r, into = v[0] * nx + v[1] * ny;
+    p[0] = nx * RIM_UNITS; p[1] = cy + ny * RIM_UNITS;
     if (into <= 0) return;
     v[0] -= (1 + BOUNCE) * into * nx; v[1] -= (1 + BOUNCE) * into * ny;
     hit_rim(f, nx, ny, into);

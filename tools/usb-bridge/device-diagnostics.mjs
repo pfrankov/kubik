@@ -8,8 +8,8 @@ export class DeviceDiagnostics {
   boots = 0;
   disconnects = 0;
   consume(text) {
-    if (/speech buffer|reservation failed|alloc \d+ failed|allocation failed|read error|PANIC|assert failed/.test(text)) this.faults++;
-    if (/ESP-ROM:esp32c6/.test(text)) this.boots++;
+    if (/speech buffer|reservation failed|alloc \d+ failed|allocation failed|read error|PANIC|Guru Meditation|panic'ed|assert failed/.test(text)) this.faults++;
+    if (/ESP-ROM:esp32(?:c6|s3)/.test(text)) this.boots++;
   }
   snapshot() {
     return {ok:true, instance:this.instance, faults:this.faults, boots:this.boots, disconnects:this.disconnects};

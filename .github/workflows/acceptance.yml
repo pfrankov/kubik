@@ -44,7 +44,7 @@ jobs:
         os: [macos-15, ubuntu-24.04]
         stage: [agent, native, build]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.stage == 'build' && 50 || 30 }}
+    timeout-minutes: ${{ matrix.stage == 'build' && 95 || 30 }}
     env:
       IDF_CCACHE_ENABLE: '1'
       CCACHE_DIR: ${{ github.workspace }}/.ci-cache/ccache

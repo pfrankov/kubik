@@ -1,3 +1,4 @@
+#include "device_controls.h"
 #include "muse_pair.h"
 #include "muse_ble.h"
 #include "muse_store.h"
@@ -145,7 +146,7 @@ static void finish_handshake(cJSON *object) {
     uint32_t generation = link_pairing_handle_client_finished();
     if (!generation) { muse_ble_disconnect(); return; }
     if (!send_status("confirm_required", generation)) { muse_ble_disconnect(); return; }
-    if (link_pairing_arm_confirmation(generation)) card("Confirm Muse pairing\nPress KEY on Kubik.");
+    if (link_pairing_arm_confirmation(generation)) card("Confirm Muse pairing\nPress " KUBIK_VOICE_BUTTON " on Kubik.");
 }
 
 static void dispatch_plain(cJSON *object, const char *action, uint32_t epoch) {
@@ -181,6 +182,10 @@ bool muse_pair_key(void) {
     if (generation && send_status("pairing_confirmed", generation))
         card("Continue in the Muse app\nChoose Wi-Fi to finish pairing.");
     return true;
+}
+
+bool muse_pair_confirm_button(void) {
+    return active && link_pairing_confirmation_required() && muse_pair_key();
 }
 
 esp_err_t muse_pair_start(void) {

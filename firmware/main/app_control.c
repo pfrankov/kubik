@@ -1,3 +1,4 @@
+#include "device_controls.h"
 #include "app_internal.h"
 
 #include <stdio.h>
@@ -73,7 +74,7 @@ void ptt_down(void) {
     }
     app_agent_reclaim_catalog();
     if (!tls_mem_turn(!strcmp(link_via(), "wifi"))) {
-        face_lock(); face_card(&g_face, "Voice memory is busy. Try KEY again."); face_unlock();
+        face_lock(); face_card(&g_face, "Voice memory is busy. Try " KUBIK_VOICE_BUTTON " again."); face_unlock();
         audio_sfx(SFX_ERROR); return;
     }
     stop_speech(true);
@@ -91,7 +92,7 @@ void ptt_down(void) {
     if (!app_voice_start_capture()) {
         talk_fire(TE_ABORT);
         send_json("{\"t\":\"cancel\",\"turn\":%d}", s_turn);
-        face_lock(); face_card(&g_face, "Could not start the microphone. Try KEY again."); face_unlock();
+        face_lock(); face_card(&g_face, "Could not start the microphone. Try " KUBIK_VOICE_BUTTON " again."); face_unlock();
         audio_sfx(SFX_ERROR);
         return;
     }
@@ -114,6 +115,13 @@ void ptt_up(void) {
     talk_fire(TE_RELEASE_SHORT);
     audio_sfx(SFX_LATCH_START);
     ESP_LOGI(TAG, "recording latched (turn %d)", s_turn);
+}
+
+// BOOT_SHORT arrives after physical release; codec startup latency is not a held button.
+void ptt_tap(void) {
+    ptt_down();
+    if (!s_ignore_up && s_talk == TALK_HOLD) s_ptt_t0 = now_ms();
+    ptt_up();
 }
 
 void volume_bubble(int level) {

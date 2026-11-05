@@ -3,16 +3,26 @@
 #include <stdint.h>
 
 #include "../main/face.h"
+#include "../main/viewport.h"
 
 #define PANEL_W (R_W * R_SCALE)
 #define PANEL_H (R_H * R_SCALE)
+#if CONFIG_IDF_TARGET_ESP32S3
+#define SIM_TARGET "esp32s3"
+#define SIM_TOUCH_CAPACITY 1
+#define SIM_KEY_BUTTON 0
+#else
+#define SIM_TARGET "esp32c6"
+#define SIM_TOUCH_CAPACITY 2
+#define SIM_KEY_BUTTON 1
+#endif
 
 extern uint16_t panel[PANEL_H][PANEL_W];
 
 void sim_mood_setup(face_t *f);  // SIM_MOOD_OFF: a neutral Tess (call before any event)
 void sim_render(face_t *f);  // face_draw + the device's render path into `panel`
 void sim_render_reset(void); // the renderer starts from nothing, for an unrelated scene
-void sim_emit_frame(void);   // panel as one rgb24 frame on stdout
+void sim_emit_frame(void);   // visible UI_W x UI_H as one rgb24 frame; padding is not emitted
 void sim_to_rgb(uint16_t c, unsigned char *o);
 void sim_sheet(bool per_tile);  // the contact sheet, or one frame per tile
 void sim_gravity(void);         // Tess rolling under a slowly turning gravity

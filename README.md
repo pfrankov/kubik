@@ -2,7 +2,7 @@
 
 **Give your AI agent a place on your desk.**
 
-Kubik is a small Wi-Fi voice companion built on the Waveshare ESP32-C6-Touch-AMOLED-2.16. Tess, an animated tesseract, listens, reacts and brings your agent’s replies to life. Your agent keeps its context and tools; Kubik provides the screen, microphone, speaker and physical controls.
+Kubik is a small Wi-Fi voice companion built on the Waveshare ESP32-C6-Touch-AMOLED-2.16 or ESP32-S3-Touch-AMOLED-1.8 V2. Tess, an animated tesseract, listens, reacts and brings your agent’s replies to life. Your agent keeps its context and tools; Kubik provides the screen, microphone, speaker and physical controls.
 
 ![Tess waiting and replying](docs/media/tess-conversation.gif)
 
@@ -12,7 +12,9 @@ Connect **OpenClaw** with the Kubik channel plugin; connect **Hermes Agent 0.22.
 
 ## Download and update
 
-Download **kubik-kit-tess.zip** from the [latest release](https://github.com/pfrankov/kubik/releases/latest). Tess is the default; choose the Plush kit only for that character. Each kit includes the firmware, setup guide, installer and component license notices.
+For the C6 board, download **kubik-kit-tess.zip** from the [latest release](https://github.com/pfrankov/kubik/releases/latest). Tess is the default; choose the Plush kit only for that character. Each kit includes the firmware, setup guide, installer and component license notices.
+
+S3 source builds target the **1.8 V2 (CO5300/CST820)** board only. Their firmware and kit filenames end in `-esp32s3.zip`; see [the S3 hardware guide](docs/hardware-s3.md). Original 1.8 (SH8601/FT3168), S3 2.16 and generic S3 modules are not supported by this profile.
 
 To update, extract the kit, then extract its firmware ZIP into a separate folder. Close any program using Kubik’s USB port, connect Kubik by USB-C and run these commands in the firmware folder (macOS/Linux):
 
@@ -31,7 +33,7 @@ You need a flashed Kubik, a phone and a 2.4 GHz Wi-Fi network. For **Muse**, fol
 
 1. **Prepare your agent.** Follow the [setup page](docs/buyer/START.html) for OpenClaw or Hermes: install the integration and configure speech. OpenClaw supports local discovery with Server address left blank; Hermes uses `kubik://<server-address>:18793`. The guide explains remote addresses; a domain is optional.
 2. **Connect Wi-Fi.** Scan the first QR to join Kubik’s setup Wi-Fi, then the second to open its setup page. Choose your home network, enter its password, select OpenClaw and enter a server address if needed. Tap **Connect Kubik**; the device shows a pairing code when it reaches the host.
-3. **Approve and talk.** Match the pairing code on the device and host, tap **Allow** in the configured owner Telegram chat (or approve on the server), and follow the on-device guide. Press **KEY** to start talking.
+3. **Approve and talk.** Match the pairing code on the device and host, tap **Allow** in the configured owner Telegram chat (or approve on the server), and follow the on-device guide. Start talking with **KEY** on C6 or a short **BOOT** press on the connected S3 home screen.
 
 Install the OpenClaw channel from npm on your agent computer:
 
@@ -44,13 +46,13 @@ See [approval methods](docs/pairing.md) and the [English package guide](openclaw
 
 ## Muse without a host
 
-Experimental native Muse support uses **only your phone and Kubik**. Muse is temporarily hidden in the Wi-Fi setup wizard; the experimental implementation remains in the source. When enabled, choose **Muse**, enter a personal [Muse SDK key](https://gadgets.muse.ai/settings/sdk-tokens), then pair in the Muse app under **Settings → Devices → Developer mode → Add device** and confirm with **KEY**. Bluetooth is used for pairing only; afterward Kubik connects directly over Wi-Fi. No computer, server address or Kubik host is needed.
+Experimental native Muse support uses **only your phone and Kubik**. Muse is temporarily hidden in the Wi-Fi setup wizard; the experimental implementation remains in the source. When enabled, choose **Muse**, enter a personal [Muse SDK key](https://gadgets.muse.ai/settings/sdk-tokens), then pair in the Muse app under **Settings → Devices → Developer mode → Add device** and press the confirmation button shown on Kubik. Bluetooth is used for pairing only; afterward Kubik connects directly over Wi-Fi. No computer, server address or Kubik host is needed.
 
 On this C6 board, the current Muse SDK path accepts a voice note and returns **text**; TTS, Realtime, GPT Live and model selection are unavailable. Native cloud/device pairing is not yet verified. Personal tokens are not included in builds; SDK-token terms do not authorize embedding one in a retail firmware. See [Muse setup and limits](docs/muse.md).
 
 ## Everyday use
 
-Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
+On C6, buttons run left to right when looking at the screen: **BOOT · PWR · KEY**. The S3 1.8 V2 has **BOOT and PWR only**. On its connected home screen, a short BOOT press starts/sends voice input or ends Live. Elsewhere it goes back; hold BOOT for Settings. S3 Classic uses press → speak → press again or tap to send, with a 60-second limit; holding BOOT opens Settings. See [S3 controls](docs/hardware-s3.md#controls-and-touch). The table below describes C6.
 
 | Control | Action |
 | --- | --- |
@@ -61,7 +63,7 @@ Buttons run left to right when looking at the screen: **BOOT · PWR · KEY**.
 
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
 Tilting or lifting keeps the visible screen bright and restores it from dimming. Once movement stops, the usual idle timer resumes.
-Hold two diagonally opposite screen corners for 1.5 seconds to enter [Skies](docs/tess-games.md#skies), Tess’s musical particle game. Either diagonal works.
+To enter [Skies](docs/tess-games.md#skies), Tess’s musical particle game, hold for 1.5 seconds: two diagonally opposite corners on C6, or one corner of the screen on S3. The S3 CST820 reports one contact. Its portrait interface uses the full 368×448 panel with a 480×584 logical viewport. Geometry keeps the same scale in both axes; all four screen corners receive touches. C6 retains its square 480×480 interface.
 
 No connection? Press **BOOT briefly** on the offline points to bring Tess back for local play. Press BOOT again outside Skies to return to the points.
 
@@ -112,7 +114,17 @@ idf.py -C firmware -B "$PWD/firmware/build" -DKUBIK_CHARACTER=TESS build
 python3 tools/accept.py
 ```
 
-Acceptance builds both characters and checks the renderer, protocol, setup pages and clean host installation. It does not publish or flash your device. Build outputs and local credentials are excluded from Git.
+For the S3 1.8 V2 board, select its target and a separate build directory:
+
+```sh
+idf.py -C firmware -B "$PWD/firmware/build-s3" -DIDF_TARGET=esp32s3 -DKUBIK_CHARACTER=TESS build
+```
+
+Use `build-s3-plush` and `-DKUBIK_CHARACTER=PLUSH` for Plush. S3 bundles have an
+`-esp32s3` suffix; the existing unsuffixed release kits are for C6. Select the exact
+board before flashing. See [S3 hardware and verification](docs/hardware-s3.md).
+
+Acceptance builds both targets and both characters and checks the renderer, protocol, setup pages and clean host installation. It does not publish or flash your device. Build outputs and local credentials are excluded from Git.
 
 CI runs `lint` once and the `agent`, `native` and `build` stages on both macOS
 and Linux. Exact RGB references are validated on macOS ARM64. Linux uses

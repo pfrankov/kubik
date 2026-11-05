@@ -17,6 +17,7 @@
 - [Tess Skies](tess-skies.md)
 - [Запуск Skies двумя пальцами](tess-skies-entry.md)
 - [Сеть, питание и уведомления](power-network.md)
+- [Платы C6 и S3](hardware.md)
 - [Обновление, безопасность и сброс](maintenance.md)
 - [Скрытый просмотр экранов и эмулятор](debug.md)
 

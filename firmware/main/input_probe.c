@@ -1,4 +1,5 @@
 #include "input_probe.h"
+#include "viewport.h"
 #include "board.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -7,7 +8,7 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static struct { int x, y; bool down; int64_t until; } s_sample;
 
 bool input_probe_sample(bool down, int x, int y) {
-    if (x < 0 || x >= 480 || y < 0 || y >= 480) return false;
+    if (x < 0 || x >= UI_W || y < 0 || y >= UI_H) return false;
     int64_t until = esp_timer_get_time() + 350000;
     portENTER_CRITICAL(&s_lock);
     s_sample.x = x; s_sample.y = y; s_sample.down = down; s_sample.until = until;

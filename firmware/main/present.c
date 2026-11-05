@@ -33,7 +33,14 @@ static void read_merged(void *ctx, int y, uint16_t *out, int xa, int xb) {
 // Sends one panel window: the native rows it covers are expanded 2x and the edge band and text drawn over them.
 static void send_window(frame_out_t *f, const render_win_t *w) {
     int64_t t = esp_timer_get_time();
+#if !CONFIG_IDF_TARGET_ESP32S3
     if (!f->burst_start) f->burst_start = t;
+#endif
+#if CONFIG_IDF_TARGET_ESP32S3
+    const bool wire_order = false;  // The scaler retains CPU-order logical pixels.
+#else
+    const bool wire_order = true;   // C6 sends these rows directly to QSPI.
+#endif
     int width = w->x1 - w->x0;
     render_output_columns(&f->output, w->x0, w->x1);
     display_begin(w->x0, w->y0, w->x1, w->y1);
@@ -42,9 +49,9 @@ static void send_window(frame_out_t *f, const render_win_t *w) {
         int rows = w->y1 - y < chunk ? w->y1 - y : chunk;
         uint16_t *out = f->bufs[f->next];
         f->next = (f->next + 1) % LCD_PIPE;
-        render_expand_2x(&f->output, out, w->x0, y, width, rows, true);
-        render_edge_overlay(f->scene, out, w->x0, y, width, rows, true);
-        if (f->overlay_count) render_text_overlay(f->scene, out, w->x0, y, width, rows, true);
+        render_expand_2x(&f->output, out, w->x0, y, width, rows, wire_order);
+        render_edge_overlay(f->scene, out, w->x0, y, width, rows, wire_order);
+        if (f->overlay_count) render_text_overlay(f->scene, out, w->x0, y, width, rows, wire_order);
         display_write(out, width * rows, y + rows == w->y1);
     }
     display_end();
@@ -375,6 +382,9 @@ static void output_frame(frame_out_t *frame) {
 }
 
 bool present_frame(frame_out_t *frame, render_state_t *state, scene_t *scene) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    display_s3_begin_frame();
+#endif
     // Ordered item comparison also repaints overlapping overlays after reordering.
     overlay_prepare(frame, scene);
     frame->edge_sig = render_edge_signature(scene);
@@ -396,6 +406,11 @@ bool present_frame(frame_out_t *frame, render_state_t *state, scene_t *scene) {
     }
     if (frame->store.used > frame->store_max) frame->store_max = frame->store.used;
     output_frame(frame);
+#if CONFIG_IDF_TARGET_ESP32S3
+    int64_t native_start = esp_timer_get_time();
+    frame->burst_start = display_s3_present();
+    frame->expand_us += esp_timer_get_time() - native_start;
+#endif
     if (frame->burst_start) {
         int64_t gap = frame->shown_at ? frame->burst_start - frame->shown_at : 0;
         if (gap && (!frame->gap_min || gap < frame->gap_min)) frame->gap_min = gap;

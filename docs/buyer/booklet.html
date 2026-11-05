@@ -9,17 +9,17 @@
 </div><footer><span>Your device is already flashed.</span><span>01</span></footer></section>
 
 <section class="page"><div class="content">
-<h2>Know the buttons.</h2>
-<svg class="controls" viewBox="0 0 1254 1254" role="img" aria-label="Buttons from left to right when facing the screen: BOOT, PWR, KEY.">
+<h2>Know the buttons.</h2><p class="note"><strong>C6 2.16: diagram and controls below.</strong></p>
+<svg class="controls" viewBox="0 0 1254 1254" role="img" aria-label="C6 buttons from left to right when facing the screen: BOOT, PWR, KEY.">
 <image href="assets/hello-tess.png" width="1254" height="1254"/>
 <g fill="none" stroke="#17695f" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M200 112 V155 L450 248"/><path d="M627 112 V285"/><path d="M1054 112 V205 L820 321"/></g>
 <g fill="#17695f" text-anchor="middle"><text x="200" y="90">BOOT</text><text x="627" y="90">PWR</text><text x="1054" y="90">KEY</text></g>
 </svg>
-<dl class="rows controls-list"><dt>BOOT<br><small>Left</small></dt><dd><strong>Press:</strong> go back one screen.<br><strong>Hold:</strong> open or close Settings.</dd>
+<dl class="rows controls-list" aria-label="C6 button actions"><dt>BOOT<br><small>Left</small></dt><dd><strong>Press:</strong> go back one screen.<br><strong>Hold:</strong> open or close Settings.</dd>
 <dt>PWR<br><small>Middle</small></dt><dd><strong>Press:</strong> screen off or on.<br><strong>Hold ~2 s:</strong> power off or on.</dd>
 <dt>KEY<br><small>Right</small></dt><dd>Start voice input.<br>Ways to speak and send: page 7.</dd></dl>
-<div class="result">The on-screen Guide points to these buttons.</div>
-</div><footer><span>Positions shown when facing the screen.</span><span>02</span></footer></section>
+<div class="result note" id="s3-buttons"><strong>S3 1.8 V2: BOOT and PWR only. No KEY.</strong> Short BOOT talks on the connected home screen; elsewhere it goes back. Hold BOOT for Settings. PWR works as above.</div>
+</div><footer><span>C6 positions shown when facing the screen.</span><span>02</span></footer></section>
 
 <section class="page"><div class="content">
 <p class="stage">1 · Prepare OpenClaw</p><h2>Prepare your agent.</h2>
@@ -58,13 +58,14 @@
 <div class="result"><strong>Connected:</strong> follow Guide; BOOT returns home.</div>
 </div><footer><span>No match? Check the GitHub setup guide.</span><span>06</span></footer></section>
 
-<section class="page"><div class="content">
+<section class="page talk"><div class="content">
 <p class="stage">4 · On Kubik</p><h2>Talk to Tess.</h2>
 <img class="art" src="assets/first-conversation.png" alt="A person talking to Tess on Kubik.">
-<p>Say <strong>“Hi Tessa”</strong>, then your question.</p>
+<p>Say <strong>“Hi Tessa”</strong>, then your question. C6 buttons:</p>
 <h3>STT / Classic</h3><p>Hold <kbd>KEY</kbd>, speak, release. Or press once to start, again to send.</p>
 <h3>Realtime</h3><p>Press <kbd>KEY</kbd>, speak, then pause to send.</p>
 <h3>GPT Live</h3><p>Start with KEY or “Hi Tessa”. Speak at <strong>Listening</strong>, even during replies. KEY ends it; pauses do not.</p>
+<p class="note small-gap" id="s3-talk"><strong>S3 1.8 V2:</strong> short BOOT replaces KEY. Classic: press, speak, press again or tap; 60 s maximum. No held recording: hold BOOT opens Settings.</p>
 <div class="result">Voice output + volume <strong>20+</strong>: spoken replies. Otherwise: text.</div>
 </div><footer><span>Wake phrase: “Hi Tessa” · Character: Tess</span><span>07</span></footer></section>
 

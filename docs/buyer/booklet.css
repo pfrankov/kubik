@@ -42,6 +42,9 @@ kbd { font: 700 9.5pt PT, sans-serif; padding: .3mm 1.4mm; border: .6pt solid va
 .rows { display: grid; grid-template-columns: 17mm 1fr; gap: 3mm; margin: 2mm 0 5mm; }
 .rows dt { font-weight: 700; color: var(--mint); }
 .rows dd { margin: 0; }
+.talk h2 { margin: 1mm 0 2mm; }
+.talk h3 { margin: 1mm 0 .5mm; }
+.talk .art { margin: 0; }
 .help h3 { margin-top: 3.5mm; }
 .help p { font-size: 10pt; }
 a { color: inherit; text-decoration: none; }

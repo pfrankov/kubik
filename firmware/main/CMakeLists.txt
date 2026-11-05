@@ -32,6 +32,10 @@ idf_component_register(
                   nvs_flash esp_wifi esp_netif esp_event esp_driver_usb_serial_jtag app_update
                   esp_http_server esp_http_client json mbedtls lwip esp_system bt muse_pairing noise_core muse_chat
 )
+if(IDF_TARGET STREQUAL "esp32s3")
+    target_sources(${COMPONENT_LIB} PRIVATE display_s3.c display_te_s3.c)
+    set_source_files_properties(display_s3.c PROPERTIES COMPILE_OPTIONS "-O3")
+endif()
 target_sources(${COMPONENT_LIB} PRIVATE muse_store.c muse_ble.c muse_pair.c muse_vm.c
     muse_noise.cc muse_backend.c muse_options.c muse_control.c muse_json.c setup_request.c)
 # Only the CPU FFT workspace leases LP SRAM; keep the SDK algorithm unchanged.
@@ -56,11 +60,13 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     execute_process(COMMAND python3 "${PROJECT_DIR}/../tools/patch-websocket.py"
         "${PROJECT_DIR}/managed_components/espressif__esp_websocket_client"
         COMMAND_ERROR_IS_FATAL ANY)
+    if(IDF_TARGET STREQUAL "esp32c6")
     execute_process(COMMAND python3 "${PROJECT_DIR}/../tools/patch-cst9217.py"
         "${PROJECT_DIR}/managed_components/waveshare__esp_lcd_touch_cst9217"
         COMMAND_ERROR_IS_FATAL ANY)
     idf_component_get_property(touch_lib waveshare__esp_lcd_touch_cst9217 COMPONENT_LIB)
     target_include_directories(${touch_lib} PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+    endif()
 endif()
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_17)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE KUBIK_CHARACTER=${CHARACTER_ID})

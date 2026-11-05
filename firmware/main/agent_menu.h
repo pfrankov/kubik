@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "voice_mode.h"
+#include "viewport.h"
 
 #define AGENT_MODEL_ID_MAX 160
 #define AGENT_MODEL_LABEL_MAX 80
@@ -12,7 +13,7 @@
 #define AGENT_LIST_MAX 32   // models kept for scrolling: eight wire pages loaded one after another
 #define AGENT_ROW_PITCH 78  // scrolling list: row height 66 plus 12 px gap
 #define AGENT_LIST_TOP 80
-#define AGENT_LIST_BOTTOM 460
+#define AGENT_LIST_BOTTOM (UI_H - 20)
 #define AGENT_OVERSCROLL 64  // the list stretches this far past either end and springs back
 #define AGENT_ERROR_MAX 23
 #define AGENT_REQUEST_TIMEOUT_MS 8000u

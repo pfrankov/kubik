@@ -2,15 +2,19 @@
 // Device self-test server: speaks each utterance back (IMA ADPCM, as the real server does) to exercise mic, link,
 // speaker and face states.
 // Run with: node parrot-server.mjs [port] [replyDelayMs=900] (acceptance uses 1800 for a real thinking sample)
+// KUBIK_TEST_TLS_IDENTITY selects an exact existing key/certificate and kubik:// bridge target; no identity generation.
 import { WebSocketServer } from 'ws';
+import { createUsbListener } from '../test-device/usb-listener.mjs';
 import { randomBytes, verify } from 'node:crypto';
 import { authMessage, decodeDeviceKey, DEVICE_PATH, ImaEncoder, parseAudioFrame, parseDeviceMessage, speechFrameIma } from '../../openclaw-kubik/src/protocol.js';
 
 const port = Number(process.argv[2] || 18999);
 const replyDelayMs = Number(process.argv[3] || 900);
 if (!Number.isInteger(replyDelayMs) || replyDelayMs < 900 || replyDelayMs > 5000) throw Error('reply delay must be 900..5000 ms');
-const wss = new WebSocketServer({ host: '127.0.0.1', port, path: DEVICE_PATH });
-wss.on('listening', () => console.log(`parrot on ws://127.0.0.1:${port}${DEVICE_PATH}`));
+const listener = createUsbListener({ allowPlain: true });
+const wss = new WebSocketServer({ server: listener.http, path: DEVICE_PATH });
+await listener.listen(port);
+console.log(`parrot on ${listener.protocol}://127.0.0.1:${port}${DEVICE_PATH}`);
 
 function sendJson(ws, message) {
   ws.send(JSON.stringify(message));
@@ -59,7 +63,7 @@ function verifyDevice(session, ws, message, send) {
         nonce: session.nonce,
         device: session.hello.device,
         key: session.hello.key,
-        bind: 'none', // plain ws:// self-test server
+        bind: listener.bind,
       }), session.publicKey, Buffer.from(message.sig, 'base64'));
     }
   } catch { /* malformed signature */ }
@@ -160,4 +164,16 @@ wss.on('connection', (ws) => {
   const send = (message) => sendJson(ws, message);
   ws.on('close', () => stopReply(session));
   ws.on('message', (data, binary) => handleMessage(session, ws, data, binary, send));
+});
+
+let closing = false;
+async function close() {
+  if (closing) return;
+  closing = true;
+  for (const client of wss.clients) client.terminate();
+  await listener.close();
+  await new Promise(resolve => wss.close(resolve));
+}
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
+  close().catch(error => { console.error(error.message); process.exitCode = 1; });
 });

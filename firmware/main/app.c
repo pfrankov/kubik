@@ -476,6 +476,12 @@ void app_start(void) {
     app_protocol_handlers(&h);
     link_init(&h);
     input_init();
-    ESP_ERROR_CHECK(xTaskCreate(app_task, "app", 4096, NULL, 6, &s_app_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    // Xtensa touch/rematch call frames exceed the C6 stack allowance.
+#if CONFIG_IDF_TARGET_ESP32S3
+    const unsigned app_stack = 8192;
+#else
+    const unsigned app_stack = 4096;
+#endif
+    ESP_ERROR_CHECK(xTaskCreate(app_task, "app", app_stack, NULL, 6, &s_app_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(xTaskCreate(power_task, "power", 3072, NULL, 2, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }

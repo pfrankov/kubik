@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Local UI checks only: no provider calls; restore preferences, menu and screen power.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {assertIdleCapture} from './test-device/diagnostics.mjs';
 const base=process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
@@ -27,7 +28,7 @@ async function populate(count,prefix) {
   for(let n=0;n<count;n++){await control({cmd:'card',text:`${prefix} ${n}`});await sleep(120);}
 }
 async function main() {
-  const before=await info();assertIdleCapture(before);assert.ok(!before.live_active&&!before.screen_lab&&!before.card_open);
+  const before=await info();const g=deviceGeometry(before);assertIdleCapture(before);assert.ok(!before.live_active&&!before.screen_lab&&!before.card_open);
   assert.ok(before.online && before.events_count>=1,'authenticated welcome should be in history');
   const preserved=['volume','ui_volume','brightness','ssid','url','key','guide_done'];
   try {
@@ -39,8 +40,8 @@ async function main() {
     assert.ok((await info()).events_count>=6);
     await sim('drag',{x:240,y:370,first:true});await sim('drag',{x:240,y:140});
     await until(s=>s.events_offset>=2,'swipe history');
-    await tap(240,173);assert.equal((await info()).events_detail,false,'release after drag cannot open details');
-    await sim('drag',{x:240,y:173,first:true});await tap(240,173);await until(s=>s.events_detail,'message details');
+    await tap(240,g.journalRow(0));assert.equal((await info()).events_detail,false,'release after drag cannot open details');
+    await sim('drag',{x:240,y:g.journalRow(0),first:true});await tap(240,g.journalRow(0));await until(s=>s.events_detail,'message details');
     await populate(16,'History rollover check');
     await until(s=>s.events_expired,'read message expires instead of changing');
     await control({cmd:'card',text:''});await sleep(150);

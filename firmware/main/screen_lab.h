@@ -1,4 +1,6 @@
 #pragma once
+#include "viewport.h"
+#define LAB_ROW_H ((UI_H - 216) / 3)
 #include "face.h"
 #include "qr.h"
 #include "menu_service.h"

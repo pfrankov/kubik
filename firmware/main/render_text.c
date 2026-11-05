@@ -224,12 +224,13 @@ static void edge_corner_row(uint16_t *row, int y, int W, int H, int xa, int xb, 
 void render_edge_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, bool swap) {
     int w = s->edge_w;
     if (!w) return;
-    const int W = R_W * R_SCALE, H = R_H * R_SCALE, r = render_edge_radius(w, s->edge_r);
+    const int W = R_W * R_SCALE, H = UI_H, r = render_edge_radius(w, s->edge_r);
     edge_rows(w, r);
     uint16_t color = swap ? rgb565_bswap(s->edge_color) : s->edge_color;
     int xa = imax(x0, 0), xb = imin(x0 + width, W);
     for (int j = 0; j < rows; j++) {
         int y = y0 + j;
+        if (y < 0 || y >= H) continue;
         uint16_t *row = out + j * width - x0;
         if (edge_straight_sides(row, y, W, H, w, r, xa, xb, color)) continue;
         edge_straight_top_bottom(row, y, W, H, w, r, xa, xb, color);
@@ -243,7 +244,7 @@ int render_edge_radius(int w, int r) {
 }
 
 int render_edge_reach(int w, int r, int y0, int y1) {
-    const int W = R_W * R_SCALE, H = R_H * R_SCALE;
+    const int W = R_W * R_SCALE, H = UI_H;
     if (!w) return 0;
     r = render_edge_radius(w, r);
     if (y0 < w || y1 > H - w) return W;
@@ -267,7 +268,8 @@ static void grow_hull(edge_change_t *c, int x0, int x1) {
 }
 
 edge_change_t render_edge_change(int w0, int w1, int r, int y0, int y1) {
-    const int H = R_H * R_SCALE;
+    const int H = UI_H;
+    y0 = imax(0, y0); y1 = imin(H, y1);
     int lo = imin(w0, w1), hi = imax(w0, w1);
     r = render_edge_radius(hi, r);
     edge_change_t c = {0, 0, 0, 0, (int16_t)r};

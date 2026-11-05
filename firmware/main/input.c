@@ -3,6 +3,7 @@
 #include "input.h"
 #include "lift.h"
 #include "motion_activity.h"
+#include "input_motion_target.h"
 #include "input_touch.h"
 #include <math.h>
 #include <stdlib.h>
@@ -51,7 +52,7 @@ static bool imu_init(void) {
     return false;
 }
 
-// Acceleration in g and rotation rate in rad/s (64 LSB per deg/s at +-512 dps).
+// Screen-frame acceleration in g and rotation in rad/s (64 LSB/deg/s at +-512 dps).
 static bool imu_read(float a[3], float w[3]) {
     uint8_t b[12];
     if (!s_imu || !imu_rd(0x35, b, 12)) return false;
@@ -59,6 +60,8 @@ static bool imu_read(float a[3], float w[3]) {
         a[i] = (int16_t)(b[2 * i] | (b[2 * i + 1] << 8)) / 16384.f;
         w[i] = (int16_t)(b[6 + 2 * i] | (b[7 + 2 * i] << 8)) * (3.14159265f / 180.f / 64.f);
     }
+    input_motion_to_screen(a);
+    input_motion_to_screen(w);
     return true;
 }
 
@@ -71,10 +74,8 @@ static float s_view_q[4] = {1, 0, 0, 0};
 // Jolts accumulate as integers (1e-4 g*s) so the display can take differences without a lock.
 static volatile int32_t s_jolt_x, s_jolt_y;
 static float s_slide_x, s_slide_y, s_grav_x, s_grav_y;
-// Gravity's pull along the screen (x right, y down) is minus what the accelerometer reads (it measures the
-// reaction), and the sensor's axes are taken as the screen's. +1 keeps that; -1 turns an axis round. The offline
-// fall of Tess's points came out upside down on the device with +1, +1, so both are turned. If the board ever
-// changes, this is the one place to turn (the log line "gravity" shows the raw reading and the pull).
+// Preserve the established C6 pull convention after the board's proper rotation
+// into its screen frame. Fusion, viewpoint, jolts and pickup all share that frame.
 #define IMU_PULL_X_SIGN (-1)
 #define IMU_PULL_Y_SIGN (-1)
 static volatile bool s_ptt;
@@ -147,7 +148,7 @@ typedef struct {
 } motion_sample_t;
 
 static void update_ptt_key(input_state_t *s) {
-    bool pressed = gpio_get_level(PIN_KEY) == 0;
+    bool pressed = board_key_down();
     if (pressed != s->key) {
         if (++s->key_count >= 2) {
             s->key = pressed;
@@ -285,7 +286,7 @@ static void log_motion(input_state_t *s, const motion_sample_t *sample, int64_t 
     static int64_t last_gravity_log_ms;
     if (now_ms - last_gravity_log_ms > 5000) {
         last_gravity_log_ms = now_ms;
-        ESP_LOGI(TAG, "gravity raw %.2f,%.2f,%.2f pull on the screen %.2f,%.2f", s->gravity[0], s->gravity[1], s->gravity[2], s_grav_x, s_grav_y);
+        ESP_LOGI(TAG, "gravity screen %.2f,%.2f,%.2f pull on the screen %.2f,%.2f", s->gravity[0], s->gravity[1], s->gravity[2], s_grav_x, s_grav_y);
     }
     if ((sample->dynamic > 0.08f || sample->rotation > 0.6f) && now_ms - s->last_motion_log_ms > 250) {
         s->last_motion_log_ms = now_ms;
@@ -346,7 +347,11 @@ void input_set_dark(bool dark) { s_dark = dark; }
 
 // Dark: a key or the touch controller pulls its line low and wakes the input task (also out of light
 // sleep). The handler disarms its pin; the task arms it again once the line is high.
-static const gpio_num_t k_wake_pins[] = {PIN_KEY, PIN_BOOT, PIN_TP_INT};
+static const gpio_num_t k_wake_pins[] = {
+#if PIN_KEY >= 0
+    PIN_KEY,
+#endif
+    PIN_BOOT, PIN_TP_INT};
 static void wake_isr(void *pin) {
     BaseType_t woken = pdFALSE;
     gpio_intr_disable((gpio_num_t)(intptr_t)pin);

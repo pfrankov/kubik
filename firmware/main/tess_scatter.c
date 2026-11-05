@@ -39,9 +39,10 @@ static const struct { float from_s, length_s, reach; } k_tug[] = {{.04f, .22f, .
 #define RING_UNITS .1f         // the first overshoot, as a part of the way the dot came
 #define SNAP_AT_S 2.0f         // the magnet's snap: as most of the dots close on their places
 
-// The panel: 480 x 480 px, the cloud's plane is 90 px per unit at the middle of its depth, and its centre sits at (240, 255).
+// Panel geometry; point sizes and projection use the same scale on both axes.
 #define PANEL_HALF_PX 224.f    // 16 px short of the edge: room for the shiver and the sag
-#define PANEL_CENTRE_Y_PX -15.f  // the panel's middle as seen from the cloud's centre
+#define PANEL_HALF_Y_PX (UI_H * .5f - 16.f)
+#define PANEL_CENTRE_Y_PX (UI_CY - TESS_CY)  // the panel's middle as seen from the cloud's centre
 #define SPOT_DEPTH .9f
 
 #include "tess_scatter_material.h"
@@ -83,12 +84,12 @@ static uint8_t byte01(float x) { return (uint8_t)(clampf(x, 0, 1) * 255.f + .5f)
 static float rand01(uint32_t *seed) { *seed = *seed * 1664525u + 1013904223u; return (float)(*seed >> 8) * (1.f / 16777216); }
 static float bell(uint32_t *seed) { return rand01(seed) + rand01(seed) + rand01(seed) - 1.5f; }  // -1.5..1.5, mostly near 0
 
-// The dots stay on the square glass, 16 px from its edges. Returns which walls it met (bit 0 x, bit 1 y).
+// The dots stay on the glass, 16 px from its edges. Returns which walls it met (bit 0 x, bit 1 y).
 static unsigned keep_inside(float p[2]) {
     unsigned met = 0;
     if (fabsf(p[0]) > PANEL_HALF_PX) { p[0] = copysignf(PANEL_HALF_PX, p[0]); met |= 1; }
     float y = p[1] - PANEL_CENTRE_Y_PX;
-    if (fabsf(y) > PANEL_HALF_PX) { p[1] = PANEL_CENTRE_Y_PX + copysignf(PANEL_HALF_PX, y); met |= 2; }
+    if (fabsf(y) > PANEL_HALF_Y_PX) { p[1] = PANEL_CENTRE_Y_PX + copysignf(PANEL_HALF_Y_PX, y); met |= 2; }
     return met;
 }
 // An organic spread: every dot tries a few random places and takes the one farthest from the dots already
@@ -99,11 +100,12 @@ static unsigned keep_inside(float p[2]) {
 #define TRY_MIN 5
 #define CELL_PX 60             // the neighbourhood grid: a candidate only meets the dots in its own and the 8 cells round it
 #define CELLS 8
+#define CELL_ROWS ((UI_H + CELL_PX - 1) / CELL_PX)
 #define CELL_CAP 12
-typedef struct { uint8_t n[CELLS * CELLS], dot[CELLS * CELLS][CELL_CAP]; int16_t at[TESS_N][2]; } spread_t;
+typedef struct { uint8_t n[CELLS * CELL_ROWS], dot[CELLS * CELL_ROWS][CELL_CAP]; int16_t at[TESS_N][2]; } spread_t;
 static int cell_of(int x, int y) {  // x, y: whole px from the panel's top-left
     int cx = x / CELL_PX, cy = y / CELL_PX;
-    return (cx < 0 ? 0 : cx >= CELLS ? CELLS - 1 : cx) + CELLS * (cy < 0 ? 0 : cy >= CELLS ? CELLS - 1 : cy);
+    return (cx < 0 ? 0 : cx >= CELLS ? CELLS - 1 : cx) + CELLS * (cy < 0 ? 0 : cy >= CELL_ROWS ? CELL_ROWS - 1 : cy);
 }
 // The nearest placed dot to (x, y), squared px, looking only next door; no neighbour at all counts as far.
 static int32_t nearest2(const spread_t *g, int x, int y, int32_t enough) {
@@ -111,7 +113,7 @@ static int32_t nearest2(const spread_t *g, int x, int y, int32_t enough) {
     int cx = cell_of(x, y) % CELLS, cy = cell_of(x, y) / CELLS;
     for (int oy = cy - 1; oy <= cy + 1; oy++)
         for (int ox = cx - 1; ox <= cx + 1; ox++) {
-            if (ox < 0 || oy < 0 || ox >= CELLS || oy >= CELLS) continue;
+            if (ox < 0 || oy < 0 || ox >= CELLS || oy >= CELL_ROWS) continue;
             int c = ox + CELLS * oy;
             for (int i = 0; i < g->n[c]; i++) {
                 int32_t dx = x - g->at[g->dot[c][i]][0], dy = y - g->at[g->dot[c][i]][1], d2 = dx * dx + dy * dy;
@@ -133,12 +135,12 @@ static void prepare_some(int count) {
         s_next.seed = s_next.seed * 1664525u + 1013904223u + 0x9E3779B9u;
         s_next.tries = TRY_MIN + rand_px(&s_next.seed, 4);
     }
-    int left = 240 - (int)PANEL_HALF_PX, top = 255 + (int)PANEL_CENTRE_Y_PX - (int)PANEL_HALF_PX, side = 2 * (int)PANEL_HALF_PX + 1;
+    int left = 240 - (int)PANEL_HALF_PX, top = (int)TESS_CY + (int)PANEL_CENTRE_Y_PX - (int)PANEL_HALF_Y_PX, side = 2 * (int)PANEL_HALF_PX + 1, height = 2 * (int)PANEL_HALF_Y_PX + 1;
     for (; count > 0 && s_next.placed < TESS_N; count--) {
         int32_t best = -1;
         int bx = 0, by = 0;
         for (int c = 0; c < s_next.tries; c++) {
-            int x = left + rand_px(&s_next.seed, side), y = top + rand_px(&s_next.seed, side);
+            int x = left + rand_px(&s_next.seed, side), y = top + rand_px(&s_next.seed, height);
             int32_t d2 = nearest2(g, x, y, best);
             if (d2 > best) { best = d2; bx = x; by = y; }
         }
@@ -155,9 +157,9 @@ static void lay_out(uint32_t *seed, float throw_x, float throw_y) {
     if (!s_next.placed) s_next.seed ^= *seed;  // (never prepared yet: draw from this burst's own seed)
     prepare_some(TESS_N);
     for (int k = 0; k < TESS_N; k++) {
-        float *p = given.spot_px[k], lean = 22.f + 8.f * rand01(seed), x = (float)(s_next.g.at[k][0] - 240), y = (float)(s_next.g.at[k][1] - 255);
+        float *p = given.spot_px[k], lean = 22.f + 8.f * rand01(seed), x = (float)(s_next.g.at[k][0] - 240), y = (float)(s_next.g.at[k][1] - TESS_CY);
         // leaning out, a dot moves less the nearer the wall it already is: the throw packs, never lines dots up on the edge
-        float room_x = throw_x * x > 0 ? 1 - fabsf(x) / PANEL_HALF_PX : 1, room_y = throw_y * (y - PANEL_CENTRE_Y_PX) > 0 ? 1 - fabsf(y - PANEL_CENTRE_Y_PX) / PANEL_HALF_PX : 1;
+        float room_x = throw_x * x > 0 ? 1 - fabsf(x) / PANEL_HALF_PX : 1, room_y = throw_y * (y - PANEL_CENTRE_Y_PX) > 0 ? 1 - fabsf(y - PANEL_CENTRE_Y_PX) / PANEL_HALF_Y_PX : 1;
         p[0] = x + throw_x * lean * room_x + 3.f * bell(seed);
         p[1] = y + throw_y * lean * room_y + 3.f * bell(seed);
         keep_inside(p);
@@ -199,13 +201,13 @@ static void ready_spots(void) {
 void tess_scatter_spot_px(int k, float *x, float *y) {
     ready_spots();
     *x = 240.f + given.spot_px[k][0];
-    *y = 255.f + given.spot_px[k][1];
+    *y = TESS_CY + given.spot_px[k][1];
 }
 
 void tess_scatter_hang_at(int k, float x, float y) {
     ready_spots();
     given.spot_px[k][0] = x - 240.f;
-    given.spot_px[k][1] = y - 255.f;
+    given.spot_px[k][1] = y - TESS_CY;
     place_spot(k);
 }
 
@@ -263,7 +265,7 @@ void tess_scatter_frame(const face_t *f, float t) {
     const tess_games_t *g = &f->tess_games;
     moment.finger = g->ready && g->game == TESS_GAME_GATHER && g->phase == TESS_GAME_WAIT && g->finger_down;
     moment.finger_px[0] = g->finger_x - 240.f;  // from the cloud's centre, panel pixels
-    moment.finger_px[1] = g->finger_y - 255.f;
+    moment.finger_px[1] = g->finger_y - TESS_CY;
     if (t >= TESS_HANG_S - 1e-3f && tess_games_holds_burst(f)) {  // hanging for a finger: a slow, living tremble
         moment.tremor = SHIVER_UNITS * .45f * (1.f / 32768);
         clock = (t + f->tess_games.gather_clock) * SHIVER_HZ * .5f;
@@ -391,7 +393,7 @@ static void bounce(face_t *f, int k, float *p, const float v[2], float *knock_wa
     float into = (met & 1 ? fabsf(v[0]) : 0) + (met & 2 ? fabsf(v[1]) : 0);
     if (into > 120.f && *knock_wait <= 0) {
         *knock_wait = .12f;
-        tess_tone(f, TT_GRAIN, tess_tone_hz(f, clampf(.5f - p[1] / 480.f, 0, 1)), fminf(1, into / 500.f), .5f);
+        tess_tone(f, TT_GRAIN, tess_tone_hz(f, clampf(.5f - p[1] / (float)UI_H, 0, 1)), fminf(1, into / 500.f), .5f);
     }
 }
 static void slide(face_t *f, float dt) {

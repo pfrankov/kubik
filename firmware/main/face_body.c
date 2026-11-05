@@ -281,7 +281,7 @@ static void body_update_screen(face_t *f, float dt) {
         breathe += 0.012f * (0.5f - 0.5f * cosf(f->mode_t * 1.2f));
     f->body_breath += (breathe - f->body_breath) * fminf(1.f, dt * 5.f);
     // Face screen follows the frame; the procedural hop moves the whole body.
-    f->body_dy = f->hop * 0.7f;
+    f->body_dy = f->hop * 0.7f + FACE_Y_OFFSET;
     sprite_screen_t sc;
     bool ok = sprite_screen(b->anim, b->frame, &sc);
     if (ok) {
@@ -300,10 +300,10 @@ static void body_update_screen(face_t *f, float dt) {
         memcpy(f->scr_gr, sc.gr, sizeof f->scr_gr);
         float stretch = f->body_breath;
         if (fabsf(stretch - 1) > 0.00001f) {
-        f->scr_cy = 450 + (f->scr_cy - 450) * stretch;
+        f->scr_cy = (450 + FACE_Y_OFFSET) + (f->scr_cy - (450 + FACE_Y_OFFSET)) * stretch;
         f->scr_hh *= stretch;
-        f->scr_gy = 450 + (f->scr_gy - 450) * stretch;
-        for (int k = 1; k < 8; k += 2) f->scr_quad[k] = 450 + (f->scr_quad[k] - 450) * stretch;
+        f->scr_gy = (450 + FACE_Y_OFFSET) + (f->scr_gy - (450 + FACE_Y_OFFSET)) * stretch;
+        for (int k = 1; k < 8; k += 2) f->scr_quad[k] = (450 + FACE_Y_OFFSET) + (f->scr_quad[k] - (450 + FACE_Y_OFFSET)) * stretch;
         for (int k = 0; k < SPRITE_GLASS_N; k++) {
             float sn = sinf(k * 2 * PI / SPRITE_GLASS_N);
             f->scr_gr[k] *= 1 + (stretch - 1) * sn * sn;

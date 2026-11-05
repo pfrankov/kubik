@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isIP } from 'node:net';
-import { createServer } from 'node:http';
+import { createUsbListener } from './usb-listener.mjs';
 import { LanListener } from '../../openclaw-kubik/src/lan.js';
 import { loadTlsIdentity } from '../../openclaw-kubik/src/tls-identity.js';
 import { startRadioRelay } from '../radio-relay.mjs';
@@ -11,12 +11,12 @@ import { startRadioRelay } from '../radio-relay.mjs';
 /** USB control remains separate from the authenticated audio route under test. */
 export async function nativeTransport(server, original, wifi) {
   if (!wifi) {
-    const http = createServer();
-    http.on('upgrade', (req, socket, head) => server.handleUpgrade(req, socket, head,
-      { via: 'usb', bind: 'none', remote: '127.0.0.1', hint: '' }));
-    await new Promise((resolve, reject) => { http.once('error', reject); http.listen(18999, '127.0.0.1', resolve); });
+    const listener = createUsbListener({ allowPlain: original.url.startsWith('wss://') && !original.server_pinned });
+    listener.http.on('upgrade', (req, socket, head) => server.handleUpgrade(req, socket, head,
+      { via: 'usb', bind: listener.bind, remote: '127.0.0.1', hint: '' }));
+    try { await listener.listen(); } catch (error) { await listener.close(); throw error; }
     return { via: 'usb', enter: sim => sim('wifi', { ms: 120000 }),
-      restore: sim => sim('wifi', { ms: 1 }), close: async () => { http.close(); } };
+      restore: sim => sim('wifi', { ms: 1 }), close: listener.close };
   }
   const host = process.env.KUBIK_TEST_LAN_HOST;
   assert.equal(isIP(host), 4, 'Set KUBIK_TEST_LAN_HOST to a reachable local IPv4');

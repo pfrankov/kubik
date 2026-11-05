@@ -1,13 +1,13 @@
 {
   "inputs": {
-    "docs/buyer/START.html": "863a81af2b11a6d79df307ccb4249a9959cb5d65649f595ecc8bbdffe7288695",
+    "docs/buyer/START.html": "07adc7914bab813f9896a624cde1c5ed6d13a5824fb24a9b5a2faeaf07713012",
     "docs/buyer/assets/first-conversation.png": "48668b0e94f61f6e8f0136d5ded895f3c75269c220868713c2227541dcdae13e",
     "docs/buyer/assets/hello-tess.png": "4e5c546627c831b7e4aebf2c2e3bf237ee4372bef733e5b005b42f89f9192a9d",
     "docs/buyer/assets/prepare-agent.png": "f7ebfdf99fafd0b15f00250c8aecc9d715ff6bc2472df76928645e2c6574c50d",
     "docs/buyer/assets/scan-setup-next.png": "435369cbf59cd8d62becb2b3374d0a00684416b5bd5e5ff732b8f130ceeb4553",
     "docs/buyer/assets/scan-setup.png": "9b1545801fae2660ef3cfad44240d1c2ddbd2a18653122aa63e85133c89067ec",
-    "docs/buyer/booklet.css": "f6f3673f709e1eb91fef6ace92b8da057082d21e15d5cc03e8fc2cd5bd129e5a",
-    "docs/buyer/booklet.html": "ef273d71e2aba8ad097647e65b0d53737292e91bb2cac1aceda5d92ade408054",
+    "docs/buyer/booklet.css": "31b8947b70b6b6404f76ea308cdf79fbf9efdeb224a67f4be24c008f7d0aa1ae",
+    "docs/buyer/booklet.html": "2043c8631ba55a7306fd9fab95e684270198cd1a903dd6d9bbb59b3152b0b936",
     "docs/buyer/start.css": "f2c1a4a4db73ae5f00bca30efc99d2e05941cb4e5cccfc03fe722d09b3c01d7d",
     "docs/buyer/start.js": "bf9922e2d512d306549e3fb3cf73335ba56aafb07d09c126312157584a42c6f4",
     "firmware/main/version.h": "85e9e8d6f1beaf83a3518cbd58661ecec8441bbbff0fe297b0914940ca5a40fe",
@@ -16,7 +16,7 @@
     "tools/font/sources/PT_Sans-Web-Regular.ttf": "9cc831490532009bae2b3ce0d39c62adfc889060beb421593bfd9d2396d0f10a"
   },
   "outputs": {
-    "kubik-getting-started-A6.pdf": "4c3599fbcfdd134283f84aafe596c8c0e9893924efd1fbccb3b86e7bc27f9e07",
-    "kubik-booklet-A5-duplex.pdf": "5ad5abee00fcc6e734563f87c5cf4e742467f5afe87d3c70858aa46e43c779eb"
+    "kubik-getting-started-A6.pdf": "1e2c41263532cb848f376f18f7c1d87ea8181e701d9734372fd18d26b3856bf0",
+    "kubik-booklet-A5-duplex.pdf": "5089ebcb5961a0b7382e77d8f97de1ae454a1b4fd3041f51d93aeb8ad6e3238d"
   }
 }

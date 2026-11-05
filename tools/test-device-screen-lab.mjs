@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Real hidden entry and isolated native previews through the device's USB control events.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
+let g;
 import {setTimeout as sleep} from 'node:timers/promises';
 import {assertIdleCapture, waitForDeviceLink} from './test-device/diagnostics.mjs';
 const url=process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
@@ -35,7 +37,7 @@ async function previewKey(index,names) {
   const state=await info();assert.ok(!state.mic_open&&!state.auto_recording&&!state.live_active,'preview KEY cannot record');
 }
 async function main() {
-  const original=await waitForDeviceLink(info);assertIdleCapture(original);assert.ok(!original.screen_lab);
+  const original=await waitForDeviceLink(info);g=deviceGeometry(original);assertIdleCapture(original);assert.ok(!original.screen_lab);
   const preserved=['volume','ui_volume','brightness','ssid','url','key','guide_done'];
   try {
     if(original.menu)await sim('menu');
@@ -46,7 +48,7 @@ async function main() {
     await enter();
     const names=['Home','Connecting','Wi-Fi QR','Setup QR','Pairing','Settings','Sound','Agent','Voice modes','Models','Guide','Recording','Thinking','Speaking','GPT Live','Text reply','Offline points','Error','Background work','Reminder','Agent events','Event log','Growth: point','Growth: square','Growth: cube','Growth: tesseract','Play: pluck','Play: bloom','Play: stretch','Play: slingshot','Play: gather','Play: alone','Play: skies'];
     for(let index=0;index<names.length;index++) {
-      if(index && index%3===0)await tap(356,428);
+      if(index && index%3===0)await tap(356,g.footer);
       await tap(240,144+(index%3)*88);
       await until(state=>state.lab_screen===names[index],names[index]);
       await previewKey(index,names);

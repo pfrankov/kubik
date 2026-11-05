@@ -124,7 +124,12 @@ bool mic_delivery_start(mic_delivery_frame_fn deliver, void *context, bool duple
     if (s_task) return false;
     if (!reserve_queue(duplex)) return false;
     s_encoder = (ima_state_t){0};
-    s_stack = heap_caps_malloc(duplex ? 3072 : STACK_BYTES, MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT);
+    #if CONFIG_IDF_TARGET_ESP32S3
+    unsigned stack_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+#else
+    unsigned stack_caps = MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT;
+#endif
+    s_stack = heap_caps_malloc(duplex ? 3072 : STACK_BYTES, stack_caps);
     if (!s_stack) { release_buffers(); return false; }
     atomic_store(&s_read, 0); atomic_store(&s_write, 0);
     atomic_store(&s_stopping, false); atomic_store(&s_failed, false);

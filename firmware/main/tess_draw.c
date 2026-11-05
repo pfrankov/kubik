@@ -144,8 +144,8 @@ static void project_points(const face_t *f, const float points[TESS_N][3], const
         int32_t d = depth < 0 ? 0 : depth > 65536 ? 65536 : (int32_t)depth;  // 0 .. 1, * 65536
         int32_t near = p < 36045 ? 36045 : p > 98304 ? 98304 : p;             // p clamped to .55 .. 1.5
         int64_t size = (int64_t)(8192 + (11469 * (int64_t)d >> 16)) * near >> 16;  // (2 + 2.8 d) near, * 4096
-        dots[i] = (dot_t){1920 + (int)(((int64_t)rotated[0] * p * 720 + (1 << 27)) >> 28),
-                          2040 + (int)(((int64_t)rotated[1] * p * 720 + (1 << 27)) >> 28),
+        dots[i] = (dot_t){TESS_CX_Q3 + (int)(((int64_t)rotated[0] * p * 720 + (1 << 27)) >> 28),
+                          TESS_CY_Q3 + (int)(((int64_t)rotated[1] * p * 720 + (1 << 27)) >> 28),
                           (int)((size * dust_q + (1 << 20)) >> 21), (int)((int64_t)d * 65535 >> 16), 0};
     }
 }
@@ -159,16 +159,16 @@ static void fit_conversation(const face_t *f, dot_t dots[TESS_N]) {
     if (talk <= .001f || f->tess_fallen) return;
     int rx = 1, ry = 1;
     for (int i = 0; i < TESS_N; i++) {
-        rx = imax(rx, abs(dots[i].x - 1920) + dots[i].radius * 3);
-        ry = imax(ry, abs(dots[i].y - 2040) + dots[i].radius * 3);
+        rx = imax(rx, abs(dots[i].x - TESS_CX_Q3) + dots[i].radius * 3);
+        ry = imax(ry, abs(dots[i].y - TESS_CY_Q3) + dots[i].radius * 3);
     }
-    int height = f->live_active ? 140 : 198;
+    int height = (f->live_active ? 140 : 198) + (UI_H - 480) / 2;
     int fit = imin(65536, imin((216 * 8 * 65536) / rx, (height * 8 * 65536) / ry));
     int gate = (int)(clampf(talk * 4, 0, 1) * 65536);
     fit = 65536 - (int)(((int64_t)(65536 - fit) * gate) >> 16);
     for (int i = 0; i < TESS_N; i++) {
-        dots[i].x = 1920 + (int)(((int64_t)(dots[i].x - 1920) * fit) >> 16);
-        dots[i].y = 2040 + (int)(((int64_t)(dots[i].y - 2040) * fit) >> 16);
+        dots[i].x = TESS_CX_Q3 + (int)(((int64_t)(dots[i].x - TESS_CX_Q3) * fit) >> 16);
+        dots[i].y = TESS_CY_Q3 + (int)(((int64_t)(dots[i].y - TESS_CY_Q3) * fit) >> 16);
         dots[i].radius = (int)(((int64_t)dots[i].radius * fit) >> 16);
     }
 }
@@ -357,7 +357,7 @@ static void draw_recording(face_t *f, scene_t *s) {
     // one after another round the ring.
     static float ring[18][2];
     if (!ring[0][0])
-        for (int i = 0; i < 18; i++) ring[i][0] = 240 + 150 * cosf(i * 2 * PI / 18), ring[i][1] = 255 + 150 * sinf(i * 2 * PI / 18);
+        for (int i = 0; i < 18; i++) ring[i][0] = 240 + 150 * cosf(i * 2 * PI / 18), ring[i][1] = TESS_CY + 150 * sinf(i * 2 * PI / 18);
     for (int i = 0; i < 18; i++) {
         float swell = f->tess_audio * (.5f + .5f * tess_sin(i * (2 * PI / 6) + f->t * 3));
         sc_glow_dot(s, ring[i][0], ring[i][1], (3.2f + 1.6f * swell) * f->tess_record, COL_REC,

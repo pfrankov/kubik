@@ -9,7 +9,7 @@
 bool screen_lab_controls(const screen_lab_t *lab) {
     return (lab->selected >= LAB_RECORD && lab->selected <= LAB_LIVE) || lab->selected == LAB_EVENTS;
 }
-int screen_lab_control_y(const screen_lab_t *lab) { return (lab->selected == LAB_LIVE || lab->selected == LAB_EVENTS) ? 92 : 428; }
+int screen_lab_control_y(const screen_lab_t *lab) { return (lab->selected == LAB_LIVE || lab->selected == LAB_EVENTS) ? 92 : UI_FOOTER_Y; }
 static bool tess_debug_preview(int screen) { return screen >= LAB_GROW_POINT && screen <= LAB_PLAY_SKY; }
 static void select_model(screen_lab_t *lab, face_agent_hit_t hit) {
     agent_menu_t *m = &lab->face.agent;
@@ -86,10 +86,10 @@ static void menu_tap(screen_lab_t *lab, int x, int y) {
     else if (row == MENU_ACTIONS) screen_lab_select(lab, LAB_HOME);
 }
 static void catalog_tap(screen_lab_t *lab, int x, int y) {
-    if (y >= 104 && y < 368 && x >= 20 && x <= 460) {
-        int index = lab->page * 3 + (y - 104) / 88;
+    if (y >= 104 && y < 104 + 3 * LAB_ROW_H && x >= 20 && x <= 460) {
+        int index = lab->page * 3 + (y - 104) / LAB_ROW_H;
         if (index < LAB_COUNT) screen_lab_select(lab, index);
-    } else if (y >= 396 && y <= 460) {
+    } else if (y >= UI_FOOTER_Y - 32 && y <= UI_FOOTER_Y + 32) {
         int pages = (LAB_COUNT + 2) / 3;
         lab->page = (lab->page + (x < 240 ? pages - 1 : 1)) % pages;
     }

@@ -119,8 +119,8 @@ bool tess_games_start(face_t *f, tess_preview_t play, unsigned tier) {
     case TESS_PLAY_PLUCK: tess_play_pluck(f, 0, false); return true;
     case TESS_PLAY_BLOOM: f->tess_mood.drag_speed[0] = 14.f; return true;
     case TESS_PLAY_STRETCH:
-        if (!tess_stretch_try(f, 420, 255)) return false;
-        g->pull[0] = 455; g->pull[1] = 215;
+        if (!tess_stretch_try(f, 420, TESS_CY)) return false;
+        g->pull[0] = 455; g->pull[1] = TESS_CY - 40;
         return true;
     case TESS_PLAY_FLY:
         tess_games_begin(f, TESS_GAME_FLY);
@@ -139,7 +139,7 @@ bool tess_games_start(face_t *f, tess_preview_t play, unsigned tier) {
 }
 
 // ---------------------------------------------------------------- touch
-static bool panel_position(float x, float y) { return x >= 0 && x < 480 && y >= 0 && y < 480; }
+static bool panel_position(float x, float y) { return x >= 0 && x < 480 && y >= 0 && y < UI_H; }
 static void pluck_tap(face_t *f, float x, float y) {
     float cx, cy;
     tess_games_centre(f, &cx, &cy);

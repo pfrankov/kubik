@@ -27,6 +27,15 @@ def check_print():
     assert 'Settings → Wi-Fi' not in booklet
     assert booklet.index('Know the buttons.') < booklet.index('Press <kbd>PWR</kbd>')
     assert 'Talk to Tess.' in booklet and '“Hi Tessa”' in booklet
+    assert 'C6 2.16: diagram and controls below.' in booklet
+    for target in ('s3-buttons', 's3-talk'):
+        assert f'id="{target}"' in booklet
+    import fitz
+    with fitz.open(SOURCE / module.OUTPUTS[0]) as pdf:
+        assert 'BOOT and PWR only. No KEY.' in ' '.join(pdf[1].get_text().split())
+        voice = ' '.join(pdf[6].get_text().split())
+        for phrase in ('S3 1.8 V2:', '60 s maximum', 'No held recording'):
+            assert phrase in voice, phrase
     commands = re.findall(r'<pre[^>]*>(.*?)</pre>', booklet, re.S)
     for command in ('openclaw plugins install openclaw-kubik',
                     'openclaw channels add --channel kubik --enable',
@@ -78,6 +87,13 @@ def check_browser(browser, output, width):
     assert 'Temporary address' not in page.locator('body').inner_text()
     assert 'OWNER' not in page.locator('body').inner_text()
     assert 'Settings → Status → Network → Wi-Fi' in page.locator('body').inner_text()
+    buttons = page.locator('#s3-buttons').inner_text()
+    assert 'BOOT and PWR only. No KEY.' in buttons
+    assert 'connected home screen' in buttons and 'Hold BOOT for Settings' in buttons
+    voice = page.locator('#s3-talk').inner_text()
+    assert 'maximum 60 seconds' in voice and 'not held recording' in voice
+    assert 'press again or tap to send' in voice
+    assert page.locator('#buttons .button-actions').get_attribute('aria-label') == 'C6 button actions'
     assert page.locator('img').evaluate_all('imgs => imgs.every(i => i.complete && i.naturalWidth > 0)')
     for link in page.locator('nav a').all():
         link.click()

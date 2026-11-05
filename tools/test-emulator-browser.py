@@ -2,6 +2,7 @@
 """Browser acceptance of the shared native emulator, with no attached device or agent."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -83,7 +84,7 @@ def forgotten_contacts_expire(worker):
 
 def click(page, x, y):
     box = page.locator("canvas").bounding_box()
-    page.mouse.click(box["x"] + x * box["width"] / 480, box["y"] + y * box["height"] / 480)
+    page.mouse.click(box["x"] + x * box["width"] / 480, box["y"] + y * box["height"] / int(page.locator("canvas").get_attribute("height")))
 
 
 def choose(page, index, name):
@@ -252,6 +253,63 @@ def exercise(page, screens):
     print(f"emulator: gestures and menus {time.monotonic() - started:.1f}s", flush=True)
 
 
+def rectangular_browser(browser):
+    worker = emulator.Worker(emulator.build("esp32s3"))
+    server = emulator.LocalHTTPServer(("127.0.0.1", 0), emulator.Handler)
+    server.worker = worker
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width":1100,"height":900}, has_touch=True)
+    url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        page.goto(url)
+        page.wait_for_function("document.querySelector('canvas').height === 584 && document.querySelector('#screen').options.length > 1")
+        assert page.request.get(url + "/config").json() == worker.metadata
+        assert page.locator('[data-key="2"]').is_hidden()
+        choose(page, worker.screens.index("Settings"), "Settings")
+        output = os.environ.get("KUBIK_EMULATOR_SCREENSHOTS")
+        for viewport, name in (({"width":1100,"height":900}, "desktop"), ({"width":390,"height":844}, "mobile")):
+            page.set_viewport_size(viewport)
+            page.wait_for_timeout(100)
+            box = page.locator("canvas").bounding_box()
+            assert abs(box["width"] / box["height"] - 480 / 584) < .002
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            if output:
+                path = Path(output); path.mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(path / f"web-s3-{name}.png"), full_page=True)
+        choose(page, worker.screens.index("Play: skies"), "Play: skies")
+        page.evaluate("running = false; clearTimeout(frameTimer)")
+        page.wait_for_function("!inFlight")
+        advance_frames(page, 60)
+        box = page.locator("canvas").bounding_box()
+        def point(x, y): return (box["x"] + x * box["width"] / 480, box["y"] + y * box["height"] / 584)
+        page.mouse.move(*point(200, 560)); page.mouse.down()
+        page.mouse.move(*point(250, 583), steps=4)
+        assert page.evaluate("[...contacts.values()].map(p => [p.x,p.y])") == [[250, 583]]
+        advance_frames(page, 1)
+        assert read_state(page)["contacts"] == 1
+        page.mouse.up(); advance_frames(page, 1)
+        assert read_state(page)["contacts"] == 0
+        session = page.context.new_cdp_session(page)
+        try:
+            for id, x, y in ((11, 150, 250), (29, 300, 400)):
+                px, py = point(x, y)
+                session.send("Input.dispatchTouchEvent", {"type":"touchStart", "touchPoints":[{"id":id,"x":px,"y":py}]})
+                advance_frames(page, 1)
+                assert read_state(page)["contacts"] == 1
+                assert page.evaluate("contacts.size") == 1
+        finally:
+            session.send("Input.dispatchTouchEvent", {"type":"touchCancel", "touchPoints":[]})
+            session.detach()
+        advance_frames(page, 1)
+        assert read_state(page)["contacts"] == 0
+        assert page.request.post(url + "/event", data={"command":"touches","args":[1,20,584,1,0,0,0,0]}).status == 400
+        assert not page.locator("#error").inner_text()
+    finally:
+        page.close(); server.shutdown(); server.server_close(); thread.join(timeout=2); worker.close()
+    print("S3 browser: portrait desktop/mobile canvas, exact bottom-row pointer mapping, single-touch capacity and native boundary passed", flush=True)
+
+
 def main():
     started = time.monotonic()
     executable = emulator.build()
@@ -289,6 +347,7 @@ def main():
                 assert not frames.called, "Rejected HTTP requests advanced native state"
             with patch.object(worker, "frame", side_effect=ValueError("Corrupt native header")):
                 assert page.request.get(url + "/frame?steps=7").status == 503
+            rectangular_browser(browser)
             browser.close()
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=2); worker.close()

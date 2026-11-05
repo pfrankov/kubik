@@ -2,6 +2,8 @@
 // Runs on the installed ESP32 through its native touch sampler. No provider calls.
 // Plays every behaviour of Tess on the home screen and in isolated Screen Lab previews.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
+let g;
 import {setTimeout as sleep} from 'node:timers/promises';
 import {waitForDeviceLink, setDeviceScreen, assertIdleCapture} from './test-device/diagnostics.mjs';
 
@@ -16,13 +18,13 @@ async function control(body) {
 const info = () => control({cmd:'info'});
 const sim = (ev, fields={}) => control({cmd:'sim', ev, ...fields});
 const state = () => sim('game-state');
-const pointer = (down,x=240,y=255) => sim('pointer',{down,x:Math.round(x),y:Math.round(y)});
+const pointer = (down,x=240,y=g.tessY) => sim('pointer',{down,x:Math.round(x),y:Math.round(y)});
 async function until(read, check, label, timeout=10000) {
   const end = performance.now()+timeout;
   do { const value = await read(); if (check(value)) return value; await sleep(50); } while (performance.now()<end);
   throw Error(`Timed out: ${label}`);
 }
-async function tap(x=240,y=255) {
+async function tap(x=240,y=g.tessY) {
   await pointer(true,x,y); await sleep(70); await pointer(false,x,y); await sleep(90);
 }
 async function catalog() {
@@ -30,9 +32,9 @@ async function catalog() {
 }
 async function select(index) {
   const target=Math.floor(index/3), turns=(target-labPage+11)%11;
-  for(let page=0;page<turns;page++) { await sim('tap',{x:356,y:428}); await sleep(90); }
+  for(let page=0;page<turns;page++) { await sim('tap',{x:356,y:g.footer}); await sleep(90); }
   labPage=target;
-  await sim('tap',{x:240,y:144+(index%3)*88});
+  await sim('tap',{x:240,y:144+(index%3)*Math.trunc((g.height-216)/3)});
   const names={22:'Growth: point',26:'Play: pluck',27:'Play: bloom',28:'Play: stretch',
     29:'Play: slingshot',30:'Play: gather',31:'Play: alone'};
   const name=names[index];
@@ -46,7 +48,7 @@ async function openLab() {
 }
 // A finger held on the glass: USB samples expire after 350 ms, so a held finger is refreshed.
 async function hold(x,y,ms) { const end=performance.now()+ms; do { await pointer(true,x,y); await sleep(60); } while (performance.now()<end); }
-async function pull(fromX,toX,y=255) {
+async function pull(fromX,toX,y=g.tessY) {
   for(let x=fromX;x<=toX;x+=10) { await pointer(true,x,y); await sleep(40); }
   await hold(toX,y,450);
   const held=await state();
@@ -67,7 +69,7 @@ async function watch(ms) {
 }
 async function sweep() {
   let last=await state();
-  for(let row=0,y=24;y<=456&&(!row||(last.game===3&&last.phase!==3));y+=56,row++) {
+  for(let row=0,y=24;y<=g.height-24&&(!row||(last.game===3&&last.phase!==3));y+=56,row++) {
     for(let x=24;x<=456;x+=36) {
       const s=await pointer(true,row%2?480-x:x,y);
       if(!s.ok) throw Error('pointer sample rejected');
@@ -75,7 +77,7 @@ async function sweep() {
     }
     last=await state();
   }
-  await pointer(false,240,255);
+  await pointer(false,240,g.tessY);
   return last;
 }
 async function previews(saved) {
@@ -107,7 +109,7 @@ async function feelings() {
   await until(state,s=>Math.abs(s.x-240)<15,'level again, she rolls home',8000);
   // Pour: a burst held tilted slides downhill; tilting back and forth pours dots through her core.
   await sleep(1500);
-  for(let n=0;n<6;n++) { await tap(240,255); await sleep(120); }
+  for(let n=0;n<6;n++) { await tap(240,g.tessY); await sleep(120); }
   await until(state,s=>s.burst>.8,'a burst',3000);
   for(let swing=0;swing<6;swing++) { await tilt(swing%2?-.7:.7, swing%3?-.4:.5, 1100); await sleep(1000); }
   const poured=await state();
@@ -117,7 +119,7 @@ async function feelings() {
   // Temper: poked again and again in one place, she gets cross, and says so.
   await sleep(1500);
   let cross=0;
-  for(let n=0;n<10;n++) { await tap(300,255); cross=Math.max(cross,(await state()).annoy); await sleep(80); }
+  for(let n=0;n<10;n++) { await tap(300,g.tessY); cross=Math.max(cross,(await state()).annoy); await sleep(80); }
   const voiced=await state();
   assert.ok(cross>.5,`rapid pokes annoy her (${cross})`);
   assert.ok((voiced.tones&(TONE.ring|TONE.chirp|TONE.thud|TONE.grain))===(TONE.ring|TONE.chirp|TONE.thud|TONE.grain),`her body sounds (${voiced.tones})`);
@@ -125,17 +127,17 @@ async function feelings() {
 }
 async function realPlay() {
   // Pluck: a tap on her rings a wave through her edges; two quick taps make two.
-  await tap(265,255);
+  await tap(265,g.tessY);
   let seen=await watch(500); assert.ok(seen.waves>=1&&seen.shaping,'a tap plucks her');
-  await tap(205,205); await tap(285,305);
+  await tap(205,g.tessY-50); await tap(285,g.tessY+50);
   seen=await watch(300); assert.ok(seen.waves>=2,'two plucks ring together');
   await sleep(2000);
   // Bloom: a run of swipes across her winds her up until she opens.
   // (each lift lasts longer than a display frame, as a real finger's does)
   let opened=0;
   for(let n=0;n<12&&opened<.5;n++) {
-    for(let x=170;x<=330;x+=40) { await pointer(true,x,255); await sleep(15); }
-    await pointer(false,370,255); await sleep(150);
+    for(let x=170;x<=330;x+=40) { await pointer(true,x,g.tessY); await sleep(15); }
+    await pointer(false,370,g.tessY); await sleep(150);
     opened=Math.max(opened,(await state()).bloom);
   }
   seen=await watch(600); assert.ok(Math.max(opened,seen.bloom)>.5,`swipes open her (bloom ${Math.max(opened,seen.bloom)})`);
@@ -148,10 +150,10 @@ async function realPlay() {
   seen=await watch(2500); assert.ok(seen.games.has(2)&&seen.speed>5&&seen.squash>.1,'a long pull slings her into the rim');
   await until(state,s=>s.game===0,'she comes home',6000);
   // Priority: Settings takes her out of a pull at once.
-  await pointer(true,390,255); await sleep(100); await pointer(true,420,255);
+  await pointer(true,390,g.tessY); await sleep(100); await pointer(true,420,g.tessY);
   await until(state,s=>s.game===1,'a pull to interrupt',1000);
   await sim('menu'); await until(state,s=>s.game===0&&s.pull===0,'Settings stops the pull',1000);
-  await pointer(false,420,255); await sim('menu'); await until(info,s=>!s.menu,'home'); await sleep(1500);
+  await pointer(false,420,g.tessY); await sim('menu'); await until(info,s=>!s.menu,'home'); await sleep(1500);
   // Shatter and gather: the hardest throw bursts her; a sweep brings every dot home.
   await pull(390,472);
   await until(state,s=>s.burst>0,'a hard landing shatters her',3000);
@@ -163,7 +165,7 @@ async function realPlay() {
   console.log('device play: pluck, echo, bloom, twang, slingshot, settings priority, shatter, gather, tilt, pour and temper passed');
 }
 async function main() {
-  const original=await info(); assertIdleCapture(original);
+  const original=await info();g=deviceGeometry(original); assertIdleCapture(original);
   if(original.character==='Plush') {
     const inactive=await state(); assert.equal(inactive.game,0); assert.equal(inactive.available,false);
     console.log('Plush: Tess games inactive; game-play tests apply to Tess only'); return;

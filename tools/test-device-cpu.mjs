@@ -15,31 +15,36 @@ async function control(body) {
 const info = () => control({ cmd: 'info' });
 const sim = ev => control({ cmd: 'sim', ev });
 
-async function sample(dark) {
+async function sample(dark, chip, maximum) {
   await setDeviceScreen(info, sim, dark);
   await sleep(1000); // allow display and codec locks to settle
   const frequencies = [];
   for (let n = 0; n < 20; n++) {
     const state = await info();
     assert.equal(state.screen_dark, dark);
-    assert.equal(state.cpu_min_mhz, 40, 'DFS floor differs from the C6 crystal');
+    assert.equal(state.cpu_min_mhz, 40, 'DFS floor differs from the board crystal');
+    assert.equal(state.chip, chip);
+    assert.equal(state.cpu_max_mhz, maximum, 'Configured CPU maximum differs from board');
     frequencies.push(state.cpu_mhz);
     await sleep(200);
   }
-  assert.ok(frequencies.every(value => [40, 80, 160].includes(value)), 'Unsupported frequency');
+  assert.ok(frequencies.every(value => [40, 80, 160, maximum].includes(value)), 'Unsupported frequency');
   console.log(`Measured CPU ${dark ? 'dark' : 'awake'}: ${JSON.stringify(frequencies)}`);
-  if (!dark) assert.ok(frequencies.every(value => value === 160), 'Display lost its full-speed lock');
+  if (!dark) assert.ok(frequencies.every(value => value === maximum), 'Display lost its full-speed lock');
 }
 
 async function main() {
   const original = await info();
+  const maximum = { esp32c6: 160, esp32s3: 240 }[original.chip];
+  assert.ok(maximum, 'Unsupported firmware chip');
+  assert.equal(original.cpu_max_mhz, maximum);
   assertIdleCapture(original);
   for (const key of ['menu', 'card_open', 'pair_visible', 'live_active']) assert.equal(original[key], false);
   assert.equal(original.online, true);
   try {
-    await sample(false);
-    await sample(true);
-    await sample(false);
+    await sample(false, original.chip, maximum);
+    await sample(true, original.chip, maximum);
+    await sample(false, original.chip, maximum);
   } finally {
     await setDeviceScreen(info, sim, original.screen_dark);
     const restored = await info();
@@ -47,6 +52,6 @@ async function main() {
       assert.equal(restored[key], original[key], `${key} changed`);
     assertIdleCapture(restored);
   }
-  console.log('PASS CPU: DFS floor 40 MHz, awake/wake stay 160 MHz, configuration preserved; idle residency requires PM profiling');
+  console.log('PASS CPU: DFS floor 40 MHz, awake/wake stay at the board maximum, configuration preserved; idle residency requires PM profiling');
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

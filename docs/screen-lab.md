@@ -65,13 +65,15 @@ From the repository root, with a C compiler and Python 3 available:
 
 ```sh
 python3 tools/emulator.py
+# Full portrait viewport and controls of the S3 1.8 V2:
+python3 tools/emulator.py --target esp32s3
 ```
 
 Open the printed `http://127.0.0.1:8766/` address. Use `--port 0` for an automatically
 assigned port. The first run compiles the native UI worker into ignored `dist`.
 The QR component and sprite pack must be present; a clean development checkout
 gets dependencies through the ESP-IDF reconfigure step described in
-[acceptance](acceptance.md). BOOT, PWR, KEY are arranged left to right. Hold BOOT for
+[acceptance](acceptance.md). C6 shows BOOT, PWR, KEY from left to right; the S3 target shows BOOT/PWR and permits one touch contact. Hold BOOT for
 preview Settings; BOOT from the catalog also opens preview Settings. Hold Speech
 for Sound, drag the character, or change the simulated
 tilt. The character selector is a development control; production builds still

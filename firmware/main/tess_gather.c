@@ -103,7 +103,7 @@ void tess_gather_sweep(face_t *f, float x0, float y0, float x1, float y1) {
     // Dots flying home breathe, higher the higher up the glass, at most every 80 ms however many come.
     if (g->clock - g->tick_at >= .08f) {
         g->tick_at = g->clock;
-        tess_tone(f, TT_GRAIN, tess_tone_hz(f, clampf(1.f - y1 / 480.f, 0, 1)), fminf(1, .3f + .06f * (float)gathered), (float)g->streak / TESS_N);
+        tess_tone(f, TT_GRAIN, tess_tone_hz(f, clampf(1.f - y1 / (float)UI_H, 0, 1)), fminf(1, .3f + .06f * (float)gathered), (float)g->streak / TESS_N);
     }
     if (g->streak >= TESS_N) win(f);
 }

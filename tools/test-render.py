@@ -81,6 +81,10 @@ def main():
         # Force the lossless store's split path too: an independent capacity boundary.
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=12288", "-DPRESENT_SPLIT=1"]))
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=8"]))
+        runs.append(("rectangle_layout", face_sources(), ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
+        runs.append(("edge_overlay", TESTS["edge_overlay"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
+        runs.append(("tess_world_geometry", face_sources(omit=["tess_fall"]), []))
+        runs.append(("tess_world_geometry", face_sources(omit=["tess_fall"]), ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         for name, sources, defines in runs:
             if "face" in sources:
                 sources = [*sources, "agent_menu", "face_agent", "ui_text"]

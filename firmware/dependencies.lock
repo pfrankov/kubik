@@ -30,7 +30,7 @@ dependencies:
       type: service
     version: 0.8.0
   espressif/esp-dl:
-    component_hash: 3148b2692a2943d7e35401dc10a181b6ba83515ec70ef51499ac5d2593eef3e2
+    component_hash: 3608ac32875cb7fa93805fba2372619bde3d8a02cee47c622cf5e91a1308fe92
     dependencies:
     - name: espressif/dl_fft
       registry_url: https://components.espressif.com
@@ -56,7 +56,7 @@ dependencies:
     - esp32s2
     - esp32s3
     - esp32s31
-    version: 3.3.13
+    version: 3.3.14
   espressif/esp-dsp:
     component_hash: 12e44db246517a627bc0fe2b255b8335410c0215c98bfba2df5a8e3edea839ef
     dependencies:
@@ -203,6 +203,6 @@ direct_dependencies:
 - espressif/qrcode
 - idf
 - waveshare/esp_lcd_touch_cst9217
-manifest_hash: 888e21ccec11e927dd88411738f75644f370eae8276ecc86255da2ba23398349
+manifest_hash: 04cbd5a0f4f982359fe06eb8cff3a7296281f2942f7d99c31b42897ba18a5300
 target: esp32c6
 version: 2.0.0

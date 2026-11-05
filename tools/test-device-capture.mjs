@@ -49,7 +49,10 @@ async function main() {
   let ready = false;
   let connected = false;
   let played = false;
+  let recordedSignal;
   server.stdout.on('data', (data) => {
+    const signal = /utterance ([\d.]+) s, peak (\d+)/.exec(String(data));
+    if (signal) recordedSignal = { seconds: Number(signal[1]), peak: Number(signal[2]) };
     if (String(data).includes('parrot on')) ready = true;
     if (String(data).includes('device connected')) connected = true;
     if (String(data).includes('"t":"played"')) played = true;
@@ -76,6 +79,9 @@ async function main() {
     console.log('PASS PTT opens ADC/RX and reads physical microphone samples');
     await idleProof('recording ended / echoed speech');
     await until(() => played, 'physical echo playback acknowledgement');
+    assert.ok(recordedSignal?.seconds >= 0.3 && recordedSignal.peak >= 256,
+      `Physical microphone produced no usable signal: ${JSON.stringify(recordedSignal)}`);
+    console.log(`PASS captured microphone signal: ${recordedSignal.seconds} s, peak ${recordedSignal.peak}`);
     console.log('PASS speaker playback acknowledged while microphone remains off');
     await sim('pwr');
     await until((state) => state.screen_dark, 'screen off');

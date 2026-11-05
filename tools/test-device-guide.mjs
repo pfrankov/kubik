@@ -3,6 +3,8 @@
 // --reboot proves saved completion survives reboot; --profile measures native Settings/guide frame windows.
 // No voice/inference calls.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
+import { pathToFileURL } from 'node:url';
 import { assertIdleCapture, flushStats, waitForIdleCapture } from './test-device/diagnostics.mjs';
 import {setTimeout as sleep} from 'node:timers/promises';
 const url=process.env.KUBIK_CONTROL_URL ?? 'http://127.0.0.1:18791';
@@ -26,15 +28,41 @@ function preserved(s,original) {
   for(const key of ['volume','brightness','character','ssid','url','key'])assert.equal(s[key],original[key],key);
   assertIdleCapture(s);
 }
-async function replay() {
-  let s=await info();if(s.screen_dark){await sim('pwr');await sleep(200)}
-  s=await info();if(s.menu){await sim('menu');await sleep(200)}
-  await sim('menu');await sleep(550);await tap(356,308);
-  return until(s=>s.agent_open&&s.agent_view==='guide'&&s.guide_step===0,'replayed guide');
+export function isProfileScreen(state, view, step) {
+  const unobstructed = ['screen_dark', 'setup_ap', 'screen_lab', 'status_open', 'sound_menu', 'card_open', 'pair_visible']
+    .every(key => !state[key]);
+  if (!unobstructed) return false;
+  if (view === 'home') return state.menu === false && state.agent_open === false;
+  if (view === 'settings') return state.menu === true && state.agent_open === false;
+  return view === 'guide' && state.menu === true && state.agent_open === true && state.agent_view === 'guide' &&
+    (step === undefined || state.guide_step === step);
 }
-async function frameWindow(label,action) {
+export async function prepareHome({ read = info, event = sim, wait = until } = {}) {
+  if ((await read()).screen_dark) {
+    await event('pwr'); await wait(s => !s.screen_dark, 'awake screen before guide');
+  }
+  // A blank saved SSID deliberately reopens setup after reboot; online is not proof of home.
+  if ((await read()).setup_ap) {
+    await event('boot'); await wait(s => !s.setup_ap, 'BOOT closes initial setup before guide');
+  }
+  if ((await read()).menu) {
+    await event('menu'); await wait(s => !s.menu && !s.agent_open, 'menu closed before guide');
+  }
+  return wait(s => isProfileScreen(s, 'home'), 'unobstructed home before guide');
+}
+async function replay(g) {
+  await prepareHome();
+  await sim('menu');await until(s => isProfileScreen(s, 'settings'), 'Settings before guide replay');
+  await sleep(550);await tap(356,g.settingsGuide);
+  return until(s=>isProfileScreen(s, 'guide', 0),'replayed guide');
+}
+async function frameWindow(label, view, action, before = view, step) {
+  assert.ok(isProfileScreen(await info(), before), `${label}: unexpected screen before measurement`);
   await flushStats({sim});if(action)await action();
-  await sleep(2300);const sample=await flushStats({sim});
+  await until(s => isProfileScreen(s, view, step), `${label}: expected ${view} screen`);
+  await sleep(2300);
+  assert.ok(isProfileScreen(await info(), view, step), `${label}: screen changed during measurement`);
+  const sample=await flushStats({sim});
   console.log(`PROFILE ${label}: ${JSON.stringify(sample)}`);
   assert.equal(sample.presented,sample.frames,`${label}: unpresented frames`);
   assert.equal(sample.overflows,0,`${label}: frame storage overflow`);
@@ -42,37 +70,36 @@ async function frameWindow(label,action) {
   assert.equal(sample.late,0,`${label}: ${sample.late} late frames, maximum ${sample.maxMs} ms (limit 33.333 ms)`);
   console.log(`PASS ${label}: ${sample.fps} fps, maximum frame ${sample.maxMs} ms, zero late frames`);
 }
-async function profileGuide(original) {
-  let s=await info();if(s.screen_dark){await sim('pwr');await sleep(200)}
-  s=await info();if(s.menu){await sim('menu');await sleep(550)}
-  await frameWindow('Settings opening',()=>sim('menu'));
-  await frameWindow('Settings steady');
-  await frameWindow('Guide opening',()=>tap(356,308));
-  assert.equal((await info()).agent_view,'guide');
-  await frameWindow('Guide next transition',()=>tap(240,428));
-  await frameWindow('Guide steady');
+async function profileGuide(original,g) {
+  await prepareHome();
+  await frameWindow('Settings opening', 'settings', ()=>sim('menu'), 'home');
+  await frameWindow('Settings steady', 'settings');
+  await frameWindow('Guide opening', 'guide', ()=>tap(356,g.settingsGuide), 'settings', 0);
+  await frameWindow('Guide next transition', 'guide', ()=>tap(240,g.footer), 'guide', 1);
+  await frameWindow('Guide steady', 'guide', undefined, 'guide', 1);
   await tap(392,52);preserved(await info(),original);
 }
 async function main() {
   const original=await until(s=>s.online&&s.key,'initialized paired device');
+  const g=deviceGeometry(original);
   if (!original.guide_done && !process.argv.includes('--first-run')) throw Error('Guide is not completed: --first-run explicitly tests and saves initial completion');
   if(process.argv.includes('--first-run')) {
     assert.equal(original.guide_done,false);
     await until(s=>s.online&&s.agent_open&&s.agent_view==='guide','automatic authenticated first-run');
     console.log('PASS first guide opens automatically after authenticated capabilities');
-  } else await replay();
+  } else await replay(g);
   for(let step=1;step<=3;step++) {
-    await tap(240,428);const s=await until(s=>s.guide_step===step,'guide step '+step);preserved(s,original);
+    await tap(240,g.footer);const s=await until(s=>s.guide_step===step,'guide step '+step);preserved(s,original);
   }
   await sim('boot');await until(s=>s.guide_step===2,'BOOT returns one guide step');
-  await tap(240,428);await tap(240,428);
+  await tap(240,g.footer);await tap(240,g.footer);
   const done=await until(s=>s.guide_done&&!s.agent_open&&s.menu,'completion opens real settings');
   preserved(done,original);
-  await replay();await sim('boot');
+  await replay(g);await sim('boot');
   await until(s=>s.menu&&!s.agent_open,'BOOT at step zero returns to Settings');
-  await replay();await tap(240,428);
-  await sim('drag',{x:240,y:428,first:true});await sim('drag',{x:240,y:398});
-  await sim('tap',{x:240,y:428});assert.equal((await info()).guide_step,1);
+  await replay(g);await tap(240,g.footer);
+  await sim('drag',{x:240,y:g.footer,first:true});await sim('drag',{x:240,y:g.footer-30});
+  await sim('tap',{x:240,y:g.footer});assert.equal((await info()).guide_step,1);
   await tap(392,52);await until(s=>!s.menu&&s.guide_done,'skip replay');preserved(await info(),original);
   console.log('PASS four steps, Back, replay, drag cancellation and Skip preserve settings; no uploading capture in idle; Guide capture stays off');
   if(process.argv.includes('--reboot')) {
@@ -86,6 +113,7 @@ async function main() {
     preserved(await waitForIdleCapture(info),original);
     console.log('PASS completion survives reboot; guide does not repeat; network/device identity preserved');
   }
-  if(process.argv.includes('--profile'))await profileGuide(original);
+  if(process.argv.includes('--profile'))await profileGuide(original,g);
 }
-main().catch(e=>{console.error(e.message);process.exitCode=1});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main().catch(e=>{console.error(e.message);process.exitCode=1});

@@ -1,12 +1,43 @@
-// Waveshare ESP32-C6-Touch-AMOLED-2.16: pins and low-level peripherals.
-// Pin map verified against the official ESP-IDF BSP constructor defaults and
-// the XiaoZhi v2.2.5 board definition (the example user_config.h is stale).
+// Waveshare C6 Touch-AMOLED-2.16 and S3 Touch-AMOLED-1.8 V2.
+// S3 map: waveshare/esp32_s3_touch_amoled_1_8 BSP 2.0.3.
+// C6 map: official ESP-IDF BSP and XiaoZhi v2.2.5 (the example map is stale).
 #pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "viewport.h"
 #include "driver/i2c_master.h"
 #include "esp_lcd_panel_io.h"
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "display_s3.h"
+#define PIN_I2C_SDA 15
+#define PIN_I2C_SCL 14
+#define PIN_LCD_CLK 11
+#define PIN_LCD_D0 4
+#define PIN_LCD_D1 5
+#define PIN_LCD_D2 6
+#define PIN_LCD_D3 7
+#define PIN_LCD_CS 12
+#define PIN_LCD_TE 13
+#define PIN_TP_INT 21
+#define PIN_TP_RST (-1)
+#define PIN_I2S_MCLK 16
+#define PIN_I2S_BCLK 9
+#define PIN_I2S_WS 45
+#define PIN_I2S_DIN 10
+#define PIN_I2S_DOUT 8
+#define PIN_AUDIO_PA 46
+#define PIN_KEY (-1)
+#define PIN_BOOT 0
+#define PIN_PWR (-1)
+#define PANEL_W DISPLAY_S3_WIDTH
+#define PANEL_H DISPLAY_S3_HEIGHT
+#define PANEL_X_GAP 16
+#else
 
 #define PIN_I2C_SDA 8
 #define PIN_I2C_SCL 7
@@ -30,14 +61,26 @@
 #define PIN_KEY 10   // "IO10" key, active low: push-to-talk
 #define PIN_BOOT 9   // BOOT key, active low (strapping pin)
 #define PIN_PWR 18   // PWR key via inverter, active high; AXP2101 PWRON
+#define PIN_AUDIO_PA (-1)
+#define PANEL_W 480
+#define PANEL_H 480
+#define PANEL_X_GAP 0
+#endif
 
-#define LCD_W 480
-#define LCD_H 480
+#define LCD_W UI_W
+#define LCD_H UI_RENDER_H
 #define LCD_STRIPE_MAX_ROWS 24
 
 extern i2c_master_bus_handle_t g_i2c_bus;
 
 void board_init(void);
+bool board_key_down(void);
+
+// Native panel transport, used by the S3 portrait adapter.
+void board_display_begin(int x0, int y0, int x1, int y1);
+void board_display_write(const uint16_t *pixels, int count, bool last);
+void board_display_end(void);
+void board_display_wait_idle(void);
 
 // RGB565 QSPI windows, with CS held between DMA chunks inside each window.
 // At most LCD_PIPE-1 pixel buffers are in flight. end() only closes the window;

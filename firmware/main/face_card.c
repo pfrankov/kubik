@@ -1,11 +1,12 @@
 #include "face_internal.h"
+#include "viewport.h"
 
 // ------------------------------------------------------------------ text card
 #define COL_PLUSH 0xF2EADCu
 #define COL_INK 0x15171Bu
 #define CARD_TEXT_X 38.f    // left edge of the text, design px
 #define CARD_TEXT_W 404.f
-#define CARD_CY 268.f
+#define CARD_CY (UI_CY + 28.f)
 
 static int card_pages(const face_t *f) { return (f->card_n + FACE_CARD_PAGE - 1) / FACE_CARD_PAGE; }
 
@@ -150,7 +151,7 @@ void card_update(face_t *f, float dt) {
 
 static float card_center(const face_t *f, float pop) {
     // Reserve the Live footer even while a full six-line card enters or fades.
-    return f->live_active ? 220 + (1.f - pop) * 8 : CARD_CY + (1.f - pop) * 28;
+    return f->live_active ? UI_CY - 20 + (1.f - pop) * 8 : CARD_CY + (1.f - pop) * 28;
 }
 
 void draw_card(face_t *f, scene_t *s) {
@@ -167,7 +168,7 @@ void draw_card(face_t *f, scene_t *s) {
     int rows = pages > 1 ? FACE_CARD_PAGE : n;
     float hh = (rows * g_text[TXT_CARD].line + 30.f) * 0.5f;
     float cy = card_center(f, pop);
-    sc_rbox(s, CX, 240, 240, 240, 0, 0, 0x000000u, a * 0.55f);  // the face steps back
+    sc_rbox(s, CX, UI_CY, UI_W / 2, UI_H / 2, 0, 0, 0x000000u, a * 0.55f);  // the face steps back
     sc_rbox(s, CX, cy, CARD_TEXT_W * 0.5f + 20, hh, 26, 0, COL_PLUSH, a);
     float middle = cy - hh + 15 + g_text[TXT_CARD].line * .5f;  // 15 px of air above the first line
     for (int i = 0; i < n; i++) {

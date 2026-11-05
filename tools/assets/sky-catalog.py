@@ -62,14 +62,29 @@ def generate(data):
     return '\n'.join(lines+['};',*format_routes(data),''])
 
 
+def route_initializer(c, portrait=False):
+    n = len(c['stars'])
+    routes = [[list(route) for route in row] for row in c['routes']]
+    if portrait:
+        for source, target, route in c.get('portrait_routes', []):
+            assert 0 <= source < n and 0 <= target < n
+            routes[source][target] = route
+    assert len(routes) == n
+    for row in routes:
+        assert len(row) == n
+        for gx, gy, ox, oy in row:
+            assert gx*gx+gy*gy <= 16 and abs(ox)+abs(oy) <= 40
+    return '    '+json.dumps(routes,separators=(',',':')).replace('[','{').replace(']','}')+','
+
+
 def format_routes(data):
     lines=['static const int8_t k_route[SKY_CHARTS][SKY_STARS][SKY_STARS][4] = {']
     for c in data['constellations']:
-        n=len(c['stars']); assert len(c['routes'])==n
-        for row in c['routes']:
-            assert len(row)==n
-            for gx,gy,ox,oy in row: assert gx*gx+gy*gy<=16 and abs(ox)+abs(oy)<=40
-        lines.append('    '+json.dumps(c['routes'],separators=(',',':')).replace('[','{').replace(']','}')+',')
+        if c.get('portrait_routes'):
+            lines += ['#if CONFIG_IDF_TARGET_ESP32S3', route_initializer(c, True), '#else',
+                      route_initializer(c), '#endif']
+        else:
+            lines.append(route_initializer(c))
     return lines+['};']
 
 
@@ -85,7 +100,8 @@ def refresh_routes(data):
     lines=['{']+[f'  {json.dumps(k)}: {json.dumps(v)},' for k,v in data.items() if k!='constellations']
     lines.append('  "constellations": [')
     for n,c in enumerate(data['constellations']):
-        lines.append('    {"name": '+json.dumps(c['name'])+', "holes": '+str(c['holes'])+',')
+        portrait = ', "portrait_routes": '+json.dumps(c['portrait_routes']) if c.get('portrait_routes') else ''
+        lines.append('    {"name": '+json.dumps(c['name'])+', "holes": '+str(c['holes'])+portrait+',')
         lines.append('     "stars": [')
         lines.extend('       '+json.dumps(star)+(',' if i+1<len(c['stars']) else '') for i,star in enumerate(c['stars']))
         lines.append('     ], "edges": '+json.dumps(c['edges'])+', "routes": [')

@@ -31,9 +31,9 @@ static inline void device_status_page(device_status_t *s, unsigned page) {
 static inline bool device_status_tap(device_status_t *s, int x, int y) {
     if (!s->open) return false;
     if (s->page == 0 && device_status_wifi_hit(x, y)) { s->wifi_setup = true; return true; }
-    int hit = ui_segment_hit(3, x, y, 428);
+    int hit = ui_segment_hit(3, x, y, UI_FOOTER_Y);
     if (hit >= 0) device_status_page(s, (unsigned)hit);
-    else if (y >= 396) device_status_page(s, (s->page + 1) % 3);
+    else if (y >= UI_FOOTER_Y - 32) device_status_page(s, (s->page + 1) % 3);
     return true;
 }
 static inline bool device_status_drag(device_status_t *s, int x, int y, bool first) {

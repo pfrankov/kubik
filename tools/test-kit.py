@@ -13,13 +13,16 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+from firmware_layout import TARGETS, firmware_filename, kit_filename
 
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--character", choices=("TESS", "PLUSH"), default="TESS")
-character = parser.parse_args().character
-firmware_name = f"kubik-firmware-{character.lower()}.zip"
-kit_path = Path(__file__).resolve().parent.parent / f"dist/kubik-kit-{character.lower()}.zip"
+parser.add_argument("--target", choices=tuple(TARGETS), default="esp32c6")
+arguments = parser.parse_args()
+character, target = arguments.character, arguments.target
+firmware_name = firmware_filename(character, target)
+kit_path = Path(__file__).resolve().parent.parent / "dist" / kit_filename(character, target)
 source_root = kit_path.parent.parent
 version_header = (source_root / "firmware/main/version.h").read_text()
 firmware_version = re.search(r'#define KUBIK_FW_VERSION "([^"]+)"', version_header).group(1)
@@ -53,7 +56,8 @@ check_cloudflared_source()
 
 
 def package_hashes():
-    subprocess.run([sys.executable, str(source_root / "tools/package-kit.py"), "--character", character], check=True)
+    subprocess.run([sys.executable, str(source_root / "tools/package-kit.py"), "--character", character,
+                    "--target", target], check=True)
     data = kit_path.read_bytes()
     with zipfile.ZipFile(BytesIO(data)) as package:
         manifest = json.loads(package.read("manifest.json"))
@@ -94,6 +98,7 @@ def check_acceptance_links(contents):
         if target.startswith("buyer/"):
             restored = restored.replace(f"](../{target[6:]})", f"]({target})")
     assert restored == source, "packaged acceptance content or source links changed"
+    return revision
 
 
 def check_hermes_native(kit):
@@ -140,7 +145,7 @@ with zipfile.ZipFile(kit_path) as kit:
                 "deploy/cloudflared/probe.mjs", "deploy/cloudflared/install-systemd.sh",
                 "hermes-kubik/adapter.py", "hermes-kubik/plugin.yaml", "hermes-kubik/pair.py",
                 "hermes-kubik/requirements.txt", "tools/install-hermes.py", "docs/hermes.md",
-                "docs/scenarios/hermes.md", "tools/test-hermes-native.py",
+                "docs/scenarios/hermes.md", "docs/hardware-s3.md", "tools/test-hermes-native.py",
                 "tools/hermes_native/contract.py", "tools/hermes_native/upstream.json", "docs/events.md"}
     assert required <= names, sorted(required - names)
     check_hermes_native(kit)
@@ -153,12 +158,16 @@ with zipfile.ZipFile(kit_path) as kit:
     if character == "TESS":
         assert kit.read("Getting-started.pdf") == (source_root / "docs/buyer/kubik-getting-started-A6.pdf").read_bytes()
     manifest = json.loads(kit.read("manifest.json"))
+    assert manifest["chip"] == target and manifest["board"] == TARGETS[target]["board"]
+    revision = check_acceptance_links(kit.read("docs/acceptance.md").decode())
+    hardware = (source_root / "docs/hardware-s3.md").read_text()
+    scenario = f"https://github.com/pfrankov/kubik/blob/{revision}/docs/scenarios/tess-skies-entry.md"
+    assert kit.read("docs/hardware-s3.md").decode() == hardware.replace(
+        "(scenarios/tess-skies-entry.md)", f"({scenario})")
     assert manifest["pluginVersion"] == plugin_version
     assert set(manifest["parts"]) == {manifest["firmware"], manifest["plugin"]}
     for name, digest in manifest["parts"].items():
         assert name in names and sha256(kit.read(name)).hexdigest() == digest
-
-    check_acceptance_links(kit.read("docs/acceptance.md").decode())
 
     for name in sorted(name for name in names if PurePosixPath(name).suffix.lower() in {".md", ".markdown"}):
         contents = kit.read(name).decode()
@@ -203,9 +212,10 @@ with zipfile.ZipFile(kit_path) as kit:
     with zipfile.ZipFile(BytesIO(kit.read(manifest["firmware"]))) as firmware:
         firmware_manifest = json.loads(firmware.read("manifest.json"))
         assert firmware_manifest["version"] == firmware_version
+        assert firmware_manifest["chip"] == target and firmware_manifest["board"] == TARGETS[target]["board"]
         assert firmware_manifest["character"] == manifest["character"] == character.title()
         notices = {file.name: file.read_bytes() for file in (source_root / "licenses").iterdir() if file.is_file()}
-        assert {"flash-device.py", "INSTALL.ru.txt", "LICENSE", "NOTICE"} | {f"licenses/{name}" for name in notices} <= set(firmware.namelist())
+        assert {"flash-device.py", "firmware_layout.py", "INSTALL.ru.txt", "LICENSE", "NOTICE"} | {f"licenses/{name}" for name in notices} <= set(firmware.namelist())
         for name, content in notices.items():
             assert firmware.read(f"licenses/{name}") == content
         assert b"Copyright (c) Project Nayuki" in firmware.read("licenses/MIT-Nayuki-qrcodegen.txt")

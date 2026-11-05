@@ -45,7 +45,7 @@
 void tess_touch_wave(face_t *f, float x, float y) {
     tess_ripple_t *slot = f->tess_ripple;
     for (int k = 1; k < TESS_RIPPLES; k++) if (f->tess_ripple[k].age > slot->age) slot = &f->tess_ripple[k];
-    *slot = (tess_ripple_t){(x - 240) / TESS_PX_PER_UNIT, (y - 255) / TESS_PX_PER_UNIT, 0};
+    *slot = (tess_ripple_t){(x - 240) / TESS_PX_PER_UNIT, (y - TESS_CY) / TESS_PX_PER_UNIT, 0};
 }
 
 bool tess_ripple_active(const face_t *f) {
@@ -104,7 +104,7 @@ static void land(face_t *f, float x, float y) {
     }
     tess_touch_wave(f, x, y);
     tess_kick(f, KICK_DIP, 1.f);
-    tess_cue(f, TC_TOUCH, 1.f - clampf(hypotf(x - 240, y - 255) / 240, 0, 1), (x - 240) / 240);
+    tess_cue(f, TC_TOUCH, 1.f - clampf(hypotf(x - 240, y - TESS_CY) / 240, 0, 1), (x - 240) / 240);
 }
 
 // A game yields the complete gesture to ordinary touch, including its origin.
@@ -192,7 +192,7 @@ static void steer_look(face_t *f, float dt) {
     float at = p->down ? 1.f : smooth01(1.f - p->up_t / LINGER_S);  // (it lingers where the finger was)
     if (f->mode == MODE_IDLE && at > 0) {
         to[0] = clampf((p->finger[0] - 240) / 150, -1, 1) * LOOK_YAW * at;
-        to[1] = -clampf((p->finger[1] - 255) / 150, -1, 1) * LOOK_PITCH * at;  // (a finger below tips the face down)
+        to[1] = -clampf((p->finger[1] - TESS_CY) / 150, -1, 1) * LOOK_PITCH * at;  // (a finger below tips the face down)
     } else if (f->mode == MODE_IDLE) {
         to[0] = SWAY_YAW * k * tess_sin(f->t * 2.f);
         to[1] = SWAY_PITCH * k * tess_sin(f->t * 2.f + 1.2f);

@@ -32,10 +32,11 @@ static void old_corner_pair(const scene_t *s, uint16_t *row, int xa, int xb, int
 static void old_edge_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, bool swap) {
     int w = s->edge_w, r = s->edge_r;
     if (!w) return;
-    const int W = R_W * R_SCALE, H = R_H * R_SCALE;
+    const int W = R_W * R_SCALE, H = UI_H;
     if (r < w) r = w;
     uint16_t c = swap ? rgb565_bswap(s->edge_color) : s->edge_color;
     int xa = imax(x0, 0), xb = imin(x0 + width, W);
+    rows = imin(rows, H - y0);
     for (int j = 0; j < rows; j++) {
         int y = y0 + j;
         uint16_t *row = out + j * width - x0;
@@ -62,7 +63,7 @@ static void check_reach(void) {
     for (int w1 = 0; w1 <= 16; w1 += (w1 < 3 ? 1 : 5))
         for (int w2 = 0; w2 <= 16; w2++)
             for (int r = 1; r <= 110; r += 13)
-                for (int y0 = 0; y0 + 8 <= 480; y0 += 4) {
+                for (int y0 = 0; y0 + 8 <= UI_RENDER_H; y0 += 4) {
                     memset(&s1, 0, sizeof s1); memset(&s2, 0, sizeof s2);
                     s1.edge_w = (uint8_t)w1; s2.edge_w = (uint8_t)w2; s1.edge_r = s2.edge_r = (uint8_t)r;
                     s1.edge_color = s2.edge_color = 0xF800;
@@ -111,7 +112,7 @@ static void check_change(void) {
     for (int w1 = 0; w1 <= 24; w1++)
         for (int w2 = 0; w2 <= 24; w2++)
             for (size_t ri = 0; ri < sizeof radii / sizeof *radii; ri++)
-                for (int y0 = 0; y0 + 16 <= 480; y0 += (y0 < 120 || y0 > 344 ? 2 : 37)) {
+                for (int y0 = 0; y0 + 16 <= UI_RENDER_H; y0 += (y0 < 120 || y0 > 344 ? 2 : 37)) {
                     int r = radii[ri];
                     if (w1 && w2 && render_edge_radius(w1, r) != render_edge_radius(w2, r)) continue;  // a band grown past its radius
                     ring_px += check_one(w1, w2, r, y0, y0 % 3 == 0 ? 16 : 8, &reach_px);

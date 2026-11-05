@@ -3,6 +3,8 @@
 // Starts each saved progression depth, drives its verified solution through the real input sampler,
 // and checks completion, melody, frame pacing and speaker feed. Never changes level geometry.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
+let g;
 import {setTimeout as sleep} from 'node:timers/promises';
 import {setDeviceScreen, assertIdleCapture, flushStats, combineStats} from './test-device/diagnostics.mjs';
 
@@ -63,7 +65,7 @@ async function solve(elements, skill) {
     }
   }
   if(s.phase===PHASE.resolve) assert.equal(s.channels,first.stars-1,'all successful streams remain');
-  await sim('pointer',{down:false,x:240,y:255}); await sim('gravity',{x:0,y:0,ms:0});
+  await sim('pointer',{down:false,x:240,y:g.tessY}); await sim('gravity',{x:0,y:0,ms:0});
   windows.push(await flushStats({sim}));
   const played = combineStats(windows);
   assert.ok(played.elapsed_us >= (performance.now()-measuredStart-500)*1000,
@@ -111,7 +113,7 @@ async function summons() {
   assert.equal(s.active, false, 'a summon is not the game');
   await sleep(900);
   const settled = await sky();
-  assert.ok(settled.call_x>=24&&settled.call_x<=456&&settled.call_y>=24&&settled.call_y<=456,'invitation remains on the glass');
+  assert.ok(settled.call_x>=24&&settled.call_x<=456&&settled.call_y>=24&&settled.call_y<=g.height-24,'invitation remains on the glass');
   await sleep(350);
   const moved = await sky();
   assert.ok(Math.hypot(moved.call_x-moved.call_body_x,moved.call_y-moved.call_body_y)<8,'invitation stays on Tess');
@@ -124,7 +126,7 @@ async function summons() {
   await sim('boot'); await until(sky, v=>!v.active, 'the sky ends', 4000); await sleep(3500);
 }
 async function main() {
-  const original = await info(); assertIdleCapture(original);
+  const original = await info();g=deviceGeometry(original); assertIdleCapture(original);
   if (original.character==='Plush') {
     assert.equal((await sky()).active,false);
     console.log('Plush: Skies inactive; Skies applies to Tess only'); return;
@@ -163,7 +165,7 @@ async function main() {
     assert.equal(audio.write_errors,0,'codec accepts every frame');
     console.log('device skies: every depth resolved and sang, BOOT/menu/PWR end a sky, frames on pace, speaker fed');
   } finally {
-    await sim('pointer',{down:false,x:240,y:255}); await sim('gravity',{x:0,y:0,ms:0});
+    await sim('pointer',{down:false,x:240,y:g.tessY}); await sim('gravity',{x:0,y:0,ms:0});
     if ((await info()).menu!==original.menu) await sim('menu');
     await until(sky, s=>!s.active, 'the sky ends', 8000).catch(()=>{});
     assert.equal((await sim('sky-restore')).ok, true, "the player's own progress is put back");

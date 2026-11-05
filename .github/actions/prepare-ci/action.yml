@@ -63,7 +63,7 @@ runs:
       run: |
         git clone --depth 1 --branch v5.5.1 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git "$RUNNER_TEMP/esp-idf"
         identity=$(python3 -c 'import hashlib,os,pathlib; print(hashlib.sha256(pathlib.Path(os.environ["RUNNER_TEMP"], "esp-idf/tools/tools.json").read_bytes()).hexdigest()[:16])')
-        echo "key=$CACHE_PREFIX-idf5.5.1-esp32c6-$identity-tools" >> "$GITHUB_OUTPUT"
+        echo "key=$CACHE_PREFIX-idf5.5.1-esp32c6-esp32s3-$identity-tools" >> "$GITHUB_OUTPUT"
     - name: Restore ESP-IDF tools
       if: inputs.lane == 'native' || inputs.lane == 'build'
       id: sdk
@@ -83,7 +83,7 @@ runs:
           ninja --version
           python3 tools/ci-apt.py flex bison gperf ccache libffi-dev libssl-dev libusb-1.0-0
         fi
-        "$RUNNER_TEMP/esp-idf/install.sh" esp32c6
+        "$RUNNER_TEMP/esp-idf/install.sh" esp32c6 esp32s3
     - name: Save prepared ESP-IDF tools
       if: success() && (inputs.lane == 'native' || inputs.lane == 'build') && steps.sdk.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
       uses: actions/cache/save@v6.1.0

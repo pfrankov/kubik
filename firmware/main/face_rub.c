@@ -1,12 +1,13 @@
 #include "face_internal.h"
+#include "tess_internal.h"
 
 // Rubbing takes effort (the meter is rub.c): Plush notices, giggles and squirms, blushes with squinting eyes, and
 // wiggles; only a few seconds of vigorous rubbing on the belly make him love it. Each stage has three variants, one
 // picked at random for a while and never the one it just did. One swipe gets a blink and a small hop (face.c).
 #define BELLY_X0 150.f  // panel px: the belly of the plush body, below the screen
 #define BELLY_X1 330.f
-#define BELLY_Y0 290.f
-#define BELLY_Y1 450.f
+#define BELLY_Y0 (290.f + FACE_Y_OFFSET)
+#define BELLY_Y1 (450.f + FACE_Y_OFFSET)
 enum { NOTICE_GLANCE, NOTICE_TILT, NOTICE_HOP };
 enum { GIGGLE_BOUNCE, GIGGLE_LOPSIDED, GIGGLE_SHIMMY };
 enum { BLUSH_SQUINT, BLUSH_AWAY, BLUSH_LAUGH };
@@ -18,8 +19,8 @@ static const float k_beat_hz[RUB_STAGES] = {0, 0, 3.f, 1.8f, 4.5f};  // giggle h
 // How ticklish the spot under the finger is, 0..1: the belly, a little on the screen face, elsewhere not at all.
 static float finger_area(const face_t *f) {
     float x = f->rub_in.x, y = f->rub_in.y;
-    if (face_character(f) == CHARACTER_TESS) return hypotf(x - 240, y - 255) < 220 ? 1.f : 0.f;  // on the cloud
-    if (!has_body(f)) return hypotf(x - 240, y - 250) < 190 ? 1.f : .2f;
+    if (face_character(f) == CHARACTER_TESS) return hypotf(x - 240, y - TESS_CY) < 220 ? 1.f : 0.f;  // on the cloud
+    if (!has_body(f)) return hypotf(x - 240, y - (250 + FACE_Y_OFFSET)) < 190 ? 1.f : .2f;
     if (x > BELLY_X0 && x < BELLY_X1 && y > BELLY_Y0 && y < BELLY_Y1) return 1.f;
     return fabsf(x - f->scr_cx) < f->scr_hw && fabsf(y - f->scr_cy) < f->scr_hh ? .35f : 0.f;
 }
@@ -28,7 +29,7 @@ static void start_move(face_t *f) {
     const rub_t *r = &f->rub;
     if (r->stage == RUB_NOTICE && r->move == NOTICE_GLANCE) {  // at the finger
         f->look_tx = clampf((f->rub_in.x - CX) * .12f, -26, 26);
-        f->look_ty = clampf((f->rub_in.y - 240) * .08f, -18, 18);
+        f->look_ty = clampf((f->rub_in.y - UI_CY) * .08f, -18, 18);
         f->next_saccade = 2.f;
     }
     if (r->stage == RUB_NOTICE && r->move == NOTICE_HOP) f->hop_v -= 55;

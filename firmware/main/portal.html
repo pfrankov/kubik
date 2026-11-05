@@ -267,11 +267,11 @@ function selectAgent(agent) {
   getElement('agentHint').textContent = hints[agent];
   getElement('url').placeholder = agent === 'Hermes' ? 'kubik://HOST:18793' : 'Leave blank for local discovery';
   getElement('pairingHint').textContent = muse ? 'Open Muse on your phone: Settings → Devices → Developer mode → Add device. Choose the MuseGadget shown on Kubik.' : 'Look for a pairing code on Kubik.';
-  getElement('approvalHint').textContent = muse ? 'When asked, press KEY on Kubik to confirm. Choose Wi-Fi in the Muse app to finish pairing.'
+  getElement('approvalHint').textContent = muse ? 'When asked, press the button shown on Kubik to confirm. Choose Wi-Fi in the Muse app to finish pairing.'
     : agent === 'OpenClaw' ? 'Match the code on Kubik. If it says Open Telegram, tap Allow in your agent chat. Otherwise, on the OpenClaw server run the command shown on Kubik: openclaw pairing approve kubik CODE.'
     : agent === 'Hermes' ? 'Match the code on Kubik. If it says Open Telegram, tap Allow in your agent chat. Otherwise, use the approval command printed by the installer in the same Hermes profile and Python environment.'
     : 'On your agent computer, run npx kubik-agent-host pair-list. Only if the displayed code matches, run npx kubik-agent-host approve CODE.';
-  getElement('guideHint').textContent = muse ? 'Kubik restarts with Bluetooth off and connects to Muse directly over Wi-Fi. Press KEY to speak; read the reply on its screen.' : 'Follow the short guide on Kubik. Change options later in Settings → Agent.';
+  getElement('guideHint').textContent = muse ? 'Kubik restarts with Bluetooth off and connects to Muse directly over Wi-Fi. Use the voice button shown on Kubik; read the reply on its screen.' : 'Follow the short guide on Kubik. Change options later in Settings → Agent.';
 }
 getElement('agents').querySelectorAll('button').forEach(button => {
   button.onclick = () => {

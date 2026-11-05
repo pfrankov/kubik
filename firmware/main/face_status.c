@@ -1,3 +1,6 @@
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
 #include "face_internal.h"
 #include "ui_kit.h"
 #include "ui_theme.h"
@@ -5,13 +8,14 @@
 #include <string.h>
 
 // Cards share the Settings/Agent geometry: 20 px margin, 12 px gaps, UI_RADIUS corners.
-//   header (y 42) | hero card (y 80..190) | detail card (y 202..394) | pager (y 428)
+// C6: header y42, hero y80..190, details y202..394, pager y428.
+// Portrait gives the detail card and its rows the extra height; the pager stays at the bottom.
 #define HERO_Y 135.f
-#define DETAIL_Y 298.f
+#define DETAIL_Y (298.f + (UI_H - 480) * .5f)
 #define ROW_X 44.f
 #define ROW_RIGHT 436.f
 #define TEXT_X 100.f
-#define PAGER_Y 428.f
+#define PAGER_Y UI_FOOTER_Y
 
 static void card(scene_t *s, float cy, float hh) { sc_rbox(s, 240, cy, 220, hh, UI_RADIUS, 0, UI_SURFACE, 1); }
 static void fitted(scene_t *s, text_role_t role, const char *text, float x, float y, int align, float width, uint32_t color) {
@@ -39,11 +43,11 @@ static void row(scene_t *s, const char *label, const char *value, float y, bool 
     fitted(s, TXT_ACTION, value, ROW_RIGHT, y, 1, room, muted ? UI_MUTED : UI_TEXT);
 }
 static void rows(scene_t *s, const char *const *labels, const char *const *values, const bool *muted) {
-    card(s, DETAIL_Y, 96);
+    card(s, DETAIL_Y, 96 + (UI_H - 480) * .5f);
     for (int i = 0; i < 3; i++) {
-        float y = 234 + i * 64;
+        float y = 234 + i * (64 + (UI_H - 480) * .5f);
         row(s, labels[i], values[i], y, muted && muted[i]);
-        if (i) sc_rbox(s, 240, y - 32, 192, .75f, .75f, 0, UI_PRESSED, 1);
+        if (i) sc_rbox(s, 240, y - (32 + (UI_H - 480) * .25f), 192, .75f, .75f, 0, UI_PRESSED, 1);
     }
 }
 static void network(const device_status_t *st, scene_t *s) {
@@ -60,7 +64,12 @@ static void device(const device_status_t *st, scene_t *s) {
     char fw[48]; snprintf(fw, sizeof fw, "Firmware %s", st->firmware);
     hero(s, ICON_BLOCKS, UI_GOLD, st->name, UI_TEXT, fw, 336);
     static const char *const labels[] = {"Processor", "DHCP name", "Wi-Fi MAC"};
-    const char *values[] = {"ESP32-C6", st->hostname, st->mac};
+    #if CONFIG_IDF_TARGET_ESP32S3
+    const char *processor = "ESP32-S3";
+#else
+    const char *processor = "ESP32-C6";
+#endif
+    const char *values[] = {processor, st->hostname, st->mac};
     rows(s, labels, values, NULL);
 }
 static void agent(const device_status_t *st, scene_t *s) {
@@ -68,11 +77,11 @@ static void agent(const device_status_t *st, scene_t *s) {
     hero(s, st->agent ? ICON_BRAIN : ICON_UNPLUG, st->agent ? UI_ACCENT : UI_ERROR,
          st->agent ? "Connected" : "Not connected", UI_TEXT,
          wifi ? "Server over Wi-Fi" : usb ? "Server over USB" : "No server link", 336);
-    card(s, DETAIL_Y, 96);
-    sc_label(s, TXT_CAPTION, "Server address", ROW_X, 224, -1, UI_MUTED, 1);
+    card(s, DETAIL_Y, 96 + (UI_H - 480) * .5f);
+    sc_label(s, TXT_CAPTION, "Server address", ROW_X, 224 + (UI_H - 480) * .5f, -1, UI_MUTED, 1);
     const char *at = st->url[0] ? st->url : "Automatic LAN discovery";
     for (int i = 0; i < 4 && *at; i++) {
-        float y = 256 + i * 26;
+        float y = 256 + (UI_H - 480) * .5f + i * 26;
         size_t n = label_prefix(TXT_CAPTION, at, 159, ROW_RIGHT - ROW_X, "");
         if (!n || (i == 3 && at[n])) { fitted(s, TXT_CAPTION, at, ROW_X, y, -1, ROW_RIGHT - ROW_X, UI_TEXT); break; }
         char line[160]; memcpy(line, at, n); line[n] = 0;

@@ -13,7 +13,7 @@
 static bool panel_coordinate(cJSON *j, const char *name, int *out) {
     cJSON *value = cJSON_GetObjectItemCaseSensitive(j, name);
     if (!cJSON_IsNumber(value) || !isfinite(value->valuedouble) || value->valuedouble != value->valueint ||
-        value->valueint < 0 || value->valueint >= 480) return false;
+        value->valueint < 0 || value->valueint >= (!strcmp(name, "y") ? UI_H : UI_W)) return false;
     *out = value->valueint;
     return true;
 }

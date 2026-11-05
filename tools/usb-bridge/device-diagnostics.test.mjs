@@ -13,3 +13,19 @@ test('fault snapshot retains every prior fault class without retaining log conte
   assert.notEqual(new DeviceDiagnostics().snapshot().instance,original.instance);
   assert.equal(JSON.stringify(d.snapshot()).includes('overflow'),false);
 });
+test('counts supported chip ROM boots and ignores unrelated chips', () => {
+  const d = new DeviceDiagnostics();
+  d.consume('ESP-ROM:esp32s3-20210327');
+  d.consume('ESP-ROM:esp32c6-20220919');
+  d.consume('ESP-ROM:esp32c3-20200918');
+  assert.equal(d.snapshot().boots, 2);
+});
+
+test('actual Xtensa panic is a fault; normal motion logs are not', () => {
+  const d = new DeviceDiagnostics();
+  d.consume("Guru Meditation Error: Core  0 panic'ed (LoadProhibited). Exception was unhandled.");
+  assert.equal(d.snapshot().faults, 1);
+  d.consume('input: gravity screen -0.04,0.98,-0.02 pull on the screen -0.04,0.98');
+  d.consume('main: mode 1 on screen');
+  assert.equal(d.snapshot().faults, 1);
+});

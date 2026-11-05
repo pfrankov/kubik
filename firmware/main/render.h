@@ -23,10 +23,11 @@
 
 #include "font.h"
 #include "icons.h"
+#include "viewport.h"
 
 #define R_FPS 30
 #define R_W 240
-#define R_H 240
+#define R_H (UI_RENDER_H / 2)
 #define R_SCALE 2
 #define R_BAND 8
 #define R_BANDS (R_H / R_BAND)

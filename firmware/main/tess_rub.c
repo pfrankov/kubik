@@ -16,7 +16,7 @@ static void perk_up(face_t *f, int pick, float side) {
     tess_mood_t *m = &f->tess_mood;
     m->rub_hold[2] = m->spin;
     if (pick == PERK_GLANCE) m->rub_hold[0] = clampf((f->rub_in.x - 240) / 150, -1, 1) * .5f;
-    if (pick == PERK_LOOK_UP) { m->rub_hold[1] = -.3f; tess_mood_kick(f, KICK_HOP, .5f, 240, 255); }
+    if (pick == PERK_LOOK_UP) { m->rub_hold[1] = -.3f; tess_mood_kick(f, KICK_HOP, .5f, TESS_CX, TESS_CY); }
     if (pick == PERK_HALF_TURN) m->twirl += side * 3.f;
 }
 

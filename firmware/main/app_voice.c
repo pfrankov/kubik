@@ -1,3 +1,4 @@
+#include "device_controls.h"
 #include "app_voice.h"
 #include "app_internal.h"
 #include "app_speech.h"
@@ -254,7 +255,7 @@ static void live_input(int turn, bool on, uint32_t session) {
     if (on) {
         if (!audio_mic_is_open() && !app_voice_start_capture()) {
             app_voice_live_stop(true);
-            face_lock(); face_card(&g_face, "Could not resume the microphone. Try KEY again."); face_unlock();
+            face_lock(); face_card(&g_face, "Could not resume the microphone. Try " KUBIK_VOICE_BUTTON " again."); face_unlock();
             return;
         }
     } else if (!pause_native_input(live)) return;

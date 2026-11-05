@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "viewport.h"
 #include "audio_sfx.h"
 #include "audio_levels.h"
 #include <assert.h>
@@ -93,7 +94,7 @@ void audio_sfx_quiet(void) {
 void audio_tess_gesture(float x, float y) {
     if (KUBIK_CHARACTER != CHARACTER_TESS) return;
     s_tess_position = (x - 240) / 240;
-    s_tess_energy = 1 - y / 480;
+    s_tess_energy = 1 - y / UI_H;
 }
 static void tess_event(sfx_t id, int index) {
     if (tess_sound_event_is_utterance(id) && (audio_mic_is_open() || audio_stream_playing())) return;

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Local USB controls only: no provider calls, microphone activation or factory reset.
 import assert from 'node:assert/strict';
+import {deviceGeometry} from './test-device/geometry.mjs';
 import { setDeviceScreen, waitForDeviceLink } from './test-device/diagnostics.mjs';
 import { setTimeout as pause } from 'node:timers/promises';
 const control = process.env.KUBIK_TEST_CONTROL ?? 'http://127.0.0.1:18791';
@@ -16,6 +17,7 @@ async function settled(test, message) {
   throw Error(message);
 }
 const original = await waitForDeviceLink(info);
+const g=deviceGeometry(original);
 assert.equal(original.live_active, false, 'active Live conversation');
 assert.equal(original.auto_recording, false, 'active automatic recording');
 assert.equal(original.mic_open, false, 'active microphone');
@@ -28,22 +30,22 @@ try {
   await sim('menu'); await pause(650);
   assert.equal((await info()).menu, true);
   await command({cmd:'set',volume:100,ui_volume:100});
-  await sim('tap',{x:72,y:226});
+  await sim('tap',{x:72,y:g.sliderCenter});
   await settled(s=>s.volume===50 && s.ui_volume===50,'overall 50 must set both equal channels');
   await command({cmd:'set',volume:50,ui_volume:100});
-  await sim('tap',{x:72,y:141});
+  await sim('tap',{x:72,y:g.slider(141)});
   await settled(s=>s.volume===60 && s.ui_volume===100,'overall 80 must redistribute at interface ceiling');
-  await sim('tap',{x:72,y:311});
+  await sim('tap',{x:72,y:g.slider(311)});
   await settled(s=>s.volume===0 && s.ui_volume===40,'overall 20 must redistribute at speech floor');
   await command({cmd:'set',volume:original.volume,ui_volume:original.ui_volume});
   const before=await info();
-  await sim('drag',{x:72,y:226,first:true});
+  await sim('drag',{x:72,y:g.sliderCenter,first:true});
   assert.equal((await info()).volume,before.volume,'touch-down changes volume');
-  await sim('hold',{x:72,y:226}); await pause(100);
+  await sim('hold',{x:72,y:g.sliderCenter}); await pause(100);
   assert.equal((await info()).sound_menu,true);
-  await sim('tap',{x:348,y:before.ui_volume>=50?300:180});
+  await sim('tap',{x:348,y:g.slider(before.ui_volume>=50?300:180)});
   const ui=await settled(s=>s.ui_volume!==before.ui_volume,'interface slider did not change'); assert.equal(ui.volume,before.volume);
-  await sim('tap',{x:132,y:before.volume>=50?300:180});
+  await sim('tap',{x:132,y:g.slider(before.volume>=50?300:180)});
   const speech=await settled(s=>s.volume!==before.volume,'speech slider did not change'); assert.equal(speech.ui_volume,ui.ui_volume);
   await command({cmd:'set',volume:original.volume});
   assert.equal((await info()).ui_volume,ui.ui_volume,'host speech setting changes interface');

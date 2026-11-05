@@ -10,7 +10,8 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-from firmware_layout import partitions, partition_table
+from firmware_layout import (TARGETS, build_directory, build_target, firmware_filename,
+                             partitions, partition_table, target_board, validate_image_chip)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -140,8 +141,25 @@ def selected_compile_commands(build, components):
     return entries
 
 
+def sdkconfig_inputs(build, target):
+    cache = (build / 'CMakeCache.txt').read_text()
+    configured = re.search(r'^SDKCONFIG_DEFAULTS:[^=]+=(.*)$', cache, re.MULTILINE)
+    defaults = configured[1].split(';') if configured and configured[1] else ['sdkconfig.defaults']
+    inputs = set()
+    for name in defaults:
+        path = Path(name)
+        if not path.is_absolute():
+            path = ROOT / 'firmware' / path
+        inputs.add(path.resolve())
+        target_default = Path(f'{path}.{target}')
+        if target_default.is_file():
+            inputs.add(target_default.resolve())
+    return inputs
+
+
 def build_inputs(build):
     description = json.loads((build / "project_description.json").read_text())
+    target = build_target(build)
     components = description["build_component_info"].values()
     entries = selected_compile_commands(build, components)
     inputs = {path for path in compiler_inputs(build, entries) if owned_source(path)}
@@ -149,10 +167,14 @@ def build_inputs(build):
     inputs.update(Path(component["dir"]) / "CMakeLists.txt" for component in components if owned_source(Path(component["dir"])))
     inputs.update(path for path in (ROOT / "firmware/main").iterdir() if path.suffix in {".html", ".css", ".js"})
     character = (build / 'character.txt').read_text().strip()
+    lock = 'dependencies.lock' if target == 'esp32c6' else 'dependencies.lock.esp32s3'
     inputs.update([ROOT / "firmware/main/CMakeLists.txt", ROOT / "firmware/CMakeLists.txt",
                    partition_table(character), Path(description['config_file']),
-                   ROOT / "firmware/sdkconfig.defaults", ROOT / "tools/font/gen-font.swift",
-                   ROOT / "tools/font/write-font.py", *(ROOT / "tools/font/sources").glob("*.ttf")])
+                   ROOT / 'firmware' / lock, *sdkconfig_inputs(build, target),
+                   ROOT / "tools/font/gen-font.swift", ROOT / "tools/font/write-font.py",
+                   *(ROOT / "tools/font/sources").glob("*.ttf")])
+    if target == 'esp32c6' and character == 'PLUSH':
+        inputs.update((ROOT / 'firmware/sdkconfig', ROOT / 'tools/configure-plush.py'))
     return inputs
 
 
@@ -167,8 +189,11 @@ def check_build_freshness(build):
     check_input_freshness(build_inputs(build), build / "kubik.bin")
 
 
-def package(build, output, character):
+def package(build, output, character, target='esp32c6'):
     check_character(build, character)
+    actual_target = build_target(build)
+    if actual_target != target:
+        raise ValueError(f'Build target is {actual_target}, not requested {target}; use its own build directory')
     check_build_freshness(build)
     with tempfile.TemporaryDirectory(prefix="kubik-assets-") as directory:
         regenerated = Path(directory) / "assets.bin"
@@ -182,16 +207,22 @@ def package(build, output, character):
     version = re.search(r'#define KUBIK_FW_VERSION "([^"]+)"', version_header)
     if not version:
         raise ValueError("Firmware version is missing")
-    flashed = json.loads((build / "flasher_args.json").read_text())["flash_files"]
+    flasher = json.loads((build / "flasher_args.json").read_text())
+    flashed = flasher["flash_files"]
     expected = {hex(offset): relative for offset, _, relative in images(character)}
     if flashed != expected:
         raise ValueError("Build flash layout differs from the Kubik release layout")
-    manifest = {"name": "Kubik", "version": version.group(1), "chip": "esp32c6",
+    if flasher.get('flash_settings', {}).get('flash_size') != '16MB':
+        raise ValueError('Build flash size differs from the 16 MB Kubik release layout')
+    manifest = {"name": "Kubik", "version": version.group(1), "chip": actual_target,
+                "board": target_board(actual_target),
                 "flash_size": "16MB", "character": character.title(), "parts": []}
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED,
                          compresslevel=6) as bundle:
         for offset, name, relative in images(character):
             data = (build / relative).read_bytes()
+            if name in {'bootloader.bin', 'kubik.bin'}:
+                validate_image_chip(data, actual_target, name)
             if offset + len(data) > 0x1000000:
                 raise ValueError(f"{name} exceeds the 16 MB flash")
             manifest["parts"].append({"offset": offset, "file": name, "size": len(data),
@@ -200,6 +231,7 @@ def package(build, output, character):
         write_member(bundle, "manifest.json",
                      (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
         write_member(bundle, "flash-device.py", (ROOT / "tools/flash-device.py").read_bytes())
+        write_member(bundle, "firmware_layout.py", (ROOT / "tools/firmware_layout.py").read_bytes())
         write_member(bundle, "INSTALL.ru.txt", (ROOT / "docs/INSTALL.ru.txt").read_bytes())
         for notice in (ROOT / "LICENSE", ROOT / "NOTICE", *sorted((ROOT / "licenses").iterdir())):
             write_member(bundle, notice.relative_to(ROOT).as_posix(), notice.read_bytes())
@@ -211,14 +243,15 @@ if __name__ == "__main__":
     parser.add_argument("--build", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--character", choices=("TESS", "PLUSH"), default="TESS")
+    parser.add_argument("--target", choices=tuple(TARGETS), default="esp32c6")
     arguments = parser.parse_args()
     if arguments.build is None:
-        arguments.build = ROOT / ("firmware/build" if arguments.character == "TESS" else "firmware/build-plush")
+        arguments.build = build_directory(arguments.character, arguments.target)
     if arguments.output is None:
-        arguments.output = ROOT / f"dist/kubik-firmware-{arguments.character.lower()}.zip"
+        arguments.output = ROOT / "dist" / firmware_filename(arguments.character, arguments.target)
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        package(arguments.build, arguments.output, arguments.character)
+        package(arguments.build, arguments.output, arguments.character, arguments.target)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f"Cannot package firmware: {error}", file=sys.stderr)
         sys.exit(1)

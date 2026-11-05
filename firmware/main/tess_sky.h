@@ -14,6 +14,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include "viewport.h"
 
 #define SKY_PARTICLES 112   // TESS_N: the particles are her dots
 #define SKY_STARS 7
@@ -22,7 +23,8 @@
 #define SKY_HUMS (SKY_HOLES + SKY_TOUCHES)
 #define SKY_LESSONS 10      // saved progression, now increasing variety instead of unlocking tool types
 #define SKY_Q3 8            // particle positions: 1/8 px
-#define SKY_W 480
+#define SKY_W UI_W
+#define SKY_H UI_H
 #define SKY_FULL .8f        // a star this full stays lit and sings for the rest of this sky
 #define SKY_HOLD_S 1.6f     // all full this long
 

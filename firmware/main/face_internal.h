@@ -8,8 +8,10 @@
 #include "font.h"
 #include "sprite.h"
 #include "tess.h"
+#include "viewport.h"
 #define PI 3.14159265f
-#define CX 240.f
+#define CX ((float)UI_CX)
+#define FACE_Y_OFFSET ((float)(UI_CY - 240))
 #define CHARGING_HINT_S 5.5f // five seconds at full opacity, then a half-second fade
 
 enum {

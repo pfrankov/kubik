@@ -104,6 +104,7 @@ int offline_icon(void);
 void offline_bubble(float seconds);
 void ptt_down(void);
 void ptt_up(void);
+void ptt_tap(void);
 void volume_bubble(int level);
 void app_touch_event(const app_ev_t *e);
 void setup_enter(setup_reason_t why);

@@ -66,7 +66,7 @@ void tess_emotion(face_t *f, emotion_t e, float seconds) {
     case EMO_CONFUSED: tess_react(f, TR_PUZZLED, seconds); break;
     case EMO_DIZZY: tess_react(f, TR_SCATTER, 0); f->tess_agitation = fmaxf(f->tess_agitation, .6f); break;
     case EMO_SHY: tess_react(f, TR_SHY, seconds); break;
-    case EMO_WINK: tess_mood_kick(f, KICK_WIGGLE, .8f, 240, 255); break;
+    case EMO_WINK: tess_mood_kick(f, KICK_WIGGLE, .8f, TESS_CX, TESS_CY); break;
     default: break;
     }
 }
@@ -90,7 +90,7 @@ static int tess_pick(face_t *f, const int *pool, int n) {
 
 static void tess_look_at(face_t *f, float x, float y, float hold) {
     f->tess_look_to[0] = clampf((x - 240) / 150, -1, 1);
-    f->tess_look_to[1] = clampf((y - 255) / 150, -1, 1);
+    f->tess_look_to[1] = clampf((y - TESS_CY) / 150, -1, 1);
     f->tess_next_look = hold;
 }
 
@@ -133,7 +133,7 @@ static void tess_tap(face_t *f, float x, float y) {
         tess_cue(f, TC_EXCITE, .6f, 0);
         return;
     }
-    int k = tap_kick(f, hypotf(x - 240, y - 255) > 120);
+    int k = tap_kick(f, hypotf(x - 240, y - TESS_CY) > 120);
     tess_kick(f, k, k == KICK_FLINCH ? s * f->style.flinch : s);  // (a frightened one flinches harder)
     if (k == KICK_FLINCH) {  // peeks back at it a moment later
         f->tess_look_to[0] = clampf(-(x - 240) / 150, -1, 1); f->tess_look_to[1] = 0; f->tess_next_look = .5f;
@@ -159,12 +159,12 @@ void tess_event(face_t *f, face_event_t ev, float x, float y) {
     tess_feel_touch_event(f, ev);
     switch (ev) {
     case FEV_TAP:
-        f->tess_touch_x = clampf(x, 0, 480); f->tess_touch_y = clampf(y, 0, 480); f->tess_touch_t = 0;
+        f->tess_touch_x = clampf(x, 0, 480); f->tess_touch_y = clampf(y, 0, UI_H); f->tess_touch_t = 0;
         tess_tap(f, x, y);
         if (f->emotion == EMO_DIZZY) return;
         break;
     case FEV_PET:  // one stroke or a held finger: a small acknowledgement; the heart is earned by rubbing (tess_rub.c)
-        f->tess_touch_x = clampf(x, 0, 480); f->tess_touch_y = clampf(y, 0, 480); f->tess_touch_t = 0;
+        f->tess_touch_x = clampf(x, 0, 480); f->tess_touch_y = clampf(y, 0, UI_H); f->tess_touch_t = 0;
         tess_kick(f, KICK_NUZZLE, frange(f, .5f, .8f));
         tess_look_at(f, x, y, 2.f);
         return;  // no happy face for it

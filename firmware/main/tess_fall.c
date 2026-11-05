@@ -15,12 +15,14 @@
 #define FALL_CELL ((int32_t)(2 * FALL_R * 1.8f * FALL_SCALE))  // neighbour grid: 30 x 30 cells from -3.6, all of the screen
 #define FALL_ORIGIN ((int32_t)(3.6f * FALL_SCALE))
 #define FALL_GRID 30
+#define FALL_ROWS (FALL_GRID + (UI_H - 480 + 14) / 15)
+#define FALL_Y_ORIGIN (FALL_ORIGIN + (int32_t)((UI_H - 480) * .5f * 4.7f / 360.f * FALL_SCALE))
 // The screen (px of the 480 panel) as the points see it: x = 240 + 90 p x, y = 255 + 90 p y, p = 4 / (4.7 - depth).
 #define FALL_MARGIN_PX 9.f       // a point's glow stays on the glass
 #define FALL_PX_PER_UNIT 90.f
-#define FALL_CENTER_X_PX 240.f
-#define FALL_CENTER_Y_PX 255.f
-#define FALL_PANEL_PX 480.f
+#define FALL_CENTER_X_PX TESS_CX
+#define FALL_CENTER_Y_PX TESS_CY
+#define FALL_PANEL_PX ((float)UI_H)
 #define FALL_BOUNCE256 96        // restitution off the screen's edge (0.375), 1/256
 #define FALL_FREE256 255         // 1/256 kept per substep in the air (.998)
 #define FALL_ROLL256 252         // rolling in contact: .984
@@ -56,8 +58,8 @@ void tess_fall_turn(face_t *f, bool fall) {
         // Bake the actual displayed centres, including perspective and conversational zoom.
         const float units_per_q3 = 4.7f / (8.f * 90.f * 4.f);
         for (int i = 0; i < TESS_N; i++) {
-            f->tess_position[i][0] = (dots[i].x - 1920) * units_per_q3;
-            f->tess_position[i][1] = (dots[i].y - 2040) * units_per_q3;
+            f->tess_position[i][0] = (dots[i].x - TESS_CX_Q3) * units_per_q3;
+            f->tess_position[i][1] = (dots[i].y - TESS_CY_Q3) * units_per_q3;
             f->tess_position[i][2] = 0;
         }
         f->tess_mode[TM_OFFLINE] = 1;
@@ -145,10 +147,15 @@ static int fall_grid_cell(int32_t position) {
     return cell < 0 ? 0 : cell >= FALL_GRID ? FALL_GRID - 1 : cell;
 }
 
-static void build_fall_grid(const fall_points_t *s, int8_t head[FALL_GRID * FALL_GRID], int8_t next[TESS_N]) {
-    memset(head, -1, FALL_GRID * FALL_GRID);
+static int fall_grid_row(int32_t position) {
+    int cell = (position + FALL_Y_ORIGIN) / FALL_CELL;
+    return cell < 0 ? 0 : cell >= FALL_ROWS ? FALL_ROWS - 1 : cell;
+}
+
+static void build_fall_grid(const fall_points_t *s, int8_t head[FALL_GRID * FALL_ROWS], int8_t next[TESS_N]) {
+    memset(head, -1, FALL_GRID * FALL_ROWS);
     for (int i = 0; i < TESS_N; i++) {
-        int x = fall_grid_cell(s->q[i][0]), y = fall_grid_cell(s->q[i][1]);
+        int x = fall_grid_cell(s->q[i][0]), y = fall_grid_row(s->q[i][1]);
         next[i] = head[y * FALL_GRID + x];
         head[y * FALL_GRID + x] = (int8_t)i;
     }
@@ -173,13 +180,13 @@ static void separate_pair(fall_points_t *s, int i, int j) {
     remember_impact(s, closing, j);
 }
 
-static void separate_neighbors(const int8_t head[FALL_GRID * FALL_GRID], const int8_t next[TESS_N], fall_points_t *s) {
+static void separate_neighbors(const int8_t head[FALL_GRID * FALL_ROWS], const int8_t next[TESS_N], fall_points_t *s) {
     for (int i = 0; i < TESS_N; i++) {
-        int cx = fall_cell(s->old[i][0]), cy = fall_cell(s->old[i][1]);
+        int cx = fall_cell(s->old[i][0]), cy = (s->old[i][1] + FALL_Y_ORIGIN) / FALL_CELL;
         for (int oy = -1; oy <= 1; oy++)
             for (int ox = -1; ox <= 1; ox++) {
                 int x = cx + ox, y = cy + oy;
-                if (x < 0 || y < 0 || x >= FALL_GRID || y >= FALL_GRID) continue;
+                if (x < 0 || y < 0 || x >= FALL_GRID || y >= FALL_ROWS) continue;
                 for (int j = head[y * FALL_GRID + x]; j >= 0; j = next[j])
                     if (j > i) separate_pair(s, i, j);
             }
@@ -293,7 +300,7 @@ void tess_fall_step(face_t *f, float dt) {
     int32_t pull_x = (int32_t)(gx * FALL_G * h * FALL_SCALE), pull_y = (int32_t)(gy * FALL_G * h * FALL_SCALE);
     int32_t step16 = (int32_t)(h * 65536), settle16 = (int32_t)(fminf(1, h * 4) * 65536);
     int32_t steps_per_second = (int32_t)(1.f / h);
-    int8_t head[FALL_GRID * FALL_GRID];  // ~3.6 KB of stack with the points (as much as tess_rematch): runs outside drawing
+    int8_t head[FALL_GRID * FALL_ROWS];  // ~3.6 KB of stack with the points (as much as tess_rematch): runs outside drawing
     int8_t next[TESS_N];
     fall_points_t s = {0};
     load_fall(f, &s);

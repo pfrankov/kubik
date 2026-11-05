@@ -3,6 +3,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "render.h"
+#include "viewport.h"
+#define JOURNAL_LIST_TOP 128
+#define JOURNAL_PAGER_Y (UI_H - 30)
+#define JOURNAL_PAGER_TOP (UI_H - 52)
+static inline int event_journal_row_top(unsigned row) {
+    return JOURNAL_LIST_TOP + row * (JOURNAL_PAGER_TOP - JOURNAL_LIST_TOP) / 3;
+}
+static inline unsigned event_journal_row_at(int y) {
+    unsigned row = 0;
+    while (row < 2 && y >= event_journal_row_top(row + 1)) row++;
+    return row;
+}
 #define JOURNAL_CAPACITY 16
 #define JOURNAL_TEXT 160
 typedef enum {

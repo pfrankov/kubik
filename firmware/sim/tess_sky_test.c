@@ -50,7 +50,7 @@ static void validate(const sky_world_t *w) {
         const sky_star_t *s = &w->star[i];
         assert(s->fill == (i ? 0 : 1) && s->sang == (i == 0) && isfinite(s->hz) && s->orbit == 0);
         assert(s->x >= SKY_MARGIN && s->x <= SKY_W - SKY_MARGIN);
-        assert(s->y >= SKY_MARGIN && s->y <= SKY_W - SKY_MARGIN);
+        assert(s->y >= SKY_MARGIN && s->y <= SKY_H - SKY_MARGIN);
         assert(s->x == s->ax && s->y == s->ay);
         for (int j = 0; j < i; j++) assert(hypotf(s->x - w->star[j].x, s->y - w->star[j].y) > 12.f);
     }

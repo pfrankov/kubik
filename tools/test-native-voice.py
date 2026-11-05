@@ -21,6 +21,7 @@ fixture = r'''
 #include "auto_voice.h"
 #include "wake_resample.h"
 #include "voice_mode.h"
+#include "device_controls.h"
 typedef struct {double valuedouble; int valueint; const char *valuestring;} cJSON;
 static cJSON field;
 static cJSON *cJSON_GetObjectItem(cJSON *j,const char *name) {(void)j;(void)name;return &field;}
@@ -105,7 +106,8 @@ static void disp_wake(void) {}
 static int g_face;
 static void face_lock(void) {}
 static void face_unlock(void) {}
-static void face_card(int *f, const char *s) {(void)f;(void)s;}
+static char last_card[128];
+static void face_card(int *f, const char *s) {assert(f==&g_face);snprintf(last_card,sizeof last_card,"%s",s);}
 static void stop_speech(bool notify) {(void)notify;}
 static void app_wake_recording_stop(void);
 void app_voice_recording_stop(void);
@@ -224,14 +226,21 @@ int main(void) {
     assert(!open && !s_vad && s_talk==0); // A lost off request still closes on the host voice_failed timeout.
     app_voice_capabilities(1,(VOICE_LIVE<<1)|1);s_talk=TALK_HOLD;assert(start_capture());
     handle_error_event(&(app_ev_t){.a=ERR_VOICE});assert(!open && !app_voice_live_active());
-    puts("native voice: Realtime VAD/epochs, persistent Live pause/resume/end, classic contrast and allocation failures passed");
+    s_talk=TALK_HOLD; assert(start_capture());
+    live_input(s_turn,false,session); assert(!open && app_voice_live_active());
+    gate_ok=false; live_input(s_turn,true,session);
+    assert(!open && !app_voice_live_active());
+    assert(!strcmp(last_card,"Could not resume the microphone. Try " KUBIK_VOICE_BUTTON " again."));
+    gate_ok=true;
+    puts("native voice: Realtime VAD/epochs, persistent Live pause/resume/end, classic contrast, allocation failures and board-specific retry button passed");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='c6-native-input-') as directory:
     path = Path(directory) / 'test.c'
     binary = Path(directory) / 'test'
     path.write_text(fixture + source + cases)
-    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
-                    '-I', str(ROOT / 'firmware/main'), str(path), str(ROOT / 'firmware/main/auto_voice.c'),
-                    str(ROOT / 'firmware/main/wake_resample.c'), '-lm', '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True)
+    for s3 in (0, 1):
+        subprocess.run(['cc', '-std=c11', f'-DCONFIG_IDF_TARGET_ESP32S3={s3}', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
+                        '-I', str(ROOT / 'firmware/main'), str(path), str(ROOT / 'firmware/main/auto_voice.c'),
+                        str(ROOT / 'firmware/main/wake_resample.c'), '-lm', '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)

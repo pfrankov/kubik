@@ -1,4 +1,5 @@
 #include "sprite.h"
+#include "viewport.h"
 
 #include <math.h>
 #include <string.h>
@@ -143,9 +144,10 @@ prim_t *sc_sprite(scene_t *s, int a, float pos, int x, int y, float alpha) {
 
 void sprite_breathe(prim_t *p, float scale) {
     if (!p || scale == 1.f) return;
+    float feet = 450 + UI_CY - 240;
     p->sub_y = (int32_t)lrintf(65536.f / scale);
-    p->by0 = (int16_t)fmaxf(0, floorf(450 + (p->by0 - 450) * scale) - 2);
-    p->by1 = (int16_t)fminf(479, ceilf(450 + (p->by1 - 450) * scale) + 2);
+    p->by0 = (int16_t)fmaxf(0, floorf(feet + (p->by0 - feet) * scale) - 2);
+    p->by1 = (int16_t)fminf(UI_H - 1, ceilf(feet + (p->by1 - feet) * scale) + 2);
 }
 
 // ------------------------------------------------------------------ raster

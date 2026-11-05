@@ -31,6 +31,13 @@ with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
         "firmware/main/render_scene.c", "firmware/main/render_text.c", "firmware/main/font.c",
         "firmware/main/font_data.c",
     ], extra=("-Ifirmware/sim/present_stubs",))
+    build_test(tmp, "state-ui-s3", "firmware/sim/agent_menu_test.c", [
+        "firmware/main/agent_menu.c", "firmware/main/face_agent.c", "firmware/main/ui_kit.c",
+        "firmware/main/render.c", "firmware/main/render_dots.c", "firmware/main/render_glass.c",
+        "firmware/main/render_output.c", "firmware/main/render_pipeline.c", "firmware/main/render_raster.c",
+        "firmware/main/render_scene.c", "firmware/main/render_text.c", "firmware/main/font.c",
+        "firmware/main/font_data.c",
+    ], extra=("-Ifirmware/sim/present_stubs", "-DCONFIG_IDF_TARGET_ESP32S3=1"))
     build_test(tmp, "scroll", "firmware/sim/agent_scroll_test.c", [
         "firmware/main/agent_menu.c", "firmware/main/face_agent.c", "firmware/main/ui_kit.c",
         "firmware/main/render.c", "firmware/main/render_dots.c", "firmware/main/render_glass.c",
