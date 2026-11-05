@@ -20,6 +20,8 @@
 #include "link_hello.h"
 #include "link_poke.h"
 #include "link_pin.h"
+#include "task_placement.h"
+_Static_assert(KUBIK_UI_CORE == (CONFIG_IDF_TARGET_ESP32S3 ? 1 : 0), "link UI core");
 #define link_up() (strcmp(link_via(), "none") != 0)  // link_up() is not in the firmware: only the route name is
 typedef int esp_err_t;
 typedef const char *esp_event_base_t;
@@ -39,6 +41,7 @@ static void xSemaphoreGive(SemaphoreHandle_t l) { assert(l->held); l->held=false
 #define pdMS_TO_TICKS(x) (x)
 #define portMAX_DELAY 0xffffffffu
 #define ESP_OK 0
+#define ESP_ERR_NO_MEM 0x101
 #define ESP_ERROR_CHECK(x) assert((x)==0)
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
@@ -114,7 +117,21 @@ typedef struct { int rx_buffer_size,tx_buffer_size; } usb_serial_jtag_driver_con
 static int usb_serial_jtag_driver_install(usb_serial_jtag_driver_config_t *c) { assert(c->rx_buffer_size==4096 && c->tx_buffer_size==2048); return 0; }
 static void usb_serial_jtag_vfs_use_driver(void) { }
 static void esp_log_set_vprintf(int (*cb)(const char*,va_list)) { (void)cb; }
-static int xTaskCreate(void (*fn)(void*),const char *name,int stack,void *arg,int pri,void *out) { (void)fn;(void)name;(void)stack;(void)arg;(void)pri;(void)out; return 1; }
+static void usb_rx_task(void *arg);
+static void manager_task(void *arg);
+static unsigned task_creations;
+static int xTaskCreatePinnedToCore(void (*fn)(void*),const char *name,unsigned stack,
+                                   void *arg,unsigned priority,void *out,int core) {
+    assert(arg==NULL && out==NULL && core==(CONFIG_IDF_TARGET_ESP32S3 ? 1 : 0));
+    if(!strcmp(name,"usb_rx")) {
+        assert(fn==usb_rx_task && stack==3584 && priority==8 && task_creations==0);
+        task_creations|=1;
+    } else {
+        assert(!strcmp(name,"link") && fn==manager_task && stack==5632 && priority==4 && task_creations==1);
+        task_creations|=2;
+    }
+    return pdPASS;
+}
 static jmp_buf manager_jmp; static int manager_ticks, manager_limit;
 static void (*tick_hook)(void);
 static void vTaskDelay(unsigned ms) { time_ms+=ms; if(tick_hook)tick_hook(); if(++manager_ticks>=manager_limit)longjmp(manager_jmp,1); }

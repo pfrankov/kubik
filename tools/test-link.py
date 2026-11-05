@@ -106,7 +106,7 @@ static void route_tick(void) {
 }
 static void manager_run(int ticks) { manager_ticks=0;manager_limit=ticks;if(!setjmp(manager_jmp))manager_task(NULL); }
 int main(void) {
-    link_handlers_t handlers={.on_json=json,.on_link=up,.on_audio=audio,.on_pair=pair,.on_config=config}; link_init(&handlers); assert(s_ws_rx==NULL);
+    link_handlers_t handlers={.on_json=json,.on_link=up,.on_audio=audio,.on_pair=pair,.on_config=config}; link_init(&handlers); assert(s_ws_rx==NULL && task_creations==3);
     {
         size_t before=usb_size;const char *request="{\"cmd\":\"info\"}";
         input_frame(F_CONFIG,request,strlen(request),true);run_usb_rx();
@@ -444,6 +444,8 @@ int main(void) {
 '''
 with tempfile.TemporaryDirectory(prefix='c6-link-test-') as tmp:
     src=Path(tmp)/'test.c';exe=Path(tmp)/'test';src.write_text(mock+source+tests)
-    subprocess.run(['clang','-std=c11','-Wall','-Wextra','-Wno-unused-function','-Wno-unused-variable','-Wno-unused-parameter','-Wno-deprecated-declarations',
-        '-fsanitize=address,undefined','-g','-O1','-I'+str(cjson),'-I'+str(root/'firmware/main'),'-I'+str(root/'firmware/sim/settings_stubs'),str(src),str(cjson/'cJSON.c'),'-o',str(exe)],check=True)
-    subprocess.run([str(exe)],check=True,timeout=30)
+    for s3 in (0,1):
+        subprocess.run(['clang','-std=c11','-Wall','-Wextra','-Wno-unused-function','-Wno-unused-variable','-Wno-unused-parameter','-Wno-deprecated-declarations',
+            '-fsanitize=address,undefined','-g','-O1',f'-DCONFIG_IDF_TARGET_ESP32S3={s3}',f'-DCONFIG_IDF_TARGET_ESP32C6={1-s3}',
+            '-DCONFIG_FREERTOS_UNICORE=0','-I'+str(cjson),'-I'+str(root/'firmware/main'),'-I'+str(root/'firmware/sim/settings_stubs'),str(src),str(cjson/'cJSON.c'),'-o',str(exe)],check=True)
+        subprocess.run([str(exe)],check=True,timeout=30)
