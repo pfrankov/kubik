@@ -4,7 +4,7 @@ let queue = Promise.resolve(), running = true, hold, moved = false;
 let pendingMove = null, frameTimer = 0, inFlight = false, lastTouchSent = 0;
 let primaryPointer = null, start, last, nextId = 0;
 const contacts = new Map();
-let touchCapacity = 0;
+let touchCapacity = 0, inputWidth = 0, inputHeight = 0;
 function snapshot() {
   const points = Array.from({length:2},() => [0,0,0,0]);
   for (const p of contacts.values()) points[p.slot] = [1,p.x,p.y,p.id];
@@ -33,7 +33,7 @@ document.querySelector('#character').onchange = event => { cancelContacts(); sen
 for (const id of ['tilt-x','tilt-y']) document.querySelector(`#${id}`).oninput = () => send('tilt',[Number(document.querySelector('#tilt-x').value),Number(document.querySelector('#tilt-y').value)]);
 function point(event) {
   const rect = canvas.getBoundingClientRect();
-  return [Math.round(Math.max(0,Math.min(canvas.width-1,(event.clientX-rect.left)*canvas.width/rect.width))),Math.round(Math.max(0,Math.min(canvas.height-1,(event.clientY-rect.top)*canvas.height/rect.height)))];
+  return [Math.round(Math.max(0,Math.min(inputWidth-1,(event.clientX-rect.left)*inputWidth/rect.width))),Math.round(Math.max(0,Math.min(inputHeight-1,(event.clientY-rect.top)*inputHeight/rect.height)))];
 }
 function contactId() {
   const used = new Set([...contacts.values()].map(p => p.id));
@@ -115,6 +115,7 @@ async function startPreview() {
     if (!response.ok) throw new Error('Native preview configuration unavailable');
     const config = await response.json();
     canvas.width = config.width; canvas.height = config.height; touchCapacity = config.touch_capacity;
+    inputWidth = config.input_width; inputHeight = config.input_height;
     canvas.style.setProperty('--display-aspect',`${config.width}/${config.height}`);
     document.querySelector('#board').textContent = `${config.target.toUpperCase().replace('ESP32','ESP32-')} · ${config.width} × ${config.height}`;
     document.querySelector('[data-key="2"]').hidden = !config.key_button;

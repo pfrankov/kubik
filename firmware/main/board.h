@@ -67,7 +67,7 @@
 #define PANEL_X_GAP 0
 #endif
 
-#define LCD_W UI_W
+#define LCD_W UI_RENDER_W
 #define LCD_H UI_RENDER_H
 #define LCD_STRIPE_MAX_ROWS 24
 
@@ -87,7 +87,9 @@ void board_display_wait_idle(void);
 // display_wait_idle() drains every transaction before panel commands.
 #define LCD_PIPE 3
 void display_begin(int x0, int y0, int x1, int y1);
+#if !CONFIG_IDF_TARGET_ESP32S3
 void display_write(const uint16_t *pixels, int count, bool last);
+#endif
 void display_end(void);
 void display_wait_idle(void);
 void display_set_brightness(uint8_t level_0_255);

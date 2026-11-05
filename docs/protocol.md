@@ -5,12 +5,12 @@ plugin. The same frames are carried either over a WebSocket (Wi-Fi) or over the
 USB tether (see "USB link" below; the host bridge converts USB frames into the
 same WebSocket session, so the plugin sees one protocol).
 
-The S3 1.8 V2 uses the full CO5300 368×448 panel with a visible 480×584 logical
-viewport. Layout uses the portrait height while geometry keeps the same scale
-in both axes. CST820 supplies one touch contact, mapped across the entire panel
-including all four corners. The internal 480×592 render buffer is band-padded;
-rows below the visible 584 are not part of the UI or touch coordinates.
-C6 retains its square 480×480 viewport.
+The S3 1.8 V2 renders directly at the full CO5300 panel resolution, 368×448.
+Layout and hit-testing use 480×584 design coordinates; geometry keeps the same
+scale in both axes. CST820 supplies one touch contact, mapped across the entire
+panel including all four corners. Native render storage is 384×448 with 16
+padding columns clipped from the right before DMA. Padding is not a UI or touch
+coordinate range. C6 retains its square 480×480 viewport.
 Its single ES8311 handles ADC and DAC over stereo I2S; it has no ES7210 four-slot
 TDM microphone path. The WebSocket/USB wire formats below remain the same.
 S3 has BOOT and PWR only: short BOOT on the connected home screen supplies the
@@ -548,7 +548,7 @@ the lease is released, so listening can resume.
 | `{"cmd":"reset"}` | factory reset: `{"ok":true}` and a restart into first-run setup; saved Wi-Fi networks, server, LAN pin, name, volume, brightness, guide completion and device key are erased; new pairing is required; the compiled character is unchanged; `{"ok":false,"error":"…"}` if NVS refuses (run it again) |
 | `{"cmd":"sim","ev":"ptt_down"}` | test hook: injects `ptt_down`, `ptt_up`, `tap` (`x`,`y`), `pet`, `shake`, `pickup`, `boot`, `pwr`, `setup`, `menu`, `mode` (`mode`, `ms`), `pair` (`code`), `stats` (bounded framed snapshot; see below) |
 | `{"cmd":"sim","ev":"pointer","down":true,"x":340,"y":255}` | USB test sample through the normal controller/gesture path; integer coordinates 0–479 and a boolean `down` are required. Refresh within 350 ms; otherwise the physical sensor resumes. `down:false` releases the finger |
-| `{"cmd":"sim","ev":"stats"}` | Complete display window and reset: request `sequence`, frames/elapsed/mean/max in microseconds, CPU stages, panel gap, presented frames/overflows, presented `modes` bitmask, active speech generation and character. `slow_frames` counts selected 20 FPS slots; `deadline_misses` counts missed scheduling deadlines. No heap allocation. Waits at most 500 ms for the display; busy/timeout/truncation fail explicitly. Ordinary log lines remain best effort and cannot substitute for the reply. |
+| `{"cmd":"sim","ev":"stats"}` | Complete display window and reset: request `sequence`, frames/elapsed/mean/max in microseconds, CPU stages, panel gap, presented frames/overflows, presented `modes` bitmask, active speech generation and character. `slow_frames` counts C6 selected 20 FPS slots (zero for TE-paced S3); `deadline_misses` counts missed scheduling deadlines. No heap allocation. Waits at most 500 ms for the display; busy/timeout/truncation fail explicitly. Ordinary log lines remain best effort and cannot substitute for the reply. |
 | `{"cmd":"speech"}` | Active generation and retained last termination: sequence/gen/reason, actual played ms, elapsed ms, underrun count/duration, mix/DMA timing, accepted/rejected RX and packet timing, speaker late feeds/write errors, heap allocation failures. Polling does not reset counters. Match `gen` to the routed `played` ACK; stopped/cancelled/lost are never successful playback. |
 | `{"cmd":"sim","ev":"audio-stats","reset":true}` | Local speaker diagnostics: successful `frames`, nonzero `audible_frames`, wall-clock `mix_max_us`, successful-write cadence `feed_max_us`, `late_feeds` above 60 ms DMA reserve and `write_errors`. Returns the snapshot; optional boolean `reset` clears it. Silence/doze are excluded from starvation measurements. This does not measure analog sound |
 | `{"cmd":"sim","ev":"game-state"}` | Locked snapshot of real/Lab play and durable progress: `preview`, `progress`, `saved`, `game` (0 none, 1 stretch, 2 flight, 3 gather), `phase` (0 rest, 1 show, 2 wait, 3 celebrate), `streak` (dots home in a gather), `round`, `available`, her centre `x/y` (panel px), `waves` (pluck waves ringing), `bloom` (0–1), `tones` (one bit per body-tone kind emitted: ring, creak, twang, thud, grain, whoosh, chirp, wobble), `spin` (rad/s), `tilt_x/y` (relative tilt), `excite`, `annoy`, `fear`, `fond` (0–1), `pull` (0–1), `speed` (body, units/s), `squash` (0–1), `shaping`, `burst` (s since the current burst began, 0 none), `form`. Read-only; no play or discovery setter |
@@ -783,8 +783,12 @@ stack temporarily leases LP SRAM with MALLOC_CAP_RTCRAM (CPU-only, not DMA),
 leaving ordinary SRAM for Wi-Fi. After the worker joins, its stack is freed and
 both queue/scratch are cleared, including startup failure cleanup. TLS cannot use
 that workspace until the worker joins; playback then reuses it for full records.
-Passive wake inference stays at priority 6 and uses raw PCM. Listening and other
-active states target 30 FPS; sustained overload temporarily selects 20 FPS.
+Passive wake inference stays at priority 6 and uses raw PCM. On C6, listening and
+other active states target 30 FPS; sustained overload temporarily selects 20 FPS.
+S3 schedules preparation against measured TE edges, with two panel periods per
+frame (about 30 FPS for a 60 Hz panel). Missed slots yield and are skipped;
+notification bursts do not start a catch-up loop. This target cadence is not a
+physical performance measurement.
 Live uses sixteen paired 40 ms mic/reference frames (15552 bytes, 640 ms) in
 sixteen separately allocated 972-byte internal blocks, with no local PCM decode.
 Capacity remains sixteen pairs; partial allocation failures clear/free every owned

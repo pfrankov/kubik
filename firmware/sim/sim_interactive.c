@@ -57,8 +57,8 @@ static void catalog(void) {
     puts("]"); fflush(stdout);
 }
 static void metadata(void) {
-    printf("{\"target\":\"%s\",\"width\":%d,\"height\":%d,\"render_height\":%d,\"touch_capacity\":%d,\"key_button\":%s}\n",
-           SIM_TARGET, UI_W, UI_H, PANEL_H, SIM_TOUCH_CAPACITY, SIM_KEY_BUTTON ? "true" : "false");
+    printf("{\"target\":\"%s\",\"width\":%d,\"height\":%d,\"render_height\":%d,\"render_width\":%d,\"input_width\":%d,\"input_height\":%d,\"touch_capacity\":%d,\"key_button\":%s}\n",
+           SIM_TARGET, UI_OUTPUT_W, UI_OUTPUT_H, PANEL_H, PANEL_W, UI_W, UI_H, SIM_TOUCH_CAPACITY, SIM_KEY_BUTTON ? "true" : "false");
     fflush(stdout);
 }
 static void command(const char *line) {

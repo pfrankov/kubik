@@ -58,6 +58,7 @@ class Worker:
             self.metadata = self.read_json_line()
             self.validate_metadata()
             self.width, self.height = self.metadata["width"], self.metadata["height"]
+            self.input_width, self.input_height = self.metadata["input_width"], self.metadata["input_height"]
             self.frame_bytes = self.width * self.height * 3
             self.send("catalog")
             self.screens = self.read_json_line()
@@ -86,9 +87,9 @@ class Worker:
         data = self.metadata
         if not isinstance(data, dict) or data.get("target") not in TARGETS:
             raise RuntimeError("Invalid native target metadata")
-        if any(type(data.get(key)) is not int or not 1 <= data[key] <= 1024 for key in ("width", "height", "render_height")):
+        if any(type(data.get(key)) is not int or not 1 <= data[key] <= 1024 for key in ("width", "height", "render_width", "render_height", "input_width", "input_height")):
             raise RuntimeError("Invalid native dimensions")
-        if data["height"] > data["render_height"] or type(data.get("touch_capacity")) is not int or data["touch_capacity"] not in (1, 2) or type(data.get("key_button")) is not bool:
+        if data["width"] > data["render_width"] or data["height"] > data["render_height"] or type(data.get("touch_capacity")) is not int or data["touch_capacity"] not in (1, 2) or type(data.get("key_button")) is not bool:
             raise RuntimeError("Invalid native input metadata")
 
     def close(self):
@@ -134,8 +135,8 @@ class Worker:
 
     def event(self, data):
         command = data.get("command")
-        bounds = {"select": [(-1, len(self.screens) - 1)], "event": [(0, 5), (0, self.width - 1), (0, self.height - 1)],
-                  "touches": [(0, 1), (0, self.width - 1), (0, self.height - 1), (0, 15)] * 2,
+        bounds = {"select": [(-1, len(self.screens) - 1)], "event": [(0, 5), (0, self.input_width - 1), (0, self.input_height - 1)],
+                  "touches": [(0, 1), (0, self.input_width - 1), (0, self.input_height - 1), (0, 15)] * 2,
                   "tilt": [(-100, 100), (-100, 100)],
                   "character": [(0, 1)]}
         args = data.get("args", [])

@@ -455,7 +455,7 @@ def main():
         (module / "__init__.py").write_text("")
         (module / "__main__.py").write_text(
             "import json,os,sys\n"
-            "open(os.environ['KUBIK_FLASH_ARGS'],'w').write(json.dumps(sys.argv[1:]))\n"
+            "if 'write_flash' in sys.argv: open(os.environ['KUBIK_FLASH_ARGS'],'w').write(json.dumps(sys.argv[1:]))\n"
         )
         args_file = path / "flash-args.json"
         env = {**os.environ, "PYTHONPATH": str(path), "KUBIK_FLASH_ARGS": str(args_file)}

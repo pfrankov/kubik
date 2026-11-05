@@ -55,6 +55,9 @@ async function main() {
   };
   try {
     await setDeviceScreen(info, sim, false);
+    if ((await info()).setup_ap) {
+      await sim('boot'); await wait(info, state => !state.setup_ap, 'initial setup closed before memory probe');
+    }
     await openAdult(g);
     const prepare = async cycle => {
       if (!cycle) return;

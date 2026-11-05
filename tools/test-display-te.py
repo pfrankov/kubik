@@ -114,6 +114,20 @@ int main(void) {
     assert(display_te_init() == ESP_OK);
     inject = 1;
     assert(present() == ESP_OK && bursts == 2);
+    display_te_clock_t clock;
+    assert(!display_te_clock_snapshot(NULL));
+    assert(!display_te_clock_snapshot(&clock)); // A gap is not a valid measured period.
+    assert(present() == ESP_OK && bursts == 3);
+    assert(display_te_clock_snapshot(&clock) && clock.period_us == 16667);
+    assert(clock.accepted_edge_us == clock.latest_edge_us);
+    int64_t accepted = clock.accepted_edge_us;
+    clock_us += 17234; handler(NULL);
+    assert(display_te_clock_snapshot(&clock) && clock.period_us == 17234);
+    assert(clock.accepted_edge_us == accepted && clock.latest_edge_us == clock_us);
+    clock_us += 9999; handler(NULL);assert(!display_te_clock_snapshot(&clock) && !clock.period_us);
+    clock_us += 25001; handler(NULL);assert(!display_te_clock_snapshot(&clock) && !clock.period_us);
+    clock_us += 10000; handler(NULL);assert(display_te_clock_snapshot(&clock) && clock.period_us == 10000);
+    clock_us += 25000; handler(NULL);assert(display_te_clock_snapshot(&clock) && clock.period_us == 25000);
 }
 '''
 

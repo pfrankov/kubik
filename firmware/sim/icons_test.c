@@ -30,19 +30,26 @@ static uint32_t hash_cell(const uint16_t *pixels, int cx, int cy) {
 
 static void check_window(const scene_t *scene, const uint16_t *reference, bool swap, int x0, int y0, int width,
                          int rows) {
-    uint16_t window[160 * PANEL_H];
+    uint16_t window[8 + 168 * PANEL_H + 8];
+    int stride = width + 8;
     assert(width <= 160 && rows <= PANEL_H);
-    for (int i = 0; i < width * rows; i++) window[i] = swap ? swap16(background) : background;
-    render_text_overlay(scene, window, x0, y0, width, rows, swap);
+    for (unsigned i = 0; i < sizeof window / sizeof window[0]; i++) window[i] = 0xA55A;
+    for (int y = 0; y < rows; y++) for (int x = 0; x < width; x++) window[8 + y * stride + x] = swap ? swap16(background) : background;
+    render_text_overlay(scene, window + 8, x0, y0, width, rows, stride, swap);
     for (int y = 0; y < rows; y++) {
         for (int x = 0; x < width; x++) {
-            uint16_t got = window[y * width + x], expected = reference[(y0 + y) * PANEL_W + x0 + x];
+            uint16_t got = window[8 + y * stride + x], expected = reference[(y0 + y) * PANEL_W + x0 + x];
             if (got != expected) {
                 fprintf(stderr, "window mismatch at %d,%d: %04x != %04x (window %d,%d %dx%d swap=%d)\n", x0 + x,
                         y0 + y, got, expected, x0, y0, width, rows, swap);
                 abort();
             }
         }
+        for (int x = width; x < stride; x++) assert(window[8 + y * stride + x] == 0xA55A);
+    }
+    for (int i = 0; i < 8; i++) {
+        assert(window[i] == 0xA55A);
+        assert(window[8 + rows * stride + i] == 0xA55A);
     }
 }
 
@@ -102,7 +109,7 @@ static void verify_prepared_scene(const scene_t *scene) {
     assert(sig == render_text_signature(&prepared, &px0, &py0, &px1, &py1));
     assert(x0 == px0 && y0 == py0 && x1 == px1 && y1 == py1);
     fill(swapped, background);
-    render_text_overlay(&prepared, swapped, 0, 0, PANEL_W, PANEL_H, false);
+    render_text_overlay(&prepared, swapped, 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     assert(memcmp(swapped, full, sizeof full) == 0);
 }
 
@@ -123,7 +130,7 @@ static void verify_source_pixels(void) {
     scene_t scene; scene_begin(&scene, background);
     sc_icon(&scene, ICON_MIC, 48, 48, ICON_MASK_SIZE, 0xFFFFFF, 1);
     fill(full, background);
-    render_text_overlay(&scene, full, 0, 0, PANEL_W, PANEL_H, false);
+    render_text_overlay(&scene, full, 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     for (int y = 0; y < ICON_MASK_SIZE; y++) for (int x = 0; x < ICON_MASK_SIZE; x++) {
         int i = y * ICON_MASK_SIZE + x;
         unsigned coverage = (g_icon_masks[ICON_MIC][i / 2] >> (i % 2 ? 0 : 4)) & 15;
@@ -137,12 +144,12 @@ int main(void) {
     scene_t scene;
     build_scene(&scene);
     fill(full, background);
-    render_text_overlay(&scene, full, 0, 0, PANEL_W, PANEL_H, false);
+    render_text_overlay(&scene, full, 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     verify_cells();
     verify_unique_cells();
     verify_prepared_scene(&scene);
     fill(swapped, swap16(background));
-    render_text_overlay(&scene, swapped, 0, 0, PANEL_W, PANEL_H, true);
+    render_text_overlay(&scene, swapped, 0, 0, PANEL_W, PANEL_H, PANEL_W, true);
     verify_swap();
     verify_windows(&scene);
     int x0, y0, x1, y1;

@@ -83,8 +83,8 @@ static void glass_scan_outline(const scene_t *s) {
     glass_trig(s->glass_n);
     float vx[24], vy[24];
     for (int k = 0; k < s->glass_n; k++) {
-        vx[k] = (s->glass_cx + s->glass_r[k] * s_glass_cos[k]) / R_SCALE;
-        vy[k] = (s->glass_cy + s->glass_r[k] * s_glass_sin[k]) / R_SCALE;
+        vx[k] = ui_canvasf(s->glass_cx + s->glass_r[k] * s_glass_cos[k]);
+        vy[k] = ui_canvasf(s->glass_cy + s->glass_r[k] * s_glass_sin[k]);
     }
     for (int k = 0; k < s->glass_n; k++) glass_scan_edge(k, s->glass_n, vx, vy);
 }

@@ -47,8 +47,8 @@ def check_target(output=None):
     worker = emulator.Worker(emulator.build('esp32s3'))
     samples = 0
     try:
-        assert worker.metadata == {'target': 'esp32s3', 'width': 480, 'height': 584,
-                                   'render_height': 592, 'touch_capacity': 1, 'key_button': False}
+        assert worker.metadata == {'target': 'esp32s3', 'width': 368, 'height': 448,
+                                   'render_width': 384, 'render_height': 448, 'input_width': 480, 'input_height': 584, 'touch_capacity': 1, 'key_button': False}
         if output: output.mkdir(parents=True, exist_ok=True)
         for character in (1, 0):
             worker.event({'command': 'character', 'args': [character]})
@@ -57,7 +57,7 @@ def check_target(output=None):
                 state, image = worker.frame(28)
                 assert state['name'] == name
                 size, _ = decoded_png(image)
-                assert size == (480, 584)
+                assert size == (368, 448)
                 if output: (output / f'{character}-{index:02}-{name.replace(":", "-").replace(" ", "-")}.png').write_bytes(image)
                 samples += 1
         worker.event({'command': 'select', 'args': [worker.screens.index('Play: skies')]})
@@ -73,11 +73,11 @@ def check_target(output=None):
         assert worker.read_frame()[0]['contacts'] == 0
     finally:
         worker.close()
-    print(f'S3 emulator: {samples} real screens/characters at 480x584, 592-row padding hidden, full-height input and one-contact hardware boundary passed')
+    print(f'S3 emulator: {samples} real screens/characters at native 368x448, 384-column padding hidden, full-height input and one-contact hardware boundary passed')
 
 
 def check_png_boundaries():
-    for width, height in ((480, 480), (480, 584)):
+    for width, height in ((480, 480), (368, 448)):
         rgb = bytes((index * 17) % 256 for index in range(width * height * 3))
         size, raw = decoded_png(emulator.png(rgb, width, height))
         assert size == (width, height)
@@ -93,7 +93,7 @@ def check_png_boundaries():
 def check_bad_metadata():
     with tempfile.TemporaryDirectory(prefix='kubik-emulator-metadata-') as temporary:
         fixture = Path(temporary) / 'broken-native'
-        fixture.write_text('#!/usr/bin/env python3\nimport sys,json\nfor line in sys.stdin:\n if line.strip()=="metadata":\n  print(json.dumps({"target":"esp32s3","width":480,"height":584,"render_height":480,"touch_capacity":1,"key_button":False}),flush=True)\n')
+        fixture.write_text('#!/usr/bin/env python3\nimport sys,json\nfor line in sys.stdin:\n if line.strip()=="metadata":\n  print(json.dumps({"target":"esp32s3","width":368,"height":448,"render_width":368,"render_height":400,"input_width":480,"input_height":584,"touch_capacity":1,"key_button":False}),flush=True)\n')
         fixture.chmod(0o755)
         try: emulator.Worker(fixture)
         except RuntimeError as error: assert 'metadata' in str(error)

@@ -454,13 +454,11 @@ void display_begin(int x0, int y0, int x1, int y1) {
     board_display_begin(x0, y0, x1, y1);
 #endif
 }
+#if !CONFIG_IDF_TARGET_ESP32S3
 void display_write(const uint16_t *pixels, int count, bool last) {
-#if CONFIG_IDF_TARGET_ESP32S3
-    display_s3_write(pixels, count, last);
-#else
     board_display_write(pixels, count, last);
-#endif
 }
+#endif
 void display_end(void) {
 #if CONFIG_IDF_TARGET_ESP32S3
     display_s3_end();

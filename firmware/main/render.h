@@ -26,7 +26,7 @@
 #include "viewport.h"
 
 #define R_FPS 30
-#define R_W 240
+#define R_W (UI_RENDER_W / 2)
 #define R_H (UI_RENDER_H / 2)
 #define R_SCALE 2
 #define R_BAND 8
@@ -136,7 +136,8 @@ float label_width(text_role_t role, const char *utf8);
 size_t label_prefix(text_role_t role, const char *utf8, size_t max_bytes, float width, const char *suffix);
 // Draws the scene's text into panel rows y0..y0+rows of a window starting at
 // column x0, `width` wide (after render_expand_2x on the same rows).
-void render_text_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, bool swap);
+// Stride is the uint16_t distance between row starts; padding is untouched.
+void render_text_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap);
 // Signature of everything the text overlay draws, and the native-pixel area it
 // covers (exclusive end; empty when there is no text), for renderer diagnostics.
 // Presentation uses individual overlay items to bound the actual dirty region.
@@ -148,7 +149,7 @@ uint32_t render_text_signature(const scene_t *s, int *x0, int *y0, int *x1, int 
 // Band of width `w` inside the panel's rounded edge (corner radius `r`), panel px.
 void sc_edge(scene_t *s, int w, int r, uint32_t rgb);
 // Draws the edge band into panel rows like render_text_overlay (call it before that).
-void render_edge_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, bool swap);
+void render_edge_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap);
 // The columns [0, n) and [W - n, W) of panel rows [y0, y1) that an edge band of width w and corner radius r can
 // touch: n is the panel width when the rows cross the top or bottom of the band, 0 when there is no band.
 int render_edge_reach(int w, int r, int y0, int y1);
@@ -246,5 +247,6 @@ typedef struct { int16_t x0, y0, x1, y1; } render_win_t;
 int render_band_windows(const uint16_t *mask, int p0, int p1, render_win_t *out);
 // Optional: only panel columns [x0, x1) will be expanded until the next call (rows stay decoded).
 void render_output_columns(render_output_t *st, int x0, int x1);
-// Output is 4-byte aligned; panel coordinates, width and row count are even.
-void render_expand_2x(render_output_t *st, uint16_t *out, int x0, int y0, int width, int rows, bool swap);
+// Output and each row are 4-byte aligned; coordinates, width, rows and stride
+// are even. Stride >= width is measured in uint16_t pixels; padding is untouched.
+void render_expand_2x(render_output_t *st, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap);

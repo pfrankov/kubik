@@ -192,7 +192,7 @@ static void test_ui_and_taps(void) {
     render_frame(&state, &scene, buffers, 2, false, count_push, NULL);
     assert(pushed_pixels > 1000);
     uint16_t overlay[R_W * R_H * 4] = {0};
-    render_text_overlay(&scene, overlay, 0, 0, R_W * 2, R_H * 2, false);
+    render_text_overlay(&scene, overlay, 0, 0, R_W * 2, R_H * 2, R_W * 2, false);
     unsigned visible = 0;
     for (unsigned i = 0; i < sizeof overlay / sizeof overlay[0]; i++) visible += overlay[i] != 0;
     assert(visible > 1000);

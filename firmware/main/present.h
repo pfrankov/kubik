@@ -23,7 +23,9 @@ typedef struct {
     uint16_t *bands[2];     // render bands (native rows), alternating
     uint16_t *bufs[LCD_PIPE];  // panel rows for DMA
     int next;
+#if !CONFIG_IDF_TARGET_ESP32S3
     render_output_t output;
+#endif
     uint16_t mask[CANVAS_H];  // the changed stripes of each native row (canvas.h): what the windows are cut from
     render_win_t plan[R_BANDS][PLAN_WINDOWS];  // the windows of each band, planned as it is kept
     uint8_t plan_n[R_BANDS];

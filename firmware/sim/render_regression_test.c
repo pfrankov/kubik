@@ -34,7 +34,7 @@ static void read_band(void *ctx, int y, uint16_t *row, int xa, int xb) {
 static void expand_band_window(const render_win_t *w) {
     for(int y=w->y0;y<w->y1;y+=4) {
         int n=w->y1-y<4?w->y1-y:4;
-        render_expand_2x(&stream,output,w->x0,y,w->x1-w->x0,n,true);
+        render_expand_2x(&stream, output, w->x0, y, w->x1-w->x0, n, w->x1-w->x0, true);
         for(int j=0;j<n;j++) for(int x=w->x0;x<w->x1;x++)
             panel[(y+j)*480+x]=rgb565_bswap(output[j*(w->x1-w->x0)+x-w->x0]);
     }

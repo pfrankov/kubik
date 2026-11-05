@@ -207,8 +207,8 @@ prim_t *sc_qr(scene_t *s, const uint8_t *mods, int n, int module, float cx, floa
     p->clip = -1;
     p->bx0 = (int16_t)imax(ox * R_SCALE, 0);
     p->by0 = (int16_t)imax(oy * R_SCALE, 0);
-    p->bx1 = (int16_t)imin((ox + n * module) * R_SCALE - 1, R_W * R_SCALE - 1);
-    p->by1 = (int16_t)imin((oy + n * module) * R_SCALE - 1, R_H * R_SCALE - 1);
+    p->bx1 = (int16_t)imin((ox + n * module) * R_SCALE - 1, UI_W - 1);
+    p->by1 = (int16_t)imin((oy + n * module) * R_SCALE - 1, UI_H - 1);
     s->qr = mods;
     s_extent[p - s->p] = -2.f;  // bbox preset
     return p;
@@ -271,8 +271,8 @@ static prim_t *make_text_primitive(scene_t *s, const font_t *f, int font, int st
     p->clip = -1;
     p->bx0 = (int16_t)imax(ox - 2, 0);
     p->by0 = (int16_t)imax(base - f->ascent - 2, 0);
-    p->bx1 = (int16_t)imin(ox + (w + 15) / 16 + 2, R_W * R_SCALE - 1);
-    p->by1 = (int16_t)imin(base + f->descent + 2, R_H * R_SCALE - 1);
+    p->bx1 = (int16_t)imin(ox + (w + 15) / 16 + 2, UI_W - 1);
+    p->by1 = (int16_t)imin(base + f->descent + 2, UI_H - 1);
     s_extent[p - s->p] = -2.f;
     return p;
 }
@@ -317,8 +317,8 @@ prim_t *sc_icon(scene_t *s, int icon, float x, float y, float size, uint32_t rgb
     int y1 = bottom >= 0 ? (bottom + 15) / 16 - 1 : -((-bottom) / 16) - 1;
     p->bx0 = (int16_t)imax(x0, 0);
     p->by0 = (int16_t)imax(y0, 0);
-    p->bx1 = (int16_t)imin(x1, R_W * R_SCALE - 1);
-    p->by1 = (int16_t)imin(y1, R_H * R_SCALE - 1);
+    p->bx1 = (int16_t)imin(x1, UI_W - 1);
+    p->by1 = (int16_t)imin(y1, UI_H - 1);
     s_extent[p - s->p] = -2.f;  // preset full-resolution overlay bounds
     return p;
 }
@@ -335,8 +335,8 @@ prim_t *sc_image(scene_t *s, uint32_t id, int x, int y, int bx0, int by0, int bx
     p->clip = -1;
     p->bx0 = (int16_t)imax(bx0, 0);
     p->by0 = (int16_t)imax(by0, 0);
-    p->bx1 = (int16_t)imin(bx1, R_W * R_SCALE - 1);
-    p->by1 = (int16_t)imin(by1, R_H * R_SCALE - 1);
+    p->bx1 = (int16_t)imin(bx1, UI_W - 1);
+    p->by1 = (int16_t)imin(by1, UI_H - 1);
     s_extent[p - s->p] = -2.f;  // bbox preset
     return p;
 }

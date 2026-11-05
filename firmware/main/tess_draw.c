@@ -150,25 +150,47 @@ static void project_points(const face_t *f, const float points[TESS_N][3], const
     }
 }
 
-// Fit the conversational cloud as a whole, including its halos. Perspective can
-// make a near vertex large during a 4D inversion; zoom must never clip that vertex.
-// Q16 keeps this pass cheap on the C6. The gate fades out with the mode weights.
+#if CONFIG_IDF_TARGET_ESP32S3
+// Keep the physics anchor fixed while a larger body approaches the viewport rim.
+// Scatter/Skies and offline points already own the full panel in screen space.
+static bool portrait_body_fit(const face_t *f, int *cx, int *cy, int *width, int *height) {
+    if (f->tess_fallen || f->tess_hold[TR_SCATTER] > 0 || f->tess_games.game == TESS_GAME_SKY ||
+        f->tess_mode[TM_OFFLINE] > .001f) return false;
+    *cx += (int)(clampf(f->tess_games.offset[0], -1.6f, 1.6f) * TESS_PX_PER_UNIT * 8);
+    *cy += (int)(clampf(f->tess_games.offset[1], -1.6f, 1.6f) * TESS_PX_PER_UNIT * 8);
+    *width = imin(*cx - 24 * 8, (UI_W - 24) * 8 - *cx);
+    if (!f->live_active) {
+        float speaking = clampf(f->tess_mode[TM_THINK] + f->tess_mode[TM_SPEAK], 0, 1);
+        int home_height = (UI_CY - 24) * 8;
+        *height = home_height + (int)((*height - home_height) * speaking);
+    }
+    *height = imin(*height, imin(*cy - 24 * 8, (UI_H - 24) * 8 - *cy));
+    return true;
+}
+#endif
+
+// Fit the whole cloud uniformly, including halos. C6 retains its conversation
+// gate; the larger S3 body also fits at home, around its unchanged game anchor.
 static void fit_conversation(const face_t *f, dot_t dots[TESS_N]) {
     float talk = f->live_active ? 1 : f->tess_mode[TM_THINK] + f->tess_mode[TM_SPEAK];
     talk *= 1 - f->tess_mode[TM_OFFLINE];
+    int cx = TESS_CX_Q3, cy = TESS_CY_Q3, width = 216 * 8;
+    int height = ((f->live_active ? 140 : 198) + (UI_H - 480) / 2) * 8;
+#if CONFIG_IDF_TARGET_ESP32S3
+    if (portrait_body_fit(f, &cx, &cy, &width, &height)) talk = 1;
+#endif
     if (talk <= .001f || f->tess_fallen) return;
     int rx = 1, ry = 1;
     for (int i = 0; i < TESS_N; i++) {
-        rx = imax(rx, abs(dots[i].x - TESS_CX_Q3) + dots[i].radius * 3);
-        ry = imax(ry, abs(dots[i].y - TESS_CY_Q3) + dots[i].radius * 3);
+        rx = imax(rx, abs(dots[i].x - cx) + dots[i].radius * 3);
+        ry = imax(ry, abs(dots[i].y - cy) + dots[i].radius * 3);
     }
-    int height = (f->live_active ? 140 : 198) + (UI_H - 480) / 2;
-    int fit = imin(65536, imin((216 * 8 * 65536) / rx, (height * 8 * 65536) / ry));
+    int fit = imin(65536, imin((width * 65536) / rx, (height * 65536) / ry));
     int gate = (int)(clampf(talk * 4, 0, 1) * 65536);
     fit = 65536 - (int)(((int64_t)(65536 - fit) * gate) >> 16);
     for (int i = 0; i < TESS_N; i++) {
-        dots[i].x = TESS_CX_Q3 + (int)(((int64_t)(dots[i].x - TESS_CX_Q3) * fit) >> 16);
-        dots[i].y = TESS_CY_Q3 + (int)(((int64_t)(dots[i].y - TESS_CY_Q3) * fit) >> 16);
+        dots[i].x = cx + (int)(((int64_t)(dots[i].x - cx) * fit) >> 16);
+        dots[i].y = cy + (int)(((int64_t)(dots[i].y - cy) * fit) >> 16);
         dots[i].radius = (int)(((int64_t)dots[i].radius * fit) >> 16);
     }
 }

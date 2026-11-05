@@ -84,9 +84,9 @@ void sim_render_scene(scene_t *input) {
     render_frame(&rs, input, bufs, 2, s_swap, push, NULL);
     static render_output_t output;
     render_output_begin(&output, read_row, NULL);
-    render_expand_2x(&output, &panel[0][0], 0, 0, PANEL_W, PANEL_H, false);
-    render_edge_overlay(input, &panel[0][0], 0, 0, PANEL_W, PANEL_H, false);
-    render_text_overlay(input, &panel[0][0], 0, 0, PANEL_W, PANEL_H, false);
+    render_expand_2x(&output, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
+    render_edge_overlay(input, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
+    render_text_overlay(input, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     px_total += rs.pixels_last;
     if (rs.pixels_last > px_max) px_max = rs.pixels_last;
     frames++;
@@ -95,9 +95,9 @@ void sim_render_scene(scene_t *input) {
 void sim_render_reset(void) { rs = (render_state_t){0}; memset(fb, 0, sizeof fb); memset(panel, 0, sizeof panel); }  // a new scene: forget the frame before
 
 void sim_emit_frame(void) {
-    static unsigned char row[PANEL_W * 3];
-    for (int y = 0; y < UI_H; y++) {
-        for (int x = 0; x < PANEL_W; x++) sim_to_rgb(panel[y][x], row + x * 3);
+    static unsigned char row[UI_OUTPUT_W * 3];
+    for (int y = 0; y < UI_OUTPUT_H; y++) {
+        for (int x = 0; x < UI_OUTPUT_W; x++) sim_to_rgb(panel[y][x], row + x * 3);
         fwrite(row, 1, sizeof(row), stdout);
     }
 }

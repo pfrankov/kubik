@@ -279,6 +279,9 @@ void tess_point_targets(face_t *f, float out[TESS_N][3], int parity) {
     float drowsy = f->tess_sleep_t >= 0 ? 0 : sleep;  // dozing in idle; asleep the points drift apart instead
     float size = (1 - .16f * drowsy - .12f * r[TR_SHY] - .1f * r[TR_SAD]) * (1 + .28f * r[TR_SURPRISE] + .06f * r[TR_JOY]);
     size *= (.04f + .96f * smooth01(f->tess_assemble)) * (1 + .05f * f->tess_mood.lean) * f->style.zoom;  // leaning in is bigger
+#if CONFIG_IDF_TARGET_ESP32S3
+    size *= 1.50f; // A larger home body on the portrait panel; reaction and conversation transforms stay shared.
+#endif
     float hc = 1, hs = 0, beat = 1;
     if (heart > .001f) {
         float angle = .25f + tess_sin(time * .6f) * .12f;

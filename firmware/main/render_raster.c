@@ -1,4 +1,5 @@
 #include "render_internal.h"
+#include "render_projection.h"
 #include "render_pixels.h"
 #include "render_sqrt_table.h"
 
@@ -168,7 +169,7 @@ void render_set_image_fn(render_image_fn fn) { s_image_fn = fn; }
 
 static void compute_bbox(scene_t *s, prim_t *p) {
     float ext = s_extent[p - s->p];
-    if (ext >= 0) ext /= R_SCALE;
+    if (ext >= 0) ext = ui_canvasf(ext);
     if (ext == -2.f) return;
     float soft = p->soft / (float)Q;
     float hx, hy;
@@ -200,7 +201,7 @@ static bool clip_covers(const scene_t *s, const prim_t *p) {
     int32_t m = -(c->soft / 2 + Q);
     // Round shapes: the clip's (exact interior) distance at p's centre beats p's circumradius.
     float ext = s_extent[p - s->p];
-    if (ext >= 0) ext /= R_SCALE;
+    if (ext >= 0) ext = ui_canvasf(ext);
     float rad = ext >= 0 ? ext : sqrtf((float)p->a * p->a + (float)p->b * p->b) / Q;
     if (sdf(s, c, p->cx, p->cy) <= m - (int32_t)((rad + p->soft / (float)Q) * Q)) return true;
     int32_t xs[2] = {p->bx0 * Q, (p->bx1 + 1) * Q}, ys[2] = {p->by0 * Q, (p->by1 + 1) * Q};
@@ -402,6 +403,9 @@ static bool primitive_visible(const prim_t *p, int x0, int x1, int y0, int y1) {
 
 bool render_raster_primitive(const scene_t *s, const prim_t *p, uint16_t *buf, int x0, int width, int y0, int y1,
                              bool drawn) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    if (p->kind == PK_QR) return drawn; // native overlay preserves the original physical QR size
+#endif
     int x1 = x0 + width - 1;
     if (!primitive_visible(p, x0, x1, y0, y1)) return drawn;
     uint32_t t0 = R_NOW();
@@ -416,36 +420,6 @@ bool render_raster_primitive(const scene_t *s, const prim_t *p, uint16_t *buf, i
     if (p->kind == PK_SPRITE) image_us += R_NOW() - t0;
     else shapes_us += R_NOW() - t0;
     return true;
-}
-
-static void canvas_geometry(scene_t *s) {
-    if (s->raster_ready) return;
-    s->raster_ready = true;
-    for (int i = 0; i < s->n; i++) {
-        prim_t *p = &s->p[i];
-        p->cx /= R_SCALE;
-        p->cy /= R_SCALE;
-        if (p->kind >= PK_SPRITE) {
-            p->bx0 /= R_SCALE;
-            p->by0 /= R_SCALE;
-            p->bx1 /= R_SCALE;
-            p->by1 /= R_SCALE;
-            continue;
-        }
-        p->a /= R_SCALE;
-        p->b /= R_SCALE;
-        p->r /= R_SCALE;
-        if (p->kind == PK_HEART) {  // unit K = a; the lobes' offset and radius follow from it
-            p->b = (p->a * 55) / 100;
-            p->r = (p->a * 3536) / 10000;
-        }
-        p->soft = imax(Q, p->soft / R_SCALE);
-        p->sub_x /= R_SCALE;
-        p->sub_y /= R_SCALE;
-        p->sub_r /= R_SCALE;
-        if (p->stroke) p->stroke = imax(Q / 2, p->stroke / R_SCALE);
-        for (int j = 0; j < p->ncut; j++) p->cut_c[j] /= R_SCALE;
-    }
 }
 
 static void prepare_clip_cache(scene_t *s) {
@@ -474,7 +448,7 @@ static void prepare_convex_cache(scene_t *s) {
 uint32_t render_raster_prepare(scene_t *s, bool swap) {
     image_us = shapes_us = glass_us = 0;
     uint32_t tp = R_NOW();
-    canvas_geometry(s);
+    render_project_scene(s);
     g_render_swap = swap;
     for (int i = 0; i < s->n; i++) compute_bbox(s, &s->p[i]);
     render_dots_prepare(s);

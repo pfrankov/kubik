@@ -180,6 +180,7 @@ static inline void put(uint16_t *row, int x, uint16_t v, uint32_t a) {
     }
 }
 
+#if !CONFIG_IDF_TARGET_ESP32S3
 typedef struct {
     int x0, x1, source_x0, source_x1;
 } raster_span_t;
@@ -247,11 +248,68 @@ static inline R_HOT void raster_row(const raster_context_t *r, int y, uint16_t *
     }
 }
 
+#else
+// The source pack remains on its 240 px storage grid. Only this image sampler
+// maps it to the S3 canvas; every other shape uses the common scene projection.
+typedef struct { int16_t source; uint8_t fraction; } sprite_sample_t;
+static sprite_sample_t s_native_x[R_W];
+static int32_t s_native_origin;
+static bool s_native_map_ready;
+
+static int source_q8(int coordinate, int design_origin) {
+    return ((2 * coordinate + 1) * 30 * 128) / 23 - design_origin * 128 - 128;
+}
+static void native_columns(int design_origin) {
+    if (s_native_map_ready && s_native_origin == design_origin) return;
+    for (int x = 0; x < R_W; x++) {
+        int q = source_q8(x, design_origin);
+        s_native_x[x] = (sprite_sample_t){(int16_t)(q >> 8), (uint8_t)((q & 255) >> 3)};
+    }
+    s_native_origin = design_origin; s_native_map_ready = true;
+}
+static uint16_t native_column(const uint16_t line[G], const sprite_sample_t *sample) {
+    int x = sample->source;
+    uint16_t a = x >= 0 && x < G ? line[x] : 0;
+    uint16_t b = x + 1 >= 0 && x + 1 < G ? line[x + 1] : 0;
+    return sample->fraction ? rgb565_blend(b, a, sample->fraction) : a;
+}
+static void native_source_row(const prim_t *p, const uint8_t *blob, int y, uint16_t line[G], uint16_t other[G]) {
+    int q = source_q8(y, p->sub_r);
+    if (p->sub_y) q = 225 * 256 + (int)(((int64_t)(q - 225 * 256) * p->sub_y) >> 16);
+    int source = q >> 8;
+    unsigned fraction = (unsigned)(q & 255) >> 3;
+    decode_row(blob, source, 0, G - 1, line, true);
+    if (!fraction) return;
+    decode_row(blob, source + 1, 0, G - 1, other, true);
+    for (int x = 0; x < G; x++) line[x] = rgb565_blend(other[x], line[x], fraction);
+}
+static R_HOT void native_raster(const prim_t *p, const uint8_t *blob, uint16_t *buf,
+                               int bx0, int bw, int ya, int yb, int band_y0) {
+    int xs = p->bx0 > bx0 ? p->bx0 : bx0;
+    int xe = p->bx1 < bx0 + bw - 1 ? p->bx1 : bx0 + bw - 1;
+    if (xs > xe) return;
+    native_columns(p->sub_x);
+    uint16_t line[G] __attribute__((aligned(4))), other[G] __attribute__((aligned(4)));
+    unsigned alpha = ((unsigned)p->alpha + 1) >> 3;
+    for (int y = ya; y <= yb; y++) {
+        native_source_row(p, blob, y, line, other);
+        uint16_t *row = buf + (y - band_y0) * bw;
+        for (int x = xs; x <= xe; x++) {
+            uint16_t color = native_column(line, &s_native_x[x]);
+            if (color || g_render_img_opaque_ok) put(row, x - bx0, color, alpha);
+        }
+    }
+}
+#endif
+
 static R_HOT void raster(const prim_t *p, uint16_t *buf, int bx0, int bw, int ya, int yb, int band_y0) {
     uint32_t fi = (uint32_t)p->a;
     if (fi >= s_nframes) return;
     const uint8_t *blob = blob_of(fi);
     if (!blob) return;
+#if CONFIG_IDF_TARGET_ESP32S3
+    native_raster(p, blob, buf, bx0, bw, ya, yb, band_y0);
+#else
     raster_context_t r = {
         .prim = p, .blob = blob, .buffer = buf,
         .buffer_x = bx0, .buffer_width = bw, .buffer_y = band_y0,
@@ -263,4 +321,5 @@ static R_HOT void raster(const prim_t *p, uint16_t *buf, int bx0, int bw, int ya
     // the complete framebuffer is rendered, outside this image primitive.
     uint16_t line[G] __attribute__((aligned(4))), other[G] __attribute__((aligned(4)));
     for (int y = ya; y <= yb; y++) raster_row(&r, y, line, other);
+#endif
 }

@@ -30,30 +30,48 @@ static void read_merged(void *ctx, int y, uint16_t *out, int xa, int xb) {
     frame_store_read(ctx, y, out, xa, xb);
 }
 
-// Sends one panel window: the native rows it covers are expanded 2x and the edge band and text drawn over them.
+// The S3 packed frame lives in PSRAM; its repeatedly reused row cache stays
+// in internal RAM, beside the raster bands. A single display task owns it.
+static render_output_t *output_for(frame_out_t *frame) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    static render_output_t output;
+    (void)frame;
+    return &output;
+#else
+    return &frame->output;
+#endif
+}
+
+static void compose_window_rows(frame_out_t *f, uint16_t *out, int x, int y, int width, int rows, int stride) {
+    render_expand_2x(output_for(f), out, x, y, width, rows, stride, true);
+    render_edge_overlay(f->scene, out, x, y, width, rows, stride, true);
+    if (f->overlay_count) render_text_overlay(f->scene, out, x, y, width, rows, stride, true);
+}
+
+// Compose directly into strided native storage on S3; C6 streams its DMA chunks.
 static void send_window(frame_out_t *f, const render_win_t *w) {
     int64_t t = esp_timer_get_time();
 #if !CONFIG_IDF_TARGET_ESP32S3
     if (!f->burst_start) f->burst_start = t;
 #endif
-#if CONFIG_IDF_TARGET_ESP32S3
-    const bool wire_order = false;  // The scaler retains CPU-order logical pixels.
-#else
-    const bool wire_order = true;   // C6 sends these rows directly to QSPI.
-#endif
     int width = w->x1 - w->x0;
-    render_output_columns(&f->output, w->x0, w->x1);
+    render_output_columns(output_for(f), w->x0, w->x1);
     display_begin(w->x0, w->y0, w->x1, w->y1);
-    int chunk = (LCD_W * OUTPUT_ROWS / width) & ~1;  // a narrow window fills the same buffer with more rows: fewer DMA transfers
+#if CONFIG_IDF_TARGET_ESP32S3
+    int rows = w->y1 - w->y0;
+    uint16_t *out = display_s3_next_row();
+    for (int row = 1; row < rows; row++) (void)display_s3_next_row();
+    compose_window_rows(f, out, w->x0, w->y0, width, rows, UI_RENDER_W);
+#else
+    int chunk = (LCD_W * OUTPUT_ROWS / width) & ~1;
     for (int y = w->y0; y < w->y1; y += chunk) {
         int rows = w->y1 - y < chunk ? w->y1 - y : chunk;
         uint16_t *out = f->bufs[f->next];
         f->next = (f->next + 1) % LCD_PIPE;
-        render_expand_2x(&f->output, out, w->x0, y, width, rows, wire_order);
-        render_edge_overlay(f->scene, out, w->x0, y, width, rows, wire_order);
-        if (f->overlay_count) render_text_overlay(f->scene, out, w->x0, y, width, rows, wire_order);
+        compose_window_rows(f, out, w->x0, y, width, rows, width);
         display_write(out, width * rows, y + rows == w->y1);
     }
+#endif
     display_end();
     f->expand_us += esp_timer_get_time() - t;
     f->px += width * (w->y1 - w->y0);
@@ -74,7 +92,7 @@ static int edge_reach(const frame_out_t *f, int y0) {
 
 // Whether a window already holds the whole band (the edge band's sides with it).
 static bool holds_band(const render_win_t *w, int y0) {
-    return w->x0 == 0 && w->x1 == LCD_W && w->y0 <= y0 * R_SCALE && w->y1 >= (y0 + R_BAND) * R_SCALE;
+    return w->x0 == 0 && w->x1 >= UI_OUTPUT_W && w->y0 <= y0 * R_SCALE && w->y1 >= (y0 + R_BAND) * R_SCALE;
 }
 
 // A window that continues one of the band above with the same columns is sent as one: each window costs the panel
@@ -124,9 +142,9 @@ static int add_edge_ring(const frame_out_t *f, int y0, render_win_t *w, int n) {
     edge_change_t c = render_edge_change(f->band_edge_w[band], w1, r, top, bottom);
     if (c.x0 < c.x1) {
         n = add_window(w, n, c.x0, top, c.x1, bottom);
-        n = add_window(w, n, LCD_W - c.x1, top, LCD_W - c.x0, bottom);
+        n = add_window(w, n, UI_OUTPUT_W - c.x1, top, UI_OUTPUT_W - c.x0, bottom);
     }
-    return c.sy0 < c.sy1 ? add_window(w, n, c.r, c.sy0, LCD_W - c.r, c.sy1) : n;
+    return c.sy0 < c.sy1 ? add_window(w, n, c.r, c.sy0, UI_OUTPUT_W - c.r, c.sy1) : n;
 }
 
 // The windows of the edge band's whole reach when its look changed in other ways: its sides, where the body's windows
@@ -136,7 +154,7 @@ static int add_edge_sides(render_win_t *w, int n, int y0, int reach) {
     for (int i = 0; i < n; i++) held |= holds_band(&w[i], y0);
     if (held) return n;
     w[n++] = (render_win_t){0, (int16_t)(y0 * R_SCALE), (int16_t)reach, (int16_t)((y0 + R_BAND) * R_SCALE)};
-    w[n++] = (render_win_t){(int16_t)(LCD_W - reach), (int16_t)(y0 * R_SCALE), LCD_W, (int16_t)((y0 + R_BAND) * R_SCALE)};
+    w[n++] = (render_win_t){(int16_t)(UI_OUTPUT_W - reach), (int16_t)(y0 * R_SCALE), UI_OUTPUT_W, (int16_t)((y0 + R_BAND) * R_SCALE)};
     return n;
 }
 
@@ -174,8 +192,8 @@ static void plan_band(frame_out_t *f, int y0) {
     render_win_t *w = f->plan[band];
     bool ring = reach > 0 && edge_width_changed(f, band);
     int n;
-    if (reach > 0 && !ring && 2 * reach >= LCD_W) {
-        w[0] = (render_win_t){0, (int16_t)(y0 * R_SCALE), LCD_W, (int16_t)((y0 + R_BAND) * R_SCALE)};
+    if (reach > 0 && !ring && 2 * reach >= UI_OUTPUT_W) {
+        w[0] = (render_win_t){0, (int16_t)(y0 * R_SCALE), UI_OUTPUT_W, (int16_t)((y0 + R_BAND) * R_SCALE)};
         n = 1;
     } else {
         n = render_band_windows(f->mask, y0, y0 + R_BAND, w);
@@ -219,7 +237,7 @@ static void band_needs(const frame_out_t *f, int y0, uint16_t need[R_BAND + 1]) 
 // A rare, brief tear across the split instead of a frame lost.
 static void flush_store(frame_out_t *f, int y0, const uint16_t *rows) {
     frame_store_row(&f->store, y0, f->border_need, rows);
-    render_output_begin(&f->output, frame_store_read, &f->store);
+    render_output_begin(output_for(f), frame_store_read, &f->store);
     for (int y = f->sent * R_BAND; y < y0; y += R_BAND) send_band(f, y);
     f->sent = y0 / R_BAND;
     f->border_need = 0;
@@ -377,7 +395,7 @@ static void output_frame(frame_out_t *frame) {
     bool merged = !frame->sent && merge_frame_windows(frame);
     // One reader for this immutable store preserves cached rows across windows.
     // Original windows already own their stripes; admitted boxes prove all gaps black.
-    render_output_begin(&frame->output, merged ? read_merged : frame_store_read, &frame->store);
+    render_output_begin(output_for(frame), merged ? read_merged : frame_store_read, &frame->store);
     for (int y = frame->sent * R_BAND; y < R_H; y += R_BAND) send_band(frame, y);
 }
 

@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-"""Exercise the actual S3 scaler, partial-window halos and delayed DMA ownership."""
+"""Check direct S3 row composition, padding clips, complete-frame TE and delayed DMA ownership."""
 from pathlib import Path
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'firmware/main/display_s3.c').read_text()
-source = source.replace('#include "board.h"\n', '').replace('#include "esp_heap_caps.h"\n', '').replace('#include "esp_timer.h"\n', '').replace('#include "display_te_s3.h"\n', '').replace('#include "esp_attr.h"\n', '').replace('#include "esp_log.h"\n', '')
+for header in ('board.h', 'esp_heap_caps.h', 'esp_timer.h', 'display_te_s3.h', 'esp_log.h'):
+    source = source.replace(f'#include "{header}"\n', '')
 fixture = r'''
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include <stdio.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include "display_s3.h"
 #include "viewport.h"
 #define LCD_PIPE 3
@@ -25,7 +28,7 @@ fixture = r'''
 static int allocation_call, allocation_fail, held;
 static void *heap_caps_malloc(size_t bytes, unsigned caps) {
     ++allocation_call;
-    assert(((bytes==480*584*2 || bytes==368*448*2) && caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)) ||
+    assert((bytes==384*448*2 && caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)) ||
            (bytes==368*8*2 && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA|MALLOC_CAP_8BIT)));
     if(allocation_call==allocation_fail) return NULL;
     void *p=malloc(bytes); assert(p); held++; return p;
@@ -34,14 +37,15 @@ static void *heap_caps_calloc(size_t count, size_t bytes, unsigned caps) {
     void *p=heap_caps_malloc(count*bytes,caps); if(p)memset(p,0,count*bytes); return p;
 }
 static void heap_caps_free(void *p) { if(p)held--; free(p); }
-static uint16_t screen[448][368], logical[592][480];
+static uint16_t screen[448][368], expected[448][384];
 static bool raw_open, first_of_burst;
-static int te_waits;
+static int te_waits, idle_waits;
 #define ESP_ERROR_CHECK(value) assert((value)==0)
 static void verify_native_ready(void);
-static int64_t mock_time=123456,mock_step;
-static int64_t esp_timer_get_time(void) {int64_t now=mock_time;mock_time+=mock_step;return now;}
-#define IRAM_ATTR
+static bool dma_source(const uint16_t *data);
+static unsigned dma_seen;
+static int64_t mock_time=123456,te_delay,dma_delay,row_work;
+static int64_t esp_timer_get_time(void) {return mock_time;}
 #ifdef ESP_PLATFORM
 static int logged;
 #define ESP_LOGI(...) (++logged)
@@ -60,85 +64,78 @@ static void complete_one(void) {
     memmove(queue,queue+1,(size_t)(--pending)*sizeof *queue);
 }
 void board_display_begin(int x0,int y0,int x1,int y1) {
+    assert(te_waits>0);
     if(first_of_burst) {verify_native_ready();first_of_burst=false;}
     unchanged(); assert(!raw_open && x0>=0 && x1<=368 && x0<x1 && y0>=0 && y1<=448 && y0<y1);
+    assert(x0%16==0 && x1%16==0 && y0%8==0 && y1%8==0);
     raw_open=true;raw_x0=x0;raw_x1=x1;raw_y=y0;raw_y1=y1;windows++;
 }
 void board_display_write(const uint16_t *data,int count,bool last) {
-    unchanged(); assert(raw_open && count>0 && count<=(raw_x1-raw_x0)*8);
-    assert(count%(raw_x1-raw_x0)==0 && raw_y+count/(raw_x1-raw_x0)<=raw_y1);
+    unchanged(); assert(raw_open && count==(raw_x1-raw_x0)*8 && raw_y+8<=raw_y1 && dma_source(data));
+    for(int i=0;i<pending;i++)assert(data!=queue[i].data);
     if(pending==2)complete_one();
     queue[pending++]=(struct queued){data,count,raw_x0,raw_y,raw_x1-raw_x0,hash(data,count)};
-    raw_y+=count/(raw_x1-raw_x0); assert(last==(raw_y==raw_y1));writes++;
+    raw_y+=8; assert(last==(raw_y==raw_y1));writes++;
 }
 void board_display_end(void) {unchanged();assert(raw_open && raw_y==raw_y1);raw_open=false;}
-void board_display_wait_idle(void) {while(pending)complete_one();}
-static int display_te_wait(void) {verify_native_ready();board_display_wait_idle();te_waits++;return 0;}
+void board_display_wait_idle(void) {
+    bool active=pending!=0;
+    while(pending)complete_one();
+    if(active)mock_time+=dma_delay;
+    idle_waits++;
+}
+static int display_te_wait(void) {
+    verify_native_ready(); assert(!pending && !raw_open);
+    te_waits++;mock_time+=te_delay;return 0;
+}
 '''
 checks = r'''
-static uint16_t wire(uint16_t value) {return (uint16_t)((value<<8)|(value>>8));}
-static void write_rect(int x0,int y0,int x1,int y1,int rows) {
+static bool dma_source(const uint16_t *data) {
+    for(int i=0;i<3;i++)if(data==s_dma[i]) {dma_seen|=1u<<i;return true;}
+    return false;
+}
+static uint16_t pattern(int x,int y) {
+    return (uint16_t)(((unsigned)x*263u+(unsigned)y*977u)^((unsigned)x<<9)^((unsigned)y<<3)^0x95b7u);
+}
+static void verify_native_ready(void) {
+    // Every composed window, including later damage and retained gaps in its hull,
+    // must contain its final wire-order pixels before the fresh TE or first SPI command.
+    for(int y=0;y<448;y++)for(int x=0;x<368;x++)assert(s_native[y*384+x]==expected[y][x]);
+}
+static void verify(void) {
+    assert(!pending && !raw_open); // present owns the complete DMA burst, including its tail.
+    verify_native_ready();
+    for(int y=0;y<448;y++)for(int x=0;x<368;x++)assert(screen[y][x]==expected[y][x]);
+}
+static void write_rect(int x0,int y0,int x1,int y1) {
     display_s3_begin(x0,y0,x1,y1);
-    uint16_t data[480*16];
-    for(int y=y0;y<y1;y+=rows) {
-        int n=y1-y<rows ? y1-y : rows;
-        for(int j=0;j<n;j++)memcpy(data+j*(x1-x0),&logical[y+j][x0],(size_t)(x1-x0)*2);
-        display_s3_write(data,(x1-x0)*n,y+n==y1);
+    for(int y=y0;y<y1;y++) {
+        uint16_t *row=display_s3_next_row();
+        assert(row==s_native+y*384+x0);
+        memcpy(row,&expected[y][x0],(size_t)(x1-x0)*2);
+        mock_time+=row_work;
+        assert(s_y==y+1);
+        for(int x=x0;x<x1;x++)assert(s_native[y*384+x]==expected[y][x]);
     }
     display_s3_end();
 }
-static void draw(int x0,int y0,int x1,int y1,int rows) {
-    display_s3_begin_frame();write_rect(x0,y0,x1,y1,rows);
-    first_of_burst=true;assert(display_s3_present()==123456);assert(!first_of_burst);
+static void present(bool visible) {
+    int before=windows,prior_te=te_waits,prior_idle=idle_waits;
+    first_of_burst=true;
+    int64_t started=display_s3_present();
+    assert((started!=0)==visible && (te_waits==prior_te+1)==visible);
+    if(visible)assert(!first_of_burst && windows>before && idle_waits==prior_idle+1);
+    else assert(first_of_burst && windows==before && idle_waits==prior_idle);
+    verify();
 }
-static unsigned channel(uint16_t value,int shift,unsigned mask) {return (value>>shift)&mask;}
-static void verify(void) {
-    assert(!pending);  // present owns the complete DMA burst, including its tail.
-    for(int y=0;y<448;y++)for(int x=0;x<368;x++) {
-        double sx=(x+.5)*480./368.-.5,sy=(y+.5)*584./448.-.5;
-        int ax=(int)sx,ay=(int)sy; double fx=sx-ax,fy=sy-ay;
-        const int shifts[]={11,5,0}; const unsigned masks[]={31,63,31};
-        for(int c=0;c<3;c++) {
-            double top=channel(logical[ay][ax],shifts[c],masks[c])*(1-fx)+channel(logical[ay][ax+1],shifts[c],masks[c])*fx;
-            double bottom=channel(logical[ay+1][ax],shifts[c],masks[c])*(1-fx)+channel(logical[ay+1][ax+1],shifts[c],masks[c])*fx;
-            double wanted=top*(1-fy)+bottom*fy;
-            assert(fabs((double)channel(wire(screen[y][x]),shifts[c],masks[c])-wanted)<=1.01);
-        }
-    }
+static void draw(int x0,int y0,int x1,int y1) {
+    display_s3_begin_frame();write_rect(x0,y0,x1,y1);present(x0<368);
 }
-static unsigned scalar(unsigned a,unsigned b,unsigned fraction) {
-    return (a*(256-fraction)+b*fraction+128)>>8;
-}
-static uint16_t reference_mix(uint16_t a,uint16_t b,unsigned f) {
-    return (uint16_t)((scalar(a>>11,b>>11,f)<<11)|(scalar((a>>5)&63,(b>>5)&63,f)<<5)|scalar(a&31,b&31,f));
-}
-static uint16_t reference_pixel(int x,int y) {
-    int qx=((2*x+1)*480*256)/(2*368)-128,qy=((2*y+1)*584*256)/(2*448)-128;
-    int ax=qx/256,ay=qy/256;unsigned fx=qx%256,fy=qy%256;
-    uint16_t top=reference_mix(logical[ay][ax],logical[ay][ax+1],fx);
-    uint16_t bottom=reference_mix(logical[ay+1][ax],logical[ay+1][ax+1],fx);
-    return wire(reference_mix(top,bottom,fy));
-}
-static void verify_native_ready(void) {
-    // The first SPI command may only occur after all damaged bands, including
-    // later windows in this frame, already contain their final filtered pixels.
-    for(int band=0;band<56;band++)for(int y=band*8;y<(band+1)*8;y++)
-        for(int x=s_left[band];x<s_right[band];x++)assert(s_native[y*368+x]==reference_pixel(x,y));
-}
-static void exact_mix(void) {
-    uint32_t random=0x71ef9;
-    for(unsigned i=0;i<1000000;i++) {
-        random=random*1664525u+1013904223u;uint16_t a=(uint16_t)random;
-        random=random*1664525u+1013904223u;uint16_t b=(uint16_t)random;
-        unsigned f=(random>>16)%257;
-        uint16_t expected=(uint16_t)((scalar(a>>11,b>>11,f)<<11)|
-            (scalar((a>>5)&63,(b>>5)&63,f)<<5)|scalar(a&31,b&31,f));
-        assert(mix_rgb565(a,b,f)==expected);
-    }
+static void fill(int x0,int y0,int x1,int y1,uint16_t value) {
+    for(int y=y0;y<y1;y++)for(int x=x0;x<x1;x++)expected[y][x]=value;
 }
 static void touch_mapping(void) {
-    // The inverse picks the closest logical pixel centre to the display filter's
-    // sample position. The rectangular UI covers both full physical axes.
+    // Native pixel centres select design coordinates over the complete rectangle.
     for(int y=-1;y<=448;y++)for(int x=-1;x<=368;x++) {
         int16_t lx=-7,ly=-9;
         bool inside=x>=0 && x<368 && y>=0 && y<448;
@@ -148,188 +145,275 @@ static void touch_mapping(void) {
         int expected_y=(int)((y+.5)*584./448.);
         assert(lx==expected_x && ly==expected_y && lx>=0 && lx<480 && ly>=0 && ly<584);
     }
-    int16_t x=-1,y=-1;
-    assert(display_s3_touch(0,0,&x,&y) && x==0 && y==0);
-    assert(display_s3_touch(367,447,&x,&y) && x==479 && y==583);
-    assert(display_s3_touch(184,224,&x,&y) && x==240 && y==292);
-    assert(!display_s3_touch(0,0,NULL,&y));
-    assert(!display_s3_touch(0,0,&x,NULL));
+    static const int corners[][4]={{0,0,0,0},{367,0,479,0},{0,447,0,583},{367,447,479,583},{184,224,240,292}};
+    for(unsigned i=0;i<sizeof corners/sizeof corners[0];i++) {
+        int16_t x=-1,y=-1;
+        assert(display_s3_touch(corners[i][0],corners[i][1],&x,&y) && x==corners[i][2] && y==corners[i][3]);
+    }
+    int16_t x=-7,y=-9;
+    assert(!display_s3_touch(0,0,NULL,&y) && y==-9);
+    assert(!display_s3_touch(0,0,&x,NULL) && x==-7);
+}
+static void full_pattern(void) {
+    for(int y=0;y<448;y++)for(int x=0;x<384;x++)expected[y][x]=pattern(x,y);
+    draw(0,0,384,448);
+    assert(windows==1 && writes==56 && te_waits==1 && dma_seen==7);
+    display_s3_profile_t p=display_s3_last_profile();
+    assert(p.input_pixels==384*448 && p.native_pixels==368*448 && p.windows==1);
+    assert(p.render_us==0 && p.te_us==0 && p.burst_us==0);
+}
+static void tiny_and_edge(void) {
+    int before=windows;
+    display_s3_begin_frame();expected[1][1]=0xf800;write_rect(1,1,2,2);
+    assert(windows==before);expected[447][367]=0x07e0;write_rect(367,447,368,448);
+    assert(windows==before);present(true);assert(windows==before+2);
+    display_s3_profile_t p=display_s3_last_profile();
+    assert(p.input_pixels==2 && p.native_pixels==2 && p.windows==2);
+    assert(s_left[0]==368 && s_right[0]==0); // successful present clears accumulated damage
+    present(false);
+}
+static void direct_rows(void) {
+    display_s3_begin_frame();int before=windows;
+    display_s3_begin(120,200,124,204);
+    uint16_t *rows[4];
+    uint16_t outside=s_native[199*384+120];
+    for(int y=0;y<4;y++) {
+        rows[y]=display_s3_next_row();
+        assert(rows[y]==s_native+(200+y)*384+120);
+        for(int x=0;x<4;x++)rows[y][x]=expected[200+y][120+x]=(uint16_t)(0x1529+y*0x217);
+        for(int old=0;old<=y;old++)for(int x=0;x<4;x++)assert(rows[old][x]==expected[200+old][120+x]);
+        assert(s_native[199*384+120]==outside && windows==before);
+    }
+    verify_native_ready();
+    uint32_t composed=s_profile.native_pixels;display_s3_end();assert(s_profile.native_pixels==composed);present(true);
+}
+static void row_without_window(void) {display_s3_next_row();}
+static void incomplete_window(void) {display_s3_begin(120,200,124,204);display_s3_next_row();display_s3_end();}
+static void excess_row(void) {
+    display_s3_begin(120,200,124,202);display_s3_next_row();display_s3_next_row();display_s3_next_row();
+}
+static void present_open_window(void) {display_s3_begin(120,200,124,204);display_s3_present();}
+static void beyond_canvas(void) {display_s3_begin(368,0,385,1);}
+static void rejects(void (*operation)(void)) {
+    pid_t child=fork();assert(child>=0);
+    if(!child) {assert(freopen("/dev/null","w",stderr));operation();_exit(0);}
+    int status;assert(waitpid(child,&status,0)==child && WIFSIGNALED(status) && WTERMSIG(status)==SIGABRT);
+}
+static void row_contract(void) {
+    rejects(row_without_window);rejects(incomplete_window);rejects(excess_row);
+    rejects(present_open_window);rejects(beyond_canvas);
+}
+
+static void overlap_and_profile(void) {
+    display_s3_begin_frame();int before=windows;row_work=3;
+    fill(100,100,110,116,0x1bf8);write_rect(100,100,110,116);assert(windows==before && s_profile.render_us==48);
+    fill(105,108,113,120,0x7be7);write_rect(105,108,113,120);assert(windows==before && s_profile.render_us==84);
+    // Separated columns widen the send hull. Its unchanged middle retains exact native pixels.
+    fill(130,111,131,115,0x53a9);write_rect(130,111,131,115);assert(windows==before && s_profile.render_us==96);
+    row_work=0;te_delay=73;dma_delay=211;present(true);
+    display_s3_profile_t p=display_s3_last_profile();
+    assert(p.input_pixels==160+96+4 && p.native_pixels==160+96+4 && p.windows==2);
+    assert(p.render_us==96 && p.te_us==73 && p.burst_us==211);
+    te_delay=dma_delay=0;
+    // Repeat writes count as work, including intersections; a crossing window counts only visible columns.
+    display_s3_begin_frame();fill(350,430,384,448,0x7531);write_rect(350,430,384,448);
+    p=s_profile;assert(p.input_pixels==34*18 && p.native_pixels==18*18);present(true);
+    assert(display_s3_last_profile().windows==1);
+}
+static void random_and_edges(void) {
+    uint32_t random=9183;
+    for(int n=0;n<96;n++) {
+        random=random*1664525u+1013904223u;int x=(int)(random%384);
+        random=random*1664525u+1013904223u;int y=(int)(random%448);
+        expected[y][x]=(uint16_t)random;draw(x,y,x+1,y+1);
+    }
+    fill(0,0,1,448,0xf800);draw(0,0,1,448);
+    fill(367,0,368,448,0x001f);draw(367,0,368,448);
+    fill(0,0,384,1,0x07e0);draw(0,0,384,1);
+    fill(0,447,384,448,0xffff);draw(0,447,384,448);
+    static uint16_t partial[448][368];memcpy(partial,screen,sizeof screen);
+    draw(0,0,384,448);assert(!memcmp(partial,screen,sizeof screen));
+}
+static void padding(void) {
+    static uint16_t native[448][384],physical[448][368];
+    memcpy(native,s_native,sizeof native);memcpy(physical,screen,sizeof physical);
+    display_s3_begin_frame();row_work=2;fill(368,0,384,448,0xfa75);write_rect(368,0,384,448);row_work=0;
+    present(false);
+    for(int y=0;y<448;y++) {
+        assert(!memcmp(native[y],s_native+y*384,368*2));
+        for(int x=368;x<384;x++)assert(s_native[y*384+x]==0xfa75);
+    }
+    assert(!memcmp(physical,screen,sizeof physical));
+    display_s3_profile_t p=display_s3_last_profile();
+    assert(p.input_pixels==16*448 && p.native_pixels==0 && p.windows==0 && p.render_us==2*448 && p.te_us==0 && p.burst_us==0);
+}
+static void reset(void) {
+    int calls=allocation_call;
+    memset(screen,0,sizeof screen); // init is called only after the physical panel has been cleared
+    assert(display_s3_init() && held==4 && allocation_call==calls);
+    memset(expected,0,sizeof expected);verify_native_ready();
+    expected[447][367]=0x95b7;draw(367,447,368,448);
+    assert(screen[447][367]==0x95b7 && s_native[0]==0);
 }
 int main(void) {
-    assert(UI_W==480 && UI_H==584 && UI_RENDER_H==592);
-    touch_mapping();exact_mix();
-    // Every allocation failure is surfaced; partially created pools are freed.
-    for(int fail=1;fail<=5;fail++) {
-        allocation_call=0; allocation_fail=fail;
+    assert(UI_W==480 && UI_H==584 && UI_RENDER_W==384 && UI_RENDER_H==448);
+    touch_mapping();
+    for(int fail=1;fail<=4;fail++) {
+        allocation_call=0;allocation_fail=fail;
         assert(!display_s3_init() && held==0);
     }
-    allocation_call=0; allocation_fail=0;
-    assert(display_s3_init() && held==5 && allocation_call==5);
-    for(int y=0;y<592;y++)for(int x=0;x<480;x++)
-        logical[y][x]=y<584 ? (uint16_t)(((x*31/479)<<11)|((y*63/583)<<5)|((x+y)*31/1062)) : 0xf81f;
-    draw(0,0,480,592,1); verify();
-    assert(windows==1 && writes==56);
-    display_s3_profile_t profile=display_s3_last_profile();
-    // One-logical-row chunks update the two distinct source neighbours of
-    // every native sample separately: exactly two preparations per pixel.
-    // Closing/presenting the window must not prepare it for a third time.
-    assert(profile.input_pixels==480*592 && profile.native_pixels==2*368*448 && profile.windows==1);
-    assert(profile.copy_us==0 && profile.prepare_us==0 && profile.te_us==0 && profile.burst_us==0);
-    int before=windows;
-    display_s3_begin_frame();
-    logical[1][1]=0xf800;write_rect(1,1,2,2,1);
-    assert(windows==before);
-    logical[582][478]=0x07e0;write_rect(478,582,479,583,1);
-    assert(windows==before);
-    first_of_burst=true;assert(display_s3_present()==123456);verify();
-    before=windows;int prior_te=te_waits;assert(display_s3_present()==0 && windows==before && te_waits==prior_te);
-    // Every copied chunk prepares its pixels even before the window closes.
-    display_s3_begin_frame();before=windows;
-    display_s3_begin(120,200,124,204);
-    uint16_t chunk[8];
-    for(int row=0;row<2;row++)for(int x=0;x<4;x++)chunk[row*4+x]=logical[200+row][120+x]=0xf81f;
-    display_s3_write(chunk,8,false);assert(windows==before);
-    for(int y=0;y<448;y++)for(int x=0;x<368;x++)assert(s_native[y*368+x]==reference_pixel(x,y));
-    for(int row=0;row<2;row++)for(int x=0;x<4;x++)chunk[row*4+x]=logical[202+row][120+x]=0x1529;
-    display_s3_write(chunk,8,true);assert(windows==before);
-    for(int y=0;y<448;y++)for(int x=0;x<368;x++)assert(s_native[y*368+x]==reference_pixel(x,y));
-    uint32_t prepared=s_profile.native_pixels;display_s3_end();assert(s_profile.native_pixels==prepared);
-    first_of_burst=true;assert(display_s3_present()==123456);verify();
-    // Later overlapping windows repair all affected filter neighbours in both
-    // axes; time accumulates per chunk and is not counted again at end/present.
-    display_s3_begin_frame();before=windows;mock_step=5;
-    for(int y=100;y<116;y++)for(int x=100;x<110;x++)logical[y][x]=(x+y)&1 ? 0xf800 : 0x001f;
-    write_rect(100,100,110,116,4);assert(windows==before && s_profile.prepare_us==20);verify_native_ready();
-    for(int y=108;y<120;y++)for(int x=105;x<113;x++)logical[y][x]=0x7be7;
-    write_rect(105,108,113,120,3);assert(windows==before && s_profile.prepare_us==40);verify_native_ready();
-    // Separated columns in the same damage band widen its send hull; the gap
-    // remains correct without resampling the whole accumulated hull.
-    for(int y=111;y<115;y++)logical[y][130]=0x53a9;
-    write_rect(130,111,131,115,1);assert(windows==before && s_profile.prepare_us==60);verify_native_ready();
-    mock_step=0;mock_time=123456;
-    first_of_burst=true;assert(display_s3_present()==123456);verify();
-    assert(display_s3_last_profile().prepare_us==60);
-    // Each single pixel and thin edge update must repaint every sample that reads
-    // it; output is identical to resending the final full logical image.
-    uint32_t random=9183;
-    for(int n=0;n<48;n++) {
-        random=random*1664525u+1013904223u;int x=(int)(random%480);
-        random=random*1664525u+1013904223u;int y=(int)(random%584);
-        logical[y][x]=(uint16_t)random; draw(x,y,x+1,y+1,1);
-    }
-    for(int y=0;y<584;y++) {logical[y][0]=0xf800;logical[y][479]=0x001f;}
-    draw(0,0,1,584,8);draw(479,0,480,584,8);
-    for(int x=0;x<480;x++) {logical[0][x]=0x07e0;logical[583][x]=0xffff;}
-    draw(0,0,480,1,1);draw(0,583,480,584,1);verify();
-    static uint16_t partial[448][368];memcpy(partial,screen,sizeof screen);
-    draw(0,0,480,584,16);board_display_wait_idle();assert(!memcmp(partial,screen,sizeof screen));
-    // Render padding never becomes visible or modifies either retained canvas.
-    static uint16_t retained[584][480];memcpy(retained,s_frame,sizeof retained);
-    memcpy(partial,screen,sizeof screen);before=windows;prior_te=te_waits;
-    display_s3_begin_frame();write_rect(0,584,480,592,8);
-    assert(display_s3_present()==0 && windows==before && te_waits==prior_te);
-    assert(!memcmp(retained,s_frame,sizeof retained) && !memcmp(partial,screen,sizeof screen));
-    for(int y=579;y<592;y++)for(int x=0;x<480;x++)logical[y][x]=0x7531;
-    draw(0,579,480,592,4);verify();
-    // A logical circle remains round when the rectangular UI fills the panel.
-    memset(logical,0,sizeof logical);
-    for(int y=0;y<584;y++)for(int x=0;x<480;x++)
-        if((x-240)*(x-240)+(y-292)*(y-292)<=120*120)logical[y][x]=0xffff;
-    draw(0,0,480,592,8);board_display_wait_idle(); // Exact Q8 pixels are checked before TE; here measure circle aspect.
-    int left=368,right=-1,top=448,bottom=-1;
-    for(int y=0;y<448;y++)for(int x=0;x<368;x++)if(channel(wire(screen[y][x]),0,31)>15) {
-        if(x<left)left=x;if(x>right)right=x;if(y<top)top=y;if(y>bottom)bottom=y;
-    }
-    assert(abs((right-left)-(bottom-top))<=1);
-    // Constant host-order colours cover the entire physical rectangle exactly.
-    for(int y=0;y<592;y++)for(int x=0;x<480;x++)logical[y][x]=0x95b7;
-    draw(0,0,480,592,8);board_display_wait_idle();
-    for(int y=0;y<448;y++)for(int x=0;x<368;x++)assert(screen[y][x]==wire(0x95b7));
-    assert(display_s3_init() && held==5 && allocation_call==5); // reset reuses storage
-    memset(logical,0,sizeof logical);draw(0,0,1,1,1);board_display_wait_idle();
-    assert(screen[0][0]==0);release_buffers();assert(held==0);
+    allocation_call=0;allocation_fail=0;
+    assert(display_s3_init() && held==4 && allocation_call==4);
+    full_pattern();tiny_and_edge();direct_rows();row_contract();overlap_and_profile();random_and_edges();padding();reset();
+    release_buffers();assert(held==0);
 #ifdef ESP_PLATFORM
-    s_last_profile=(display_s3_profile_t){.copy_us=26000};
+    s_last_profile=(display_s3_profile_t){.render_us=26000};
     for(int i=0;i<8;i++)report_slow_phases();assert(logged==4);
     mock_time+=10000000;report_slow_phases();assert(logged==5);
-    s_last_profile.copy_us=25000;report_slow_phases();assert(logged==5);
+    s_last_profile.render_us=25000;report_slow_phases();assert(logged==5);
 #endif
-    puts("S3 display: full rectangle without shape stretching, RGB565 interpolation, halo updates, delayed DMA ownership, exact Q8 packed colour, touch inverse, reset and allocation failures passed");
+    puts("S3 native display: direct native rows, exact wire pixels, right padding, retained hull gaps, complete composition before TE, delayed DMA, touch, profiles and four-buffer failure/reset passed");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='kubik-display-s3-') as temporary:
     directory = Path(temporary)
-    path = directory / 'test.c'
+    path, binary = directory / 'test.c', directory / 'test'
     path.write_text(fixture + source + checks)
-    binary = directory / 'test'
     (directory / 'sdkconfig.h').write_text('#define CONFIG_IDF_TARGET_ESP32S3 1\n')
     for flags in ([], ['-DESP_PLATFORM=1']):
         subprocess.run(['cc', '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror', *flags,
-                        '-fsanitize=address,undefined', '-DCONFIG_IDF_TARGET_ESP32S3=1', '-I', str(directory), '-I', str(ROOT / 'firmware/main'), str(path), '-o', str(binary)], check=True)
+                        '-fsanitize=address,undefined', '-DCONFIG_IDF_TARGET_ESP32S3=1', '-I', str(directory),
+                        '-I', str(ROOT / 'firmware/main'), str(path), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=20)
 
-# Compile the actual presentation boundary for each target: expansion and both
-# full-resolution overlays must use the same order required by that destination.
+# Compile the actual boundary: expansion, edge and text write wire-order RGB565
+# on both targets. S3 composes each complete window once with a padded native stride and no intermediate buffer.
 presentation = (ROOT / 'firmware/main/present.c').read_text()
-send_window = presentation[presentation.index('static void send_window('):presentation.index('static int larger(')]
+helper_start = presentation.index('static render_output_t *output_for(')
+helper_end = presentation.index('\n}\n', helper_start) + 3
+send_window = presentation[helper_start:helper_end] + presentation[presentation.index('static void compose_window_rows('):presentation.index('static int larger(')]
 order_fixture = r'''
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
+#if CONFIG_IDF_TARGET_ESP32S3
+#define LCD_W 384
+#else
 #define LCD_W 480
+#endif
+#define UI_RENDER_W LCD_W
 #define OUTPUT_ROWS 8
 #define LCD_PIPE 3
+#define X0 16
+#define X1 (LCD_W-16)
+#define Y0 8
+#ifndef Y1
+#define Y1 24
+#endif
+#define WIDTH (X1-X0)
 typedef struct {int x0,y0,x1,y1;} render_win_t;
-typedef struct {int unused;} render_output_t;
+typedef struct {int marker;} render_output_t;
 typedef struct {
     int64_t burst_start,expand_us,px,windows;
+    #if !CONFIG_IDF_TARGET_ESP32S3
     render_output_t output;
+    #endif
     int next,overlay_count;
     const void *scene;
     uint16_t *bufs[LCD_PIPE];
 } frame_out_t;
-static int expands,edges,texts,writes;
+static int expands,edges,texts,writes,begins,ends;
+static render_output_t *seen_output;
 static int64_t esp_timer_get_time(void) {return 37;}
-static uint16_t ordered(uint16_t value,bool swap) {return swap ? (uint16_t)((value<<8)|(value>>8)) : value;}
-static void render_output_columns(render_output_t *out,int x0,int x1) {(void)out;assert(x0==0 && x1==480);}
-static void display_begin(int x0,int y0,int x1,int y1) {assert(!x0 && !y0 && x1==480 && y1==16);}
-static void render_expand_2x(render_output_t *out,uint16_t *pixels,int x,int y,int w,int h,bool swap) {
-    (void)out;(void)x;(void)y;assert(swap==!CONFIG_IDF_TARGET_ESP32S3);expands++;
-    for(int i=0;i<w*h;i++)pixels[i]=ordered(0x7139,swap);
+static uint16_t wire(uint16_t value) {return (uint16_t)((value<<8)|(value>>8));}
+static void render_output_columns(render_output_t *out,int x0,int x1) {
+    assert(out && x0==X0 && x1==X1);seen_output=out;out->marker=0x7139;
 }
-static void render_edge_overlay(const void *scene,uint16_t *pixels,int x,int y,int w,int h,bool swap) {
-    (void)scene;(void)x;(void)y;assert(swap==!CONFIG_IDF_TARGET_ESP32S3);edges++;
-    for(int i=0;i<w*h;i++)assert(pixels[i]==ordered(0x7139,swap));
-    pixels[0]=ordered(0x52ac,swap);
+#if CONFIG_IDF_TARGET_ESP32S3
+static uint16_t native[32][384];
+static int row_at;
+static void display_begin(int x0,int y0,int x1,int y1) {
+    assert(x0==X0 && y0==Y0 && x1==X1 && y1==Y1);begins++;row_at=y0;
 }
-static void render_text_overlay(const void *scene,uint16_t *pixels,int x,int y,int w,int h,bool swap) {
-    (void)scene;(void)x;(void)y;(void)w;(void)h;assert(swap==!CONFIG_IDF_TARGET_ESP32S3);texts++;
-    assert(pixels[0]==ordered(0x52ac,swap));pixels[0]=ordered(0x95b7,swap);
+static uint16_t *display_s3_next_row(void) {assert(row_at<Y1);return &native[row_at++][X0];}
+static void display_end(void) {assert(row_at==Y1);ends++;}
+#else
+static void display_begin(int x0,int y0,int x1,int y1) {
+    assert(x0==X0 && y0==Y0 && x1==X1 && y1==Y1);begins++;
 }
 static void display_write(const uint16_t *pixels,int count,bool last) {
-    assert(count==480*8 && last==(writes==1));
-    assert(pixels[0]==ordered(0x95b7,!CONFIG_IDF_TARGET_ESP32S3));writes++;
+    int remaining=Y1-Y0-writes*8,rows=remaining<8 ? remaining : 8;
+    assert(count==WIDTH*rows && last==(remaining<=8));
+    for(int row=0;row<rows;row++)assert(pixels[row*WIDTH]==wire(0x95b7));
+    writes++;
 }
-static void display_end(void) {assert(writes==2);}
+static void display_end(void) {assert(writes==(Y1-Y0+7)/8);ends++;}
+#endif
+static void destination(uint16_t *pixels,int x,int y,int w,int h,int stride) {
+    assert(x==X0 && w==WIDTH && w%2==0 && h%2==0);
+#if CONFIG_IDF_TARGET_ESP32S3
+    assert(y==Y0 && h==Y1-Y0 && stride==384 && pixels==&native[Y0][X0] && row_at==Y1);
+#else
+    int remaining=Y1-y;
+    (void)pixels;assert(y>=Y0 && y<Y1 && (y-Y0)%8==0 && h==(remaining<8 ? remaining : 8) && stride==WIDTH);
+#endif
+}
+static void render_expand_2x(render_output_t *out,uint16_t *pixels,int x,int y,int w,int h,int stride,bool swap) {
+    assert(out==seen_output && out->marker==0x7139 && swap);destination(pixels,x,y,w,h,stride);expands++;
+    for(int row=0;row<h;row++)for(int col=0;col<w;col++)pixels[row*stride+col]=wire(0x7139);
+}
+static void render_edge_overlay(const void *scene,uint16_t *pixels,int x,int y,int w,int h,int stride,bool swap) {
+    (void)scene;assert(swap);destination(pixels,x,y,w,h,stride);edges++;
+    for(int row=0;row<h;row++)for(int col=0;col<w;col++)assert(pixels[row*stride+col]==wire(0x7139));
+    for(int row=0;row<h;row++)pixels[row*stride]=wire(0x52ac);
+}
+static void render_text_overlay(const void *scene,uint16_t *pixels,int x,int y,int w,int h,int stride,bool swap) {
+    (void)scene;assert(swap);destination(pixels,x,y,w,h,stride);texts++;
+    for(int row=0;row<h;row++) {
+        assert(pixels[row*stride]==wire(0x52ac));pixels[row*stride]=wire(0x95b7);
+    }
+}
 '''
 order_test = r'''
 int main(void) {
-    uint16_t buffers[3][480*8];
+#if CONFIG_IDF_TARGET_ESP32S3
+    // S3 must not dereference or rotate the old chunk-buffer pool.
+    frame_out_t frame={.overlay_count=1,.next=2,.bufs={NULL,NULL,NULL}};
+    for(int y=0;y<32;y++)for(int x=0;x<384;x++)native[y][x]=0x6dab;
+#else
+    uint16_t buffers[3][LCD_W*8];
     frame_out_t frame={.overlay_count=1,.bufs={buffers[0],buffers[1],buffers[2]}};
-    const render_win_t window={0,0,480,16};
+#endif
+    const render_win_t window={X0,Y0,X1,Y1};
     send_window(&frame,&window);
-    assert(expands==2 && edges==2 && texts==2 && writes==2);
-    assert(frame.px==480*16 && frame.windows==1);
+    assert(begins==1 && ends==1 && frame.px==WIDTH*(Y1-Y0) && frame.windows==1);
     assert(frame.burst_start==(CONFIG_IDF_TARGET_ESP32S3 ? 0 : 37));
+    frame_out_t another={0};
+#if CONFIG_IDF_TARGET_ESP32S3
+    assert(output_for(&another)==seen_output && seen_output->marker==0x7139);
+#else
+    assert(seen_output==&frame.output && output_for(&another)==&another.output && &another.output!=seen_output);
+    assert(another.output.marker==0);
+#endif
+#if CONFIG_IDF_TARGET_ESP32S3
+    assert(expands==1 && edges==1 && texts==1 && writes==0 && row_at==Y1 && frame.next==2);
+    for(int y=0;y<32;y++)for(int x=0;x<384;x++) {
+        uint16_t expected=y>=Y0 && y<Y1 && x>=X0 && x<X1 ? wire(x==X0 ? 0x95b7 : 0x7139) : 0x6dab;
+        assert(native[y][x]==expected);
+    }
+#else
+    assert(expands==(Y1-Y0+7)/8 && edges==expands && texts==expands && writes==expands);
+#endif
 }
 '''
 with tempfile.TemporaryDirectory(prefix='kubik-present-order-') as temporary:
     directory = Path(temporary)
     path, binary = directory / 'order.c', directory / 'order'
     path.write_text(order_fixture + send_window + order_test)
-    for target in (0, 1):
+    for target, tail in ((0, 24), (1, 24), (0, 26), (1, 26)):
         subprocess.run(['cc', '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror',
-                        '-fsanitize=address,undefined', f'-DCONFIG_IDF_TARGET_ESP32S3={target}',
+                        '-fsanitize=address,undefined', f'-DCONFIG_IDF_TARGET_ESP32S3={target}', f'-DY1={tail}',
                         str(path), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=20)
-print('presentation: C6 wire order unchanged; S3 expansion, edge and full-resolution text use host order')
+print('presentation: C6 packed DMA chunks and partial tails preserved; S3 composes whole even-sized windows directly at native stride 384 with one static row cache')

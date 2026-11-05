@@ -173,9 +173,9 @@ int main(int argc, char **argv) {
     render_state_t state = {0};
     render_frame(&state, &scene, buffers, 2, false, push, NULL);
     render_output_t output; render_output_begin(&output, read_row, NULL);
-    render_expand_2x(&output, &panel[0][0], 0, 0, PANEL_W, PANEL_H, false);
-    render_edge_overlay(&scene, &panel[0][0], 0, 0, PANEL_W, PANEL_H, false);
-    render_text_overlay(&scene, &panel[0][0], 0, 0, PANEL_W, PANEL_H, false);
+    render_expand_2x(&output, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
+    render_edge_overlay(&scene, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
+    render_text_overlay(&scene, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     for (int y = 0; y < PANEL_H; y++) for (int x = 0; x < PANEL_W; x++) {
         unsigned p = panel[y][x];
         unsigned char rgb[] = {((p >> 11) & 31) * 255 / 31, ((p >> 5) & 63) * 255 / 63, (p & 31) * 255 / 31};

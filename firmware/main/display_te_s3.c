@@ -9,11 +9,14 @@
 static SemaphoreHandle_t s_te_edge;
 static portMUX_TYPE s_edge_lock = portMUX_INITIALIZER_UNLOCKED;
 static int64_t s_edge_us, s_accepted_edge_us;
+static uint32_t s_period_us;
 
 static void te_edge(void *unused) {
     (void)unused;
     int64_t now = esp_timer_get_time();  // ESP-IDF documents this as ISR-safe and lock-free.
     portENTER_CRITICAL_ISR(&s_edge_lock);
+    int64_t period = now - s_edge_us;
+    s_period_us = s_edge_us && period >= 10000 && period <= 25000 ? (uint32_t)period : 0;
     s_edge_us = now;
     portEXIT_CRITICAL_ISR(&s_edge_lock);
     BaseType_t woken = pdFALSE;
@@ -57,4 +60,12 @@ int64_t display_te_last_edge_us(void) {
     int64_t edge = s_accepted_edge_us;
     portEXIT_CRITICAL(&s_edge_lock);
     return edge;
+}
+
+bool display_te_clock_snapshot(display_te_clock_t *out) {
+    if (!out) return false;
+    portENTER_CRITICAL(&s_edge_lock);
+    *out = (display_te_clock_t){s_accepted_edge_us, s_edge_us, s_period_us};
+    portEXIT_CRITICAL(&s_edge_lock);
+    return out->accepted_edge_us > 0 && out->period_us > 0;
 }

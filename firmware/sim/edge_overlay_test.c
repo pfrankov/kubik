@@ -68,8 +68,8 @@ static void check_reach(void) {
                     s1.edge_w = (uint8_t)w1; s2.edge_w = (uint8_t)w2; s1.edge_r = s2.edge_r = (uint8_t)r;
                     s1.edge_color = s2.edge_color = 0xF800;
                     for (int i = 0; i < 480 * 8; i++) a[i] = b[i] = 0x1234;
-                    render_edge_overlay(&s1, a, 0, y0, 480, 8, false);
-                    render_edge_overlay(&s2, b, 0, y0, 480, 8, false);
+                    render_edge_overlay(&s1, a, 0, y0, 480, 8, 480, false);
+                    render_edge_overlay(&s2, b, 0, y0, 480, 8, 480, false);
                     int reach = render_edge_reach(w1 > w2 ? w1 : w2, r, y0, y0 + 8);
                     for (int y = 0; y < 8; y++)
                         for (int x = 0; x < 480; x++)
@@ -92,8 +92,8 @@ static long check_one(int w1, int w2, int r, int y0, int rows, long *reach_px) {
     s1.edge_w = (uint8_t)w1; s2.edge_w = (uint8_t)w2; s1.edge_r = s2.edge_r = (uint8_t)r;
     s1.edge_color = s2.edge_color = 0xF800;
     for (int i = 0; i < 480 * rows; i++) a[i] = b[i] = 0x1234;
-    render_edge_overlay(&s1, a, 0, y0, 480, rows, false);
-    render_edge_overlay(&s2, b, 0, y0, 480, rows, false);
+    render_edge_overlay(&s1, a, 0, y0, 480, rows, 480, false);
+    render_edge_overlay(&s2, b, 0, y0, 480, rows, 480, false);
     edge_change_t c = render_edge_change(w1, w2, r, y0, y0 + rows);
     for (int y = 0; y < rows; y++)
         for (int x = 0; x < 480; x++)
@@ -120,6 +120,31 @@ static void check_change(void) {
                 }
     printf("edge change: %ld bands cover every changed pixel, %.1f%% of the area of their reach\n", checked, 100. * ring_px / reach_px);
 }
+static void strided_edge_window(int x0, int y0, int width, int rows, bool swap) {
+    static uint16_t packed[480 * 16], guarded[8 + 496 * 16 + 8];
+    int stride = width + 16;
+    scene_t scene = {.edge_w = 7, .edge_r = 40, .edge_color = 0x3FDA};
+    for (unsigned i = 0; i < sizeof guarded / sizeof guarded[0]; i++) guarded[i] = 0xA55A;
+    for (int y = 0; y < rows; y++) for (int x = 0; x < width; x++)
+        packed[y * width + x] = guarded[8 + y * stride + x] = (uint16_t)(x * 59 + y * 127);
+    old_edge_overlay(&scene, packed, x0, y0, width, rows, swap);
+    render_edge_overlay(&scene, guarded + 8, x0, y0, width, rows, stride, swap);
+    for (int y = 0; y < rows; y++) for (int x = 0; x < stride; x++)
+        assert(guarded[8 + y * stride + x] == (x < width ? packed[y * width + x] : 0xA55A));
+    for (int i = 0; i < 8; i++) {
+        assert(guarded[i] == 0xA55A);
+        assert(guarded[8 + rows * stride + i] == 0xA55A);
+    }
+}
+static void strided_edges(void) {
+    for (int swap = 0; swap < 2; swap++) {
+        strided_edge_window(0, 0, 480, 16, swap);
+        strided_edge_window(0, 464, 480, 16, swap);
+        strided_edge_window(402, 383, 78, 16, swap);
+        strided_edge_window(0, 180, 18, 16, swap);
+    }
+    puts("edge stride: rows and outer padding untouched; corners/sides match independent packed oracle");
+}
 int main(void) {
     static scene_t s;
     srand(3);
@@ -135,11 +160,12 @@ int main(void) {
             bool swap = rand() & 1;
             for (int i = 0; i < width * rows; i++) a[i] = b[i] = (uint16_t)rand();
             old_edge_overlay(&s, a, x0, y0, width, rows, swap);
-            render_edge_overlay(&s, b, x0, y0, width, rows, swap);
+            render_edge_overlay(&s, b, x0, y0, width, rows, width, swap);
             if (memcmp(a, b, (size_t)width * rows * 2)) { printf("mismatch w=%d r=%d x0=%d y0=%d width=%d rows=%d\n", w, s.edge_r, x0, y0, width, rows); return 1; }
             n++;
         }
     printf("edge overlay: %ld windows match the per-pixel reference\n", n);
+    strided_edges();
     check_reach();
     check_change();
 }

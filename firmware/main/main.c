@@ -25,6 +25,9 @@
 #include "setup.h"
 #include "tls_mem.h"
 #include "tess.h"
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "frame_pacing_s3.h"
+#endif
 
 static const char *TAG = "main";
 atomic_bool g_mode_report;
@@ -265,6 +268,7 @@ static void log_frame_stats(frame_stats_t *st, frame_out_t *f, const scene_t *sc
 }
 
 
+#if !CONFIG_IDF_TARGET_ESP32S3
 // Only sustained over-budget work reduces cadence. Recover with 1.3 ms
 // headroom; a healthy 31 ms reaction must not remain capped at 20 fps.
 static int frame_rate(face_mode_t mode, int64_t *avg_us, int64_t frame_us) {
@@ -313,6 +317,8 @@ static bool wait_for_next_frame(bool powered, int fps, TickType_t *wake, int *ti
     return false;
 }
 
+#endif
+
 static void report_presented_mode(bool presented, face_mode_t mode, bool requested, face_mode_t *shown) {
     if (!presented) {
         if (requested) atomic_store(&g_mode_report, true);
@@ -332,6 +338,30 @@ static frame_out_t *allocate_display_frame(void) {
     return heap_caps_calloc(1, sizeof(frame_out_t), frame_caps);
 }
 
+static void record_frame(frame_stats_t *stats, frame_out_t *f, const render_state_t *rs,
+                         const scene_t *scene, face_mode_t mode, bool powered, bool presented,
+                         int64_t t0, int64_t t_face, int64_t t1) {
+    if (powered) {
+        stats->present_sum += t1 - t_face;
+        if (t1 - t_face > stats->present_max) stats->present_max = t1 - t_face;
+    }
+    if (presented) { ++stats->presented; stats->modes |= 1u << mode; }
+    account_frame(stats, f, rs, t_face - t0, powered ? t1 - t_face : 0, t1 - t0);
+    if (t1 - stats->start > 10000000 || frame_diagnostics_requested())
+        log_frame_stats(stats, f, scene, t1);
+}
+
+static void allocate_output_buffers(frame_out_t *f) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    (void)f;  // S3 composes directly into its native PSRAM image.
+#else
+    for (int i = 0; i < LCD_PIPE; i++) {
+        f->bufs[i] = heap_caps_malloc(LCD_W * OUTPUT_ROWS * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        assert(f->bufs[i]);
+    }
+#endif
+}
+
 static void display_task(void *arg) {
     static scene_t scene;
     static render_state_t rs;
@@ -341,16 +371,15 @@ static void display_task(void *arg) {
     f->scene = &scene;
     f->bands[0] = bands[0];
     f->bands[1] = bands[1];
-    for (int i = 0; i < LCD_PIPE; i++) {
-        f->bufs[i] = heap_caps_malloc(LCD_W * OUTPUT_ROWS * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-        assert(f->bufs[i]);
-    }
+    allocate_output_buffers(f);
+#if !CONFIG_IDF_TARGET_ESP32S3
     int tick_remainder = 0;  // fractional tick periods keep the requested frame cadence
     TickType_t wake = xTaskGetTickCount();
+    int64_t frame_avg_us = 0;
+#endif
     int64_t last = esp_timer_get_time();
     frame_stats_t stats = {.start = last};
     bool powered = true;
-    int64_t frame_avg_us = 0;
     face_mode_t shown_mode = MODE_BOOT;
     esp_pm_lock_handle_t display_speed_lock;
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "display", &display_speed_lock));
@@ -374,20 +403,18 @@ static void display_task(void *arg) {
         int64_t t_face = esp_timer_get_time();
         bool presented = powered && present_frame(f, &rs, &scene);
         int64_t t1 = esp_timer_get_time();
+#if !CONFIG_IDF_TARGET_ESP32S3
         int fps = frame_rate(frame_mode, &frame_avg_us, t1 - t0);
         stats.slow_frames += fps == 20;
-        if (powered) {
-            stats.present_sum += t1 - t_face;
-            if (t1 - t_face > stats.present_max) stats.present_max = t1 - t_face;
-        }
-        if (presented) { ++stats.presented; stats.modes |= 1u << frame_mode; }
-        account_frame(&stats, f, &rs, t_face - t0, powered ? t1 - t_face : 0, t1 - t0);
+#endif
+        record_frame(&stats, f, &rs, &scene, frame_mode, powered, presented, t0, t_face, t1);
         report_presented_mode(presented, frame_mode, report_mode, &shown_mode);
-        if (t1 - stats.start > 10000000 || frame_diagnostics_requested()) {
-            log_frame_stats(&stats, f, &scene, t1);
-        }
         // Audio/mic tasks retain higher priority; healthy screens keep the same cadence.
+#if CONFIG_IDF_TARGET_ESP32S3
+        stats.deadline_misses += frame_pacing_s3_wait(powered);
+#else
         stats.deadline_misses += wait_for_next_frame(powered, fps, &wake, &tick_remainder);
+#endif
     }
 }
 
@@ -422,7 +449,12 @@ void app_main(void) {
     initialize_home_face();
     g_face.rng ^= (uint32_t)esp_timer_get_time();  // its idle moves differ from boot to boot (the simulator keeps the fixed seed)
     display_set_brightness(g_settings.brightness);
-    ESP_ERROR_CHECK(xTaskCreate(display_task, "display", 7168, NULL, 8, &s_display_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+#if CONFIG_IDF_TARGET_ESP32S3
+    const unsigned display_stack = 9216;  // Native QR/icon sampling needs up to 1.8 KiB of bounded scratch.
+#else
+    const unsigned display_stack = 7168;
+#endif
+    ESP_ERROR_CHECK(xTaskCreate(display_task, "display", display_stack, NULL, 8, &s_display_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     audio_init(g_settings.volume);
     audio_set_ui_volume(g_settings.ui_volume);
     audio_sfx(SFX_BOOT);

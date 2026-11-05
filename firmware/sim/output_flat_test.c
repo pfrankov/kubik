@@ -4,8 +4,10 @@
 #include <stdio.h>
 #include "../main/render.h"
 static bool sparse;
+static int flat_color = -1;
 static uint16_t pixel(int x, int y) {
     static const uint16_t colors[]={0,0x1234,0xffff,0x7bef};
+    if (flat_color >= 0) return (uint16_t)flat_color;
     if(sparse)return x%53==0 || (x%61==0 && y%3==0) ? colors[(x+y/3)%4] : 0;
     uint16_t p=colors[(y/3)%4];
     return y%7==0 && x==R_W-1 ? 0xf800 : p;
@@ -26,23 +28,55 @@ static uint16_t expected(int x,int y) {
 static void window(render_output_t *state,int x,int y,int width,bool swap) {
     uint16_t out[480*4];
     render_output_columns(state,x,x+width);
-    render_expand_2x(state,out,x,y,width,4,swap);
+    render_expand_2x(state, out, x, y, width, 4, width, swap);
     for(int row=0;row<4;row++)for(int col=0;col<width;col++) {
         uint16_t want=expected(x+col,y+row);
         if(swap)want=(uint16_t)((want<<8)|(want>>8));
         assert(out[row*width+col]==want);
     }
 }
+static void strided_window(int x0, int y0, int width, int rows, bool swap) {
+    _Alignas(4) static uint16_t guarded[8 + UI_RENDER_W * UI_OUTPUT_H + 8];
+    static render_output_t state;
+    for (unsigned i = 0; i < sizeof guarded / sizeof guarded[0]; i++) guarded[i] = 0xA55A;
+    render_output_begin(&state, read_row, NULL);
+    render_output_columns(&state, x0, x0 + width);
+    render_expand_2x(&state, guarded + 8 + x0, x0, y0, width, rows, UI_RENDER_W, swap);
+    for (int y = 0; y < UI_OUTPUT_H; y++) for (int x = 0; x < UI_RENDER_W; x++) {
+        uint16_t want = 0xA55A;
+        if (y < rows && x >= x0 && x < x0 + width) {
+            want = expected(x, y + y0);
+            if (swap) want = rgb565_bswap(want);
+        }
+        assert(guarded[8 + y * UI_RENDER_W + x] == want);
+    }
+    for (int i = 0; i < 8; i++) {
+        assert(guarded[i] == 0xA55A);
+        assert(guarded[8 + UI_RENDER_W * UI_OUTPUT_H + i] == 0xA55A);
+    }
+}
+static void strides(void) {
+    for (int pattern = 0; pattern < 4; pattern++) {
+        flat_color = pattern < 2 ? pattern * 0x1234 : -1; sparse = pattern == 3;
+        for (int swap = 0; swap < 2; swap++) {
+            strided_window(0, 0, UI_OUTPUT_W, UI_OUTPUT_H, swap);
+            strided_window(2, 2, 18, 18, swap);
+            strided_window(UI_OUTPUT_W - 2, UI_OUTPUT_H - 2, 2, 2, swap);
+        }
+    }
+}
 int main(void) {
     static render_output_t state;
     for(int pass=0;pass<2;pass++) {
       sparse=pass;render_output_begin(&state,read_row,NULL);
-      for(int y=0;y<=476;y+=2) {
+      for(int y=0;y<=UI_OUTPUT_H-4;y+=2) {
         // Native odd origins, two-pixel windows, shrinking/expanding cache range,
         // final replicated source pixel, flat/nonflat rows and alternating byte order.
         window(&state,2,y,18,false);window(&state,2,y,2,true);
-        window(&state,0,y,480,false);window(&state,468,y,12,true);
+        window(&state,0,y,UI_RENDER_W,false);window(&state,UI_RENDER_W-12,y,12,true);
       }
     }
+    strides();
+    puts("output: real full/partial strided expansion preserves row/outer canaries in zero/colored/sparse spans");
     puts("output: zero/colored flat and sparse spans, changing rows, interpolation edges, cache widths and byte order match scalar reference");
 }

@@ -75,7 +75,7 @@ def select_port(explicit):
     try:
         from serial.tools import list_ports
     except ImportError as error:
-        raise RuntimeError("Install esptool first: python3 -m pip install esptool==4.12.0") from error
+        raise RuntimeError("Install esptool first: python3 -m pip install esptool==4.13.0") from error
     ports = [port.device for port in list_ports.comports() if port.vid == 0x303A]
     if len(ports) != 1:
         raise RuntimeError(f"Expected one connected Espressif USB device, found {len(ports)}; pass --port")
@@ -125,6 +125,29 @@ def stop_bridges(port):
     return bool(pids)
 
 
+def flash_images(directory, manifest, port):
+    s3 = manifest['chip'] == 'esp32s3'
+    tool = [sys.executable, "-m", "esptool", "--chip", manifest['chip'], "--port", port]
+    command = tool + ["--baud", "460800", "--before", "usb_reset" if s3 else "default_reset",
+                      "--after", "no_reset" if s3 else "hard_reset", "write_flash",
+                      "--flash_mode", "dio", "--flash_size", "16MB", "--flash_freq", "80m"]
+    for part in sorted(manifest["parts"], key=lambda part: part["offset"]):
+        command.extend([hex(part["offset"]), str(directory / part["file"])])
+    stop_bridges(port)
+    subprocess.run(command, check=True)
+    if s3:
+        # ESP32-S3 native USB can retain forced download mode after an RTS reset.
+        # Clear only RTC_FORCE_DOWNLOAD_BOOT, then restart through the RTC WDT.
+        reset = tool + ["--before", "no_reset", "--after", "watchdog_reset",
+                        "write_mem", "0x6000812c", "0", "0x1"]
+        try:
+            subprocess.run(reset, check=True, timeout=30)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError("Образы записаны, но перезапуск ESP32-S3 не завершён; "
+                               "проверьте USB-порт; восстановление загрузки: "
+                               "https://github.com/pfrankov/kubik/blob/main/docs/hardware-s3.md") from error
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, default=Path(__file__).resolve().parent)
@@ -137,13 +160,7 @@ def main():
     if args.check:
         return
     port = select_port(args.port)
-    command = [sys.executable, "-m", "esptool", "--chip", manifest['chip'], "--port", port,
-               "--baud", "460800", "--before", "default_reset", "--after", "hard_reset",
-               "write_flash", "--flash_mode", "dio", "--flash_size", "16MB", "--flash_freq", "80m"]
-    for part in sorted(manifest["parts"], key=lambda part: part["offset"]):
-        command.extend([hex(part["offset"]), str(directory / part["file"])])
-    stop_bridges(port)
-    subprocess.run(command, check=True)
+    flash_images(directory, manifest, port)
     print("Запись завершена. Дождитесь экрана настройки. Если экран пуст, полностью "
           "отключите USB-C; при батарее удерживайте PWR до выключения, затем "
           "удерживайте PWR около 2 с для включения. Подключите USB-C без BOOT.")

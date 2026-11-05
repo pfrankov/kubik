@@ -84,7 +84,8 @@ def forgotten_contacts_expire(worker):
 
 def click(page, x, y):
     box = page.locator("canvas").bounding_box()
-    page.mouse.click(box["x"] + x * box["width"] / 480, box["y"] + y * box["height"] / int(page.locator("canvas").get_attribute("height")))
+    width, height = page.evaluate("[inputWidth,inputHeight]")
+    page.mouse.click(box["x"] + x * box["width"] / width, box["y"] + y * box["height"] / height)
 
 
 def choose(page, index, name):
@@ -263,7 +264,7 @@ def rectangular_browser(browser):
     url = f"http://127.0.0.1:{server.server_port}"
     try:
         page.goto(url)
-        page.wait_for_function("document.querySelector('canvas').height === 584 && document.querySelector('#screen').options.length > 1")
+        page.wait_for_function("document.querySelector('canvas').height === 448 && document.querySelector('#screen').options.length > 1")
         assert page.request.get(url + "/config").json() == worker.metadata
         assert page.locator('[data-key="2"]').is_hidden()
         choose(page, worker.screens.index("Settings"), "Settings")
@@ -272,7 +273,7 @@ def rectangular_browser(browser):
             page.set_viewport_size(viewport)
             page.wait_for_timeout(100)
             box = page.locator("canvas").bounding_box()
-            assert abs(box["width"] / box["height"] - 480 / 584) < .002
+            assert abs(box["width"] / box["height"] - 368 / 448) < .002
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             if output:
                 path = Path(output); path.mkdir(parents=True, exist_ok=True)

@@ -20,8 +20,8 @@ kubik-kit-tess-esp32s3.zip / kubik-kit-plush-esp32s3.zip для S3 1.8 V2.
    Драйверы не нужны. На Linux добавьте себя в группу dialout
    (sudo usermod -a -G dialout $USER) и войдите заново.
 2. Установите Python 3.7 или новее (рекомендуется свежий 3.x) и создайте окружение:
-   macOS/Linux: python3 -m venv .venv && .venv/bin/python -m pip install esptool==4.12.0
-   Windows:     py -3 -m venv .venv; .venv\Scripts\python.exe -m pip install esptool==4.12.0
+   macOS/Linux: python3 -m venv .venv && .venv/bin/python -m pip install esptool==4.13.0
+   Windows:     py -3 -m venv .venv; .venv\Scripts\python.exe -m pip install esptool==4.13.0
 3. Подключите Кубик. Запустите проверку и прошивку из папки ZIP:
    macOS/Linux: .venv/bin/python flash-device.py --check
                 .venv/bin/python flash-device.py

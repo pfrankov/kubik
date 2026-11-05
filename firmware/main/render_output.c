@@ -124,16 +124,18 @@ static R_HOT int output_row(render_output_t *st, int y, bool swap) {
     return k;
 }
 
-R_HOT void render_expand_2x(render_output_t *st, uint16_t *out, int x0, int y0, int width, int rows, bool swap) {
+R_HOT void render_expand_2x(render_output_t *st, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap) {
     int n = width / R_SCALE, c = x0 / R_SCALE;
     for (int y = y0; y < y0 + rows; y += R_SCALE) {
         int sy = y / R_SCALE;
         int ka = output_row(st, sy, swap), kb = output_row(st, imin(sy + 1, R_H - 1), swap);
         const uint32_t *a = st->row[ka] + c, *b = st->row[kb] + c, *even = st->even[ka] + c;
-        pixel_pair_t *same = (pixel_pair_t *)out, *odd = (pixel_pair_t *)(out + width);  // even panel row: the native row itself
+        pixel_pair_t *same = (pixel_pair_t *)out, *odd = (pixel_pair_t *)(out + stride);  // even panel row: the native row itself
         if (st->flat[ka] && st->flat[kb] && a[0] == b[0]) {
-            if (!even[0]) memset(out, 0, (size_t)width * R_SCALE * 2);
-            else for (int x = 0; x < width; x++) same[x] = even[0];
+            if (!even[0]) {
+                memset(same, 0, (size_t)width * sizeof *out);
+                memset(odd, 0, (size_t)width * sizeof *out);
+            } else for (int x = 0; x < n; x++) same[x] = odd[x] = even[0];
         } else if (swap) {
 #pragma GCC unroll 4
             for (int x = 0; x < n; x++) {
@@ -146,6 +148,6 @@ R_HOT void render_expand_2x(render_output_t *st, uint16_t *out, int x0, int y0, 
                 odd[x] = a[x] == b[x] ? even[x] : midpoint2(a[x], b[x]);
             }
         }
-        out += width * R_SCALE;
+        out += stride * R_SCALE;
     }
 }

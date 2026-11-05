@@ -20,7 +20,7 @@ To update, extract the kit, then extract its firmware ZIP into a separate folder
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install esptool==4.12.0
+.venv/bin/python -m pip install esptool==4.13.0
 .venv/bin/python flash-device.py --check
 .venv/bin/python flash-device.py
 ```
@@ -63,7 +63,7 @@ On C6, buttons run left to right when looking at the screen: **BOOT · PWR · KE
 
 Swipe Tess horizontally, vertically or diagonally to turn it in 3D and 4D; release to let its momentum fade.
 Tilting or lifting keeps the visible screen bright and restores it from dimming. Once movement stops, the usual idle timer resumes.
-To enter [Skies](docs/tess-games.md#skies), Tess’s musical particle game, hold for 1.5 seconds: two diagonally opposite corners on C6, or one corner of the screen on S3. The S3 CST820 reports one contact. Its portrait interface uses the full 368×448 panel with a 480×584 logical viewport. Geometry keeps the same scale in both axes; all four screen corners receive touches. C6 retains its square 480×480 interface.
+To enter [Skies](docs/tess-games.md#skies), Tess’s musical particle game, hold for 1.5 seconds: two diagonally opposite corners on C6, or one corner of the screen on S3. The S3 CST820 reports one contact. Its portrait interface renders directly at the panel’s 368×448 resolution, using a 480×584 layout and touch coordinate system. Geometry keeps the same scale in both axes; all four screen corners receive touches. C6 retains its square 480×480 interface.
 
 No connection? Press **BOOT briefly** on the offline points to bring Tess back for local play. Press BOOT again outside Skies to return to the points.
 

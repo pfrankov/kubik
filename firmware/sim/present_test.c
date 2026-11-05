@@ -52,9 +52,9 @@ static void reference(const scene_t *scene) {
     render_frame(&rs, scene, bufs, 2, false, keep, NULL);
     static render_output_t out;
     render_output_begin(&out, read_ref, NULL);
-    render_expand_2x(&out, &ref_panel[0][0], 0, 0, LCD_W, LCD_H, false);
-    render_edge_overlay(scene, &ref_panel[0][0], 0, 0, LCD_W, LCD_H, false);
-    render_text_overlay(scene, &ref_panel[0][0], 0, 0, LCD_W, LCD_H, false);
+    render_expand_2x(&out, &ref_panel[0][0], 0, 0, LCD_W, LCD_H, LCD_W, false);
+    render_edge_overlay(scene, &ref_panel[0][0], 0, 0, LCD_W, LCD_H, LCD_W, false);
+    render_text_overlay(scene, &ref_panel[0][0], 0, 0, LCD_W, LCD_H, LCD_W, false);
 }
 
 static int wrong_rows(void) {

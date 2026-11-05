@@ -22,7 +22,7 @@ extern uint16_t panel[PANEL_H][PANEL_W];
 void sim_mood_setup(face_t *f);  // SIM_MOOD_OFF: a neutral Tess (call before any event)
 void sim_render(face_t *f);  // face_draw + the device's render path into `panel`
 void sim_render_reset(void); // the renderer starts from nothing, for an unrelated scene
-void sim_emit_frame(void);   // visible UI_W x UI_H as one rgb24 frame; padding is not emitted
+void sim_emit_frame(void);   // visible UI_OUTPUT_W x UI_OUTPUT_H as one rgb24 frame; padding is not emitted
 void sim_to_rgb(uint16_t c, unsigned char *o);
 void sim_sheet(bool per_tile);  // the contact sheet, or one frame per tile
 void sim_gravity(void);         // Tess rolling under a slowly turning gravity

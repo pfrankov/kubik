@@ -2,6 +2,7 @@
 
 #include "font.h"
 #include "icon_data.h"
+#include "render_overlay_s3.h"
 
 #include <math.h>
 #include <string.h>
@@ -10,13 +11,13 @@ static inline int32_t imax(int32_t a, int32_t b) { return a > b ? a : b; }
 static inline int32_t imin(int32_t a, int32_t b) { return a < b ? a : b; }
 
 static void render_text_glyph(const font_t *f, const font_glyph_t *g, uint16_t *out, int x0, int y0, int xe, int ye,
-                              int width, int gx, int gy, const uint8_t alpha[16], uint16_t color, uint16_t source_color,
+                              int stride, int gx, int gy, const uint8_t alpha[16], uint16_t color, uint16_t source_color,
                               bool swap) {
     if (!g->w || gx > xe || gx + g->w <= x0) return;
-    int stride = (g->w + 1) / 2;
+    int glyph_stride = (g->w + 1) / 2;
     for (int y = imax(gy, y0); y <= imin(gy + g->h - 1, ye); y++) {
-        const uint8_t *src = f->px + g->off + (y - gy) * stride;
-        uint16_t *row = out + (y - y0) * width - x0;
+        const uint8_t *src = f->px + g->off + (y - gy) * glyph_stride;
+        uint16_t *row = out + (y - y0) * stride - x0;
         for (int x = imax(gx, x0); x <= imin(gx + g->w - 1, xe); x++) {
             int k = x - gx, v = (src[k >> 1] >> ((k & 1) * 4)) & 15;
             if (!v) continue;
@@ -66,7 +67,7 @@ static void icon_composite_pixel(uint16_t *dst, uint16_t color, uint16_t source_
     if (alpha) icon_blend(dst, color, source_color, alpha, swap);
 }
 
-static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0, int width, int rows, bool swap) {
+static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap) {
     if (!p->alpha || p->b < 0 || p->b >= ICON_COUNT || p->a <= 0) return;
     const uint8_t *mask = g_icon_masks[p->b];
     int size = p->a, half = size / 2;
@@ -80,7 +81,7 @@ static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0
     uint16_t source_color = p->color, color = swap ? rgb565_bswap(source_color) : source_color;
     for (int y = ys; y <= ye; y++) {
         int syq = icon_axis_q8(y, top, size);
-        uint16_t *row = out + (y - y0) * width - x0;
+        uint16_t *row = out + (y - y0) * stride - x0;
         for (int x = xs; x <= xe; x++) {
             uint32_t coverage = icon_mask_coverage(mask, xq[x - xs], syq);
             icon_composite_pixel(&row[x], color, source_color, p->alpha, coverage, swap);
@@ -88,7 +89,7 @@ static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0
     }
 }
 
-static void render_text_primitive(const scene_t *s, const prim_t *p, uint16_t *out, int x0, int y0, int width, int rows,
+static void render_text_primitive(const scene_t *s, const prim_t *p, uint16_t *out, int x0, int y0, int width, int rows, int stride,
                                  bool swap) {
     int xe = x0 + width - 1, ye = y0 + rows - 1;
     const font_t *f = &g_fonts[p->r];
@@ -103,15 +104,18 @@ static void render_text_primitive(const scene_t *s, const prim_t *p, uint16_t *o
         const font_glyph_t *g = &f->g[s->text[p->a + i]];
         int gx = ((pen + 8) >> 4) + g->x, gy = base - g->top;
         pen += g->adv + p->sub_r + (i + 1 < p->b ? font_kern(f, s->text[p->a + i], s->text[p->a + i + 1]) : 0);
-        render_text_glyph(f, g, out, x0, y0, xe, ye, width, gx, gy, alpha, c, p->color, swap);
+        render_text_glyph(f, g, out, x0, y0, xe, ye, stride, gx, gy, alpha, c, p->color, swap);
     }
 }
 
-void render_text_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, bool swap) {
+void render_text_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    render_s3_text_overlay(s, out, x0, y0, width, rows, stride, swap); return;
+#endif
     for (int n = 0; n < s->n; n++) {
         const prim_t *p = &s->p[n];
-        if (p->kind == PK_ICON) render_icon_primitive(p, out, x0, y0, width, rows, swap);
-        else if (p->kind == PK_TEXT && p->alpha) render_text_primitive(s, p, out, x0, y0, width, rows, swap);
+        if (p->kind == PK_ICON) render_icon_primitive(p, out, x0, y0, width, rows, stride, swap);
+        else if (p->kind == PK_TEXT && p->alpha) render_text_primitive(s, p, out, x0, y0, width, rows, stride, swap);
     }
 }
 
@@ -221,7 +225,10 @@ static void edge_corner_row(uint16_t *row, int y, int W, int H, int xa, int xb, 
         edge_corner_side(row, side, y, W, xa, xb, r, w, color, source_color, swap, cy, lo, hi, f0, f1);
 }
 
-void render_edge_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, bool swap) {
+void render_edge_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    render_s3_edge_overlay(s, out, x0, y0, width, rows, stride, swap); return;
+#endif
     int w = s->edge_w;
     if (!w) return;
     const int W = R_W * R_SCALE, H = UI_H, r = render_edge_radius(w, s->edge_r);
@@ -231,7 +238,7 @@ void render_edge_overlay(const scene_t *s, uint16_t *out, int x0, int y0, int wi
     for (int j = 0; j < rows; j++) {
         int y = y0 + j;
         if (y < 0 || y >= H) continue;
-        uint16_t *row = out + j * width - x0;
+        uint16_t *row = out + j * stride - x0;
         if (edge_straight_sides(row, y, W, H, w, r, xa, xb, color)) continue;
         edge_straight_top_bottom(row, y, W, H, w, r, xa, xb, color);
         edge_corner_row(row, y, W, H, xa, xb, r, w, color, s->edge_color, swap);
@@ -244,6 +251,9 @@ int render_edge_radius(int w, int r) {
 }
 
 int render_edge_reach(int w, int r, int y0, int y1) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    return render_s3_edge_reach(w, r, y0, y1);
+#endif
     const int W = R_W * R_SCALE, H = UI_H;
     if (!w) return 0;
     r = render_edge_radius(w, r);
@@ -268,6 +278,9 @@ static void grow_hull(edge_change_t *c, int x0, int x1) {
 }
 
 edge_change_t render_edge_change(int w0, int w1, int r, int y0, int y1) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    return render_s3_edge_change(w0, w1, r, y0, y1);
+#endif
     const int H = UI_H;
     y0 = imax(0, y0); y1 = imin(H, y1);
     int lo = imin(w0, w1), hi = imax(w0, w1);
@@ -297,6 +310,16 @@ static inline void signature_mix(uint32_t *hash, uint32_t value) {
 
 static bool signature_hash_primitive(const scene_t *s, const prim_t *p, uint32_t *hash) {
     if (!p->alpha) return false;
+#if CONFIG_IDF_TARGET_ESP32S3
+    if (p->kind == PK_QR) {
+        signature_mix(hash, (uint32_t)(s->raster_ready ? p->sub_x : p->cx));
+        signature_mix(hash, (uint32_t)(s->raster_ready ? p->sub_y : p->cy));
+        signature_mix(hash, (uint32_t)p->a); signature_mix(hash, (uint32_t)p->b);
+        signature_mix(hash, p->alpha); signature_mix(hash, p->color);
+        for (int i = 0; s->qr && i < p->a * p->a; i++) signature_mix(hash, s->qr[i]);
+        return s->qr != NULL;
+    }
+#endif
     if (p->kind == PK_ICON) {
         if (p->b < 0 || p->b >= ICON_COUNT) return false;
         signature_mix(hash, (uint32_t)p->sub_x); signature_mix(hash, (uint32_t)p->sub_y);
@@ -314,7 +337,13 @@ static bool signature_hash_primitive(const scene_t *s, const prim_t *p, uint32_t
 
 static void signature_add_bounds(const scene_t *s, const prim_t *p, int *x0, int *y0, int *x1, int *y1) {
     int bx0 = p->bx0, by0 = p->by0, bx1 = p->bx1, by1 = p->by1;
-    if (!s->raster_ready) bx0 /= R_SCALE, by0 /= R_SCALE, bx1 /= R_SCALE, by1 /= R_SCALE;
+    if (!s->raster_ready) {
+#if CONFIG_IDF_TARGET_ESP32S3
+        bx0 = ui_canvas(bx0); by0 = ui_canvas(by0); bx1 = ui_canvas(bx1); by1 = ui_canvas(by1);
+#else
+        bx0 /= R_SCALE; by0 /= R_SCALE; bx1 /= R_SCALE; by1 /= R_SCALE;
+#endif
+    }
     bx1 += 2;  // cover the bilinear native-pixel neighbour
     by1 += 2;
     *x0 = imin(*x0, bx0); *y0 = imin(*y0, by0);
