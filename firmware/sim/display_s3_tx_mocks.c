@@ -68,7 +68,8 @@ BaseType_t xSemaphoreTake(SemaphoreHandle_t s,TickType_t ticks) {
         if(s->role==3)atomic_store(&mock_credit_waiting,true);
         if(s->role==2)atomic_store(&mock_done_waiting,true);
         int result=ticks==portMAX_DELAY?pthread_cond_wait(&s->ready,&s->lock):pthread_cond_timedwait(&s->ready,&s->lock,&until);
-        if(result==ETIMEDOUT)break;assert(!result);
+        if(result==ETIMEDOUT)break;
+        assert(!result);
     }
     int got=s->count;if(got)s->count=0;pthread_mutex_unlock(&s->lock);return got?pdTRUE:pdFALSE;
 }
@@ -91,7 +92,8 @@ static void unchanged(void) {
 static void complete_one(void) {
     unchanged();assert(pending_count);
     for(int row=0;row<8;row++)memcpy(&mock_screen[pending[0].y+row][pending[0].x],pending[0].data+row*pending[0].width,(size_t)pending[0].width*2);
-    if(pending_count==2)pending[0]=pending[1];pending_count--;
+    if(pending_count==2)pending[0]=pending[1];
+    pending_count--;
 }
 void board_display_frame_start(void (*callback)(void *),void *context) {
     pthread_mutex_lock(&raw_lock);assert(!started && !raw_open && !pending_count);started=callback;started_context=context;pthread_mutex_unlock(&raw_lock);
@@ -115,7 +117,8 @@ void board_display_end(void) {pthread_mutex_lock(&raw_lock);assert(raw_open && r
 void board_display_wait_idle(void) {
     pthread_mutex_lock(&raw_lock);
     while(hold_done){atomic_store(&mock_blocked,true);pthread_cond_wait(&raw_changed,&raw_lock);}
-    while(pending_count)complete_one();assert(!raw_open);pthread_mutex_unlock(&raw_lock);
+    while(pending_count)complete_one();
+    assert(!raw_open);pthread_mutex_unlock(&raw_lock);
 }
 esp_err_t frame_pacing_s3_sync(void) {
     pthread_mutex_lock(&raw_lock);assert(!pending_count && !raw_open);mock_syncs++;pthread_mutex_unlock(&raw_lock);return ESP_OK;
