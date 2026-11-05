@@ -145,7 +145,7 @@ with zipfile.ZipFile(kit_path) as kit:
                 "deploy/cloudflared/probe.mjs", "deploy/cloudflared/install-systemd.sh",
                 "hermes-kubik/adapter.py", "hermes-kubik/plugin.yaml", "hermes-kubik/pair.py",
                 "hermes-kubik/requirements.txt", "tools/install-hermes.py", "docs/hermes.md",
-                "docs/scenarios/hermes.md", "docs/hardware-s3.md", "tools/test-hermes-native.py",
+                "docs/scenarios/hermes.md", "docs/hardware-s3.md", "docs/printer.md", "tools/test-hermes-native.py",
                 "tools/hermes_native/contract.py", "tools/hermes_native/upstream.json", "docs/events.md"}
     assert required <= names, sorted(required - names)
     check_hermes_native(kit)
