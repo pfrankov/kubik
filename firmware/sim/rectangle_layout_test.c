@@ -78,7 +78,7 @@ static void setup(void) {
         unsigned count = 0;
         for (int n = 0; n < s.n; n++) if (s.p[n].kind == PK_QR) {
             const prim_t *p = &s.p[n]; count++;
-            assert(p->b == 368 && p->sub_x == 0 && p->sub_y == 36);
+            assert(p->b == 344 && p->sub_x == 12 && p->sub_y == 48);
             assert(abs((p->bx1 - p->bx0) - (p->by1 - p->by0)) <= 1); // inverse design bounds round independently
         }
         assert(count == 1 && word(&s, "192.168.4.1")->by0 > 520);

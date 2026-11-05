@@ -1,4 +1,4 @@
-// Real setup layout and renderer: complete edge-to-edge S3 QR patterns and native exports.
+// Real setup layout and renderer: complete S3 QR patterns, rounded-edge clearance and native exports.
 #include "../main/face_internal.h"
 #include "../main/qr.h"
 #include "qrcodegen.h"
@@ -70,14 +70,14 @@ static void original_c6_pixels(const prim_t *qr) {
 static void native_pixels(const prim_t *qr) {
 #if CONFIG_IDF_TARGET_ESP32S3
     int n=qr->a,side=qr->b,ox=qr->sub_x,oy=qr->sub_y;
-    assert(side==368 && ox==0 && oy==36);
+    assert(side==344 && ox==12 && oy==48);
     for(int y=oy;y<oy+side;y++)for(int x=0;x<368;x++) {
-        uint16_t want=modules[((y-oy)*n/side)*n+x*n/side] ? rgb565(0xE6ECEA) : 0;
-        assert(panel[y][x]==want); // Includes x=0 and x=367: no source cells or edge pixels are cropped.
+        bool ink=x>=ox && x<ox+side;
+        uint16_t want=ink && modules[((y-oy)*n/side)*n+(x-ox)*n/side] ? rgb565(0xE6ECEA) : 0;
+        assert(panel[y][x]==want); // Source edges are complete; both 12px physical side margins stay black.
     }
     for(int x=0;x<368;x++) {
         assert(!panel[oy-2][x] && !panel[oy-1][x]);
-        if(panel[oy+side][x] || panel[oy+side+1][x])fprintf(stderr,"QR footer AA enters clearance at x=%d y=%d/%d values=%x/%x\n",x,oy+side,oy+side+1,panel[oy+side][x],panel[oy+side+1][x]);
         assert(!panel[oy+side][x] && !panel[oy+side+1][x]);
     }
 
@@ -111,5 +111,5 @@ int main(int argc,char **argv) {
         memset(modules,1,(size_t)n*n);const prim_t *qr=setup(n,1);render();native_pixels(qr);
     }
 #endif
-    puts(CONFIG_IDF_TARGET_ESP32S3 ? "S3 QR layout: real setup/render path, six SDK sizes, 21..65 bounds and complete edge-to-edge 368px patterns passed" : "C6 QR layout: original six source sizes, both steps and exact canvas geometry preserved");
+    puts(CONFIG_IDF_TARGET_ESP32S3 ? "S3 QR layout: real setup/render path, six SDK sizes, 21..65 bounds and complete 344px patterns with 12px rounded-edge clearance passed" : "C6 QR layout: original six source sizes, both steps and exact canvas geometry preserved");
 }

@@ -82,9 +82,9 @@ static void draw_result(face_t *f, scene_t *s, float cx, float cy, float a, uint
 
 static int setup_qr_side(int n, float *cy) {
 #if CONFIG_IDF_TARGET_ESP32S3
-    // The complete source pattern reaches both physical edges, without cropping.
+    // Keep the complete pattern clear of the physical panel's rounded side edges.
     if (n > 0) *cy = (UI_OUTPUT_H / 2 - 4) * (float)UI_SCALE_DEN / UI_SCALE_NUM;
-    int side = n > 0 ? UI_OUTPUT_W : 0;
+    int side = n > 0 ? UI_OUTPUT_W - 24 : 0;
 
 #else
     (void)cy;

@@ -149,8 +149,8 @@ static void strided_overlays(void) {
 }
 static void qr_pixels(void) {
     for (int n = 21; n <= 65; n += 4) {
-        int side = 368;
-        int ox = (368 - side) / 2, oy = (448 - side) / 2;
+        int side = 344;
+        int ox = 12, oy = 48;
         scene_t scene = {.n = 1, .qr = modules};
         scene.p[0] = (prim_t){.kind = PK_QR, .alpha = 255, .color = 0xFFFF, .a = n, .b = side, .sub_x = ox, .sub_y = oy};
         bounds(&scene.p[0], 0, 0, UI_W, UI_H);
