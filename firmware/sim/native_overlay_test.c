@@ -10,7 +10,7 @@
 #define WIDTH UI_RENDER_W
 #define HEIGHT UI_OUTPUT_H
 static uint16_t whole[HEIGHT][WIDTH], tiled[HEIGHT][WIDTH];
-static uint8_t modules[41 * 41];
+static uint8_t modules[65 * 65];
 
 static void bounds(prim_t *p, int x, int y, int width, int height) {
     p->bx0 = (int16_t)x; p->by0 = (int16_t)y;
@@ -86,12 +86,12 @@ static void draw(const scene_t *scene, uint16_t *out, int x0, int y0, int width,
 }
 static void fixture(scene_t *scene) {
     *scene = (scene_t){.n = 3, .qr = modules, .edge_w = 7, .edge_r = 40, .edge_color = 0x36DA};
-    scene->p[0] = (prim_t){.kind = PK_QR, .alpha = 255, .color = 0xFFFF, .a = 41, .b = 4, .cx = 76, .cy = 126};
+    scene->p[0] = (prim_t){.kind = PK_QR, .alpha = 255, .color = 0xFFFF, .a = 41, .b = 287, .cx = 52, .cy = 104, .sub_x = 40, .sub_y = 80};
     scene->p[1] = (prim_t){.kind = PK_TEXT, .alpha = 193, .color = 0xFD40, .r = FONT_CARD, .b = 1, .sub_x = 474, .sub_y = 582};
     scene->text[0] = (uint8_t)font_glyph(&g_fonts[FONT_CARD], 'W');
     scene->p[2] = (prim_t){.kind = PK_ICON, .alpha = 230, .color = 0x2FFD, .a = 60 * 16,
         .b = ICON_MIC, .sub_x = 476 * 16, .sub_y = 8 * 16};
-    bounds(&scene->p[0], 76, 126, 328, 328);
+    bounds(&scene->p[0], 52, 104, 376, 376);
     bounds(&scene->p[1], 470, 530, 60, 60);
     bounds(&scene->p[2], 446, -22, 60, 60);
     for (int y = 0; y < 41; y++) for (int x = 0; x < 41; x++) modules[y * 41 + x] = (uint8_t)((x + y * 3) & 1);
@@ -147,36 +147,28 @@ static void strided_overlays(void) {
     }
     puts("native overlay stride: full/partial/tail windows match packed reference; all row and outer canaries intact");
 }
-static unsigned qr_value(int n, int module, int x, int y) {
-    if (x < 0 || y < 0 || x >= n * module || y >= n * module) return 0;
-    return modules[(y / module) * n + x / module] ? 15 : 0;
-}
 static void qr_pixels(void) {
-    static const int sizes[] = {21, 25, 29, 33, 37, 41};
-    for (unsigned k = 0; k < sizeof sizes / sizeof sizes[0]; k++) {
-        int n = sizes[k], module = 186 / (n + 2); if (module > 8) module = 8;
-        int ox = 240 - n * module, oy = 292 - n * module;
+    for (int n = 21; n <= 65; n += 4) {
+        int side = 368 * n / (n + 8);
+        while (side + 2 * ((4 * side + n - 1) / n) > 368) side--;
+        int ox = (368 - side) / 2, oy = (448 - side) / 2;
         scene_t scene = {.n = 1, .qr = modules};
-        scene.p[0] = (prim_t){.kind = PK_QR, .alpha = 255, .color = 0xFFFF, .a = n, .b = module, .cx = ox, .cy = oy};
-        bounds(&scene.p[0], ox, oy, n * module * 2, n * module * 2);
+        scene.p[0] = (prim_t){.kind = PK_QR, .alpha = 255, .color = 0xFFFF, .a = n, .b = side, .sub_x = ox, .sub_y = oy};
+        bounds(&scene.p[0], 0, 0, UI_W, UI_H);
         for (int i = 0; i < n * n; i++) modules[i] = (uint8_t)((i * 17 + i / n) & 1);
         memset(whole, 0, sizeof whole); render_edge_overlay(&scene, &whole[0][0], 0, 0, WIDTH, HEIGHT, WIDTH, false);
         for (int y = 0; y < HEIGHT; y++) for (int x = 0; x < UI_OUTPUT_W; x++) {
-            double sx = design(x) - ox, sy = design(y) - oy;
-            int ix = (int)floor(sx), iy = (int)floor(sy); double fx = sx - ix, fy = sy - iy;
-            double c = qr_value(n, module * 2, ix, iy) * (1 - fx) * (1 - fy)
-                + qr_value(n, module * 2, ix + 1, iy) * fx * (1 - fy)
-                + qr_value(n, module * 2, ix, iy + 1) * (1 - fx) * fy
-                + qr_value(n, module * 2, ix + 1, iy + 1) * fx * fy;
-            assert(whole[y][x] == expected(c, 255, 0xFFFF, 0));
+            bool inside = x >= ox && x < ox + side && y >= oy && y < oy + side;
+            uint16_t want = inside && modules[((y - oy) * n / side) * n + (x - ox) * n / side] ? 0xFFFF : 0;
+            assert(whole[y][x] == want);
         }
     }
-    puts("native QR: all six source sizes retain established module scale and match full native pixel oracle");
+    puts("native QR: source sizes 21..65 match crisp integer pixel source cells without smoothing");
 }
 static void qr_fade(void) {
     uint16_t pixels[32 * 16]; scene_t scene = {.n = 1, .qr = modules};
     memset(modules, 1, sizeof modules);
-    scene.p[0] = (prim_t){.kind = PK_QR, .color = 0xE593, .a = 41, .b = 4, .cx = 76, .cy = 126};
+    scene.p[0] = (prim_t){.kind = PK_QR, .color = 0xE593, .a = 41, .b = 287, .cx = 52, .cy = 104, .sub_x = 40, .sub_y = 80};
     bounds(&scene.p[0], 76, 126, 328, 328);
     for (int alpha = 0; alpha <= 255; alpha++) for (int swap = 0; swap < 2; swap++) {
         scene.p[0].alpha = (uint8_t)alpha;
@@ -219,7 +211,7 @@ static void source_bounds(void) {
         prim_t *p;
         if (!kind) p = sc_text(&scene, FONT_CARD, "Agyj", x, y, -1, 0, 0xFFFFFF, 1);
         else if (kind == 1) p = sc_icon(&scene, ICON_CHECK, x, y, 40, 0xFFFFFF, 1);
-        else p = sc_qr(&scene, modules, 41, 4, x, y, 0xFFFFFF, 1);
+        else p = sc_qr(&scene, modules, 41, 164, x, y, 0xFFFFFF, 1);
         render_overlay_item_t before, after;
         assert(render_overlay_item(&scene, p, &before));
         render_project_scene(&scene); assert(render_overlay_item(&scene, p, &after));

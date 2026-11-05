@@ -85,7 +85,11 @@ static R_HOT bool flat_row(render_output_t *st, int k, bool swap) {
     uint16_t color = src[lo];
     for (int x = lo + 1; x < hi; x++) if (src[x] != color) return false;
     uint32_t pair = color | ((uint32_t)color << 16), output = swap ? swap2(pair) : pair;
-    for (int x = lo; x < st->xb; x++) { st->row[k][x] = pair; st->even[k][x] = output; }
+    if (!color) {
+        size_t bytes = (size_t)(st->xb - lo) * sizeof st->row[k][0];
+        memset(st->row[k] + lo, 0, bytes);
+        memset(st->even[k] + lo, 0, bytes);
+    } else for (int x = lo; x < st->xb; x++) { st->row[k][x] = pair; st->even[k][x] = output; }
     return true;
 }
 

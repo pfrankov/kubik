@@ -312,8 +312,8 @@ static bool signature_hash_primitive(const scene_t *s, const prim_t *p, uint32_t
     if (!p->alpha) return false;
 #if CONFIG_IDF_TARGET_ESP32S3
     if (p->kind == PK_QR) {
-        signature_mix(hash, (uint32_t)(s->raster_ready ? p->sub_x : p->cx));
-        signature_mix(hash, (uint32_t)(s->raster_ready ? p->sub_y : p->cy));
+        signature_mix(hash, (uint32_t)p->sub_x);
+        signature_mix(hash, (uint32_t)p->sub_y);
         signature_mix(hash, (uint32_t)p->a); signature_mix(hash, (uint32_t)p->b);
         signature_mix(hash, p->alpha); signature_mix(hash, p->color);
         for (int i = 0; s->qr && i < p->a * p->a; i++) signature_mix(hash, s->qr[i]);

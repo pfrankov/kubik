@@ -2,6 +2,7 @@
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "icon_data.h"
+#include <string.h>
 
 static int maximum(int a, int b) { return a > b ? a : b; }
 static int minimum(int a, int b) { return a < b ? a : b; }
@@ -26,8 +27,9 @@ static bool primitive_intersects(const scene_t *scene, const prim_t *p, int x0, 
 }
 
 // Coverage stays Q8 until opacity is applied; all arithmetic fits uint32_t.
-static void composite(uint16_t *dst, uint16_t color, uint8_t opacity, unsigned coverage_q8, bool swap) {
-    unsigned alpha = (coverage_q8 * opacity * 32u + 489600u) / 979200u;
+static inline __attribute__((always_inline)) void composite(uint16_t *dst, uint16_t color, uint8_t opacity, unsigned coverage_q8, bool swap) {
+    unsigned alpha = opacity == 255 ? (coverage_q8 + 60u) / 120u
+                                   : (coverage_q8 * opacity * 32u + 489600u) / 979200u;
     if (!alpha) return;
     if (alpha >= 32) *dst = swap ? rgb565_bswap(color) : color;
     else if (swap) *dst = rgb565_bswap(rgb565_blend(color, rgb565_bswap(*dst), alpha));
@@ -39,10 +41,29 @@ static unsigned bilinear(unsigned a, unsigned b, unsigned c, unsigned d, int fx,
     return (top * (256 - fy) + bottom * fy + 128) >> 8;
 }
 
-static unsigned glyph_sample(const font_t *font, const font_glyph_t *glyph, int x, int y) {
-    if (x < 0 || y < 0 || x >= glyph->w || y >= glyph->h) return 0;
-    unsigned byte = font->px[glyph->off + y * ((glyph->w + 1) / 2) + x / 2];
-    return (byte >> ((x & 1) * 4)) & 15;
+// A uint8_t glyph width projects to at most this many physical columns,
+// including the one-source-pixel filter support at each side.
+#define GLYPH_COLUMNS (((UINT8_MAX + 2) * UI_SCALE_NUM + UI_SCALE_DEN - 1) / UI_SCALE_DEN + 1)
+typedef struct {
+    uint8_t first[GLYPH_COLUMNS], fraction[GLYPH_COLUMNS];
+} glyph_columns_t;
+
+static inline __attribute__((always_inline)) void glyph_decode_row(const font_t *font, const font_glyph_t *glyph,
+                                                                  int y, uint8_t pixels[UINT8_MAX + 2]) {
+    pixels[0] = pixels[glyph->w + 1] = 0;
+    if (y < 0 || y >= glyph->h) { memset(pixels + 1, 0, glyph->w); return; }
+    const uint8_t *src = font->px + glyph->off + y * ((glyph->w + 1) / 2);
+    for (int x = 0; x < glyph->w; x++) pixels[x + 1] = (uint8_t)((src[x / 2] >> ((x & 1) * 4)) & 15);
+}
+
+static inline __attribute__((always_inline)) void glyph_prepare_columns(glyph_columns_t *columns, int xa, int xb,
+                                                                        int gx, int glyph_width) {
+    for (int x = xa; x < xb; x++) {
+        int sx = design_q8(x) - gx * 256, ix = floor_div(sx, 256);
+        bool valid = ix >= -1 && ix < glyph_width;
+        columns->first[x - xa] = valid ? (uint8_t)(ix + 1) : 0;
+        columns->fraction[x - xa] = valid ? (uint8_t)(sx - ix * 256) : 0;
+    }
 }
 
 static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, uint16_t *out,
@@ -52,13 +73,20 @@ static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, u
     int xb = minimum(minimum(x0 + width, UI_OUTPUT_W), native_ceil(gx + glyph->w + 1));
     int ya = maximum(maximum(y0, 0), native_floor(gy - 1));
     int yb = minimum(minimum(y0 + rows, UI_OUTPUT_H), native_ceil(gy + glyph->h + 1));
+    if (xa >= xb || ya >= yb) return;
+    glyph_columns_t columns;
+    glyph_prepare_columns(&columns, xa, xb, gx, glyph->w);
+    uint8_t pixels[2][UINT8_MAX + 2]; int keys[2] = {INT32_MIN, INT32_MIN};
     for (int y = ya; y < yb; y++) {
         int sy = design_q8(y) - gy * 256, iy = floor_div(sy, 256), fy = sy - iy * 256;
+        int k = (unsigned)iy & 1u, next = k ^ 1;
+        if (keys[k] != iy) { glyph_decode_row(font, glyph, iy, pixels[k]); keys[k] = iy; }
+        if (keys[next] != iy + 1) { glyph_decode_row(font, glyph, iy + 1, pixels[next]); keys[next] = iy + 1; }
         uint16_t *row = out + (y - y0) * stride;
         for (int x = xa; x < xb; x++) {
-            int sx = design_q8(x) - gx * 256, ix = floor_div(sx, 256), fx = sx - ix * 256;
-            unsigned coverage = bilinear(glyph_sample(font, glyph, ix, iy), glyph_sample(font, glyph, ix + 1, iy),
-                                          glyph_sample(font, glyph, ix, iy + 1), glyph_sample(font, glyph, ix + 1, iy + 1), fx, fy);
+            unsigned index = columns.first[x - xa];
+            unsigned coverage = bilinear(pixels[k][index], pixels[k][index + 1], pixels[next][index], pixels[next][index + 1],
+                                          columns.fraction[x - xa], fy);
             if (coverage) composite(&row[x - x0], color, opacity, coverage, swap);
         }
     }
@@ -124,58 +152,24 @@ R_HOT void render_s3_text_overlay(const scene_t *scene, uint16_t *out, int x0, i
     }
 }
 
-static unsigned qr_sample(const scene_t *scene, int n, int x, int y) {
-    return x < 0 || y < 0 || x >= n || y >= n ? 0 : scene->qr[y * n + x] ? 15 : 0;
-}
-
 static inline void edge_composite(uint16_t *dst, uint16_t color, unsigned alpha, bool swap) {
     if (alpha >= 32) *dst = swap ? rgb565_bswap(color) : color;
     else if (swap) *dst = rgb565_bswap(rgb565_blend(color, rgb565_bswap(*dst), alpha));
     else *dst = rgb565_blend(color, *dst, alpha);
 }
 
-typedef struct {
-    int16_t first[UI_OUTPUT_W], next[UI_OUTPUT_W];
-    uint8_t fraction[UI_OUTPUT_W];
-} qr_columns_t;
-
-static R_HOT void qr_composite_row(const scene_t *scene, const prim_t *p, const qr_columns_t *columns,
-                                  uint16_t *row, int x0, int xa, int xb, int my0, int my1, int fy, bool swap) {
-    unsigned solid_alpha = (p->alpha * 32u + 127u) / 255u;
-    for (int x = xa; x < xb; x++) {
-        int mx0 = columns->first[x], mx1 = columns->next[x];
-        if (my0 == my1 && mx0 == mx1) {
-            if (solid_alpha && qr_sample(scene, p->a, mx0, my0))
-                edge_composite(&row[x - x0], p->color, solid_alpha, swap);
-            continue;
-        }
-        unsigned coverage = bilinear(qr_sample(scene, p->a, mx0, my0), qr_sample(scene, p->a, mx1, my0),
-                                      qr_sample(scene, p->a, mx0, my1), qr_sample(scene, p->a, mx1, my1), columns->fraction[x], fy);
-        if (coverage) composite(&row[x - x0], p->color, p->alpha, coverage, swap);
-    }
-}
-
 static R_HOT void qr_overlay(const scene_t *scene, const prim_t *p, uint16_t *out,
                        int x0, int y0, int width, int rows, int stride, bool swap) {
-    int ox = scene->raster_ready ? p->sub_x : p->cx, oy = scene->raster_ready ? p->sub_y : p->cy;
-    int module = p->b * 2, side = p->a * module;
-    if (module <= 0 || !scene->qr) return;
-    int xa = maximum(maximum(x0, 0), native_floor(ox - 1));
-    int xb = minimum(minimum(x0 + width, UI_OUTPUT_W), native_ceil(ox + side + 1));
-    int ya = maximum(maximum(y0, 0), native_floor(oy - 1));
-    int yb = minimum(minimum(y0 + rows, UI_OUTPUT_H), native_ceil(oy + side + 1));
-    if (xa >= xb || ya >= yb) return;
-    qr_columns_t columns;
-    for (int x = xa; x < xb; x++) {
-        int sx = design_q8(x) - ox * 256, ix = floor_div(sx, 256);
-        columns.first[x] = (int16_t)floor_div(ix, module); columns.next[x] = (int16_t)floor_div(ix + 1, module);
-        columns.fraction[x] = (uint8_t)(sx - ix * 256);
-    }
+    int ox = p->sub_x, oy = p->sub_y, side = p->b;
+    if (side <= 0 || !scene->qr) return;
+    int xa = maximum(maximum(x0, 0), ox), xb = minimum(minimum(x0 + width, UI_OUTPUT_W), ox + side);
+    int ya = maximum(maximum(y0, 0), oy), yb = minimum(minimum(y0 + rows, UI_OUTPUT_H), oy + side);
+    unsigned alpha = (p->alpha * 32u + 127u) / 255u;
     for (int y = ya; y < yb; y++) {
-        int sy = design_q8(y) - oy * 256, iy = floor_div(sy, 256), fy = sy - iy * 256;
-        int my0 = floor_div(iy, module), my1 = floor_div(iy + 1, module);
         uint16_t *row = out + (y - y0) * stride;
-        qr_composite_row(scene, p, &columns, row, x0, xa, xb, my0, my1, fy, swap);
+        int source = ((y - oy) * p->a / side) * p->a;
+        for (int x = xa; x < xb; x++)
+            if (scene->qr[source + (x - ox) * p->a / side]) edge_composite(&row[x - x0], p->color, alpha, swap);
     }
 }
 

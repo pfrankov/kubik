@@ -113,10 +113,10 @@ prim_t *sc_mask_rbox(scene_t *s, float cx, float cy, float hw, float hh, float r
 // (x, y) is its origin in panel pixels, bbox is inclusive panel pixels.
 prim_t *sc_image(scene_t *s, uint32_t id, int x, int y, int bx0, int by0, int bx1, int by1, float alpha);
 
-// QR code: n*n modules (row-major bytes, nonzero = dark), each `module` native
-// pixels square, centred on (cx, cy) design px. Axis aligned and pixel exact on
-// the native grid so phone cameras read it; `mods` must outlive the frame.
-prim_t *sc_qr(scene_t *s, const uint8_t *mods, int n, int module, float cx, float cy, uint32_t rgb, float alpha);
+// QR code: n*n source modules, square side in output pixels, centred on design
+// (cx, cy). Native cells are sampled without smoothing; mods outlives the frame.
+// C6 requires side divisible by n*R_SCALE to preserve its exact source raster.
+prim_t *sc_qr(scene_t *s, const uint8_t *mods, int n, int side, float cx, float cy, uint32_t rgb, float alpha);
 
 // One line of text (UTF-8; FONT_* from font.h) with its baseline at `y`,
 // aligned by `align` (-1 left edge at x, 0 centred on x, 1 right edge at x),

@@ -5,9 +5,8 @@ static int larger(int a, int b) { return a > b ? a : b; }
 
 static void project_source_origin(prim_t *p) {
 #if CONFIG_IDF_TARGET_ESP32S3
-    if (p->kind == PK_QR) {
-        p->sub_x = p->cx; p->sub_y = p->cy; // exact design origin for the native QR overlay
-    } else if (p->kind == PK_SPRITE) {
+    // QR sub_x/sub_y (origin) and b (square side) use physical output pixels.
+    if (p->kind == PK_SPRITE) {
         p->sub_x = p->cx; p->sub_r = p->cy; // sprite source grid stays 240x240
     }
 #else

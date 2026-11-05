@@ -32,8 +32,13 @@ void face_set_setup(face_t *f, const uint8_t *mods, int n, int step, const char 
 
 // Keep all available room for the QR. Step two changes the existing heading
 // and accent; it does not add another row or reduce the camera target.
+#if CONFIG_IDF_TARGET_ESP32S3
+#define SETUP_TITLE_Y 33.f
+#define SETUP_CHIP_Y (UI_H - 36.f)
+#else
 #define SETUP_TITLE_Y 37.f
 #define SETUP_CHIP_Y (UI_H - 40.f)
+#endif
 #define SETUP_CARD_TOP 54.f
 #define SETUP_CARD_BOTTOM (UI_H - 54.f)
 #define QR_INK 0xE6ECEAu  // nearly white on the black screen: no bright card to throw off a phone camera's exposure
@@ -75,20 +80,40 @@ static void draw_result(face_t *f, scene_t *s, float cx, float cy, float a, uint
     if (f->qr_step == 4 && face_character(f) == CHARACTER_TESS) draw_sparks(f, s, cx, cy);
 }
 
-void draw_setup_card(face_t *f, scene_t *s) {
-    int n = f->qr_n;
-    // Keep the established 372 px camera target while portrait adds room around it.
-    int avail = (int)(fminf(UI_W - 108.f, SETUP_CARD_BOTTOM - SETUP_CARD_TOP) / R_SCALE);
-    int module = n > 0 ? avail / (n + 2) : 0;  // a module of black margin each side; the screen is the rest of the quiet zone
+static int setup_qr_side(int n, float *cy) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    // Titles are capitals; include baseline overshoot and one native AA pixel.
+    float title_bottom = SETUP_TITLE_Y + g_fonts[g_text[TXT_HEADING].font].cap * .5f + 2;
+    int top = (int)ceilf(title_bottom * UI_SCALE_NUM / UI_SCALE_DEN) + 1;
+    int bottom = (int)floorf((SETUP_CHIP_Y - 17) * UI_SCALE_NUM / UI_SCALE_DEN) - 1;
+    int avail = bottom - top < UI_OUTPUT_W ? bottom - top : UI_OUTPUT_W;
+    if (n <= 0) return 0;
+    int side = avail * n / (n + 8);
+    // Rounding the quiet zone up can consume one more pixel than the ratio.
+    for (int i = 0; i < 2 && side + 2 * ((4 * side + n - 1) / n) > avail; i++) side--;
+    *cy = ((top + bottom) / 2) * (float)UI_SCALE_DEN / UI_SCALE_NUM;
+
+#else
+    (void)cy;
+    int avail = (int)((SETUP_CARD_BOTTOM - SETUP_CARD_TOP) / R_SCALE);
+    int module = n > 0 ? avail / (n + 2) : 0;
     if (module > 8) module = 8;
     if (n > 0 && module < 2) module = 2;
+    int side = n * module * R_SCALE;
+#endif
+    return side;
+}
+
+void draw_setup_card(face_t *f, scene_t *s) {
+    int n = f->qr_n;
     float cx = CX, cy = (SETUP_CARD_TOP + SETUP_CARD_BOTTOM) * 0.5f;
+    int side = setup_qr_side(n, &cy);
     float k = clampf(f->qr_t / 0.3f, 0, 1);
     float a = k * k * (3.f - 2.f * k);
     uint32_t accent = f->qr_step == 2 ? UI_GOLD : f->qr_step == 5 ? UI_ERROR : UI_ACCENT;
     sc_label(s, TXT_HEADING, f->setup_text[0], cx, SETUP_TITLE_Y, 0, accent, a);
     if (n > 0) {  // the code is drawn light on black: a phone reads it inverted
-        sc_qr(s, f->qr, n, module, cx, cy, QR_INK, a);
+        sc_qr(s, f->qr, n, side, cx, cy, QR_INK, a);
     } else if (f->qr_step >= 4) {
         draw_result(f, s, cx, cy, a, accent);
     } else {

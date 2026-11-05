@@ -59,14 +59,14 @@ static uint32_t ulTaskNotifyTake(int clear,TickType_t ticks) {
 TEST = r'''
 #include "frame_pacing_s3.c"
 static void reset(uint32_t measured) {
-    epoch=accepted=1000000;now=epoch+12000;period=measured;
+    epoch=accepted=1000000;now=epoch+8000;period=measured;
     mode=waits=reads=delays=takes=early_once=fatal=0;
     notifications=notify_during_wait=0;delay_total=0;
     s_accepted_edge=s_next_slot=s_expected_edge=0;
 }
 int main(void) {
     if(setjmp(failure))assert(false && "unexpected clock error");
-    // Preparation starts one measured period after each accepted presentation.
+    // Preparation starts one measured period after presentation.
     // A six-ms preparation then reaches the second following physical edge.
     reset(16667);
     for(int frame=0;frame<100;frame++) {
@@ -81,7 +81,7 @@ int main(void) {
     }
     // Actual period changes are used directly, never a fixed 16.667-ms rate.
     period=17321;epoch=accepted;now=accepted+12000;
-    assert(!frame_pacing_s3_wait(true) && now>=accepted+17321 && now<accepted+19321);
+    assert(!frame_pacing_s3_wait(true) && now>=accepted+period && now<accepted+period+2000);
     // A newly accepted third TE is late even though reanchoring creates a
     // future preparation slot. The following on-time edge is not counted twice.
     reset(16750);assert(!frame_pacing_s3_wait(true));
@@ -117,7 +117,7 @@ int main(void) {
     reset(16750);notifications=100000;notify_during_wait=100000;
     assert(!frame_pacing_s3_wait(true) && takes==1 && delays<=2 && !notifications);
     // Fractional kernel tick phase gets at most one extra blocking tick.
-    reset(16750);early_once=700;
+    reset(16750);early_once=1000;
     assert(!frame_pacing_s3_wait(true) && now>=accepted+period && delays==2);
     // A late CPU frame yields once and skips expired no-damage slots.
     reset(16750);now=accepted+2*period+500;
@@ -138,6 +138,43 @@ int main(void) {
     assert(!frame_pacing_s3_wait(false) && now==before+250000 && reads==old_reads);
     accepted=epoch=now;now+=12000;
     assert(!frame_pacing_s3_wait(true) && now>=accepted+period);
+    // Both 5-ms and 12-ms preparations present at E+2T after the staging path.
+    for(int duration=5000;duration<=12000;duration+=7000) {
+        reset(16750);now=epoch+8400;
+        assert(!frame_pacing_s3_wait(true));now+=duration;
+        assert(frame_pacing_s3_sync()==ESP_OK);
+        assert(accepted==epoch+2*period && waits==1);
+        now=accepted+12000;assert(!frame_pacing_s3_wait(true));
+    }
+    reset(16750);now=epoch+8400;
+    assert(!frame_pacing_s3_wait(true));now+=19000;
+    assert(frame_pacing_s3_sync()==ESP_OK && accepted==epoch+3*period);
+    now=accepted+12000;assert(frame_pacing_s3_wait(true));
+    // The synchronizer still rejects a fresh early edge if preparation is
+    // already complete before E+T, with a strict two-fresh-edge bound.
+    reset(16750);s_expected_edge=epoch+2*period;
+    assert(frame_pacing_s3_sync()==ESP_OK && accepted==epoch+2*period && waits==2);
+    // Initial and post-dark presentations accept their first fresh edge.
+    reset(16750);assert(frame_pacing_s3_sync()==ESP_OK && waits==1);
+    assert(!frame_pacing_s3_wait(true));notifications=1;
+    assert(!frame_pacing_s3_wait(false));waits=0;
+    assert(frame_pacing_s3_sync()==ESP_OK && waits==1);
+    // Sync uses measured drift and the virtual no-damage presentation target.
+    reset(16750);assert(!frame_pacing_s3_wait(true));now+=3000;
+    assert(!frame_pacing_s3_wait(true));now+=5000;
+    int64_t target=s_expected_edge;
+    assert(frame_pacing_s3_sync()==ESP_OK && accepted==target);
+    reset(16667);now=epoch+8400;assert(!frame_pacing_s3_wait(true));
+    period=17321;now+=5000;
+    assert(frame_pacing_s3_sync()==ESP_OK && accepted==epoch+2*period);
+    // Missing IRQ and unqualified clock errors propagate; early edges are
+    // bounded to two waits and cannot authorize an unsynchronized transfer.
+    reset(16750);mode=2;
+    assert(frame_pacing_s3_sync()==ESP_ERR_TIMEOUT && waits==1);
+    reset(16750);assert(!frame_pacing_s3_wait(true));mode=3;
+    assert(frame_pacing_s3_sync()==ESP_ERR_INVALID_STATE && waits==1);
+    reset(16750);s_expected_edge=epoch+10*period;
+    assert(frame_pacing_s3_sync()==ESP_ERR_TIMEOUT && waits==2);
     // Startup qualification uses at most two bounded fresh-edge waits.
     reset(16750);mode=1;accepted=0;
     assert(!frame_pacing_s3_wait(true) && waits==2 && now>=accepted+period);
@@ -168,4 +205,4 @@ with tempfile.TemporaryDirectory(prefix='kubik-s3-pacing-') as temporary:
                     '-fsanitize=address,undefined', '-I' + str(directory), str(source), '-o', str(executable)], check=True)
     subprocess.run([str(executable)], check=True, timeout=10)
 print('S3 pacing: measured TE cadence/drift, no-damage slots, overload, bounded notification work, '
-      'accepted-edge misses, dark/wake and missing-clock failures passed')
+      'target-edge synchronization, accepted-edge misses, dark/wake and missing-clock failures passed')

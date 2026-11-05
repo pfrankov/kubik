@@ -70,7 +70,7 @@ def check_build_targets():
         group = calls[index * 3:index * 3 + 3]
         assert group[0] == ([
             'idf.py', '-C', 'firmware', '-B', str(ROOT / 'firmware' / directory),
-            f'-DIDF_TARGET={target}', f'-DKUBIK_CHARACTER={character}', 'build',
+            f'-DIDF_TARGET={target}', f'-DKUBIK_CHARACTER={character}', 'reconfigure', 'build',
         ], 1200)
         for (command, timeout), name in zip(group[1:], ('package', 'kit')):
             assert command == [accept['sys'].executable, f'tools/test-{name}.py',

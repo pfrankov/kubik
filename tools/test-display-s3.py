@@ -6,7 +6,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'firmware/main/display_s3.c').read_text()
-for header in ('board.h', 'esp_heap_caps.h', 'esp_timer.h', 'display_te_s3.h', 'esp_log.h'):
+for header in ('board.h', 'esp_heap_caps.h', 'esp_timer.h', 'frame_pacing_s3.h', 'esp_log.h'):
     source = source.replace(f'#include "{header}"\n', '')
 fixture = r'''
 #include <assert.h>
@@ -39,7 +39,7 @@ static void *heap_caps_calloc(size_t count, size_t bytes, unsigned caps) {
 static void heap_caps_free(void *p) { if(p)held--; free(p); }
 static uint16_t screen[448][368], expected[448][384];
 static bool raw_open, first_of_burst;
-static int te_waits, idle_waits;
+static int te_syncs, idle_waits;
 #define ESP_ERROR_CHECK(value) assert((value)==0)
 static void verify_native_ready(void);
 static bool dma_source(const uint16_t *data);
@@ -64,7 +64,7 @@ static void complete_one(void) {
     memmove(queue,queue+1,(size_t)(--pending)*sizeof *queue);
 }
 void board_display_begin(int x0,int y0,int x1,int y1) {
-    assert(te_waits>0);
+    assert(te_syncs>0);
     if(first_of_burst) {verify_native_ready();first_of_burst=false;}
     unchanged(); assert(!raw_open && x0>=0 && x1<=368 && x0<x1 && y0>=0 && y1<=448 && y0<y1);
     assert(x0%16==0 && x1%16==0 && y0%8==0 && y1%8==0);
@@ -84,9 +84,9 @@ void board_display_wait_idle(void) {
     if(active)mock_time+=dma_delay;
     idle_waits++;
 }
-static int display_te_wait(void) {
+static int frame_pacing_s3_sync(void) {
     verify_native_ready(); assert(!pending && !raw_open);
-    te_waits++;mock_time+=te_delay;return 0;
+    te_syncs++;mock_time+=te_delay;return 0;
 }
 '''
 checks = r'''
@@ -120,10 +120,10 @@ static void write_rect(int x0,int y0,int x1,int y1) {
     display_s3_end();
 }
 static void present(bool visible) {
-    int before=windows,prior_te=te_waits,prior_idle=idle_waits;
+    int before=windows,prior_sync=te_syncs,prior_idle=idle_waits;
     first_of_burst=true;
     int64_t started=display_s3_present();
-    assert((started!=0)==visible && (te_waits==prior_te+1)==visible);
+    assert((started!=0)==visible && (te_syncs==prior_sync+1)==visible);
     if(visible)assert(!first_of_burst && windows>before && idle_waits==prior_idle+1);
     else assert(first_of_burst && windows==before && idle_waits==prior_idle);
     verify();
@@ -157,7 +157,7 @@ static void touch_mapping(void) {
 static void full_pattern(void) {
     for(int y=0;y<448;y++)for(int x=0;x<384;x++)expected[y][x]=pattern(x,y);
     draw(0,0,384,448);
-    assert(windows==1 && writes==56 && te_waits==1 && dma_seen==7);
+    assert(windows==1 && writes==56 && te_syncs==1 && dma_seen==7);
     display_s3_profile_t p=display_s3_last_profile();
     assert(p.input_pixels==384*448 && p.native_pixels==368*448 && p.windows==1);
     assert(p.render_us==0 && p.te_us==0 && p.burst_us==0);
@@ -287,7 +287,7 @@ with tempfile.TemporaryDirectory(prefix='kubik-display-s3-') as temporary:
         subprocess.run([str(binary)], check=True, timeout=20)
 
 # Compile the actual boundary: expansion, edge and text write wire-order RGB565
-# on both targets. S3 composes each complete window once with a padded native stride and no intermediate buffer.
+# on both targets. S3 composes bounded internal chunks, then copies exact rows into the padded native store.
 presentation = (ROOT / 'firmware/main/present.c').read_text()
 helper_start = presentation.index('static render_output_t *output_for(')
 helper_end = presentation.index('\n}\n', helper_start) + 3
@@ -305,11 +305,15 @@ order_fixture = r'''
 #define UI_RENDER_W LCD_W
 #define OUTPUT_ROWS 8
 #define LCD_PIPE 3
+#ifndef X0
 #define X0 16
+#endif
+#ifndef X1
 #define X1 (LCD_W-16)
+#endif
 #define Y0 8
 #ifndef Y1
-#define Y1 24
+#define Y1 40
 #endif
 #define WIDTH (X1-X0)
 typedef struct {int x0,y0,x1,y1;} render_win_t;
@@ -327,11 +331,15 @@ static int expands,edges,texts,writes,begins,ends;
 static render_output_t *seen_output;
 static int64_t esp_timer_get_time(void) {return 37;}
 static uint16_t wire(uint16_t value) {return (uint16_t)((value<<8)|(value>>8));}
+static uint16_t expanded_pixel(int x,int y) {return wire((uint16_t)(0x7139u+(unsigned)x*37u+(unsigned)y*53u));}
+static uint16_t edge_pixel(int y) {return wire((uint16_t)(0x52acu^((unsigned)y*19u)));}
+static uint16_t text_pixel(int y) {return wire((uint16_t)(0x95b7u^((unsigned)y*37u)));}
 static void render_output_columns(render_output_t *out,int x0,int x1) {
     assert(out && x0==X0 && x1==X1);seen_output=out;out->marker=0x7139;
 }
 #if CONFIG_IDF_TARGET_ESP32S3
-static uint16_t native[32][384];
+static uint16_t native[64][384];
+static uint16_t *seen_stage;
 static int row_at;
 static void display_begin(int x0,int y0,int x1,int y1) {
     assert(x0==X0 && y0==Y0 && x1==X1 && y1==Y1);begins++;row_at=y0;
@@ -345,7 +353,10 @@ static void display_begin(int x0,int y0,int x1,int y1) {
 static void display_write(const uint16_t *pixels,int count,bool last) {
     int remaining=Y1-Y0-writes*8,rows=remaining<8 ? remaining : 8;
     assert(count==WIDTH*rows && last==(remaining<=8));
-    for(int row=0;row<rows;row++)assert(pixels[row*WIDTH]==wire(0x95b7));
+    for(int row=0;row<rows;row++)for(int col=0;col<WIDTH;col++) {
+        int y=Y0+writes*8+row;
+        assert(pixels[row*WIDTH+col]==(col ? expanded_pixel(X0+col,y) : text_pixel(y)));
+    }
     writes++;
 }
 static void display_end(void) {assert(writes==(Y1-Y0+7)/8);ends++;}
@@ -353,7 +364,12 @@ static void display_end(void) {assert(writes==(Y1-Y0+7)/8);ends++;}
 static void destination(uint16_t *pixels,int x,int y,int w,int h,int stride) {
     assert(x==X0 && w==WIDTH && w%2==0 && h%2==0);
 #if CONFIG_IDF_TARGET_ESP32S3
-    assert(y==Y0 && h==Y1-Y0 && stride==384 && pixels==&native[Y0][X0] && row_at==Y1);
+    int remaining=Y1-y;
+    assert(y>=Y0 && y<Y1 && (y-Y0)%24==0 && h==(remaining<24 ? remaining : 24) && stride==WIDTH && row_at==y);
+    uintptr_t address=(uintptr_t)pixels;
+    assert(address<(uintptr_t)native || address>=(uintptr_t)native+sizeof native);
+    if(!seen_stage)seen_stage=pixels;
+    assert(pixels==seen_stage);
 #else
     int remaining=Y1-y;
     (void)pixels;assert(y>=Y0 && y<Y1 && (y-Y0)%8==0 && h==(remaining<8 ? remaining : 8) && stride==WIDTH);
@@ -361,17 +377,17 @@ static void destination(uint16_t *pixels,int x,int y,int w,int h,int stride) {
 }
 static void render_expand_2x(render_output_t *out,uint16_t *pixels,int x,int y,int w,int h,int stride,bool swap) {
     assert(out==seen_output && out->marker==0x7139 && swap);destination(pixels,x,y,w,h,stride);expands++;
-    for(int row=0;row<h;row++)for(int col=0;col<w;col++)pixels[row*stride+col]=wire(0x7139);
+    for(int row=0;row<h;row++)for(int col=0;col<w;col++)pixels[row*stride+col]=expanded_pixel(x+col,y+row);
 }
 static void render_edge_overlay(const void *scene,uint16_t *pixels,int x,int y,int w,int h,int stride,bool swap) {
     (void)scene;assert(swap);destination(pixels,x,y,w,h,stride);edges++;
-    for(int row=0;row<h;row++)for(int col=0;col<w;col++)assert(pixels[row*stride+col]==wire(0x7139));
-    for(int row=0;row<h;row++)pixels[row*stride]=wire(0x52ac);
+    for(int row=0;row<h;row++)for(int col=0;col<w;col++)assert(pixels[row*stride+col]==expanded_pixel(x+col,y+row));
+    for(int row=0;row<h;row++)pixels[row*stride]=edge_pixel(y+row);
 }
 static void render_text_overlay(const void *scene,uint16_t *pixels,int x,int y,int w,int h,int stride,bool swap) {
     (void)scene;assert(swap);destination(pixels,x,y,w,h,stride);texts++;
     for(int row=0;row<h;row++) {
-        assert(pixels[row*stride]==wire(0x52ac));pixels[row*stride]=wire(0x95b7);
+        assert(pixels[row*stride]==edge_pixel(y+row));pixels[row*stride]=text_pixel(y+row);
     }
 }
 '''
@@ -380,7 +396,7 @@ int main(void) {
 #if CONFIG_IDF_TARGET_ESP32S3
     // S3 must not dereference or rotate the old chunk-buffer pool.
     frame_out_t frame={.overlay_count=1,.next=2,.bufs={NULL,NULL,NULL}};
-    for(int y=0;y<32;y++)for(int x=0;x<384;x++)native[y][x]=0x6dab;
+    for(int y=0;y<64;y++)for(int x=0;x<384;x++)native[y][x]=0x6dab;
 #else
     uint16_t buffers[3][LCD_W*8];
     frame_out_t frame={.overlay_count=1,.bufs={buffers[0],buffers[1],buffers[2]}};
@@ -397,9 +413,9 @@ int main(void) {
     assert(another.output.marker==0);
 #endif
 #if CONFIG_IDF_TARGET_ESP32S3
-    assert(expands==1 && edges==1 && texts==1 && writes==0 && row_at==Y1 && frame.next==2);
-    for(int y=0;y<32;y++)for(int x=0;x<384;x++) {
-        uint16_t expected=y>=Y0 && y<Y1 && x>=X0 && x<X1 ? wire(x==X0 ? 0x95b7 : 0x7139) : 0x6dab;
+    assert(expands==(Y1-Y0+23)/24 && edges==expands && texts==expands && writes==0 && row_at==Y1 && frame.next==2 && seen_stage);
+    for(int y=0;y<64;y++)for(int x=0;x<384;x++) {
+        uint16_t expected=y>=Y0 && y<Y1 && x>=X0 && x<X1 ? (x==X0 ? text_pixel(y) : expanded_pixel(x,y)) : 0x6dab;
         assert(native[y][x]==expected);
     }
 #else
@@ -411,9 +427,10 @@ with tempfile.TemporaryDirectory(prefix='kubik-present-order-') as temporary:
     directory = Path(temporary)
     path, binary = directory / 'order.c', directory / 'order'
     path.write_text(order_fixture + send_window + order_test)
-    for target, tail in ((0, 24), (1, 24), (0, 26), (1, 26)):
+    for target, tail, full in ((0, 40, False), (1, 40, False), (0, 58, False), (1, 58, False),
+                               (0, 40, True), (1, 40, True), (0, 58, True), (1, 58, True)):
         subprocess.run(['cc', '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror',
                         '-fsanitize=address,undefined', f'-DCONFIG_IDF_TARGET_ESP32S3={target}', f'-DY1={tail}',
-                        str(path), '-o', str(binary)], check=True)
+                        *(['-DX0=0', '-DX1=LCD_W'] if full else []), str(path), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=20)
-print('presentation: C6 packed DMA chunks and partial tails preserved; S3 composes whole even-sized windows directly at native stride 384 with one static row cache')
+print('presentation: C6 packed DMA chunks preserved; S3 24-row internal composition and partial tails copy exact native rows with full-width capacity and untouched out-of-window padding')

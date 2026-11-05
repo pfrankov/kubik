@@ -47,14 +47,14 @@ static void circle_and_dots(void) {
 static void design_overlays_and_source_fields(void) {
     scene_begin(&scene,0);
     static uint8_t qr[29*29];
-    prim_t *code=sc_qr(&scene,qr,29,6,UI_CX,UI_CY,0xFFFFFF,1);
-    int qx=code->cx,qy=code->cy;
+    prim_t *code=sc_qr(&scene,qr,29,174,UI_CX,UI_CY,0xFFFFFF,1);
+    int qx=code->cx,qy=code->cy,nx=code->sub_x,ny=code->sub_y;
     prim_t *text=sc_label(&scene,TXT_ACTION,"Bottom",240,UI_H-25,0,0xFFFFFF,1);
     prim_t *icon=sc_icon(&scene,ICON_MIC,460,UI_H-25,32,0xFFFFFF,1);
     assert(text->by1>UI_OUTPUT_H && icon->bx1>UI_RENDER_W);
     int tx=text->sub_x,ty=text->sub_y,ix=icon->sub_x,iy=icon->sub_y,isz=icon->a;
     render_project_scene(&scene);
-    assert(code->sub_x==qx && code->sub_y==qy && code->a==29 && code->b==6);
+    assert(code->sub_x==nx && code->sub_y==ny && nx==97 && ny==137 && code->a==29 && code->b==174);
     assert(code->cx==ui_canvas(qx) && code->cy==ui_canvas(qy));
     assert(text->sub_x==tx && text->sub_y==ty);
     assert(icon->sub_x==ix && icon->sub_y==iy && icon->a==isz);

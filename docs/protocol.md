@@ -556,6 +556,13 @@ the lease is released, so listening can resume.
 
 The saved home Wi-Fi password is write-only: `info` never returns it.
 
+On S3, `deadline_misses` includes a missed preparation deadline or an accepted
+TE later than the previously expected presentation edge by more than half the
+measured period. This comparison happens before the phase anchor is replaced;
+an actual late edge is not erased by reanchoring. The counter increments at most
+once per display iteration, not once per skipped TE. Deliberate blocking alone
+does not count as a miss.
+
 TESS diagnostics: `wake_listening` is local recognition, `auto_recording` is an
 uploaded automatic turn. `mic_open` denotes recording; it is false for passive wake.
 `wake_probability` is the latest 5-invoke mean (0..255), `wake_peak_probability`

@@ -35,6 +35,19 @@ static void wait_until(int64_t target, int64_t now) {
     if (esp_timer_get_time() < target) vTaskDelay(1);
 }
 
+esp_err_t frame_pacing_s3_sync(void) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+        esp_err_t error = display_te_wait();
+        if (error != ESP_OK) return error;
+        if (!s_expected_edge) return ESP_OK;
+        display_te_clock_t clock;
+        display_te_clock_snapshot(&clock);
+        if (!clock.period_us) return ESP_ERR_INVALID_STATE;
+        if (clock.accepted_edge_us >= s_expected_edge - clock.period_us / 2) return ESP_OK;
+    }
+    return ESP_ERR_TIMEOUT;
+}
+
 bool frame_pacing_s3_wait(bool powered) {
     if (!powered) {
         s_accepted_edge = s_next_slot = s_expected_edge = 0;

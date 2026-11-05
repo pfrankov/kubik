@@ -4,6 +4,9 @@
 #include <string.h>
 
 #include "esp_timer.h"
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32S3
+#include "esp_log.h"
+#endif
 
 // The stripes of a rectangle changed on the native rows y0..y1-1 it covers.
 static void mask_union(uint16_t *mask, const canvas_rect_t *r, int y0, int y1) {
@@ -42,13 +45,34 @@ static render_output_t *output_for(frame_out_t *frame) {
 #endif
 }
 
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32S3
+static void trace_native_window(int pixels, int64_t expand, int64_t overlays) {
+    static int64_t window_start;
+    static unsigned reported;
+    int64_t now = esp_timer_get_time();
+    if (now - window_start >= 10000000) { window_start = now; reported = 0; }
+    if (expand + overlays <= 6000 || reported >= 4) return;
+    reported++;
+    ESP_LOGI("s3compose", "pixels=%d expand=%lld overlays=%lld us", pixels, (long long)expand, (long long)overlays);
+}
+#endif
+
 static void compose_window_rows(frame_out_t *f, uint16_t *out, int x, int y, int width, int rows, int stride) {
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32S3
+    int64_t started = esp_timer_get_time();
+#endif
     render_expand_2x(output_for(f), out, x, y, width, rows, stride, true);
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32S3
+    int64_t expanded = esp_timer_get_time();
+#endif
     render_edge_overlay(f->scene, out, x, y, width, rows, stride, true);
     if (f->overlay_count) render_text_overlay(f->scene, out, x, y, width, rows, stride, true);
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32S3
+    trace_native_window(width * rows, expanded - started, esp_timer_get_time() - expanded);
+#endif
 }
 
-// Compose directly into strided native storage on S3; C6 streams its DMA chunks.
+// Compose native S3 stripes in internal RAM, then stage them before TE; C6 streams DMA chunks.
 static void send_window(frame_out_t *f, const render_win_t *w) {
     int64_t t = esp_timer_get_time();
 #if !CONFIG_IDF_TARGET_ESP32S3
@@ -58,10 +82,14 @@ static void send_window(frame_out_t *f, const render_win_t *w) {
     render_output_columns(output_for(f), w->x0, w->x1);
     display_begin(w->x0, w->y0, w->x1, w->y1);
 #if CONFIG_IDF_TARGET_ESP32S3
-    int rows = w->y1 - w->y0;
-    uint16_t *out = display_s3_next_row();
-    for (int row = 1; row < rows; row++) (void)display_s3_next_row();
-    compose_window_rows(f, out, w->x0, w->y0, width, rows, UI_RENDER_W);
+    enum { NATIVE_ROWS = 24 };
+    static uint16_t native_rows[UI_RENDER_W * NATIVE_ROWS] __attribute__((aligned(4)));
+    for (int y = w->y0; y < w->y1; y += NATIVE_ROWS) {
+        int rows = w->y1 - y < NATIVE_ROWS ? w->y1 - y : NATIVE_ROWS;
+        compose_window_rows(f, native_rows, w->x0, y, width, rows, width);
+        for (int row = 0; row < rows; row++)
+            memcpy(display_s3_next_row(), native_rows + row * width, (size_t)width * sizeof(*native_rows));
+    }
 #else
     int chunk = (LCD_W * OUTPUT_ROWS / width) & ~1;
     for (int y = w->y0; y < w->y1; y += chunk) {

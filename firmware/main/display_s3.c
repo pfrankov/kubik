@@ -1,7 +1,7 @@
 #include "display_s3.h"
 #include "viewport.h"
 #include "board.h"
-#include "display_te_s3.h"
+#include "frame_pacing_s3.h"
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
@@ -117,7 +117,7 @@ int64_t display_s3_present(void) {
     assert(!s_open);
     if (!has_damage()) { s_last_profile = s_profile; return 0; }
     int64_t phase = esp_timer_get_time();
-    ESP_ERROR_CHECK(display_te_wait());
+    ESP_ERROR_CHECK(frame_pacing_s3_sync());
     s_profile.te_us = esp_timer_get_time() - phase;
     int64_t start = 0;
     for (int band = 0; band < DAMAGE_BANDS;) {

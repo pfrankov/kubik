@@ -192,23 +192,39 @@ prim_t *sc_mask_rbox(scene_t *s, float cx, float cy, float hw, float hh, float r
     return p;
 }
 
-prim_t *sc_qr(scene_t *s, const uint8_t *mods, int n, int module, float cx, float cy, uint32_t rgb, float alpha) {
-    if (s->n >= R_MAX_PRIMS || alpha <= 0.004f || !mods || n <= 0 || module <= 0) return NULL;
+prim_t *sc_qr(scene_t *s, const uint8_t *mods, int n, int side, float cx, float cy, uint32_t rgb, float alpha) {
+    if (s->n >= R_MAX_PRIMS || alpha <= 0.004f || !mods || n <= 0 || side < n) return NULL;
+#if !CONFIG_IDF_TARGET_ESP32S3
+    if (side % (n * R_SCALE)) return NULL;
+#endif
     prim_t *p = &s->p[s->n++];
     memset(p, 0, sizeof(*p));
     p->kind = PK_QR;
     p->alpha = alpha >= 1.f ? 255 : (uint8_t)(alpha * 255.f);
     p->color = rgb565(rgb);
     p->a = n;
+#if CONFIG_IDF_TARGET_ESP32S3
+    // Native side/origin survive projection; source cells use crisp integer edges.
+    int ox = (int)lrintf(cx * UI_SCALE_NUM / UI_SCALE_DEN) - side / 2;
+    int oy = (int)lrintf(cy * UI_SCALE_NUM / UI_SCALE_DEN) - side / 2;
+    p->b = side; p->sub_x = ox; p->sub_y = oy;
+    p->cx = (int)floorf(ox * (float)UI_SCALE_DEN / UI_SCALE_NUM);
+    p->cy = (int)floorf(oy * (float)UI_SCALE_DEN / UI_SCALE_NUM);
+    p->bx0 = (int16_t)imax(p->cx, 0); p->by0 = (int16_t)imax(p->cy, 0);
+    p->bx1 = (int16_t)imin((int)ceilf((ox + side) * (float)UI_SCALE_DEN / UI_SCALE_NUM) - 1, UI_W - 1);
+    p->by1 = (int16_t)imin((int)ceilf((oy + side) * (float)UI_SCALE_DEN / UI_SCALE_NUM) - 1, UI_H - 1);
+#else
+    int module = side / (n * R_SCALE);
     p->b = module;
     int ox = (int)lrintf(cx / R_SCALE) - n * module / 2, oy = (int)lrintf(cy / R_SCALE) - n * module / 2;
-    p->cx = ox * R_SCALE;  // design px until canvas_geometry, like image primitives
+    p->cx = ox * R_SCALE;
     p->cy = oy * R_SCALE;
-    p->clip = -1;
     p->bx0 = (int16_t)imax(ox * R_SCALE, 0);
     p->by0 = (int16_t)imax(oy * R_SCALE, 0);
     p->bx1 = (int16_t)imin((ox + n * module) * R_SCALE - 1, UI_W - 1);
     p->by1 = (int16_t)imin((oy + n * module) * R_SCALE - 1, UI_H - 1);
+#endif
+    p->clip = -1;
     s->qr = mods;
     s_extent[p - s->p] = -2.f;  // bbox preset
     return p;
