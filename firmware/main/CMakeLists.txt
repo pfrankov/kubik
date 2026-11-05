@@ -106,9 +106,10 @@ set_source_files_properties(sound_levels.c connection_store.c connection_record.
     link_tls.c app_protocol.c printer_protocol.c app_models.c app_menu.c app_guide.c app_status.c
     PROPERTIES COMPILE_OPTIONS "-Os")
 
-# Plush has a smaller app partition; diagnostics and text layout are not raster work.
+# Plush has a smaller app partition: size-optimize UI and hardware-I/O glue.
+# Pixel composition, sprite decoding, audio samples and Noise crypto keep their flags.
 if(KUBIK_CHARACTER STREQUAL "PLUSH")
-    set_source_files_properties(app.c app_game_probe.c app_journal.c event_journal.c face_setup.c face_status.c face_agent.c face_menu.c face_card.c ui_kit.c
+    set_source_files_properties(board.c assets.c muse_noise.cc app.c app_game_probe.c app_journal.c event_journal.c face_setup.c face_status.c face_agent.c face_menu.c face_card.c ui_kit.c
         screen_lab_draw.c event_journal_draw.c
         PROPERTIES COMPILE_OPTIONS "-Os")
 endif()
