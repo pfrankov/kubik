@@ -3,6 +3,7 @@
 #include "app_internal.h"
 #include "app_game_probe.h"
 #include "muse_backend.h"
+#include "printer_protocol.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -302,6 +303,7 @@ int app_tick_ms(void) {
 }
 
 void app_tick(void) {
+    printer_protocol_poll();
     int64_t t = now_ms();
     if (tick_power_off(t)) return;
     tick_ui_timeouts(t);

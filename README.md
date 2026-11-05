@@ -99,6 +99,12 @@ Kubik remembers up to eight Wi-Fi networks. Automatic sleep is silent. While sle
 
 ## Make it your own
 
+OpenClaw can use the optional `kubik_printer` tool to request text printing from
+the printer attached to the current Kubik. The tool uses the paired device link;
+no server-side printer is required. The current firmware reports
+`not_configured` until a driver for a selected physical printer is added.
+See [the printer contract and limits](docs/printer.md).
+
 Tess is the default character. Plush is a separate firmware build, selected before flashing; there is no character switch on the device.
 
 To support another agent, implement an adapter against the [Agent SDK](docs/agent-sdk.md). The host handles pairing, device connections and the setup wizard; your adapter supplies the agent capabilities and interaction. Start with the documented examples and [wire protocol](docs/protocol.md).

@@ -9,6 +9,16 @@
   "categories": [
     "channels"
   ],
+  "contracts": {
+    "tools": [
+      "kubik_printer"
+    ]
+  },
+  "toolMetadata": {
+    "kubik_printer": {
+      "optional": true
+    }
+  },
   "doctorContract": {
     "configRepair": false,
     "stateMigrations": []

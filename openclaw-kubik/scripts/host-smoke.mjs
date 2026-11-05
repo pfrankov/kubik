@@ -35,10 +35,14 @@ try {
   const pairing = fakePairing({ allowed: [DEFAULT_DEVICE_KEY.entry] });
   const { core, seen } = installRuntime({ payloads: [{ text: '[[happy]] Привет! **Я** Кубик 🙂' }], pairing: pairing.api });
   let registered;
-  const routes = [], interactive = [];
+  const routes = [], interactive = [], tools = [];
   await entry.default.register({ runtime: core, config: cfg, registrationMode: 'full', registerInteractiveHandler: (handler) => interactive.push(handler), registerHttpRoute: (route) => routes.push(route),
-    registerChannel: (value) => { registered = value.plugin ?? value; }, logger: { info() {}, warn() {}, error() {}, debug() {} } });
+    registerChannel: (value) => { registered = value.plugin ?? value; }, registerTool: (factory, options) => tools.push({ factory, options }),
+    logger: { info() {}, warn() {}, error() {}, debug() {} } });
   assert.equal(registered.id, 'kubik');
+  assert.deepEqual(tools.map(({ options }) => options), [{ name: 'kubik_printer', optional: true }]);
+  assert.equal(tools[0].factory({ messageChannel: 'telegram' }), null);
+  assert.equal(tools[0].factory({ messageChannel: 'kubik' }), null);
   assert.equal(interactive[0].namespace, 'kubik-pair');
   assert.equal(interactive[0].channel, 'telegram');
   let denied;
@@ -47,6 +51,8 @@ try {
   assert.deepEqual(routes.map((r) => [r.path, r.auth, typeof r.handleUpgrade]), [['/kubik/v1', 'plugin', 'function']]);
   assert.equal(setup.default.plugin?.id ?? setup.setupPlugin.id, 'kubik');
   const metadata = JSON.parse(await readFile(join(base, 'openclaw.plugin.json'), 'utf8'));
+  assert.deepEqual(metadata.contracts.tools, ['kubik_printer']);
+  assert.deepEqual(metadata.toolMetadata.kubik_printer, { optional: true });
   assert.deepEqual(registered.configSchema.schema, metadata.channelConfigs.kubik.schema);
   assert.equal(registered.outbound.deliveryMode, 'gateway');
   assert.equal(registered.capabilities.blockStreaming, true);
@@ -69,8 +75,15 @@ try {
   try {
     const { lan } = transportStatus();
     assert.match(lan.spki, /^[0-9a-f]{64}$/);
-    const device = await connectDevice(`wss://127.0.0.1:${lan.port}/kubik/v1`, { bind: 'seen' });
+    const device = await connectDevice(`wss://127.0.0.1:${lan.port}/kubik/v1`, { bind: 'seen', printer: 1 });
     await device.waitFor((e) => e.t === 'welcome');
+    const printer = tools[0].factory({ messageChannel: 'kubik', nativeChannelId: DEVICE, agentAccountId: 'default',
+      agentId: 'main', sessionKey: `agent:main:kubik:direct:${DEVICE}` });
+    assert.equal(printer.name, 'kubik_printer');
+    const printerStatus = printer.execute('packed-printer-status', { action: 'status' });
+    const printerRequest = await device.waitFor((e) => e.t === 'printer');
+    device.send({ t: 'printer_result', rid: printerRequest.rid, status: 'not_configured' });
+    assert.equal((await printerStatus).details.status, 'not_configured');
     device.send({ t: 'ptt', on: true, turn: 1 });
     device.sendAudio(1, Buffer.alloc(48 * 400, 1));
     device.send({ t: 'ptt', on: false, turn: 1 });

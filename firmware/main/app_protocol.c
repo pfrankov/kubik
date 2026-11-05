@@ -6,6 +6,7 @@
 #include "app_game_probe.h"
 #include "app_internal.h"
 #include "setup_request.h"
+#include "printer_protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,10 +136,11 @@ static void dispatch_json(cJSON *j, const char *type) {
     else if (!strcmp(type, "set")) handle_set_json(j);
 }
 static void on_json(const char *json, size_t len) {
-    cJSON *j = cJSON_ParseWithLength(json, len);
+    const char *end; cJSON *j = cJSON_ParseWithLengthOpts(json, len, &end, false);
     if (!j) { ESP_LOGW(TAG, "JSON rejected (%u bytes)", (unsigned)len); return; }
     const char *type = cJSON_GetStringValue(cJSON_GetObjectItem(j, "t"));
-    if (type && (!strcmp(type, "agent_options") ? !agent_protocol_has_nul_escape(json, len) : true)) dispatch_json(j, type);
+    if (!printer_protocol_receive(j, json, len, (size_t)(end - json), link_session()) && type &&
+        (!strcmp(type, "agent_options") ? !agent_protocol_has_nul_escape(json, len) : true)) dispatch_json(j, type);
     cJSON_Delete(j);
 }
 static void on_audio(uint8_t kind, uint8_t tag, const uint8_t *pcm, size_t len) {
@@ -241,7 +243,6 @@ static bool sim_screen_hook(cJSON *j, const char *event) {
         app_post(EV_SETUP_START, SETUP_BY_USER, 0);
     } else if (!strcmp(event, "mood")) {
         sim_mood_hook(j);
-
     } else {
         return false;
     }
@@ -458,7 +459,6 @@ static void config_muse(cJSON *j, char *reply, size_t cap) {
     const char *token = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(j, "sdk_token"));
     esp_err_t err = talk_is_listening(s_talk) || app_voice_live_active() || s_srv != SS_IDLE
         ? ESP_ERR_INVALID_STATE : muse_store_begin(token);
-
     snprintf(reply, cap, "{\"ok\":%s,\"rebooting\":%s}", err == ESP_OK ? "true" : "false", err == ESP_OK ? "true" : "false");
     if (token) muse_store_wipe((void *)token, strlen(token));
     if (err == ESP_OK) app_post(EV_BOOT_LONG, 1, 0);

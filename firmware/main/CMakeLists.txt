@@ -39,7 +39,7 @@ if(IDF_TARGET STREQUAL "esp32s3")
         frame_store.c canvas.c font.c render_text.c
         PROPERTIES COMPILE_OPTIONS "-O3")
 endif()
-target_sources(${COMPONENT_LIB} PRIVATE muse_store.c muse_ble.c muse_pair.c muse_vm.c
+target_sources(${COMPONENT_LIB} PRIVATE printer_protocol.c muse_store.c muse_ble.c muse_pair.c muse_vm.c
     muse_noise.cc muse_backend.c muse_options.c muse_control.c muse_json.c setup_request.c)
 # Only the CPU FFT workspace leases LP SRAM; keep the SDK algorithm unchanged.
 # Source properties must be set in the component's directory, not main's.
@@ -103,7 +103,7 @@ set_source_files_properties(sound_levels.c connection_store.c connection_record.
     muse_store.c muse_ble.c muse_pair.c muse_vm.c muse_backend.c muse_options.c muse_control.c muse_json.c
     status_json.c frame_diagnostics.c setup_dns.c app_speech.c link_usb.c app_lab.c
     agent_menu.c agent_protocol.c settings.c screen_lab_fixture.c screen_lab_events.c screen_lab.c
-    link_tls.c app_protocol.c app_models.c app_menu.c app_guide.c app_status.c
+    link_tls.c app_protocol.c printer_protocol.c app_models.c app_menu.c app_guide.c app_status.c
     PROPERTIES COMPILE_OPTIONS "-Os")
 
 # Plush has a smaller app partition; diagnostics and text layout are not raster work.

@@ -896,6 +896,54 @@ host не меняет её при welcome или изменении volume. Л�
 `set` принимает `ui_volume` (целое 0–100); `info` возвращает `ui_volume` и
 `sound_menu`. Это диагностический локальный интерфейс, не новый сетевой контракт.
 
+## Printer
+
+Printer jobs use the same authenticated device socket as voice, with no additional
+port, server-side printer, offline queue or automatic replay. In `hello`,
+`"printer":1` advertises support for this RPC version, not the presence of a
+configured physical printer. An absent descriptor means unsupported; the host
+does not try another printing path.
+
+Server → device:
+
+```json
+{"t":"printer","rid":"0123456789abcdef0123456789abcdef","action":"status"}
+{"t":"printer","rid":"0123456789abcdef0123456789abcdef","action":"print","text":"Milk\nBread"}
+```
+
+`rid` is exactly 32 lowercase hexadecimal characters. `print` requires nonblank,
+well-formed UTF-8 text of at most 1024 bytes; LF and TAB are the only permitted
+control characters. Printer commands/raw bytes, files and network destinations
+are not accepted. `status` has no text. A malformed request with a usable `rid`
+returns `error` / `invalid_request`; an invalid correlation id is not reflected.
+
+Device → server:
+
+```json
+{"t":"printer_result","rid":"0123456789abcdef0123456789abcdef","status":"not_configured"}
+```
+
+Status is `not_configured`, `ready`, `sent` or `error`. Only `error` carries `code`:
+`invalid_request`, `printer_busy` or `printer_failed`. `sent` confirms the driver's
+handoff and must not be described as proof of physical paper output. The current
+firmware has no configured driver and returns `not_configured` for valid queries
+and print requests. No text is retained for a future connection.
+
+The host permits one outstanding request per device, with a five-second deadline.
+It checks approval, the
+enabled flag and the exact socket/key again immediately before sending. Replies
+are accepted only after dispatch, by that authenticated session and matching `rid`; a replacement
+connection cannot finish the old request. After a dispatched print, timeout,
+abort or disconnect means an unknown outcome, never permission to retry.
+
+Firmware RX runs under the route mutex. It only validates and queues one of four
+fixed replies; the app tick sends at most one reply, outside that mutex, using
+the captured route session. Stale replies are released without crossing to a new
+route. Polling does not wake the screen or enable audio. A peer flooding the
+bounded outbox has excess requests dropped; normal hosts have only one in flight.
+
+See [printer setup and tool limits](printer.md) for the agent-facing contract.
+
 ## Нативный Muse
 
 Muse использует собственный BLE v5 + TLS/WebSocket/Noise XX контракт, не `/kubik/v1`.

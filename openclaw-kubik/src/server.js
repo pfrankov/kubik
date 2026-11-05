@@ -5,7 +5,7 @@ import { HttpEngine } from './engines/http.js';
 import { authMessage, CLOSE, decodeDeviceKey, out, ProtocolError } from './protocol.js';
 import { attachDeviceMessages } from './server-connection.js';
 import { guardSessionFrames, readAllowed, sendPairingChallenge, withPairingTimeout } from './pairing-access.js';
-import { DeviceSession } from './session.js';
+import { PrinterDeviceSession as DeviceSession } from './printer-session.js';
 import { NotificationError, NotificationQueue } from './notification-queue.js';
 import { refreshSessionActivity, sendSessionCron } from './server-status.js';
 import { sanitizeForDisplay, speakableText } from './speech.js';
@@ -405,7 +405,7 @@ export class KubikServer {
     const { ws, remote, hello, deviceId } = conn;
     const configured = this.account.devices.get(deviceId);
     const device = { id: deviceId, name: configured && configured.name !== deviceId ? configured.name : hello.name || deviceId,
-      enabled: true, fingerprint: conn.fingerprint, fw: hello.fw, reportedName: hello.name,
+      enabled: true, fingerprint: conn.fingerprint, fw: hello.fw, reportedName: hello.name, printer: hello.printer,
       ...(hello.volume !== undefined ? { volume: hello.volume } : {}) };
     const engine = this.#engineFor(device);
     const getVoice = this.agentControl?.voiceSettings ? () => this.agentControl.voiceSettings(device) : undefined;

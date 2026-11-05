@@ -119,7 +119,8 @@ function autoAcknowledge(ws, event, autoPlayed, autoShown, playedSamples) {
 
 export async function connectDevice(url, options = {}) {
   const identity = options.hello === undefined ? DEFAULT_DEVICE_KEY : null;
-  const hello = identity ? identity.hello({ fw: 'fw' in options ? options.fw : '0.6.1' }) : options.hello;
+  const hello = identity ? identity.hello({ fw: 'fw' in options ? options.fw : '0.6.1',
+    ...(options.printer !== undefined ? { printer: options.printer } : {}) }) : options.hello;
   const autoPlayed = options.autoPlayed ?? true;
   const autoShown = options.autoShown !== false;
   let seen;

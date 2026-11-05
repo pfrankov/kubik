@@ -18,8 +18,9 @@ export const newDeviceKeyPem = () => generateKeyPairSync('ec', { namedCurve: 'pr
 
 export class SimDevice {
   /** `pin` is the stored SPKI hash (or null before the first successful connection). */
-  constructor({ id, keyPem, pin = null, fw = '0.6.2', volume = 70 }) {
-    Object.assign(this, { id, pin, fw, volume });
+  constructor({ id, keyPem, pin = null, fw = '0.6.2', volume = 70, printerReply = null }) {
+    if (printerReply !== null && typeof printerReply !== 'function') throw new Error('printerReply must be a function');
+    Object.assign(this, { id, pin, fw, volume, printerReply });
     this.privateKey = createPrivateKey(keyPem);
     const jwk = createPublicKey(this.privateKey).export({ format: 'jwk' });
     this.publicKey = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64');
@@ -49,7 +50,8 @@ export class SimDevice {
       ws.once('open', resolve);
       ws.once('error', reject);
     });
-    ws.send(JSON.stringify({ t: 'hello', v: 5, device: this.id, key: this.publicKey, fw: this.fw, volume: this.volume, name: 'Install test' }));
+    ws.send(JSON.stringify({ t: 'hello', v: 5, device: this.id, key: this.publicKey, fw: this.fw, volume: this.volume, name: 'Install test',
+      ...(this.printerReply ? { printer: 1 } : {}) }));
   }
 
   send(message) { this.ws.send(JSON.stringify(message)); }
@@ -91,6 +93,7 @@ export class SimDevice {
     if (event.t === 'speak') this.gens.set(event.gen, { kind: event.kind, frames: [], pcm: [], pcmBytes: 0, timer: null, startedAt: 0 });
     if (event.t === 'speak_end') this.#finishPlayback(event.gen);
     if (event.t === 'text' && event.receipt) this.send({ t: 'shown', receipt: event.receipt });
+    if (event.t === 'printer' && this.printerReply) this.send({ ...this.printerReply(event), t: 'printer_result', rid: event.rid });
     this.#notify(event);
   }
 
@@ -133,7 +136,8 @@ export class SimDevice {
       this.ws.send(Buffer.concat([Buffer.from([KIND_MIC, turn]), encoder.encode(pcm.subarray(offset, offset + FRAME_BYTES))]));
     }
     this.send({ t: 'ptt', on: false, turn, ms: Math.round(performance.now() - start) });
-    await this.waitFor((e) => e.t === 'speak_end', 60_000, mark);
+    const response = await this.waitFor((e) => ['speak_end', 'error', '__closed__'].includes(e.t), 60_000, mark);
+    if (response.t !== 'speak_end') throw new Error('voice turn failed before speech: ' + response.t + ' ' + (response.code ?? ''));
     const end = this.events.findIndex((e, i) => i >= mark && e.t === 'speak_end');
     await this.waitFor((e) => e.t === 'state' && e.s === 'idle', 60_000, end + 1);
     return this.replySummary(mark);
@@ -142,7 +146,8 @@ export class SimDevice {
   /** What the device received since event index `mark`: states, emotions, and the decoded speech of the reply gen. */
   replySummary(mark = 0) {
     const events = this.events.slice(mark);
-    const reply = [...this.gens.values()].find((g) => g.kind === 'reply' && g.frames.length);
+    const generation = events.find(event => event.t === 'speak' && event.kind === 'reply');
+    const reply = generation ? this.gens.get(generation.gen) : null;
     const pcm = reply ? Buffer.concat(reply.pcm) : Buffer.alloc(0);
     let energy = 0;
     for (let i = 0; i + 1 < pcm.length; i += 2) energy += (pcm.readInt16LE(i) / 32768) ** 2;

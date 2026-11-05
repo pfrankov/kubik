@@ -13,6 +13,7 @@ source = '\n'.join(without_includes(root / 'firmware/main' / name)
                    for name in ('ima_adpcm.c', 'link_mic.c', 'link_usb.c', 'link_ws.c', 'link_hello.c', 'link_poke.c', 'link.c'))
 source = source.replace('malloc(s_expected + 1)', 'rx_malloc(s_expected + 1)')
 mock = (root / 'tools/fixtures/link_stubs.c').read_text()
+mock += '\n#include "printer_protocol.h"\n'
 tests = r'''
 static void replace_session_before_send(SemaphoreHandle_t lock) {
     if(lock==s_ws_io_mtx) { before_take=NULL; atomic_fetch_add(&s_session,1); }
@@ -87,6 +88,7 @@ static void check_hello(const char *text) {
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"device")),"kubik-test"));
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"key")),"BFakePublicKeyBase64=="));
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"fw")),KUBIK_FW_VERSION));
+    assert(cJSON_GetObjectItem(j,"printer") && cJSON_GetObjectItem(j,"printer")->valueint==PRINTER_PROTOCOL_VERSION);
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"name")),g_settings.name));
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"server")),g_settings.server_url));
     assert(cJSON_GetObjectItem(j,"volume")->valueint==g_settings.volume);

@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { CHANNEL_ID, channelSchema, uiHints } from '../src/config.js';
 import { setupPlugin } from '../src/channel-setup.js';
+import { PRINTER_TOOL } from '../src/printer-contract.js';
 
 const root = new URL('../', import.meta.url);
 const check = process.argv.includes('--check');
@@ -15,6 +16,8 @@ const manifest = {
   id: CHANNEL_ID, name: 'Kubik', version: pkg.version,
   description: 'Kubik voice desk device channel (push-to-talk ESP32-C6, OpenAI-compatible voice)',
   channels: [CHANNEL_ID], categories: ['channels'],
+  contracts: { tools: [PRINTER_TOOL] },
+  toolMetadata: { [PRINTER_TOOL]: { optional: true } },
   // Current config/private-state formats require no Doctor migration. Explicit
   // metadata lets OpenClaw complete deferred inspection during plugin updates.
   doctorContract: { configRepair:false, stateMigrations:[] },

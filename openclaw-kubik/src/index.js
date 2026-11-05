@@ -8,6 +8,7 @@ import { registerDeviceRoute } from './gateway-route.js';
 import { getServer } from './monitor.js';
 import { setRuntime } from './runtime.js';
 import { registerTelegramPairing } from './telegram-pairing.js';
+import { registerPrinterTool } from './printer-tool.js';
 export { channelPlugin };
 export const sdkHelpers = { replyPrefix: createReplyPrefixOptions, channelReadyPatch, channelStoppedPatch,
   transportActivityPatch: createTransportActivityStatusPatch };
@@ -17,6 +18,7 @@ export default defineChannelPluginEntry({ id: 'kubik', name: 'Kubik',
   registerFull: (api) => {
     registerCronHooks(api);
     registerTelegramPairing(api);
+    registerPrinterTool(api);
     registerDeviceRoute(api, getServer, getPluginRuntimeGatewayRequestScope, { isTrusted: isTrustedProxyAddress,
       proxies: () => (api.runtime?.config?.current?.() ?? api.config)?.gateway?.trustedProxies ?? [] });
   } });

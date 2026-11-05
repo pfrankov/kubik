@@ -1,5 +1,6 @@
 // Kubik device protocol v5. Pure functions: no sockets, no timers.
 import { createHash, createPublicKey, X509Certificate } from 'node:crypto';
+import { validPrinterResult } from './printer-contract.js';
 
 export const PROTOCOL_VERSION = 5;
 export const AUTH_CONTEXT = 'kubik-auth-v5';
@@ -81,12 +82,13 @@ const DEVICE_MESSAGE_PARSERS = new Map([
       [(message) => message.fw === undefined || (typeof message.fw === 'string' && FIRMWARE_VERSION.test(message.fw)), 'invalid fw'],
       [(message) => message.name === undefined || (typeof message.name === 'string' && DISPLAY_NAME.test(message.name)), 'invalid name'],
       [(message) => message.volume === undefined || (Number.isInteger(message.volume) && message.volume >= 0 && message.volume <= 100), 'invalid volume'],
+      [(message) => message.printer === undefined || message.printer === 1, 'invalid printer protocol'],
       [(message) => shortString(message.device, 64) && typeof message.key === 'string', 'hello needs device and key'],
     ],
     normalize: (message) => {
       decodeDeviceKey(message.key);
       return { t: 'hello', v: PROTOCOL_VERSION, device: message.device, key: message.key, fw: message.fw, name: message.name,
-        ...(message.volume !== undefined ? { volume: message.volume } : {}) };
+        ...(message.volume !== undefined ? { volume: message.volume } : {}), ...(message.printer === 1 ? { printer: 1 } : {}) };
     },
   }],
   ['auth', {
@@ -138,6 +140,11 @@ const DEVICE_MESSAGE_PARSERS = new Map([
   ['device_state', {
     checks: [[(message) => Number.isInteger(message.volume) && message.volume >= 0 && message.volume <= 100, 'invalid volume']],
     normalize: (message) => ({ t: 'device_state', volume: message.volume }),
+  }],
+  ['printer_result', {
+    checks: [[validPrinterResult, 'invalid printer result']],
+    normalize: (message) => ({ t: 'printer_result', rid: message.rid, status: message.status,
+      ...(message.code !== undefined ? { code: message.code } : {}) }),
   }],
   ['agent_options', {
     checks: [

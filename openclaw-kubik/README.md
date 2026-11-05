@@ -129,6 +129,49 @@ Emotion tags such as `[[happy]]`, `[[sad]]` and `[[proud]]` animate Tess alongsi
 - First-audio latency also depends on the agent/provider. Some providers do not expose a final reply block until generation finishes. Provider readiness is not proof of paid API access or response speed.
 - Live is limited to 30 minutes and a single reply to 120 seconds. Other limits and protocol errors are documented in the [protocol](https://github.com/pfrankov/kubik/blob/main/docs/protocol.md).
 
+## Printer tool
+
+The optional **`kubik_printer`** tool is available only in an authenticated Kubik
+conversation. It targets that conversation's device; the model cannot supply a
+different device, URL, printer address, file path or raw printer command.
+Explicitly opt in by adding `kubik_printer` to your existing `tools.alsoAllow`
+list, preserving other entries. The plugin manifest declares the same optional
+tool. Other channels and unbound sessions do not receive it.
+
+```json
+{"action":"status"}
+{"action":"print","text":"Shopping list\nMilk\nBread"}
+```
+
+Use `print` only for an explicit user request. Text must be nonblank, well-formed
+Unicode of at most **1024 UTF-8 bytes**. Tabs and line feeds are allowed; other
+C0 controls, DEL/C1 controls, escape sequences and extra arguments are rejected.
+The tool returns `not_configured` until a physical printer and its device-side
+driver are configured. The current firmware implements that honest state; it
+does not implement Bluetooth pairing or a printer-specific protocol yet.
+
+Requests use the existing authenticated device link with a fresh pairing check,
+one in-flight request per device and a **five-second deadline**. There is no
+offline print queue or automatic retry. `sent` means submitted to the printer
+transport, **not confirmation that paper was printed**; `paperConfirmed` remains
+false. A dispatched print that times out, loses its connection, is cancelled or
+reports `printer_failed` has `outcome: "unknown"` and must not be automatically
+retried. Cancelling the tool cannot undo an already submitted physical print.
+
+The host hashes the tool-call ID into a correlation ID and caches at most **64
+outcomes per account**, shared across device reconnects and plugin module copies.
+Reusing the same call ID returns its outcome; changed parameters are rejected.
+Completed outcomes expire after **ten minutes**. Uncertain print outcomes remain
+until the channel stops or reloads; full capacity rejects new work rather than forgetting
+uncertainty. This is an in-memory duplicate guard, not a durable printer spool:
+host restarts and channel/plugin reloads lose it, and a future printer driver must define its own physical
+delivery and restart semantics. The printer cache and transport add no print-text
+logging; OpenClaw's ordinary tool-call conversation history follows its own
+configured retention.
+
+See the [printer contract](https://github.com/pfrankov/kubik/blob/main/docs/printer.md)
+for firmware boundaries and the remaining hardware step.
+
 ## Custom agents and development
 
 The package also exports `openclaw-kubik/agent-sdk` and the `kubik-agent-host` CLI for custom ESM adapters. The standalone SDK and CLI do not require OpenClaw to be installed. Hermes has a separate native Gateway platform. The device setup wizard currently offers OpenClaw only. Read the [adapter SDK guide](https://github.com/pfrankov/kubik/blob/main/docs/agent-sdk.md) for extension contracts and a runnable example.

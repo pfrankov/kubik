@@ -22,6 +22,7 @@ import { loadInstallDocs, documented } from './test-install/docs.mjs';
 import { newDeviceKeyPem, PinMismatch, SimDevice } from './test-install/device.mjs';
 import { createCa, startForwarder } from './test-install/proxy.mjs';
 import { assertUdpFree, freePort, realStateFingerprint, Sandbox, satisfiesRange, tcpFree } from './test-install/sandbox.mjs';
+import { assertPrinterModelTurns, createPrinterFixture } from './test-install/printer.mjs';
 
 const execFileAsync = promisify(execFile);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -77,7 +78,9 @@ async function cleanOpenClaw() {
   ctx.configFile = file;
   assert.equal(ctx.box.gatewayPort === 18789, false);
   process.env.MOCK_DUMP_CHAT = join(ctx.dir, 'last-chat.json'); // the mock writes the agent's last LLM request here
-  ctx.mock = await startMockServer({ port: 0, tts: 'say', log: () => {} });
+  ctx.printerFixture = createPrinterFixture();
+  ctx.mock = await startMockServer({ port: 0, tts: 'say', log: () => {},
+    sttOverride: ctx.printerFixture.sttOverride, chatReply: ctx.printerFixture.chatReply, onSpeech: ctx.printerFixture.onSpeech });
   await ctx.box.mustRun(`openclaw onboard --non-interactive --accept-risk --mode local --no-install-daemon --auth-choice custom-api-key `
     + `--custom-base-url ${ctx.mock.url} --custom-model-id mock-llm --custom-api-key sk-mock --custom-compatibility openai `
     + `--gateway-port ${ctx.box.gatewayPort} --gateway-bind loopback --gateway-auth token --skip-channels --skip-skills --skip-search --skip-health --skip-ui`);
@@ -90,6 +93,7 @@ async function cleanOpenClaw() {
   const provider = JSON.stringify({ baseUrl: ctx.mock.url, apiKey: 'sk-mock', models: [], request: { allowPrivateNetwork: true } });
   await ctx.box.mustRun(`openclaw config set models.providers.openai '${provider}' --strict-json`);
   await ctx.box.mustRun(`openclaw config set tts '${tts}' --strict-json`);
+  await ctx.box.mustRun(`openclaw config set tools.alsoAllow '["kubik_printer"]' --strict-json`);
   // Documented for reverse proxies (deploy/cloudflared): the Gateway trusts the forwarder for client addresses.
   await ctx.box.mustRun(`openclaw config set gateway.trustedProxies '["127.0.0.1"]' --strict-json`);
   const { plugins } = JSON.parse(await ctx.box.mustRun('openclaw plugins list --json'));
@@ -431,6 +435,7 @@ const steps = [
   ['preflight and isolation inputs', preflight], ['plugin archive', prepareKit], ['clean OpenClaw + mock providers', cleanOpenClaw],
   ['documented install, enable, status --probe', installFollowingDocs], ['UDP discovery', discoverLan],
   ['TOFU pin, pairing, welcome, pin-verified reconnect', pairAndReconnect], ['second device: welcome on the same socket', secondDeviceSameSocket], ['LAN voice turn', () => assertVoiceTurn(ctx.device, 'LAN turn')],
+  ['printer tool through the real model loop', async () => assertPrinterModelTurns(ctx, await speechPcm(), say)],
   ['notification (openclaw message send)', notification], ['Gateway route behind a CA-trusted TLS proxy', gatewayRoute],
   ['Gateway route binds the signature to the host (hostless rejection, X-Forwarded-Host, relay)', gatewayHostBinding],
   ['MITM relay is refused', relayIsRefused], ['server key changed', serverKeyChanged],

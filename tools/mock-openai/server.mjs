@@ -1,59 +1,40 @@
 #!/usr/bin/env node
 // Local mock of the OpenAI-compatible APIs Kubik needs, so everything runs without an OpenAI key.
-import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { BYTES_PER_MS, createStt, createSynth, pcmFromUpload, rms, STT_PHRASES, wav } from './audio.mjs';
 import { lastUserUtterance, mockLlmReply } from './llm.mjs';
 import { apiError, json, parseMultipart, readBody, sleep } from './http-utils.mjs';
+import { sendChat } from './chat.mjs';
 
 export { BYTES_PER_MS, createStt, createSynth, pcmFromUpload, rms, STT_PHRASES, wav } from './audio.mjs';
 export { lastUserUtterance, mockLlmReply } from './llm.mjs';
 
 export async function startMockServer({ port = 18800, host = '127.0.0.1', tts = 'say', log = console.log, llmChunkDelayMs = 35,
-  audioChunkDelayMs = 15, sttStart = 0 } = {}) {
+  audioChunkDelayMs = 15, sttStart = 0, sttOverride = () => undefined, chatReply = () => null, onSpeech = () => {} } = {}) {
   const synthesize = createSynth({ mode: tts, log });
   const transcribe = createStt({ start: sttStart });
   const stats = { chat: 0, transcriptions: 0, speech: 0, lastUserMessages: [] };
 
   async function handleChat(req, res) {
     const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
-    const reply = mockLlmReply(body.messages);
+    const message = chatReply(body) ?? { role: 'assistant', content: mockLlmReply(body.messages) };
+    const reply = message.content ?? '';
     if (process.env.MOCK_DUMP_CHAT) await writeFile(process.env.MOCK_DUMP_CHAT, JSON.stringify(body, null, 2)).catch(() => {});
     stats.chat++;
     const lastUser = lastUserUtterance(body.messages);
     stats.lastUserMessages.push(lastUser.slice(-200));
     if (stats.lastUserMessages.length > 20) stats.lastUserMessages.shift();
     log(`mock llm: ${body.stream ? 'stream' : 'json'} model=${body.model} tools=${body.tools?.length ?? 0} user=${JSON.stringify(lastUser.slice(-80))} -> ${JSON.stringify(reply.slice(0, 60))}...`);
-    const id = `chatcmpl-${randomUUID()}`;
-    const created = Math.floor(Date.now() / 1000);
-    const usage = { prompt_tokens: Math.ceil(JSON.stringify(body.messages ?? []).length / 4), completion_tokens: Math.ceil(reply.length / 4) };
-    usage.total_tokens = usage.prompt_tokens + usage.completion_tokens;
-    if (!body.stream) {
-      return json(res, 200, { id, object: 'chat.completion', created, model: body.model,
-        choices: [{ index: 0, message: { role: 'assistant', content: reply }, finish_reason: 'stop' }], usage });
-    }
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    const chunk = (delta, finish = null, extra = {}) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model,
-      choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`);
-    chunk({ role: 'assistant', content: '' });
-    const pieces = reply.match(/\S+\s*|\s+/g) ?? [reply];
-    for (let i = 0; i < pieces.length; i += 2) {
-      if (res.destroyed) return;
-      chunk({ content: pieces.slice(i, i + 2).join('') });
-      await sleep(llmChunkDelayMs);
-    }
-    chunk({}, 'stop');
-    if (body.stream_options?.include_usage) res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [], usage })}\n\n`);
-    res.end('data: [DONE]\n\n');
+    return sendChat(res, body, message, llmChunkDelayMs);
   }
 
   async function handleTranscription(req, res) {
     const parts = parseMultipart(await readBody(req), req.headers['content-type']);
     if (!parts?.file || !Buffer.isBuffer(parts.file)) return apiError(res, 400, 'file is required');
     const pcm = pcmFromUpload(parts.file);
-    const text = transcribe(pcm);
+    const text = sttOverride(pcm) ?? transcribe(pcm);
     stats.transcriptions++;
     log(`mock stt(http): ${(pcm.length / BYTES_PER_MS).toFixed(0)} ms rms=${rms(pcm).toFixed(3)} -> ${JSON.stringify(text)}`);
     json(res, 200, parts.response_format === 'text' ? text : { text });
@@ -64,6 +45,7 @@ export async function startMockServer({ port = 18800, host = '127.0.0.1', tts = 
     if (typeof body.input !== 'string' || !body.input.trim()) return apiError(res, 400, 'input is required');
     const format = body.response_format ?? 'mp3';
     if (!['pcm', 'wav'].includes(format)) return apiError(res, 400, `mock supports response_format pcm or wav, not ${format}`);
+    onSpeech(body.input);
     stats.speech++;
     const pcm = await synthesize(body.input);
     log(`mock tts(http): ${JSON.stringify(body.input.slice(0, 60))} -> ${(pcm.length / BYTES_PER_MS).toFixed(0)} ms ${format}`);
