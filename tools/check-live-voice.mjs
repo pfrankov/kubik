@@ -38,9 +38,9 @@ const matches = (formats) => formats?.some((item) =>
   item.encoding === format.encoding && item.sampleRateHz === format.sampleRateHz && item.channels === 1);
 const modes = ['gpt-realtime-2.1', 'gpt-live-1'].map((model) => {
   assert.ok(provider.models.includes(model), `The installed SDK does not list ${model}`);
-  const capabilities = sdk.resolveRealtimeVoiceProviderCapabilities({
-    provider, cfg, providerConfig: { model }, model, surface: 'gateway-relay',
-  });
+  // Public advertised metadata is available without resolving config/auth.
+  // Configured model/surface capabilities are checked only in guarded live mode.
+  const capabilities = provider.capabilities;
   assert.ok(matches(capabilities.inputAudioFormats), `${model} cannot accept device PCM`);
   assert.ok(matches(capabilities.outputAudioFormats), `${model} cannot produce device PCM`);
   return {
@@ -69,11 +69,12 @@ async function closeBridge(bridge) {
 }
 
 async function probe(model) {
-  const providerConfig = provider.resolveConfig({ cfg, agentId: opts.agent, surface: 'gateway-relay',
-    rawConfig: { model, voice: cfg.channels?.kubik?.voice?.voice ?? 'marin' }, autoRespondToAudio: model === 'gpt-live-1' });
-  assert.ok(await provider.isConfigured({ cfg, agentId: opts.agent, providerConfig }), 'provider_auth_missing');
-  const capabilities = sdk.resolveRealtimeVoiceProviderCapabilities({ provider, cfg, agentId: opts.agent,
-    providerConfig, model, surface: 'gateway-relay' });
+  const { providerConfig, capabilities } = await sdk.resolveConfiguredRealtimeVoiceProvider({
+    cfg, agentId: opts.agent, configuredProviderId: 'openai', providers: [provider], surface: 'gateway-relay',
+    providerConfigs: { openai: { model, voice: cfg.channels?.kubik?.voice?.voice ?? 'marin' } },
+    autoRespondToAudio: model === 'gpt-live-1',
+  });
+  assert.ok(matches(capabilities.inputAudioFormats) && matches(capabilities.outputAudioFormats), 'provider_audio_format');
   let finish, reject, quiet, bytes = 0, firstAudioMs, requested = false, closing = false;
   const began = Date.now();
   const completion = new Promise((resolve, fail) => { finish = resolve; reject = fail; });
@@ -118,4 +119,4 @@ if (opts.live) {
       console.log(JSON.stringify({ model, passed: false, category })); process.exitCode = 1;
     }
   }
-} else console.log(JSON.stringify({ scope: 'offline SDK metadata; not account access or latency', modes }, null, 2));
+} else console.log(JSON.stringify({ scope: 'offline advertised provider metadata; not configured model capabilities, account access or latency', modes }, null, 2));
