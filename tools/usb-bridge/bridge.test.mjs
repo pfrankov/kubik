@@ -29,6 +29,9 @@ class Socket extends EventEmitter {
   ping() { this.pings++; }
   open() { this.readyState = WebSocket.OPEN; this.emit('open'); }
   welcome() { this.emit('message', Buffer.from('{"t":"welcome","session":"s-1"}'), false); }
+  message(value, binary = false) {
+    this.emit('message', Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)), binary);
+  }
 }
 const hello = JSON.stringify({ t: 'hello', v: 2, device: 'kubik-test', key: 'BAAA', fw: 'test' });
 function setup(enabled = true) {
@@ -39,6 +42,75 @@ function setup(enabled = true) {
   route.attach();
   return { route, clock, writes, sockets, hello: () => route.deviceFrame(F.JSON, routedPayload(route.epoch, hello)) };
 }
+const jsonWrites = (s) => s.writes.filter((w) => w.type === F.JSON).map((w) => JSON.parse(w.data.subarray(4)));
+const capabilities = (available, mode = 'classic') => ({ t: 'capabilities', voice_mode: mode,
+  stt: { available, provider: 'test-stt', model: 'recognition' },
+  tts: { available, provider: 'test-tts', model: 'speech' } });
+
+test('device reboot replays welcome and the latest authenticated capabilities without replacing the session', () => {
+  const s = setup(); s.hello(); const socket = s.sockets[0]; socket.open(); socket.welcome();
+  const first = capabilities(true), latest = capabilities(false, 'live');
+  socket.message(first);
+  assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 's-1' }, first]);
+  socket.message(latest); s.writes.length = 0;
+  s.hello();
+  assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 's-1' }, latest]);
+  assert.equal(s.writes[0].type, F.HOST_HELLO);
+  assert(s.writes.every((w) => w.type === F.HOST_HELLO || w.data.readUInt32LE(0) === s.route.epoch));
+  assert.equal(s.sockets.length, 1); assert.equal(socket.sent.length, 1);
+  assert.equal(JSON.parse(socket.sent[0].data).t, 'hello');
+  socket.message({ t: 'welcome', session: 'replacement-session' }); s.writes.length = 0; s.hello();
+  assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 'replacement-session' }]);
+  s.route.detach();
+});
+
+test('only valid bounded text capabilities received after authentication enter the replay cache', () => {
+  const s = setup(); s.hello(); const socket = s.sockets[0]; socket.open();
+  socket.message(capabilities(true)); // Unauthenticated metadata is never retained.
+  socket.welcome(); s.writes.length = 0; s.hello();
+  assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 's-1' }]);
+  const malformed = ['{', { t: 'capabilities', stt: { available: 'true' }, tts: { available: true } },
+    { t: 'capabilities', stt: { available: true } }, { t: 'capabilities', stt: [], tts: [] }];
+  for (const value of malformed) socket.message(value);
+  socket.message(capabilities(true), true);
+  socket.message({ ...capabilities(true), padding: 'x'.repeat(6144) });
+  s.writes.length = 0; s.hello();
+  assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 's-1' }]);
+  const current = capabilities(false, 'realtime'); socket.message(current);
+  for (const value of malformed) socket.message(value);
+  socket.message(capabilities(true), true);
+  socket.message({ ...capabilities(true), padding: 'x'.repeat(6144) });
+  s.writes.length = 0; s.hello();
+  assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 's-1' }, current]);
+  s.route.detach();
+});
+
+test('disconnect, new identity and route changes cannot replay capabilities from an old upstream', () => {
+  for (const transition of ['disconnect', 'identity', 'disable', 'detach']) {
+    const s = setup(); s.hello(); const old = s.sockets[0]; old.open(); old.welcome();
+    old.message(capabilities(true)); const epoch = s.route.epoch;
+    let nextHello = hello;
+    if (transition === 'disconnect') { old.emit('close', 1006); s.clock.tick(2000); }
+    if (transition === 'identity') {
+      nextHello = JSON.stringify({ ...JSON.parse(hello), device: 'replacement' });
+      s.route.deviceFrame(F.JSON, routedPayload(s.route.epoch, nextHello));
+    }
+    if (transition === 'disable') { s.route.setEnabled(false); s.route.setEnabled(true); }
+    if (transition === 'detach') { s.route.detach(); s.route.attach(); }
+    assert.notEqual(s.route.epoch, epoch); assert.equal(s.route.capabilities, null);
+    s.route.deviceFrame(F.JSON, routedPayload(s.route.epoch, nextHello));
+    const current = s.sockets[1]; current.open(); current.welcome();
+    old.message(capabilities(true)); // Late messages from the replaced socket stay irrelevant.
+    s.writes.length = 0;
+    s.route.deviceFrame(F.JSON, routedPayload(s.route.epoch, nextHello));
+    assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 's-1' }]);
+    assert.equal(s.sockets.length, 2); assert.equal(current.sent.length, 1);
+    const fresh = capabilities(false); current.message(fresh); s.writes.length = 0;
+    s.route.deviceFrame(F.JSON, routedPayload(s.route.epoch, nextHello));
+    assert.deepEqual(jsonWrites(s), [{ t: 'welcome', session: 's-1' }, fresh]);
+    s.route.detach();
+  }
+});
 
 test('authenticated welcome alone makes USB ready and is delivered after epoch heartbeat', () => {
   const s = setup(); s.hello(); assert.equal(s.sockets.length, 1);
@@ -117,26 +189,35 @@ test('healthy pongs retain one authenticated socket and data uses only current e
   assert.equal(s.route.deviceFrame(F.AUDIO, routedPayload(s.route.epoch - 1, bytes)), null);
   s.route.detach();
 });
-test('real WebSocket sends exactly one auth hello; duplicate USB probe replays welcome without session replacement', async () => {
+test('real WebSocket sends one auth hello; reboot probe replays welcome and capabilities without session replacement', async () => {
   const server = new WebSocketServer({ port: 0 });
   await new Promise((resolve) => server.once('listening', resolve));
   let connections = 0, hellos = 0;
   server.on('connection', (socket) => {
     connections++;
     socket.on('message', (data) => {
-      if (JSON.parse(data).t === 'hello') { hellos++; socket.send('{"t":"welcome","session":"real"}'); }
+      if (JSON.parse(data).t === 'hello') {
+        hellos++; socket.send('{"t":"welcome","session":"real"}'); socket.send(JSON.stringify(capabilities(true)));
+      }
     });
   });
   let resolveReady;
   const ready = new Promise((resolve) => { resolveReady = resolve; });
+  const received = [];
   const route = new UsbRoute({ server: `ws://127.0.0.1:${server.address().port}/kubik/v1`, epoch: 1,
-    send: (type, data) => { if (type === F.JSON) resolveReady(data); } });
+    send: (type, data) => {
+      if (type !== F.JSON) return;
+      const message = JSON.parse(data.subarray(4)); received.push(message);
+      if (message.t === 'capabilities') resolveReady();
+    } });
   try {
     route.attach(); route.deviceFrame(F.JSON, routedPayload(route.epoch, hello));
-    const data = await ready; assert.equal(JSON.parse(data.subarray(4)).session, 'real');
+    await ready; assert.deepEqual(received, [{ t: 'welcome', session: 'real' }, capabilities(true)]);
     route.deviceFrame(F.JSON, routedPayload(route.epoch, hello));
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(connections, 1); assert.equal(hellos, 1);
+    assert.deepEqual(received, [{ t: 'welcome', session: 'real' }, capabilities(true),
+      { t: 'welcome', session: 'real' }, capabilities(true)]);
   } finally { route.detach(); await new Promise((resolve) => server.close(resolve)); }
 });
 

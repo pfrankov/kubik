@@ -490,8 +490,11 @@ USB is the active route only while it is authenticated and fresh and Wi-Fi is no
 routing, firmware uses available Wi-Fi; missing heartbeats expire after 2.5 s
 (the manager polls at 200 ms). USB authentication is bounded to 8 s (started when the upstream opens, not while
 the bridge idles), with retry backoff of 2/5/10/30 s. WebSocket ping/pong detects a hung USB upstream in at most
-8 s. Repeated identical device hellos reuse the current connection and cached
-welcome instead of replacing the server session. Wi-Fi connection attempts are
+8 s. Repeated identical device hellos reuse the current connection and replay
+the cached welcome followed by the latest authenticated capabilities, without
+replacing the server session. The bridge retains at most one valid capabilities
+frame of 6144 bytes; a new upstream, epoch, identity or welcome clears it.
+Wi-Fi connection attempts are
 bounded to 22 s for WSS, with 3/6/12/24/30 s retry backoff; failed client allocations are
 released. WSS starts only after SNTP supplies usable certificate-validation time.
 For tests, the `sim` config event `wifi` (`ms`, default 30000) pauses the Wi-Fi session for that long without saving

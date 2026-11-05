@@ -5,6 +5,7 @@ import { discoverServer } from './lan-discovery.mjs';
 import { CLOSE } from '../../openclaw-kubik/src/protocol.js';
 
 const { REPLACED } = CLOSE;
+const MAX_PAYLOAD = 6144;
 
 function parseJson(data) {
   try { return JSON.parse(data.toString('utf8')); } catch { return null; }
@@ -18,12 +19,18 @@ function isHandshake(message) {
   return message?.t === 'challenge' || message?.t === 'pair';
 }
 
+function isCapabilities(message) {
+  return message?.t === 'capabilities' && typeof message.stt?.available === 'boolean' &&
+    typeof message.tts?.available === 'boolean';
+}
+
 export class UsbRoute {
   constructor({ server, enabled = true, send, log = () => {}, socketFactory = (url, cfg) => new WebSocket(url, cfg),
     discover = discoverServer, setTimer = setTimeout, clearTimer = clearTimeout, epoch = randomInt(1, 0xffffffff) }) {
     Object.assign(this, { server, enabled, send, log, socketFactory, discover, setTimer, clearTimer, epoch });
     this.attached = false; this.status = 'disabled'; this.ws = null; this.retry = 0;
     this.hello = null; this.welcome = null; this.handshake = null;
+    this.capabilities = null;
   }
   announce() {
     if (this.attached) this.send(F.HOST_HELLO, Buffer.from(JSON.stringify({ v: 2, status: this.status, epoch: this.epoch })));
@@ -36,6 +43,7 @@ export class UsbRoute {
     this.enabled = enabled; this.retry = 0; this.#probe();
   }
   #clear() {
+    this.capabilities = null;
     for (const key of ['authTimer', 'retryTimer', 'healthTimer', 'pongTimer']) {
       if (this[key]) this.clearTimer(this[key]); this[key] = null;
     }
@@ -80,7 +88,7 @@ export class UsbRoute {
    */
   #connect(target) {
     const pinned = target.bind === 'spki';
-    const sock = this.socketFactory(target.url, { perMessageDeflate: false, handshakeTimeout: 6000, maxPayload: 6144,
+    const sock = this.socketFactory(target.url, { perMessageDeflate: false, handshakeTimeout: 6000, maxPayload: MAX_PAYLOAD,
       ...(pinned ? { rejectUnauthorized: false } : {}) });
     this.ws = sock; sock.binaryType = 'nodebuffer';
     let bind = pinned ? null : target.bind;
@@ -106,18 +114,26 @@ export class UsbRoute {
     if (this.ws !== sock) return;
     const message = binary ? null : parseJson(data);
     if (isWelcome(message)) return this.#acceptWelcome(data);
-    if (this.status === 'ready') return this.#relayServerPayload(data, binary);
+    if (this.status === 'ready') {
+      if (!binary && data.length <= MAX_PAYLOAD && isCapabilities(message)) this.capabilities = Buffer.from(data);
+      return this.#relayServerPayload(data, binary);
+    }
     if (!binary && isHandshake(message)) this.#acceptHandshake(data, message);
   }
   #acceptWelcome(data) {
     this.clearTimer(this.authTimer); this.authTimer = null;
     this.welcome = Buffer.from(data); this.handshake = null; this.status = 'ready'; this.retry = 0;
-    // FIFO serial writes guarantee readiness precedes its matching welcome.
-    this.announce();
-    this.send(F.JSON, routedPayload(this.epoch, data));
+    this.capabilities = null;
+    this.#replayReady();
     if (this.healthTimer) this.clearTimer(this.healthTimer);
     this.#health();
     this.log('USB upstream authenticated');
+  }
+  #replayReady() {
+    // FIFO serial writes guarantee readiness precedes its matching welcome.
+    this.announce();
+    this.send(F.JSON, routedPayload(this.epoch, this.welcome));
+    if (this.capabilities) this.send(F.JSON, routedPayload(this.epoch, this.capabilities));
   }
   #relayServerPayload(data, binary) {
     this.send(binary ? F.AUDIO : F.JSON, routedPayload(this.epoch, data));
@@ -154,7 +170,7 @@ export class UsbRoute {
     const hello = data.toString('utf8');
     if (this.hello !== null && this.hello !== hello) { this.#probe(); return null; }
     if (this.status === 'ready' && this.welcome) {
-      this.announce(); this.send(F.JSON, routedPayload(this.epoch, this.welcome));
+      this.#replayReady();
     } else if (this.status === 'probing' && this.ws && this.handshake) {
       this.send(F.JSON, routedPayload(this.epoch, this.handshake));
     } else if (this.status === 'probing' && !this.ws && this.hello === null) {
