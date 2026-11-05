@@ -1,3 +1,4 @@
+#include "task_placement.h"
 #include "muse_backend.h"
 #include "muse_noise.h"
 #include "muse_pair.h"
@@ -239,5 +240,5 @@ void muse_backend_init(const link_handlers_t *application, void (*route)(bool)) 
     ESP_ERROR_CHECK(lifecycle_lock ? ESP_OK : ESP_ERR_NO_MEM);
     queue = xQueueCreate(8, sizeof(command_t));
     ESP_ERROR_CHECK(queue ? ESP_OK : ESP_ERR_NO_MEM);
-    ESP_ERROR_CHECK(xTaskCreate(worker, "muse", 7168, NULL, 4, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(worker, "muse", 7168, NULL, 4, NULL, KUBIK_UI_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }

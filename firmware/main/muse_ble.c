@@ -1,3 +1,4 @@
+#include "task_placement.h"
 // Native Muse v5 framing. Cryptography lives in the pinned upstream component.
 #include "muse_ble.h"
 #include "muse_store.h"
@@ -147,7 +148,7 @@ esp_err_t muse_ble_start(const char *name, muse_ble_command_t handler) {
     ble_svc_gap_init(); ble_svc_gatt_init();
     if (ble_gatts_count_cfg(services) || ble_gatts_add_svcs(services)) return ESP_FAIL;
     ble_svc_gap_device_name_set(name); ble_hs_cfg.sync_cb = synced;
-    if (xTaskCreate(worker, "muse_pair", 6144, NULL, 4, NULL) != pdPASS) return ESP_ERR_NO_MEM;
+    if (xTaskCreatePinnedToCore(worker, "muse_pair", 6144, NULL, 4, NULL, KUBIK_UI_CORE) != pdPASS) return ESP_ERR_NO_MEM;
     nimble_port_freertos_init(host_task);
     return ESP_OK;
 }

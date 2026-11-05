@@ -33,7 +33,7 @@ idf_component_register(
                   esp_http_server esp_http_client json mbedtls lwip esp_system bt muse_pairing noise_core muse_chat
 )
 if(IDF_TARGET STREQUAL "esp32s3")
-    target_sources(${COMPONENT_LIB} PRIVATE display_s3.c display_te_s3.c frame_pacing_s3.c)
+    target_sources(${COMPONENT_LIB} PRIVATE display_s3.c display_s3_tx.c display_te_s3.c frame_pacing_s3.c)
     set_source_files_properties(display_s3.c present.c render_overlay_s3.c render_projection.c
         render_raster.c render_dots.c render_glass.c render_output.c render_pipeline.c render_scene.c
         frame_store.c canvas.c font.c render_text.c

@@ -18,6 +18,7 @@ fixture = r'''
 #include <stdlib.h>
 #include <string.h>
 #include "mic_delivery.h"
+#include "task_placement.h"
 #include "ima_adpcm.h"
 typedef struct { pthread_mutex_t lock; pthread_cond_t changed; unsigned count; } sem_t;
 static int sem_init(sem_t *s,int shared,unsigned value) {
@@ -44,8 +45,9 @@ typedef sem_t StaticSemaphore_t;
 typedef sem_t *SemaphoreHandle_t;
 static TaskHandle_t current;
 static void *entry(void *p) { TaskHandle_t t=p; t->fn(t->arg); return NULL; }
-static TaskHandle_t xTaskCreateStatic(void (*fn)(void *), const char *name, unsigned bytes,
-    void *arg, int priority, StackType_t *stack, StaticTask_t *task) {
+static TaskHandle_t xTaskCreateStaticPinnedToCore(void (*fn)(void *), const char *name, unsigned bytes,
+    void *arg, int priority, StackType_t *stack, StaticTask_t *task, int core) {
+    assert(core==0 && KUBIK_AUDIO_CORE==0);
     assert(((bytes==4096 && priority==7) || (bytes==3072 && priority==6)) && stack); (void)name;
     task->fn=fn; task->arg=arg; sem_init(&task->wake,0,0); current=task;
     assert(!pthread_create(&task->thread,NULL,entry,task)); return task;

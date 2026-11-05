@@ -81,6 +81,11 @@ void board_display_begin(int x0, int y0, int x1, int y1);
 void board_display_write(const uint16_t *pixels, int count, bool last);
 void board_display_end(void);
 void board_display_wait_idle(void);
+#if CONFIG_IDF_TARGET_ESP32S3
+// Arm once before a frame's first window, after the preceding frame drained.
+// Called in SPI ISR context immediately before its first pixel transaction.
+void board_display_frame_start(void (*started)(void *), void *context);
+#endif
 
 // RGB565 QSPI windows, with CS held between DMA chunks inside each window.
 // At most LCD_PIPE-1 pixel buffers are in flight. end() only closes the window;

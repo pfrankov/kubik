@@ -4,6 +4,9 @@
 #include <string.h>
 
 #include "esp_timer.h"
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "display_s3_tx.h"
+#endif
 
 // The stripes of a rectangle changed on the native rows y0..y1-1 it covers.
 static void mask_union(uint16_t *mask, const canvas_rect_t *r, int y0, int y1) {
@@ -19,14 +22,14 @@ static void mask_union(uint16_t *mask, const canvas_rect_t *r, int y0, int y1) {
 #define FLUSH_BYTES (FRAME_STORE_BYTES - (R_BAND + 1) * FRAME_STRIPES * FRAME_STRIPE * 4)
 
 // Only an admitted merged rectangle may reconstruct unstored black stripes.
-static void read_merged(void *ctx, int y, uint16_t *out, int xa, int xb) {
-    frame_store_t *store = ctx;
-    for (int k = xa / FRAME_STRIPE; k <= (xb - 1) / FRAME_STRIPE; k++) {
-        if (store->stripes[y] & (1u << k)) continue;
-        int first = k * FRAME_STRIPE > xa ? k * FRAME_STRIPE : xa;
-        int last = (k + 1) * FRAME_STRIPE < xb ? (k + 1) * FRAME_STRIPE : xb;
-        memset(out + first, 0, (size_t)(last - first) * sizeof *out);
-    }
+static R_HOT void read_merged(void *ctx, int y, uint16_t *out, int xa, int xb) {
+    const frame_store_t *store = ctx;
+    uint16_t stripes = store->stripes[y];
+    int first = xa / FRAME_STRIPE, last = (xb - 1) / FRAME_STRIPE + 1;
+    uint32_t required = ((1u << last) - 1u) & ~((1u << first) - 1u);
+    // Every missing stripe was proven black before this merged window was
+    // admitted. One fill also clears stored pixels; decoding restores those.
+    if (required & ~stripes) memset(out + xa, 0, (size_t)(xb - xa) * sizeof *out);
     frame_store_read(ctx, y, out, xa, xb);
 }
 
@@ -415,6 +418,35 @@ static void output_frame(frame_out_t *frame) {
     for (int y = frame->sent * R_BAND; y < R_H; y += R_BAND) send_band(frame, y);
 }
 
+static void account_burst(frame_out_t *frame) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    display_s3_tx_bursts_t completed = display_s3_tx_take_bursts();
+    frame->burst_sum += completed.sum_us;
+    frame->bursts += completed.count;
+    if (completed.max_us > frame->burst_max) frame->burst_max = completed.max_us;
+#else
+    int64_t burst = esp_timer_get_time() - frame->burst_start;
+    frame->burst_sum += burst;
+    frame->bursts++;
+    if (burst > frame->burst_max) frame->burst_max = burst;
+#endif
+}
+
+static void account_presentation(frame_out_t *frame) {
+    if (frame->burst_start) {
+        int64_t gap = frame->shown_at ? frame->burst_start - frame->shown_at : 0;
+        if (gap && (!frame->gap_min || gap < frame->gap_min)) frame->gap_min = gap;
+        if (gap > frame->gap_max) frame->gap_max = gap;
+#if !CONFIG_IDF_TARGET_ESP32S3
+        account_burst(frame);
+#endif
+    }
+#if CONFIG_IDF_TARGET_ESP32S3
+    account_burst(frame);  // completed wire work, never submission-to-START latency
+#endif
+    frame->shown_at = frame->burst_start;  // 0: do not measure spacing across an unchanged frame
+}
+
 bool present_frame(frame_out_t *frame, render_state_t *state, scene_t *scene) {
 #if CONFIG_IDF_TARGET_ESP32S3
     display_s3_begin_frame();
@@ -445,15 +477,6 @@ bool present_frame(frame_out_t *frame, render_state_t *state, scene_t *scene) {
     frame->burst_start = display_s3_present();
     frame->expand_us += esp_timer_get_time() - native_start;
 #endif
-    if (frame->burst_start) {
-        int64_t gap = frame->shown_at ? frame->burst_start - frame->shown_at : 0;
-        if (gap && (!frame->gap_min || gap < frame->gap_min)) frame->gap_min = gap;
-        if (gap > frame->gap_max) frame->gap_max = gap;
-        int64_t burst = esp_timer_get_time() - frame->burst_start;
-        frame->burst_sum += burst;
-        frame->bursts++;
-        if (burst > frame->burst_max) frame->burst_max = burst;
-    }
-    frame->shown_at = frame->burst_start;  // 0 for a frame that changed nothing: no spacing is measured across it
+    account_presentation(frame);
     return true;
 }

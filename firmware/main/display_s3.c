@@ -1,4 +1,5 @@
 #include "display_s3.h"
+#include "display_s3_tx.h"
 #include "viewport.h"
 #include "board.h"
 #include "frame_pacing_s3.h"
@@ -7,9 +8,7 @@
 #include <string.h>
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
-#ifdef ESP_PLATFORM
-#include "esp_log.h"
-#endif
+#include "esp_cpu.h"
 
 #define BUFFERS 3
 #define DAMAGE_BANDS (DISPLAY_S3_HEIGHT / DISPLAY_S3_ROWS)
@@ -18,10 +17,11 @@ _Static_assert(UI_RENDER_W >= DISPLAY_S3_WIDTH && UI_RENDER_H == DISPLAY_S3_HEIG
                "Only the renderer's right-hand stripe padding is clipped");
 static uint16_t *s_native, *s_dma[BUFFERS];
 static uint16_t s_left[DAMAGE_BANDS], s_right[DAMAGE_BANDS];
-static int s_next, s_x0, s_x1, s_y0, s_y1, s_y;
+static int s_x0, s_x1, s_y0, s_y1, s_y;
 static bool s_open;
 static int64_t s_render_start;
-static display_s3_profile_t s_profile, s_last_profile;
+static uint32_t s_render_cycles;
+static display_s3_profile_t s_profile;
 
 static void release_buffers(void) {
     heap_caps_free(s_native); s_native = NULL;
@@ -30,6 +30,7 @@ static void release_buffers(void) {
 
 bool display_s3_init(void) {
     assert(!s_open);
+    display_s3_tx_wait_idle();
     if (!s_native) s_native = heap_caps_calloc(UI_RENDER_W * DISPLAY_S3_HEIGHT,
                                                sizeof(*s_native), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!s_native) return false;
@@ -38,8 +39,8 @@ bool display_s3_init(void) {
                                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
         if (!s_dma[i]) { release_buffers(); return false; }
     }
+    if (!display_s3_tx_init(s_native, s_dma)) { release_buffers(); return false; }
     memset(s_native, 0, UI_RENDER_W * DISPLAY_S3_HEIGHT * sizeof(*s_native));
-    s_next = 0;
     display_s3_begin_frame();
     return true;
 }
@@ -49,10 +50,12 @@ void display_s3_begin(int x0, int y0, int x1, int y1) {
            y1 <= DISPLAY_S3_HEIGHT && x0 < x1 && y0 < y1);
     s_x0 = x0; s_x1 = x1; s_y0 = s_y = y0; s_y1 = y1; s_open = true;
     s_render_start = esp_timer_get_time();
+    s_render_cycles = esp_cpu_get_cycle_count();
 }
 
 uint16_t *display_s3_next_row(void) {
     assert(s_open && s_y < s_y1);
+    display_s3_tx_wait_writable(s_y);
     int end = s_x1 < DISPLAY_S3_WIDTH ? s_x1 : DISPLAY_S3_WIDTH;
     int visible = end > s_x0 ? end - s_x0 : 0;
     s_profile.input_pixels += (uint32_t)(s_x1 - s_x0);
@@ -70,6 +73,7 @@ void display_s3_end(void) {
     assert(s_open && s_y == s_y1);
     s_open = false;
     s_profile.render_us += esp_timer_get_time() - s_render_start;
+    s_profile.render_cycles += (uint32_t)(esp_cpu_get_cycle_count() - s_render_cycles);
     int x0 = s_x0, x1 = s_x1 < DISPLAY_S3_WIDTH ? s_x1 : DISPLAY_S3_WIDTH;
     if (x0 >= x1) return;
     x0 &= ~15; x1 = (x1 + 15) & ~15;
@@ -80,63 +84,29 @@ void display_s3_end(void) {
     }
 }
 
-static void stream_area(int x0, int x1, int y0, int y1) {
-    s_profile.windows++;
-    board_display_begin(x0, y0, x1, y1);
-    int width = x1 - x0;
-    for (int y = y0; y < y1; y += DISPLAY_S3_ROWS) {
-        uint16_t *pixels = s_dma[s_next]; s_next = (s_next + 1) % BUFFERS;
-        for (int row = 0; row < DISPLAY_S3_ROWS; row++)
-            memcpy(pixels + row * width, s_native + (y + row) * UI_RENDER_W + x0, (size_t)width * 2);
-        board_display_write(pixels, width * DISPLAY_S3_ROWS, y + DISPLAY_S3_ROWS == y1);
-    }
-    board_display_end();
-}
-
 static bool has_damage(void) {
     for (int band = 0; band < DAMAGE_BANDS; band++) if (s_left[band] < s_right[band]) return true;
     return false;
 }
 
-static void report_slow_phases(void) {
-#ifdef ESP_PLATFORM
-    static int64_t window_start;
-    static unsigned reported;
-    int64_t now = esp_timer_get_time();
-    if (now - window_start >= 10000000) { window_start = now; reported = 0; }
-    int64_t total = s_last_profile.render_us + s_last_profile.te_us + s_last_profile.burst_us;
-    if (reported >= 4 || total <= 25000) return;
-    reported++;
-    ESP_LOGI("s3frame", "in=%u native=%u windows=%u render=%lld (expand=%lld edge=%lld text=%lld) TE=%lld burst=%lld us",
-        (unsigned)s_last_profile.input_pixels, (unsigned)s_last_profile.native_pixels, (unsigned)s_last_profile.windows,
-        (long long)s_last_profile.render_us, (long long)s_last_profile.expand_us, (long long)s_last_profile.edge_us,
-        (long long)s_last_profile.text_us, (long long)s_last_profile.te_us, (long long)s_last_profile.burst_us);
-#endif
-}
-
 int64_t display_s3_present(void) {
     assert(!s_open);
-    if (!has_damage()) { s_last_profile = s_profile; return 0; }
+    if (!has_damage()) return 0;
+    // New CPU work may overlap the old burst; the UI alone consumes fresh TE.
+    display_s3_tx_wait_idle();
     int64_t phase = esp_timer_get_time();
     ESP_ERROR_CHECK(frame_pacing_s3_sync());
     s_profile.te_us = esp_timer_get_time() - phase;
-    int64_t start = 0;
-    for (int band = 0; band < DAMAGE_BANDS;) {
-        int first = band++, x0 = s_left[first], x1 = s_right[first];
-        if (x0 >= x1) continue;
-        while (band < DAMAGE_BANDS && s_left[band] == x0 && s_right[band] == x1) band++;
-        if (!start) start = esp_timer_get_time();
-        stream_area(x0, x1, first * DISPLAY_S3_ROWS, band * DISPLAY_S3_ROWS);
-    }
-    board_display_wait_idle();
-    s_profile.burst_us = esp_timer_get_time() - start;
-    s_last_profile = s_profile;
-    report_slow_phases();
+    int64_t started = display_s3_tx_submit(s_left, s_right, &s_profile);
     display_s3_begin_frame();
-    return start;
+    return started;
 }
 
-display_s3_profile_t display_s3_last_profile(void) { return s_last_profile; }
+display_s3_profile_t display_s3_last_profile(void) {
+    display_s3_profile_t profile = {0}; uint32_t sequence;
+    (void)display_s3_tx_last_completed(&profile, &sequence);
+    return profile;
+}
 
 bool display_s3_touch(int native_x, int native_y, int16_t *logical_x, int16_t *logical_y) {
     if (!logical_x || !logical_y || native_x < 0 || native_x >= DISPLAY_S3_WIDTH ||

@@ -45,7 +45,7 @@ esp_err_t display_te_init(void) {
 
 esp_err_t display_te_wait(void) {
     if (!s_te_edge) return ESP_ERR_INVALID_STATE;
-    board_display_wait_idle();
+    display_wait_idle();
     // Binary semaphore: one nonblocking take discards every preceding edge.
     xSemaphoreTake(s_te_edge, 0);
     if (xSemaphoreTake(s_te_edge, pdMS_TO_TICKS(TE_WAIT_MS)) != pdTRUE) return ESP_ERR_TIMEOUT;

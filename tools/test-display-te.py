@@ -70,7 +70,7 @@ static int gpio_install_isr_service(int flags) { assert(flags == 0); return inst
 static int gpio_isr_handler_add(int pin, void (*callback)(void *), void *arg) {
     assert(pin == 13 && callback); handler = callback; handler_arg = arg; return handler_failure;
 }
-static void board_display_wait_idle(void) { spi_drains++; }
+static void display_wait_idle(void) { spi_drains++; }
 '''
 
 TEST = r'''

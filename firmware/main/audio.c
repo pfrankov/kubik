@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "task_placement.h"
 #include "audio_levels.h"
 #include "audio_signal.h"
 #include "audio_sfx.h"
@@ -466,7 +467,7 @@ static void deliver_queued(void *context, const int16_t *frame, const uint8_t *i
 static void task_deliver(void *context, int16_t *frame, const uint8_t *reference, int32_t *dc, uint32_t epoch) {
     (void)context;
     xSemaphoreTake(s_mic_read_lock, portMAX_DELAY);
-    if (epoch == audio_capture_epoch()) {
+    if (capture_requested() && epoch == audio_capture_epoch()) {
         if (frame) prepare_voice(frame, dc);
         if (s_wake_capture) { if (s_mic_fn) s_mic_fn(frame, MIC_FRAME_SAMPLES, NULL); }
         else mic_delivery_push(frame, epoch, reference);
@@ -493,7 +494,7 @@ void audio_init(int volume) {
     ESP_ERROR_CHECK(audio_board_init(&s_capture, &s_out, &s_out_codec, &s_tx) ? ESP_OK : ESP_FAIL);
     audio_set_volume(volume);
     ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(s_out, 100));
-    ESP_ERROR_CHECK(xTaskCreate(speaker_task, "spk", 4096, NULL, 10, &s_spk_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
-    ESP_ERROR_CHECK(xTaskCreate(mic_capture_task, "mic", 4096, (void *)&s_mic_task_config, 6, &s_mic_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(speaker_task, "spk", 4096, NULL, 10, &s_spk_task, KUBIK_AUDIO_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(mic_capture_task, "mic", 4096, (void *)&s_mic_task_config, 6, &s_mic_task, KUBIK_AUDIO_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_LOGI(TAG, "duplex audio ready, %d Hz, volume %d", AUDIO_RATE, volume);
 }

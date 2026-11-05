@@ -1,3 +1,4 @@
+#include "task_placement.h"
 #include "app_lab.h"
 #include "viewpoint.h"
 #include "input.h"
@@ -419,4 +420,4 @@ static void input_task(void *arg) {
     }
 }
 
-void input_init(void) { ESP_ERROR_CHECK(xTaskCreate(input_task, "input", 4096, NULL, 9, &s_input_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM); }
+void input_init(void) { ESP_ERROR_CHECK(xTaskCreatePinnedToCore(input_task, "input", 4096, NULL, 9, &s_input_task, KUBIK_UI_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM); }

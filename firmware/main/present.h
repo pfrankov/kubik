@@ -47,7 +47,7 @@ typedef struct {
     int64_t heal_px0;
     int64_t burst_start;  // esp_timer time of the frame's first panel write (0: none yet)
     int64_t hash_us, pack_us, expand_us, px, windows;  // profiling
-    int64_t burst_sum, burst_max, bursts;  // first to last panel write of a frame, profiling
+    int64_t burst_sum, burst_max, bursts;  // completed S3 DMA bursts; C6 first-to-last-write duration
     int64_t shown_at, gap_min, gap_max;  // the last frame's first panel write; the spacing of consecutive frames' (0: none)
     unsigned store_max, overflows;  // the largest packed frame; frames that did not fit (repainted whole next frame)
 } frame_out_t;

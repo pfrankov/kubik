@@ -7,6 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 MOCKS = r'''
+#include "task_placement.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,8 +30,9 @@ static void vTaskDelay(int ms) { usleep(ms * 1000); }
 static void vTaskDelete(void *unused) { (void)unused; }
 static void (*task_entry)(void *);
 static void *launch(void *unused) { task_entry(NULL); return NULL; }
-static int xTaskCreate(void (*entry)(void *), const char *name, unsigned stack,
-                       void *arg, int priority, void *out) {
+static int xTaskCreatePinnedToCore(void (*entry)(void *), const char *name, unsigned stack,
+                       void *arg, int priority, void *out, int core) {
+    assert(core == KUBIK_UI_CORE);
     assert(!strcmp(name, "dns") && stack == 3072 && !arg && !out && priority == 3);
     if (fail_task) return 0;
     assert(!created);
@@ -101,5 +103,5 @@ with tempfile.TemporaryDirectory(prefix='kubik-dns-test-') as directory:
     source.write_text(MOCKS + body + CHECKS)
     subprocess.run(['clang', '-std=c11', '-D_DEFAULT_SOURCE', '-O1', '-g', '-pthread',
                     '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-Wno-unused-variable',
-                    str(source), '-o', str(binary)], check=True)
+                    '-I' + str(ROOT / 'firmware/main'), str(source), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=10)

@@ -1,3 +1,4 @@
+#include "task_placement.h"
 #include "app_speech.h"
 #include "frame_diagnostics.h"
 #include <stdatomic.h>
@@ -241,9 +242,19 @@ static void log_frame_stats(frame_stats_t *st, frame_out_t *f, const scene_t *sc
              f->store_max, (unsigned)sizeof f->store.data, f->overflows, f->flushes);
     ESP_LOGI(TAG, "profile us/frame: face %lld, render+send %lld (prep %lld, image %lld, shapes %lld, glass %lld, hash %lld, pack %lld, send %lld)",
              st->face / n, st->render / n, st->prep / n, st->image / n, st->shapes / n, st->glass / n, f->hash_us / n, f->pack_us / n, f->expand_us / n);
-    ESP_LOGI(TAG, "present: %lld us/frame max %lld, panel burst (first to last write) %lld us avg, %lld max over %lld frames, frames shown %lld..%lld us apart, character %s, stack free %u",
-             st->present_sum / n, st->present_max, f->bursts ? f->burst_sum / f->bursts : 0, f->burst_max, f->bursts, f->gap_min, f->gap_max,
+#if CONFIG_IDF_TARGET_ESP32S3
+    const char *burst_kind = "completed DMA bursts";
+#else
+    const char *burst_kind = "panel burst (first to last write)";
+#endif
+    ESP_LOGI(TAG, "present: %lld us/frame max %lld, %s %lld us avg, %lld max over %lld frames, frames shown %lld..%lld us apart, character %s, stack free %u",
+             st->present_sum / n, st->present_max, burst_kind, f->bursts ? f->burst_sum / f->bursts : 0, f->burst_max, f->bursts, f->gap_min, f->gap_max,
              character_name(KUBIK_CHARACTER), (unsigned)uxTaskGetStackHighWaterMark(NULL));
+    ESP_LOGI(TAG, "display core: %d", xPortGetCoreID());
+#if CONFIG_IDF_TARGET_ESP32S3
+    display_s3_profile_t completed = display_s3_last_profile();
+    ESP_LOGI(TAG, "S3 sender core: %d, stack free: %u", completed.sender_core, (unsigned)completed.sender_stack_free);
+#endif
     const frame_diagnostics_snapshot_t snapshot = {
         .frames = n, .elapsed_us = now - st->start, .mean_us = st->sum / n,
         .max_us = st->max, .late = st->late, .px = f->px / n, .prims = scene->n,
@@ -353,7 +364,7 @@ static void record_frame(frame_stats_t *stats, frame_out_t *f, const render_stat
 
 static void allocate_output_buffers(frame_out_t *f) {
 #if CONFIG_IDF_TARGET_ESP32S3
-    (void)f;  // S3 composes directly into its native PSRAM image.
+    (void)f;  // S3 stages internal stripes in its canonical native PSRAM image.
 #else
     for (int i = 0; i < LCD_PIPE; i++) {
         f->bufs[i] = heap_caps_malloc(LCD_W * OUTPUT_ROWS * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -407,14 +418,14 @@ static void display_task(void *arg) {
         int fps = frame_rate(frame_mode, &frame_avg_us, t1 - t0);
         stats.slow_frames += fps == 20;
 #endif
-        record_frame(&stats, f, &rs, &scene, frame_mode, powered, presented, t0, t_face, t1);
         report_presented_mode(presented, frame_mode, report_mode, &shown_mode);
-        // Audio/mic tasks retain higher priority; healthy screens keep the same cadence.
+        // Yield before the next frame; S3 SPI continues independently on core 0.
 #if CONFIG_IDF_TARGET_ESP32S3
         stats.deadline_misses += frame_pacing_s3_wait(powered);
 #else
         stats.deadline_misses += wait_for_next_frame(powered, fps, &wake, &tick_remainder);
 #endif
+        record_frame(&stats, f, &rs, &scene, frame_mode, powered, presented, t0, t_face, t1);
     }
 }
 
@@ -454,7 +465,7 @@ void app_main(void) {
 #else
     const unsigned display_stack = 7168;
 #endif
-    ESP_ERROR_CHECK(xTaskCreate(display_task, "display", display_stack, NULL, 8, &s_display_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(display_task, "display", display_stack, NULL, 8, &s_display_task, KUBIK_UI_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     audio_init(g_settings.volume);
     audio_set_ui_volume(g_settings.ui_volume);
     audio_sfx(SFX_BOOT);

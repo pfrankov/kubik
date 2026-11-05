@@ -7,6 +7,7 @@
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "esp_lcd_touch_cst816s.h"
 #include "display_s3.h"
+#include "display_s3_tx.h"
 #include "display_te_s3.h"
 #else
 #include "esp_lcd_touch_cst9217.h"
@@ -34,6 +35,26 @@ static spi_transaction_ext_t s_lcd_trans[LCD_TRANS];
 #define LCD_TRANS_COMMAND ((void *)2)
 static bool s_lcd_stream, s_lcd_first, s_lcd_held;  // held: an ended window may still be in flight
 static unsigned s_lcd_next;
+#if CONFIG_IDF_TARGET_ESP32S3
+static portMUX_TYPE s_lcd_start_lock = portMUX_INITIALIZER_UNLOCKED;
+static void (*s_lcd_started)(void *);
+static void *s_lcd_start_context;
+void board_display_frame_start(void (*started)(void *), void *context) {
+    assert(started && !s_lcd_stream && !s_lcd_held);
+    portENTER_CRITICAL(&s_lcd_start_lock);
+    assert(!s_lcd_started);
+    s_lcd_start_context = context; s_lcd_started = started;
+    portEXIT_CRITICAL(&s_lcd_start_lock);
+}
+static void IRAM_ATTR lcd_trans_start(spi_transaction_t *t) {
+    if (t->user != LCD_TRANS_PIXELS) return;
+    portENTER_CRITICAL_ISR(&s_lcd_start_lock);
+    void (*started)(void *) = s_lcd_started; void *context = s_lcd_start_context;
+    s_lcd_started = NULL;
+    portEXIT_CRITICAL_ISR(&s_lcd_start_lock);
+    if (started) started(context);
+}
+#endif
 
 #if CONFIG_IDF_TARGET_ESP32S3
 static i2c_master_dev_handle_t s_expander;
@@ -240,6 +261,9 @@ static void display_init(void) {
         .queue_size = LCD_TRANS,
         .flags = SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_NO_RETURN_RESULT,
         .post_cb = lcd_trans_done,
+#if CONFIG_IDF_TARGET_ESP32S3
+        .pre_cb = lcd_trans_start,
+#endif
     };
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &s_lcd));
     display_panel_init();
@@ -466,4 +490,9 @@ void display_end(void) {
     board_display_end();
 #endif
 }
-void display_wait_idle(void) { board_display_wait_idle(); }
+void display_wait_idle(void) {
+#if CONFIG_IDF_TARGET_ESP32S3
+    display_s3_tx_wait_idle();
+#endif
+    board_display_wait_idle();
+}

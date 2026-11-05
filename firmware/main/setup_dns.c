@@ -1,3 +1,4 @@
+#include "task_placement.h"
 #include "setup_dns.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -55,7 +56,7 @@ void setup_dns_start(void) {
         return;
     }
     atomic_store(&s_running, true);
-    if (xTaskCreate(dns_task, "dns", 3072, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreatePinnedToCore(dns_task, "dns", 3072, NULL, 3, NULL, KUBIK_UI_CORE) != pdPASS) {
         atomic_store(&s_running, false);
         atomic_store(&s_active, false);
         ESP_LOGE(TAG, "dns task failed");

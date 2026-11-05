@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-state-") as tmp:
     main_source = (ROOT / "firmware/main/main.c").read_text()
     bootstrap = main_source[main_source.index("static void initialize_home_face("):main_source.index("void app_main(")]
     app_main = main_source[main_source.index("void app_main("):]
-    assert app_main.index("settings_load();") < app_main.index("initialize_home_face();") < app_main.index('xTaskCreate(display_task,')
+    assert app_main.index("settings_load();") < app_main.index("initialize_home_face();") < app_main.index('xTaskCreatePinnedToCore(display_task,')
     fixture = (ROOT / "firmware/sim/tess_app_runtime_test.c").read_text()
     fixture = fixture.replace("/* PRODUCTION_GAMES_AVAILABLE */", availability)
     fixture = fixture.replace("/* PRODUCTION_HOME_FACE_INIT */", bootstrap)

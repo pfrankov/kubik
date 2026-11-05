@@ -17,6 +17,8 @@ task = '\n'.join(line for line in (ROOT / 'firmware/main/mic_capture_task.c').re
 stop = function('firmware/main/audio.c', 'void audio_mic_request_stop(', 'bool audio_mic_start_epoch(')
 gate = function('firmware/main/audio.c', 'static void finish_capture_gate(', '// RX handlers')
 queued = function('firmware/main/audio.c', 'static void deliver_queued(void *context, const int16_t *frame, const uint8_t *ima, uint32_t epoch) {', 'static void task_deliver(')
+producer = function('firmware/main/audio.c', 'static void task_deliver(', 'static bool task_duplex(')
+capture_requested = function('firmware/main/audio.c', 'static bool capture_requested(', 'static bool sync_capture(')
 suspend = function('firmware/main/app_wake.c', 'void app_wake_suspend(', 'static void wake_frame(')
 fixture = r'''
 #include <assert.h>
@@ -55,7 +57,7 @@ static void deliver(void *ctx, int16_t *pcm, const uint8_t *reference, int32_t *
     for (unsigned i = 0; i < 960; ++i) assert(pcm[i] == (int16_t)(100 * epoch + first_read + i / 240));
     *dc = 99;
 }
-static bool s_gate = true, s_mic_closing, s_pending, s_automatic;
+static bool s_gate = true, s_mic_closing, s_pending, s_automatic, s_codecs_down;
 static uint32_t s_capture_epoch = 7;
 bool audio_mic_request_stop_epoch(uint32_t epoch);
 static float s_mic_level = 1;
@@ -73,11 +75,28 @@ static void deliver_queued(void *,const int16_t *,const uint8_t *,uint32_t);
 #define MIC_FRAME_SAMPLES 960
 static uint32_t audio_capture_epoch(void) {return s_capture_epoch;}
 static unsigned delivered_frames;
-static uint32_t queued_epoch;
-static bool mic_delivery_start(mic_delivery_frame_fn fn,void *ctx,bool duplex) {assert(fn==deliver_queued&&!ctx&&!duplex);return true;}
+static uint32_t queued_epoch, delayed_epoch;
+static bool queue_live;
+static unsigned pushed_frames, prepared_frames;
+static void task_deliver(void *,int16_t *,const uint8_t *,int32_t *,uint32_t);
+static void prepare_voice(int16_t *pcm,int32_t *dc) {assert(pcm && dc);prepared_frames++;}
+static void mic_delivery_push(const int16_t *pcm,uint32_t epoch,const uint8_t *reference) {
+    assert(mutex_depth==1 && queue_live && pcm && !reference);
+    pushed_frames++;queued_epoch=epoch;
+}
+static bool mic_delivery_start(mic_delivery_frame_fn fn,void *ctx,bool duplex) {
+    assert(fn==deliver_queued&&!ctx&&!duplex);queue_live=true;return true;
+}
 static void mic_delivery_stop(void) {
     assert(mutex_depth==0); // Worker must be able to finish outside the producer lock.
     if(queued_epoch) {int16_t pcm=1;deliver_queued(NULL,&pcm,NULL,queued_epoch);queued_epoch=0;}
+    queue_live=false;
+    // A producer passed requested() before closing, but reaches its delivery
+    // lock only now, after the worker drained and released its queue.
+    if(delayed_epoch) {
+        int16_t pcm=1;int32_t dc=0;
+        task_deliver(NULL,&pcm,NULL,&dc,delayed_epoch);delayed_epoch=0;
+    }
 }
 static void vTaskPrioritySet(int task,int priority) {assert(task==1&&(priority==6||priority==9));}
 static void audio_kick(void) {}
@@ -150,13 +169,34 @@ int main(void) {
     queued_epoch=s_capture_epoch;
     assert(capture_gate(false, NULL, false, NULL));
     assert(delivered_frames==1 && !s_mic_fn); // User close drained accepted PCM before changing the epoch.
-    puts("mic task: epoch transitions discard partial frames; RX suspension never waits for mic callback");
+    // Deterministic two-core interleaving: a delayed producer resumes during
+    // stop after the queue is freed. It must neither prepare nor push that PCM.
+    assert(capture_gate(true, frame, false, NULL));
+    int16_t pcm=1;int32_t dc=0;
+    uint32_t old_epoch=s_capture_epoch;
+    task_deliver(NULL,&pcm,NULL,&dc,old_epoch);
+    assert(pushed_frames==1 && prepared_frames==1 && queued_epoch==old_epoch);
+    delayed_epoch=old_epoch;
+    assert(capture_gate(false, NULL, false, NULL));
+    assert(pushed_frames==1 && prepared_frames==1 && delivered_frames==2 && !queue_live && !mutex_depth);
+    task_deliver(NULL,&pcm,NULL,&dc,old_epoch); // Closed capture also rejects a late callback.
+    assert(pushed_frames==1 && prepared_frames==1);
+    assert(capture_gate(true, frame, false, NULL));
+    task_deliver(NULL,&pcm,NULL,&dc,old_epoch); // Reopening cannot relabel the previous epoch.
+    assert(pushed_frames==1 && prepared_frames==1);
+    s_codecs_down=true;task_deliver(NULL,&pcm,NULL,&dc,s_capture_epoch);s_codecs_down=false;
+    assert(pushed_frames==1 && prepared_frames==1);
+    task_deliver(NULL,&pcm,NULL,&dc,s_capture_epoch);
+    assert(pushed_frames==2 && prepared_frames==2);
+    assert(capture_gate(false, NULL, false, NULL));
+    assert(delivered_frames==3 && !queue_live && !mutex_depth);
+    puts("mic task: epoch transitions, delayed producer after queue release, reopen/drain; RX stop stays nonblocking");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='c6-mic-task-') as directory:
     source = Path(directory) / 'test.c'
     binary = Path(directory) / 'test'
-    source.write_text(fixture + task + queued + gate + stop + suspend + tests)
+    source.write_text(fixture + task + capture_requested + queued + producer + gate + stop + suspend + tests)
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
                     '-I', str(ROOT / 'firmware/main'), str(source), str(ROOT / "firmware/main/ima_adpcm.c"), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

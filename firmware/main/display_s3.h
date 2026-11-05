@@ -10,7 +10,8 @@
 // Called after the physical panel has been cleared. Reuses allocations on reset.
 bool display_s3_init(void);
 void display_s3_begin_frame(void);
-// Sends the already prepared native damage after TE; returns its start time or 0.
+// Submits prepared damage after fresh TE; returns the actual first-pixel time
+// before the DMA tail completes, or0 when there is no visible damage.
 int64_t display_s3_present(void);
 void display_s3_begin(int x0, int y0, int x1, int y1);
 // Returns the next window row for direct wire-order RGB565 composition.
@@ -23,11 +24,14 @@ void display_s3_end(void);
 // Invalid points leave both outputs unchanged.
 bool display_s3_touch(int native_x, int native_y, int16_t *logical_x, int16_t *logical_y);
 
-// Measurements for the most recently presented frame, excluding scene rendering.
+// Measurements for the most recently completed SPI frame, excluding scene rendering.
 typedef struct {
     int64_t render_us, expand_us, edge_us, text_us, te_us, burst_us;
+    uint64_t render_cycles;
     // Composed native work includes repeated writes to overlapping windows.
     uint32_t input_pixels, native_pixels, windows;
+    int sender_core;
+    uint32_t sender_stack_free;
 } display_s3_profile_t;
 display_s3_profile_t display_s3_last_profile(void);
 

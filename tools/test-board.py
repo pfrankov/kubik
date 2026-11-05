@@ -186,7 +186,7 @@ int main(void) {
 '''
 
 pins = HEADER[HEADER.index('#if CONFIG_IDF_TARGET_ESP32S3'):HEADER.index('extern i2c_master_bus_handle_t')]
-table = BOARD[BOARD.index('static const struct {'):BOARD.index('static void IRAM_ATTR')]
+table = BOARD[BOARD.index('static const struct {'):BOARD.index('static void IRAM_ATTR lcd_trans_done(')]
 codec_start = AUDIO.index('    es8311_codec_cfg_t es8311_cfg = {')
 codec = AUDIO[codec_start:AUDIO.index('    };', codec_start) + 7]
 expander = BOARD[BOARD.index('#if CONFIG_IDF_TARGET_ESP32S3\nstatic i2c_master_dev_handle_t s_expander;'):BOARD.index('// ---------------------------------------------------------------- AXP2101')]
@@ -263,3 +263,109 @@ with tempfile.TemporaryDirectory(prefix='kubik-shared-codec-') as temporary:
                     '-fsanitize=address,undefined', str(source), '-o', str(executable)], check=True)
     subprocess.run([str(executable)], check=True)
 print('ES8311: independent ADC power, preserved DAC, wake re-gating and failed-register state passed')
+
+# Exercise the actual SPI callbacks and the UI/worker idle ownership boundary.
+callback_start = BOARD.index('static portMUX_TYPE s_lcd_start_lock')
+callbacks = BOARD[callback_start:BOARD.index('#endif', callback_start)]
+dev_start = BOARD.index('    spi_device_interface_config_t dev = {')
+device = BOARD[dev_start:BOARD.index('    ESP_ERROR_CHECK(spi_bus_add_device(', dev_start)]
+spi_stub = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#define IRAM_ATTR
+#define pdFALSE 0
+#define portMAX_DELAY 99
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define LCD_TRANS 8
+#define LCD_TRANS_PIXELS ((void *)1)
+#define LCD_TRANS_COMMAND ((void *)2)
+#define SPI_DEVICE_HALFDUPLEX 1
+#define SPI_DEVICE_NO_RETURN_RESULT 2
+#define PIN_LCD_CS (CONFIG_IDF_TARGET_ESP32S3 ? 12 : 15)
+#define ESP_ERROR_CHECK(value) assert((value)==0)
+typedef int portMUX_TYPE,BaseType_t;
+typedef struct {void *user;} spi_transaction_t;
+typedef struct {
+    int command_bits,address_bits,mode,clock_speed_hz,spics_io_num,queue_size,flags;
+    void (*pre_cb)(spi_transaction_t *),(*post_cb)(spi_transaction_t *);
+} spi_device_interface_config_t;
+static bool s_lcd_stream,s_lcd_held,worker_pending,worker_context,isr;
+static int s_lcd=1,s_lcd_slots=2,s_lcd_free=3;
+static int critical_depth,starts,context_value,slot_gives,free_gives;
+static int raw_takes,fences,acquires,releases,worker_releases;
+#define portENTER_CRITICAL(lock) do {(void)(lock);assert(!critical_depth++);} while(0)
+#define portEXIT_CRITICAL(lock) do {(void)(lock);assert(critical_depth--==1);} while(0)
+#define portENTER_CRITICAL_ISR(lock) portENTER_CRITICAL(lock)
+#define portEXIT_CRITICAL_ISR(lock) portEXIT_CRITICAL(lock)
+#define portYIELD_FROM_ISR() ((void)0)
+static void xSemaphoreGiveFromISR(int semaphore,BaseType_t *woken) {
+    assert(isr);if(semaphore==s_lcd_slots)slot_gives++;
+    else {assert(semaphore==s_lcd_free);free_gives++;}*woken=1;
+}
+static void xSemaphoreTake(int semaphore,int wait) {
+    assert(semaphore==s_lcd_free && wait==portMAX_DELAY);
+    assert(!worker_pending || worker_context);raw_takes++;
+}
+static void xSemaphoreGive(int semaphore) {assert(semaphore==s_lcd_free);}
+static int spi_device_acquire_bus(int lcd,int wait) {
+    assert(lcd==s_lcd && wait==portMAX_DELAY);acquires++;return 0;
+}
+static void spi_device_release_bus(int lcd) {
+    assert(lcd==s_lcd);releases++;
+    if(worker_context)worker_releases++;
+}
+void board_display_wait_idle(void);
+static void display_s3_tx_wait_idle(void) {
+    assert(!raw_takes && worker_pending && s_lcd_held);fences++;
+    // A delayed worker finishes DMA and releases its own bus before UI continues.
+    worker_context=true;board_display_wait_idle();worker_context=false;worker_pending=false;
+}
+static void started(void *context) {
+    assert(isr && !critical_depth);starts++;context_value=*(int *)context;
+}
+'''
+spi_test = r'''
+static void check_callbacks(void) {
+@DEVICE@
+    assert(dev.clock_speed_hz==40000000 && dev.post_cb==lcd_trans_done);
+    spi_transaction_t pixel={LCD_TRANS_PIXELS},command={LCD_TRANS_COMMAND},polling={NULL};
+#if CONFIG_IDF_TARGET_ESP32S3
+    assert(dev.pre_cb==lcd_trans_start);
+    int first=17,second=29;
+    board_display_frame_start(started,&first);isr=true;
+    dev.pre_cb(&polling);dev.pre_cb(&command);assert(!starts);
+    dev.pre_cb(&pixel);assert(starts==1 && context_value==17);
+    dev.pre_cb(&pixel);dev.pre_cb(&command);assert(starts==1);isr=false;
+    board_display_frame_start(started,&second);isr=true;
+    dev.pre_cb(&command);dev.pre_cb(&pixel);dev.pre_cb(&pixel);
+    assert(starts==2 && context_value==29 && !s_lcd_started);isr=false;
+#else
+    assert(!dev.pre_cb && !starts);
+#endif
+    isr=true;dev.post_cb(&polling);assert(!slot_gives && !free_gives);
+    dev.post_cb(&command);assert(!slot_gives && free_gives==1);
+    dev.post_cb(&pixel);assert(slot_gives==1 && free_gives==2);isr=false;
+}
+int main(void) {
+    check_callbacks();s_lcd_held=true;
+    worker_pending=CONFIG_IDF_TARGET_ESP32S3;
+    display_wait_idle();
+    assert(!s_lcd_held && !worker_pending && !critical_depth);
+    assert(fences==CONFIG_IDF_TARGET_ESP32S3 && worker_releases==CONFIG_IDF_TARGET_ESP32S3);
+    assert(raw_takes==LCD_TRANS*(1+CONFIG_IDF_TARGET_ESP32S3));
+    assert(acquires==CONFIG_IDF_TARGET_ESP32S3 && releases==1+CONFIG_IDF_TARGET_ESP32S3);
+}
+'''.replace('@DEVICE@', device)
+spi_source = spi_stub + '\n#if CONFIG_IDF_TARGET_ESP32S3\n' + callbacks + '\n#endif\n'
+spi_source += function(BOARD, 'static void IRAM_ATTR lcd_trans_done(')
+spi_source += function(BOARD, 'void board_display_wait_idle(') + function(BOARD, 'void display_wait_idle(')
+with tempfile.TemporaryDirectory(prefix='kubik-board-spi-') as temporary:
+    source, executable = Path(temporary) / 'spi.c', Path(temporary) / 'spi'
+    source.write_text(spi_source + spi_test)
+    for s3 in (0, 1):
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O1', '-Wall', '-Wextra',
+                        '-Werror', '-Wno-unused-function', '-Wno-unused-variable', '-fsanitize=address,undefined',
+                        f'-DCONFIG_IDF_TARGET_ESP32S3={s3}', str(source), '-o', str(executable)], check=True)
+        subprocess.run([str(executable)], check=True)
+print('SPI: actual first-pixel ISR callback, command exclusion, one-shot rearm, unchanged DMA credits and worker idle fencing passed')

@@ -1,7 +1,8 @@
+#include "task_placement.h"
 #include "link.h"
 #include "link_mic.h"
 #include "muse_backend.h"
-#include <stdarg.h>
+#include "heap_probe.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +14,6 @@
 #include "link_usb.h"
 #include "link_ws.h"
 #include "app_wake.h"
-#include "heap_probe.h"
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
@@ -496,5 +496,5 @@ void link_init(const link_handlers_t *h) {
     link_usb_start(&usb_handlers);
     esp_log_set_vprintf(link_usb_log_vprintf);
     muse_backend_init(&s_h, muse_route);
-    ESP_ERROR_CHECK(xTaskCreate(manager_task, "link", 5632, NULL, 4, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(manager_task, "link", 5632, NULL, 4, NULL, KUBIK_UI_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }

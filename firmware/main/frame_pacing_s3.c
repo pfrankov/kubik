@@ -28,7 +28,7 @@ static void wait_until(int64_t target, int64_t now) {
     const int64_t tick_us = portTICK_PERIOD_MS * 1000;
     TickType_t ticks = (TickType_t)((target - now + tick_us - 1) / tick_us);
     // Notifications are coalesced once at the slot, not used as a polling loop.
-    // PWR/brightness state is applied by the next frame, at most one period later.
+    // PWR/brightness state is applied by the next frame, at most two periods later.
     vTaskDelay(ticks);
     // vTaskDelay is relative to the current kernel tick, not our microsecond
     // clock. One final tick covers an early wake due to that fractional phase.
@@ -62,15 +62,17 @@ bool frame_pacing_s3_wait(bool powered) {
                      clock.accepted_edge_us > s_expected_edge + period / 2;
     if (clock.accepted_edge_us != s_accepted_edge) {
         s_accepted_edge = clock.accepted_edge_us;
-        s_next_slot = s_accepted_edge + period;
+        // The completed burst already consumed part of this frame's two-TE
+        // budget. Resume preparation after one yielding tick, without a phase wait.
+        s_next_slot = s_accepted_edge;
     }
     int64_t now = esp_timer_get_time(), slot = s_next_slot;
-    bool missed = late_edge || now >= slot + period;
+    bool missed = late_edge || now >= slot + 2 * period;
     wait_until(slot, now);
     ulTaskNotifyTake(pdTRUE, 0);
     s_next_slot = slot + 2 * period;
     now = esp_timer_get_time();
-    s_expected_edge = slot + period;
+    s_expected_edge = slot + 2 * period;
     // A CPU overrun was already counted above. The next frame can only target
     // a future physical edge; do not count the same expired deadline twice.
     if (now >= s_expected_edge)

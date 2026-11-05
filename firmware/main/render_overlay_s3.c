@@ -9,7 +9,17 @@ static int minimum(int a, int b) { return a < b ? a : b; }
 static int floor_div(int value, int divisor) { return value >= 0 ? value / divisor : -((-value + divisor - 1) / divisor); }
 static int native_floor(int design) { return floor_div(design * UI_SCALE_NUM, UI_SCALE_DEN); }
 static int native_ceil(int design) { return -native_floor(-design); }
-static int design_q8(int native) { return ((native * 2 + 1) * UI_SCALE_DEN * 128) / UI_SCALE_NUM - 128; }
+// Callers clip physical coordinates before sampling. For k=2*native+1,
+// floor(k*3840/23)=167*k-ceil(k/23); the small reciprocal is exact after
+// one correction, with every product fitting uint32_t.
+_Static_assert(UI_SCALE_NUM == 23 && UI_SCALE_DEN == 30, "Native axis algebra requires the S3 viewport scale");
+static int design_q8(int native) {
+    unsigned k = (unsigned)native * 2u + 1u;
+    uint16_t n = (uint16_t)(k + 22u);
+    unsigned q = ((uint32_t)n * 2850u) >> 16;
+    q -= q * 23u > n;
+    return (int)(167u * k - q) - 128;
+}
 static int coverage32(int value) { return value < 0 ? 0 : value > 32 ? 32 : value; }
 
 // Builders own conservative design bounds; projection changes only their grid.
@@ -26,20 +36,37 @@ static bool primitive_intersects(const scene_t *scene, const prim_t *p, int x0, 
     return xa - 2 < x0 + width && xb + 2 > x0 && ya - 2 < y0 + rows && yb + 2 > y0;
 }
 
-// Coverage stays Q8 until opacity is applied; all arithmetic fits uint32_t.
-static inline __attribute__((always_inline)) void composite(uint16_t *dst, uint16_t color, uint8_t opacity, unsigned coverage_q8, bool swap) {
-    unsigned alpha = opacity == 255 ? (coverage_q8 + 60u) / 120u
-                                   : (coverage_q8 * opacity * 32u + 489600u) / 979200u;
+// Exact rounded alpha for coverage0..3840 and opacity0..255. The reciprocal
+// products fit uint32_t; each estimate is at most one above the quotient.
+static inline __attribute__((always_inline)) unsigned coverage_alpha(unsigned coverage_q8, uint8_t opacity) {
+    if (opacity == 255) {
+        uint16_t n = (uint16_t)(coverage_q8 + 60u);
+        unsigned q = ((uint32_t)n * 547u) >> 16;
+        return q - (q * 120u > n);
+    }
+    uint32_t n = (uint32_t)(uint16_t)coverage_q8 * opacity + 15300u;
+    unsigned q = (n * 549u) >> 24;
+    return q - (q * 30600u > n);
+}
+
+static inline __attribute__((always_inline)) void composite_prepared(uint16_t *dst, uint16_t color, uint16_t wire,
+                                                                    unsigned alpha, bool swap) {
     if (!alpha) return;
-    if (alpha >= 32) *dst = swap ? rgb565_bswap(color) : color;
+    if (alpha >= 32) *dst = wire;
     else if (swap) *dst = rgb565_bswap(rgb565_blend(color, rgb565_bswap(*dst), alpha));
     else *dst = rgb565_blend(color, *dst, alpha);
+}
+
+// Coverage stays Q8 until opacity is applied; all arithmetic fits uint32_t.
+static inline __attribute__((always_inline)) void composite(uint16_t *dst, uint16_t color, uint8_t opacity, unsigned coverage_q8, bool swap) {
+    composite_prepared(dst, color, swap ? rgb565_bswap(color) : color, coverage_alpha(coverage_q8, opacity), swap);
 }
 
 // Endpoints are 4-bit coverage or its Q8 interpolation (at most3840).
 // Signed differences keep a decreasing edge exact without an extra multiply.
 static inline __attribute__((always_inline)) unsigned linear_q8(unsigned a, unsigned b, unsigned fraction) {
-    return (unsigned)((int)a * 256 + ((int)b - (int)a) * (int)fraction);
+    int16_t delta = (int16_t)((int)b - (int)a), weight = (int16_t)fraction;
+    return (unsigned)((int)a * 256 + delta * weight);
 }
 
 static unsigned bilinear(unsigned a, unsigned b, unsigned c, unsigned d, int fx, int fy) {
@@ -86,6 +113,22 @@ static inline __attribute__((always_inline)) void glyph_vertical_row(uint16_t co
     for (int x = first; x <= last; x++) coverage[x] = (uint16_t)linear_q8(top[x], bottom[x], fraction);
 }
 
+typedef struct { uint16_t color, wire; uint8_t opacity, solid_alpha; bool swap; } glyph_brush_t;
+
+static R_HOT void glyph_composite_row(const glyph_columns_t *columns, const uint16_t *vertical,
+                                      uint16_t *dst, int count, const glyph_brush_t *brush) {
+    for (int x = 0; x < count; x++) {
+        unsigned index = columns->first[x], a = vertical[index], b = vertical[index + 1];
+        if (!(a | b)) continue;
+        if (a == 3840 && b == 3840) {
+            composite_prepared(&dst[x], brush->color, brush->wire, brush->solid_alpha, brush->swap);
+            continue;
+        }
+        unsigned coverage = (linear_q8(a, b, columns->fraction[x]) + 128) >> 8;
+        if (coverage) composite(&dst[x], brush->color, brush->opacity, coverage, brush->swap);
+    }
+}
+
 static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, uint16_t *out,
                           int x0, int y0, int width, int rows, int stride, int gx, int gy, uint16_t color, uint8_t opacity, bool swap) {
     if (!glyph->w || !glyph->h) return;
@@ -96,6 +139,8 @@ static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, u
     if (xa >= xb || ya >= yb) return;
     glyph_columns_t columns;
     if (!glyph_prepare_columns(&columns, xa, xb, gx, glyph->w)) return;
+    glyph_brush_t brush = {.color = color, .wire = swap ? rgb565_bswap(color) : color,
+        .opacity = opacity, .solid_alpha = (uint8_t)coverage_alpha(3840, opacity), .swap = swap};
     uint16_t vertical[UINT8_MAX + 2];
     uint8_t pixels[2][UINT8_MAX + 2]; int keys[2] = {INT32_MIN, INT32_MIN};
     for (int y = ya; y < yb; y++) {
@@ -104,12 +149,8 @@ static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, u
         if (keys[k] != iy) { glyph_decode_row(font, glyph, iy, pixels[k]); keys[k] = iy; }
         if (keys[next] != iy + 1) { glyph_decode_row(font, glyph, iy + 1, pixels[next]); keys[next] = iy + 1; }
         glyph_vertical_row(vertical, pixels[k], pixels[next], columns.first_used, columns.last_used, (unsigned)fy);
-        uint16_t *row = out + (y - y0) * stride;
-        for (int x = xa; x < xb; x++) {
-            unsigned index = columns.first[x - xa];
-            unsigned coverage = (linear_q8(vertical[index], vertical[index + 1], columns.fraction[x - xa]) + 128) >> 8;
-            if (coverage) composite(&row[x - x0], color, opacity, coverage, swap);
-        }
+        uint16_t *row = out + (y - y0) * stride + xa - x0;
+        glyph_composite_row(&columns, vertical, row, xb - xa, &brush);
     }
 }
 
@@ -179,22 +220,84 @@ static inline void edge_composite(uint16_t *dst, uint16_t color, unsigned alpha,
     else *dst = rgb565_blend(color, *dst, alpha);
 }
 
+typedef struct { uint16_t color, wire, black; uint8_t alpha; bool swap; } qr_brush_t;
+typedef uint32_t qr_pair_t __attribute__((__may_alias__));
+
+static inline __attribute__((always_inline)) uint16_t qr_blend_pixel(const qr_brush_t *brush, uint16_t background) {
+    if (!background) return brush->black;
+    uint16_t source = brush->swap ? rgb565_bswap(background) : background;
+    uint16_t result = rgb565_blend(brush->color, source, brush->alpha);
+    return brush->swap ? rgb565_bswap(result) : result;
+}
+
+// Pair stores preserve arbitrary clipped/odd windows and both RGB565 orders.
+static R_HOT void qr_paint_span(const qr_brush_t *brush, uint16_t *dst, int count) {
+    if (count > 0 && ((uintptr_t)dst & 3u)) {
+        *dst = brush->alpha >= 32 ? brush->wire : qr_blend_pixel(brush, *dst);
+        dst++; count--;
+    }
+    uint32_t opaque = pair_of(brush->wire), black = pair_of(brush->black);
+    qr_pair_t *pairs = (qr_pair_t *)(void *)dst;
+    while (count >= 2) {
+        if (brush->alpha >= 32) *pairs = opaque;
+        else {
+            uint32_t background = *pairs;
+            if (!background) *pairs = black;
+            else *pairs = qr_blend_pixel(brush, (uint16_t)background)
+                        | ((uint32_t)qr_blend_pixel(brush, (uint16_t)(background >> 16)) << 16);
+        }
+        pairs++; count -= 2;
+    }
+    if (count) {
+        dst = (uint16_t *)(void *)pairs;
+        *dst = brush->alpha >= 32 ? brush->wire : qr_blend_pixel(brush, *dst);
+    }
+}
+
+typedef struct {
+    uint16_t *out;
+    const uint8_t *modules;
+    const qr_brush_t *brush;
+    int x0, y0, stride, xa, xb, ya, yb, ox, oy, side, n;
+} qr_window_t;
+
+static int qr_boundary(int module, int side, int n) { return (module * side + n - 1) / n; }
+
+static R_HOT void qr_paint_source_row(const qr_window_t *window, int my, int first_x, int last_x) {
+    int ya = maximum(window->ya, window->oy + qr_boundary(my, window->side, window->n));
+    int yb = minimum(window->yb, window->oy + qr_boundary(my + 1, window->side, window->n));
+    if (ya >= yb) return;
+    const uint8_t *source = window->modules + my * window->n;
+    for (int mx = first_x; mx < last_x;) {
+        while (mx < last_x && !source[mx]) mx++;
+        int first = mx;
+        while (mx < last_x && source[mx]) mx++;
+        if (first == mx) break;
+        int xa = maximum(window->xa, window->ox + qr_boundary(first, window->side, window->n));
+        int xb = minimum(window->xb, window->ox + qr_boundary(mx, window->side, window->n));
+        for (int y = ya; y < yb; y++)
+            qr_paint_span(window->brush, window->out + (y - window->y0) * window->stride + xa - window->x0, xb - xa);
+    }
+}
+
 static R_HOT void qr_overlay(const scene_t *scene, const prim_t *p, uint16_t *out,
                        int x0, int y0, int width, int rows, int stride, bool swap) {
-    int ox = p->sub_x, oy = p->sub_y, side = p->b;
-    if (side <= 0 || !scene->qr) return;
-    int xa = maximum(maximum(x0, 0), ox), xb = minimum(minimum(x0 + width, UI_OUTPUT_W), ox + side);
-    int ya = maximum(maximum(y0, 0), oy), yb = minimum(minimum(y0 + rows, UI_OUTPUT_H), oy + side);
-    if (xa >= xb || ya >= yb) return;
-    int columns[UI_OUTPUT_W];
-    for (int x = xa; x < xb; x++) columns[x - xa] = (x - ox) * p->a / side;
-    unsigned alpha = (p->alpha * 32u + 127u) / 255u;
-    for (int y = ya; y < yb; y++) {
-        uint16_t *row = out + (y - y0) * stride;
-        int source = ((y - oy) * p->a / side) * p->a;
-        for (int x = xa; x < xb; x++)
-            if (scene->qr[source + columns[x - xa]]) edge_composite(&row[x - x0], p->color, alpha, swap);
-    }
+    int ox = p->sub_x, oy = p->sub_y, side = p->b, n = p->a;
+    if (side <= 0 || n <= 0 || !scene->qr) return;
+    qr_window_t window = {.out = out, .modules = scene->qr, .x0 = x0, .y0 = y0, .stride = stride,
+        .xa = maximum(maximum(x0, 0), ox), .xb = minimum(minimum(x0 + width, UI_OUTPUT_W), ox + side),
+        .ya = maximum(maximum(y0, 0), oy), .yb = minimum(minimum(y0 + rows, UI_OUTPUT_H), oy + side),
+        .ox = ox, .oy = oy, .side = side, .n = n};
+    if (window.xa >= window.xb || window.ya >= window.yb) return;
+    uint8_t alpha = (uint8_t)((p->alpha * 32u + 127u) / 255u);
+    if (!alpha) return;
+    uint16_t black = rgb565_blend(p->color, 0, alpha);
+    qr_brush_t brush = {.color = p->color, .wire = swap ? rgb565_bswap(p->color) : p->color,
+        .black = swap ? rgb565_bswap(black) : black, .alpha = alpha, .swap = swap};
+    window.brush = &brush;
+    int first_x = (window.xa - ox) * n / side, last_x = (window.xb - 1 - ox) * n / side + 1;
+    int first_y = (window.ya - oy) * n / side, last_y = (window.yb - 1 - oy) * n / side + 1;
+    for (int my = first_y; my < last_y; my++) qr_paint_source_row(&window, my, first_x, last_x);
 }
 
 static int disc(int dx, int dy, int radius) {

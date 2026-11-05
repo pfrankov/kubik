@@ -1,3 +1,4 @@
+#include "task_placement.h"
 #include "link_usb.h"
 
 #include <stdarg.h>
@@ -167,5 +168,5 @@ void link_usb_start(const link_usb_handlers_t *handlers) {
     usb_serial_jtag_driver_config_t cfg = {.rx_buffer_size = 4096, .tx_buffer_size = 2048};
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&cfg));
     usb_serial_jtag_vfs_use_driver();
-    ESP_ERROR_CHECK(xTaskCreate(usb_rx_task, "usb_rx", 3584, NULL, 8, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(usb_rx_task, "usb_rx", 3584, NULL, 8, NULL, KUBIK_UI_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }

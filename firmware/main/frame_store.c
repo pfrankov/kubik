@@ -101,11 +101,12 @@ static HOT const uint32_t *decode_range(const uint32_t *p, uint32_t *out, int co
 
 void HOT frame_store_read(void *ctx, int y, uint16_t *out, int xa, int xb) {
     const frame_store_t *f = ctx;
-    if (!f->stripes[y]) return;
+    uint16_t stripes = f->stripes[y];
+    if (!stripes) return;
     const uint32_t *p = f->data + f->row[y];
     int lo = xa / 2, hi = (xb + 1) / 2;  // in words (pixel pairs) from the start of the row
     int k = 0;
-    for (int end; (end = next_run(f->stripes[y], &k)); k = end) {
+    for (int end; (end = next_run(stripes, &k)); k = end) {
         int first = k * STRIPE_WORDS;
         if (first >= hi) break;
         p = decode_range(p, (uint32_t *)(void *)out + first, (end - k) * STRIPE_WORDS, lo - first, hi - first);

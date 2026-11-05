@@ -169,7 +169,37 @@ static void merged_output(void) {
     assert(frame.output.read == read_merged && frame.windows == 2);
     assert(captured == 128 * 32 + 16 * 16);
 }
+static void read_contrast_case(uint16_t stripes, int xa, int xb, bool merged) {
+    for (int x = 0; x < R_W; x++) out[x] = 0xDEAD;
+    if (merged) read_merged(&frame.store, 40, out, xa, xb);
+    else frame_store_read(&frame.store, 40, out, xa, xb);
+    for (int x = 0; x < R_W; x++) {
+        bool stored = (stripes & (1u << (x / FRAME_STRIPE))) != 0;
+        bool pair = x >= (xa & ~1) && x < ((xb + 1) & ~1);
+        uint16_t expected = 0xDEAD;
+        if (stored && pair) expected = source[x];
+        else if (merged && x >= xa && x < xb) expected = 0;
+        assert(out[x] == expected);
+    }
+}
+static void read_contrasts(void) {
+    uint16_t full = (uint16_t)((1u << FRAME_STRIPES) - 1u);
+    const uint16_t masks[] = {0, full, (uint16_t)(0x5555 & full), (uint16_t)(0xAAAA & full), 1, (uint16_t)(1u << (FRAME_STRIPES - 1))};
+    for (int x = 0; x < R_W; x++) source[x] = x / FRAME_STRIPE % 3 == 0 ? 0 : x / FRAME_STRIPE % 3 == 1 ? 0x3277 : (uint16_t)(x * 73);
+    for (unsigned m = 0; m < sizeof masks / sizeof masks[0]; m++) {
+        frame_store_begin(&frame.store); assert(frame_store_row(&frame.store, 40, masks[m], source));
+        for (int xa = 0; xa < R_W; xa += 13) for (int xb = xa + 1; xb <= R_W; xb += 17) {
+            read_contrast_case(masks[m], xa, xb, false);
+            read_contrast_case(masks[m], xa, xb, true);
+        }
+        read_contrast_case(masks[m], 0, R_W, true);
+        read_contrast_case(masks[m], 1, R_W - 1, true);
+        read_contrast_case(masks[m], R_W - 1, R_W, true);
+    }
+    puts("packed/merged reads: missing/present/mixed stripes, zero/color RLE/literals and odd clipped pair boundaries exact");
+}
 int main(void) {
     known_black(); unknown_pixels(); sparse_or_empty(); multi_hop(); maximum_roots(); overlapping_rows(); expanded_root(); reset_metadata(); merged_output();
+    read_contrasts();
     puts("DMA merge: exact black gaps, unknown rejection, multi-hop/max roots, overlap, reset and mixed-window DMA output");
 }

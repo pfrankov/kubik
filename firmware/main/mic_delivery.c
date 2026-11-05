@@ -1,4 +1,5 @@
 #include "mic_delivery.h"
+#include "task_placement.h"
 
 #include <stdatomic.h>
 #include <string.h>
@@ -135,7 +136,7 @@ bool mic_delivery_start(mic_delivery_frame_fn deliver, void *context, bool duple
     atomic_store(&s_stopping, false); atomic_store(&s_failed, false);
     s_deliver = deliver; s_context = context; s_peak = 0;
     s_done = xSemaphoreCreateBinaryStatic(&s_done_storage);
-    s_task = xTaskCreateStatic(delivery_task, "mic_send", duplex ? 3072 : STACK_BYTES, NULL, duplex ? 6 : 7, s_stack, &s_task_storage);
+    s_task = xTaskCreateStaticPinnedToCore(delivery_task, "mic_send", duplex ? 3072 : STACK_BYTES, NULL, duplex ? 6 : 7, s_stack, &s_task_storage, KUBIK_AUDIO_CORE);
     if (!s_task) { release_buffers(); return false; }
     return true;
 }

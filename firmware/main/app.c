@@ -1,3 +1,4 @@
+#include "task_placement.h"
 #include "app_internal.h"
 #include "app_lab.h"
 
@@ -486,6 +487,6 @@ void app_start(void) {
 #else
     const unsigned app_stack = 4096;
 #endif
-    ESP_ERROR_CHECK(xTaskCreate(app_task, "app", app_stack, NULL, 6, &s_app_task) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
-    ESP_ERROR_CHECK(xTaskCreate(power_task, "power", 3072, NULL, 2, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(app_task, "app", app_stack, NULL, 6, &s_app_task, KUBIK_UI_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(power_task, "power", 3072, NULL, 2, NULL, KUBIK_UI_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }
