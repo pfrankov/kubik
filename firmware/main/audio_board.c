@@ -15,6 +15,24 @@ static const audio_codec_if_t *s_shared_codec;
 static SemaphoreHandle_t s_codec_lock;
 static bool s_adc_on;
 
+// ES8311 DS REG44 ADCDAT_SEL=4 returns DACL + ADC. Mono TX populates
+// only DACL; the SDK default ADC + DACR would reference an empty slot.
+static int shared_reference_route(void) {
+    int value = 0;
+    int result = s_shared_codec->get_reg(s_shared_codec, 0x44, &value);
+    if (result != ESP_CODEC_DEV_OK) return result;
+    return s_shared_codec->set_reg(s_shared_codec, 0x44, (value & ~0x70) | 0x40);
+}
+
+// SDK start sets REG14 PGA to +30 dB. REG16 is an additional digital scale;
+// leave it at 0 dB instead of doubling the gain, and retain ADC_SYNC/control bits.
+static int shared_adc_gain(void) {
+    int value = 0;
+    int result = s_shared_codec->get_reg(s_shared_codec, 0x16, &value);
+    if (result != ESP_CODEC_DEV_OK) return result;
+    return s_shared_codec->set_reg(s_shared_codec, 0x16, value & ~0x07);
+}
+
 // ES8311 DS REG0E bits6/5 power down only the microphone PGA/ADC modulator.
 // The SDK's full start enables both paths; always reapply the capture gate.
 static int shared_adc_gate(bool enabled) {
@@ -26,7 +44,8 @@ static int shared_adc_gate(bool enabled) {
 }
 int audio_board_adc_enable(bool enabled) {
     xSemaphoreTake(s_codec_lock, portMAX_DELAY);
-    int result = shared_adc_gate(enabled);
+    int result = enabled ? shared_adc_gain() : ESP_CODEC_DEV_OK;
+    if (result == ESP_CODEC_DEV_OK) result = shared_adc_gate(enabled);
     if (result == ESP_CODEC_DEV_OK) s_adc_on = enabled;
     xSemaphoreGive(s_codec_lock);
     return result;
@@ -35,6 +54,8 @@ static int shared_output_power(const audio_codec_if_t *unused, bool enabled) {
     (void)unused;
     xSemaphoreTake(s_codec_lock, portMAX_DELAY);
     int result = s_shared_codec->enable(s_shared_codec, enabled);
+    if (result == ESP_CODEC_DEV_OK && enabled) result = shared_reference_route();
+    if (result == ESP_CODEC_DEV_OK && enabled) result = shared_adc_gain();
     if (result == ESP_CODEC_DEV_OK && enabled) result = shared_adc_gate(s_adc_on);
     xSemaphoreGive(s_codec_lock);
     return result;
@@ -107,7 +128,12 @@ bool audio_board_init(mic_capture_t *capture, esp_codec_dev_handle_t *output,
 #endif
         .pa_pin = PIN_AUDIO_PA,
         .use_mclk = true,
+#if CONFIG_IDF_TARGET_ESP32S3
+        // NS4150B on 3V3, R34/R36=150k: 20*log10(240k/150k) = 4.08 dB.
+        .hw_gain = {.pa_voltage = 3.3, .codec_dac_voltage = 3.3, .pa_gain = 4.08},
+#else
         .hw_gain = {.pa_voltage = 5.0, .codec_dac_voltage = 3.3},
+#endif
     };
     const audio_codec_if_t *out_codec = es8311_codec_new(&es8311_cfg);
     esp_codec_dev_cfg_t dev_cfg = {.dev_type = ESP_CODEC_DEV_TYPE_OUT, .codec_if = out_codec, .data_if = data_if};
@@ -142,6 +168,8 @@ bool audio_board_init(mic_capture_t *capture, esp_codec_dev_handle_t *output,
     esp_codec_dev_sample_info_t fs_out = {.bits_per_sample = 16, .channel = 1, .sample_rate = AUDIO_RATE};
     ESP_ERROR_CHECK(esp_codec_dev_open(*output, &fs_out));
 #if CONFIG_IDF_TARGET_ESP32S3
+    ESP_ERROR_CHECK(shared_reference_route());
+    ESP_ERROR_CHECK(shared_adc_gain());
     ESP_ERROR_CHECK(audio_board_adc_enable(false));
 #endif
     ESP_ERROR_CHECK(audio_mic_io_init(capture, data_if, in_codec, rx, &fs_in) ? ESP_OK : ESP_FAIL);

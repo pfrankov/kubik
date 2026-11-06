@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Physical Kubik + real Hermes Gateway; loopback model providers, no service-management writes."""
+import argparse
+import asyncio
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source', required=True, type=Path, help='Existing Hermes v0.22.2 source (read-only)')
+    parser.add_argument('--tls-identity', required=True, type=Path, help='Pinned device identity on this same host')
+    parser.add_argument('--control', required=True, help='Loopback USB bridge control URL, e.g. http://127.0.0.1:18792')
+    parser.add_argument('--port', type=int, default=18999, help='Loopback fixture listener forwarded to the USB bridge')
+    parser.add_argument('--wifi', action='store_true', help='Use the existing pinned Wi-Fi endpoint after the owner stops production')
+    parser.add_argument('--endpoint', help='Exact saved kubik://host:port required in --wifi mode')
+    parser.add_argument('--evidence', required=True, type=Path, help='NEW private evidence directory')
+    parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if not 1024 <= args.port <= 65535:
+        parser.error('--port must be 1024..65535')
+    from device_transport import validate_options
+    try:
+        validate_options(args)
+    except ValueError as error:
+        parser.error(str(error))
+    for name in ('source', 'tls_identity', 'evidence'):
+        setattr(args, name, getattr(args, name).expanduser().resolve())
+    return args
+
+
+def launch(args):
+    from tls_fixture import create_identity
+    if sys.version_info[:2] != (3, 14):
+        raise ValueError('Run with the prepared Hermes Python 3.14 interpreter')
+    if not args.tls_identity.is_file():
+        raise ValueError('Explicit local pinned TLS identity is required')
+    pin = json.loads((ROOT / 'tools/hermes_native/upstream.json').read_text())
+    revision = subprocess.check_output(['git', '-c', 'safe.directory=' + str(args.source),
+                                       '-C', str(args.source), 'rev-parse', 'HEAD'], text=True).strip()
+    if revision != pin['commit']:
+        raise ValueError('The physical fixture requires the verified Hermes v0.22.2 source revision')
+    args.evidence.mkdir(mode=0o700, parents=True, exist_ok=False)
+    with tempfile.TemporaryDirectory(prefix='khd-', dir='/tmp') as directory:
+        work = Path(directory)
+        create_identity(work)
+        env = {name: os.environ[name] for name in ('PATH', 'SYSTEMROOT', 'LD_LIBRARY_PATH') if name in os.environ}
+        env.update(HOME=str(work), HERMES_HOME=str(work / 'hermes'), PYTHONPATH=str(args.source),
+                   XDG_CONFIG_HOME=str(work / 'config'), XDG_CACHE_HOME=str(work / 'cache'),
+                   XDG_DATA_HOME=str(work / 'data'), PYTHONDONTWRITEBYTECODE='1', PYTHONUNBUFFERED='1',
+                   HERMES_DISABLE_LAZY_INSTALLS='1',
+                   SSL_CERT_FILE=str(work / 'provider-cert.pem'), KUBIK_TEST_TLS_DIR=str(work),
+                   NO_PROXY='127.0.0.1,localhost,::1', LANG='C.UTF-8')
+        command = [sys.executable, __file__, '--worker', '--source', str(args.source),
+                   '--tls-identity', str(args.tls_identity), '--control', args.control,
+                   '--port', str(args.port), '--evidence', str(args.evidence)]
+        if args.wifi:
+            command += ['--wifi', '--endpoint', args.endpoint]
+        subprocess.run(command, cwd=ROOT, env=env, timeout=240, check=True)
+
+
+async def prepare(args, original, identity):
+    import ssl
+    from aiohttp import web
+    from contract import Providers, configure, release_reservation, reserve_loopback_ports
+    from device_control import save
+    from device_transport import binding
+    from voice_fixture import register_contract_tool
+    home = Path(os.environ['HERMES_HOME'])
+    home.mkdir(mode=0o700, parents=True)
+    reserved = reserve_loopback_ports(2)
+    backend_port, voice_port = [sock.getsockname()[1] for sock in reserved]
+    configure(home, backend_port, voice_port, home_identity=identity)
+    subprocess.run([sys.executable, str(ROOT / 'tools/install-hermes.py'), '--home', str(home),
+                    '--bind', binding(args), '--port', str(args.port)], check=True, timeout=15)
+    state = home / 'kubik'
+    state.mkdir(mode=0o700, exist_ok=True)
+    save(state / 'tls.json', args.tls_identity.read_bytes())  # Never copied off the owning host.
+    save(state / 'approved.json', [identity])
+    save(state / 'voice.json', {'version': 1, 'entries': {identity: {'mode': original['voice_mode']}}})
+    providers = Providers()
+    app = web.Application(client_max_size=5 * 1024 * 1024)
+    app.router.add_route('*', '/{tail:.*}', providers.respond)
+    backend = web.AppRunner(app, access_log=None)
+    await backend.setup()
+    tls_dir = Path(os.environ['KUBIK_TEST_TLS_DIR'])
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(tls_dir / 'provider-cert.pem', tls_dir / 'provider-key.pem')
+    for sock in reserved:
+        release_reservation(sock)
+    await web.TCPSite(backend, '127.0.0.1', backend_port).start()
+    await web.TCPSite(backend, '127.0.0.1', voice_port, ssl_context=tls).start()
+    from hermes_cli.plugins import get_plugin_manager
+    get_plugin_manager().discover_and_load()
+    register_contract_tool(providers)
+    from gateway.run import GatewayRunner
+    from gateway.config import load_gateway_config
+    return GatewayRunner(load_gateway_config()), backend, providers
+
+
+async def worker(args):
+    import logging
+    from contract import BLOCKED, network_guard
+    from device_control import Control, save
+    from device_restore import cleanup
+    from device_transport import connect, validate_baseline
+    from device_voice import Observations, check
+    from voice_fixture import eventually
+    logging.basicConfig(level=logging.WARNING)
+    sys.addaudithook(network_guard)
+    control = Control(args.control, args.evidence)
+    gateway = backend = adapter = peer = observations = providers = None
+    original = primary = None
+    try:
+        original, identity = await control.baseline()
+        validate_baseline(args, original)
+        gateway, backend, providers = await prepare(args, original, identity)
+        assert await asyncio.wait_for(gateway.start(), 60), 'Fixture Gateway failed to start'
+        from gateway.config import Platform
+        adapter = gateway.adapters[Platform('kubik')]
+        observations = Observations(adapter)
+        observations.install()
+        await connect(args, control)
+        await eventually(lambda: identity in adapter.peers and adapter.peers[identity].ready)
+        peer = adapter.peers[identity]
+        observations.watch_socket(peer.socket)  # Wi-Fi may authenticate before Gateway.start returns.
+        await control.prepare_screen()
+        result = await check(adapter, peer, control, providers, observations)
+        result.update(device=original['device'], transport='wifi' if args.wifi else 'usb',
+                      voice_provider='local fixture', blocked_network_attempts=len(BLOCKED))
+        save(args.evidence / 'result.json', result)
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        await cleanup(gateway, adapter, peer, control, original, observations, backend, providers, primary,
+                      release_wifi_pause=not args.wifi)
+    print('PASS physical Kubik through native Hermes Gateway, Realtime/Live, real agent tools and playback', flush=True)
+
+
+if __name__ == '__main__':
+    options = arguments()
+    if options.worker:
+        asyncio.run(worker(options))
+    else:
+        launch(options)

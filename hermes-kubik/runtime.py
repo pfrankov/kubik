@@ -11,7 +11,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def dependencies_available():
-    return all(importlib.util.find_spec(name) is not None for name in ('aiohttp', 'cryptography'))
+    return all(importlib.util.find_spec(name) is not None for name in ('aiohttp', 'cryptography', 'wasmtime'))
 
 
 @contextlib.contextmanager

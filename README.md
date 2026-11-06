@@ -91,7 +91,7 @@ Choose a voice mode in **Settings → Agent → Voice**:
 | Realtime | Speak a turn; a pause completes your input. One voice model handles input and output. |
 | GPT Live | A continuous conversation until you stop it. The microphone remains active through replies; host-side echo cancellation uses the speaker signal. |
 
-Hermes currently supports STT (Classic); Realtime and GPT Live are available through OpenClaw. Availability depends on your host’s providers. Voice settings and the agent’s model are independent. Replies use speech when TTS is available and volume is at least 20; otherwise they appear as text. See [models and voice settings](docs/agent-controls.md) and [Realtime / Live setup](docs/native-voice.md).
+OpenClaw and the source-built Hermes platform 0.3.0 support all three modes. Availability depends on your host’s providers. Hermes keeps Classic as the default; its native modes show the configured voice model, while Classic providers and the agent’s model are configured in Hermes. Voice choices are saved for the paired device and do not change the agent’s model. Replies use speech when the selected mode is ready and volume is at least 20; otherwise they appear as text. See [models and voice settings](docs/agent-controls.md) and [Realtime / Live setup](docs/native-voice.md).
 
 On the awake home screen, Tess can also start voice input with **“Hi Tessa”**. The local detector recognizes *Tessa* and may activate without *Hi*. It is disabled in sleep, menus and other unavailable states. Audio before activation is not sent to the agent.
 

@@ -49,6 +49,37 @@ class InstallerContractTest(unittest.TestCase):
         self.assertEqual(len(list((self.home / 'plugins').rglob('plugin.yaml'))), 1)
         for name in ('config.yaml', 'config.before-kubik.yaml', '.kubik-install.lock'):
             self.assertEqual(stat.S_IMODE((self.home / name).stat().st_mode), 0o600)
+        installed = self.home / 'plugins/kubik/speex-aec.wasm'
+        self.assertEqual(installed.read_bytes(), installer.echo_artifact(self.source))
+        self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o600)
+        spec = importlib.util.spec_from_file_location('installed_echo', installed.with_name('echo.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cleaner = module.EchoCleaner()
+        try:
+            self.assertEqual(cleaner.process(bytes(1920), bytes(1920)), bytes(1920))
+        finally:
+            cleaner.close()
+
+    def test_missing_invalid_or_symlink_echo_artifact_is_rejected_before_writes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'hermes-kubik'
+            source.mkdir()
+            artifact = root / 'openclaw-kubik/src/vendor/speex-aec.wasm'
+            artifact.parent.mkdir(parents=True)
+            for kind in ('missing', 'invalid', 'symlink'):
+                with self.subTest(kind=kind):
+                    if kind == 'invalid':
+                        artifact.write_bytes(b'not wasm')
+                    elif kind == 'symlink':
+                        artifact.unlink()
+                        artifact.symlink_to(ROOT / 'openclaw-kubik/src/vendor/speex-aec.wasm')
+                    for check in (False, True):
+                        with self.assertRaisesRegex(ValueError, 'echo artifact'):
+                            installer.install(source, self.home, check_only=check)
+                        self.assertEqual(self.config.read_text(), self.original)
+                        self.assertFalse((self.home / 'plugins').exists())
 
     def test_check_is_read_only(self):
         before = {path.relative_to(self.home): (path.read_bytes(), path.stat().st_mode)

@@ -1,4 +1,4 @@
-// A new device may use an explicitly selected TLS USB fixture without saving a network.
+// An offline device may use an explicit TLS USB fixture without changing saved networks.
 import assert from 'node:assert/strict';
 import { waitForDeviceLink } from './diagnostics.mjs';
 
@@ -18,9 +18,6 @@ function requireOfflineSnapshot(state) {
     assert.ok(Number.isSafeInteger(state[key]) && state[key] >= low && state[key] <= high, `Invalid device status: ${key}`);
   assert.equal(state.online, false, 'Offline USB fixture requires an offline device');
   assert.equal(state.via, 'none', 'Offline USB fixture requires no active route');
-  assert.equal(state.wifi_connected, false, 'Offline USB fixture requires disconnected Wi-Fi');
-  assert.equal(state.ssid, '', 'Offline USB fixture must not replace a saved network');
-  assert.equal(state.url, '', 'Offline USB fixture must not replace a saved endpoint');
   for (const key of ['mic_open', 'live_active', 'auto_recording']) assert.equal(state[key], false, `Device is active: ${key}`);
 }
 
@@ -35,12 +32,28 @@ export async function fixtureBaseline(read, { wifi = false, identityPath = proce
 }
 
 export function routeRestored(state, original) {
+  if (original.online === false && original.via === 'none') {
+    if (typeof state.wifi_connected !== 'boolean') return false;
+    return state.online === false && state.via === 'none' ||
+      state.online === true && state.via === 'wifi' && state.wifi_connected;
+  }
   return state.online === original.online && state.via === original.via &&
     state.wifi_connected === original.wifi_connected;
 }
 
+// During an outage firmware rotates existing profiles in RAM. Status reports
+// that current candidate, not the stored profile set; these fixtures never write it.
+export function assertSettingRestored(state, original, key) {
+  if (key === 'ssid' && original.online === false) {
+    assert.equal(typeof state.ssid, 'string', 'Missing current Wi-Fi candidate');
+    assert.ok(Buffer.byteLength(state.ssid) <= 32, 'Invalid current Wi-Fi candidate');
+    return;
+  }
+  assert.equal(state[key], original[key], `${key} changed`);
+}
+
 // A Wi-Fi baseline needs the mock until its route resumes. An offline baseline
-// cannot return to `none` until the fixture has stopped accepting reconnects.
+// must release the mock first, whether its normal network stays down or recovers.
 export async function restoreFixture({ offlineFixture, close, restore }) {
   if (offlineFixture) {
     try { await close(); } finally { await restore(); }

@@ -17,38 +17,12 @@ from gateway.platforms.event import MessageEvent, MessageType
 
 from .codec import decode
 from .pairing_wait import wait_pairing
+from .peer import Peer
+from .voice_controls import VoiceControls
+from .native_jobs import NativeJobs, active_job
+from .native_voice import NativeVoice
 from .security import Security
 from .runtime import listener_options, profile_scope, speech_available
-
-
-class Peer:
-    def __init__(self, socket, identity, hello):
-        self.socket, self.identity = socket, identity
-        self.ready = False
-        self.volume = hello.get('volume', 0)
-        if type(self.volume) is not int or not 0 <= self.volume <= 100:
-            raise ValueError('Invalid volume')
-        self.turn = None
-        self.pcm = bytearray()
-        self.recorded_at = 0
-        self.task = None
-        self.gen = 0
-        self.played_ms = 0
-        self.progress = asyncio.Event()
-        self.receipts = {}
-        self.complete = asyncio.Event()
-        self.message_id = None
-        self.session_key = None
-        self.input_turn = None
-        self.stage = "idle"
-        self.muted = False
-        self.output_lock = asyncio.Lock()
-        self.output_task = None
-        self.sent_ms = 0
-        self.waiting = False
-        self.pending_previous = None
-    async def send(self, message_type, **fields):
-        await self.socket.send_json({'t': message_type, **fields})
 
 
 class KubikAdapter(BasePlatformAdapter):
@@ -61,6 +35,8 @@ class KubikAdapter(BasePlatformAdapter):
         self.sockets = set()
         self.runner = None
         self.transcriptions = set()
+        self.voice_controls = VoiceControls(self)
+        self.native_jobs = NativeJobs(self)
     async def connect(self, *, is_reconnect=False):
         if self.runner is not None:
             return True
@@ -130,9 +106,8 @@ class KubikAdapter(BasePlatformAdapter):
                 await old.socket.close(code=4003)
             if self.peers.get(peer.identity) is not peer or socket.closed:
                 return socket
-            await peer.send('welcome', session=secrets.token_hex(8), progress=True)
-            stt, tts = await asyncio.to_thread(self.speech_available)
-            await peer.send('capabilities', stt=stt, tts=tts, voice_mode='classic')
+            await peer.send('welcome', session=peer.session_id, progress=True)
+            await self.voice_controls.publish(peer)
             peer.ready = self.peers.get(peer.identity) is peer and not socket.closed
             async for message in socket:
                 if not await self._handle_frame(peer, message):
@@ -162,12 +137,17 @@ class KubikAdapter(BasePlatformAdapter):
             del self.peers[peer.identity]
         await self.cancel(peer)
     def microphone(self, peer, frame):
+        if peer.native:
+            peer.native.microphone(frame)
+            return
         if not 6 <= len(frame) <= 485 or frame[0] != 4 or peer.turn != frame[1]:
             raise ValueError('Invalid microphone turn')
         if len(peer.pcm) + (len(frame) - 5) * 4 > 60 * 24000 * 2:
             raise ValueError('Recording too long')
         peer.pcm.extend(decode(frame[2:]))
     async def cancel(self, peer):
+        if peer.native:
+            await peer.native.close()
         previous = peer.pending_previous
         peer.input_turn = None
         peer.turn = None
@@ -192,8 +172,9 @@ class KubikAdapter(BasePlatformAdapter):
         elif kind in ('progress', 'played', 'shown'):
             self._playback_command(peer, kind, value)
         elif kind in ('agent_options', 'agent_model'):
-            await peer.send('agent_options', target=value.get('target'), rid=value.get('rid'),
-                            cursor=value.get('cursor', 0), error='unsupported')
+            await self.voice_controls.handle(peer, value)
+        elif kind in ('live_input_ack', 'cancelled') and peer.native:
+            peer.native.acknowledge(kind, value)
     async def _control_command(self, peer, kind, value):
         if kind == 'ping':
             await peer.send('pong', ts=value.get('ts'))
@@ -227,7 +208,11 @@ class KubikAdapter(BasePlatformAdapter):
             await peer.send('error', code='unauthorized')
             await peer.send('state', s='idle')
             return
-        if value['on']:
+        if peer.native or self.voice_controls.mode(peer) != 'classic':
+            await NativeVoice.ptt(self, peer, turn, value['on'])
+        elif self.native_jobs.busy(peer.identity):
+            await peer.send('error', code='busy')
+        elif value['on']:
             await self._start_ptt(peer, turn)
         else:
             self._finish_ptt(peer, turn)
@@ -252,13 +237,11 @@ class KubikAdapter(BasePlatformAdapter):
             peer.waiting = bool(peer.task and not peer.task.done())
             peer.task = asyncio.create_task(self.dispatch_after(peer, pcm, peer.task))
     async def cancel_request(self, peer, value):
+        if peer.native:
+            await peer.native.cancel_request(value)
+            return
         if 'turn' in value:
-            if value['turn'] == peer.turn:
-                peer.turn = None
-                peer.pcm.clear()
-                peer.input_turn = None
-            elif value['turn'] == peer.input_turn and (peer.waiting or peer.stage != 'agent'):
-                await self.cancel(peer)
+            await self._cancel_classic_turn(peer, value['turn'])
             return
         if 'gen' in value and value['gen'] != peer.gen:
             return
@@ -274,6 +257,13 @@ class KubikAdapter(BasePlatformAdapter):
         else:
             await self.cancel(peer)
         await peer.send('state', s='idle')
+    async def _cancel_classic_turn(self, peer, turn):
+        if turn == peer.turn:
+            peer.turn = None
+            peer.pcm.clear()
+            peer.input_turn = None
+        elif turn == peer.input_turn and (peer.waiting or peer.stage != 'agent'):
+            await self.cancel(peer)
     async def dispatch_after(self, peer, pcm, previous):
         input_turn = peer.input_turn
         try:
@@ -389,6 +379,7 @@ class KubikAdapter(BasePlatformAdapter):
         if not task.cancelled():
             task.exception()  # consume a late provider failure after timeout/cancellation
     async def on_processing_complete(self, event, outcome):
+        self.native_jobs.complete(event)
         peer = self.peers.get(event.source.chat_id)
         if peer and peer.message_id == event.message_id:
             peer.complete.set()
@@ -405,14 +396,22 @@ class KubikAdapter(BasePlatformAdapter):
         return peer if (peer and peer.ready and not peer.socket.closed and
                        self._is_approved(peer.identity)) else None
     def _should_auto_tts_for_chat(self, chat_id):
+        if active_job(self, chat_id):
+            return False
         peer = self._ready_peer(chat_id)
         return bool(peer and type(peer.volume) is int and peer.volume >= 20)
     async def send_typing(self, chat_id, **kwargs):
+        if active_job(self, chat_id):
+            return
         peer = self._ready_peer(chat_id)
         if peer and not peer.muted:
             await peer.send('state', s='thinking')
     async def send(self, chat_id, content, reply_to=None, metadata=None, **kwargs):
-        peer = self._ready_peer(chat_id)
+        job = active_job(self, chat_id, reply_to)
+        if job:
+            return await job.deliver(content)
+        return await self._send_text(self._ready_peer(chat_id), content)
+    async def _send_text(self, peer, content):
         if not peer:
             return SendResult(success=False, error='Kubik disconnected', retryable=True)
         if peer.muted:
@@ -422,7 +421,8 @@ class KubikAdapter(BasePlatformAdapter):
         peer.receipts[('shown', receipt)] = done
         try:
             await peer.send('text', text=str(content).encode()[:1000].decode('utf-8', errors='ignore'),
-                            kind='reply' if peer.task and not peer.task.done() else 'notify', receipt=receipt)
+                            kind='reply' if peer.native or (peer.task and not peer.task.done()) else 'notify',
+                            receipt=receipt)
             await asyncio.wait_for(done.wait(), 10)
             if peer.socket.closed:
                 raise ConnectionError('Disconnected before receipt')
@@ -436,6 +436,8 @@ class KubikAdapter(BasePlatformAdapter):
     async def get_chat_info(self, chat_id):
         return {'name': 'Kubik', 'type': 'dm', 'chat_id': chat_id}
     async def send_voice(self, chat_id, audio_path, caption=None, **kwargs):
+        if active_job(self, chat_id):
+            return SendResult(success=True, message_id='native-voice')
         from .speech import play_file
         peer = self._ready_peer(chat_id)
         if not peer:

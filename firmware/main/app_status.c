@@ -45,6 +45,8 @@ void app_status_info(status_json_t *info) {
     status_json_string(info, "wifi_dns", status.dns);
     status_json_string(info, "wifi_mac", status.mac);
     status_json_string(info, "dhcp_hostname", status.hostname);
+    status_json_integer(info, "wifi_reason", wifi_last_reason());
+    status_json_integer(info, "wifi_attempts", wifi_attempts());
     face_lock();
     status_json_bool(info, "status_open", g_face.status.open);
     status_json_integer(info, "status_page", g_face.status.page);

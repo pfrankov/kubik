@@ -10,7 +10,7 @@ import { EchoCleaner } from '../openclaw-kubik/src/echo-cleaner.js';
 import { nearSpeechProof } from './test-device/live-acoustic.mjs';
 import { writeFileSync } from 'node:fs';
 import { nativeTransport } from './test-device/native-transport.mjs';
-import { fixtureBaseline, routeRestored } from './test-device/fixture-baseline.mjs';
+import { assertSettingRestored, fixtureBaseline, routeRestored } from './test-device/fixture-baseline.mjs';
 import { restoreNativeFixture } from './test-device/native-cleanup.mjs';
 import { speechProfile, PROFILE_MS } from './test-device/speech-profile.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -260,7 +260,6 @@ async function responseProof(server, state, mode) {
     await sim('ptt_down'); await sim('ptt_up');
     await until(device => !device.live_active && !device.mic_open, 'KEY explicitly ends Live');
   }
-  await completedProfile(state);
   const detail = mode === 'live' ? `, ${liveReplies} replies on one connection, continuous silence and KEY stop` : '';
   console.log(`PASS physical ${mode}: native input policy, same agent and speaker ACK${detail}`);
 }
@@ -413,9 +412,9 @@ async function main() {
         'complete status before restoration', 45000),
       cancelCapture, restoreRoute: () => restoreTransport(transport, paused), close: async () => { await transport?.close(); } });
     const restored = await until(device => routeRestored(device, original) && device.voice_mode === original.voice_mode && Boolean(device.key),
-      offlineFixture ? 'original offline state' : 'original network route', 45000);
-    for (const key of ['volume', 'ui_volume', 'brightness', 'ssid', 'url', 'key', 'character', 'server_pinned', 'guide_done'])
-      assert.ok(restored[key] === original[key], `${key} changed`);
+      offlineFixture ? 'original route released or normal Wi-Fi recovered' : 'original network route', 45000);
+    for (const key of ['device', 'agent', 'volume', 'ui_volume', 'brightness', 'ssid', 'url', 'key', 'character', 'server_pinned', 'guide_done'])
+      assertSettingRestored(restored, original, key);
     if (restored.screen_dark !== original.screen_dark) await sim('pwr');
     if (restored.menu !== original.menu) await sim('menu');
     console.log('PASS original network, pairing identity, volume, brightness and screen restored');

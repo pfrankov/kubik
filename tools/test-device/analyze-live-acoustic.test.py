@@ -10,6 +10,10 @@ spec.loader.exec_module(acoustic)
 RATE = acoustic.RATE
 
 
+def processed(signal):
+    return np.pad(signal, (acoustic.CLEAN_DELAY_SAMPLES, 0))[:len(signal)]
+
+
 class MeasuredPath(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -35,10 +39,16 @@ class MeasuredPath(unittest.TestCase):
         template, lag = acoustic.calibrate(self.near, self.source)
         self.assertEqual(len(template), len(self.source))
         self.assertLess(abs(np.corrcoef(self.physical, self.source)[0, 1]), .01)
-        acoustic.verify('near', self.near, self.near * .9, np.zeros(len(self.near)), template, lag)
-        acoustic.verify('double', self.raw, self.spoken * .9 + self.far * .02, self.far, template)
+        acoustic.verify('near', self.near, processed(self.near * .9), np.zeros(len(self.near)), template, lag)
+        acoustic.verify('double', self.raw, processed(self.spoken * .9 + self.far * .02), self.far, template)
         with self.assertRaisesRegex(AssertionError, 'suppressed'):
-            acoustic.verify('double', self.raw, self.spoken * .1 + self.far * .02, self.far, template)
+            acoustic.verify('double', self.raw, processed(self.spoken * .1 + self.far * .02), self.far, template)
+
+    def test_only_the_measured_preprocessor_delay_is_accepted(self):
+        for delay in (0, 960):
+            clean = np.pad(self.spoken, (delay, 0))[:len(self.spoken)]
+            with self.subTest(delay=delay), self.assertRaisesRegex(AssertionError, 'suppressed'):
+                acoustic.verify('double', self.raw, clean, self.far, self.physical)
 
     def test_unrelated_audio_and_silent_calibration_are_rejected(self):
         noise = np.random.default_rng(58).normal(0, 100, len(self.near))
@@ -54,7 +64,7 @@ class MeasuredPath(unittest.TestCase):
         for frequency in (260, 650, 910, 1800, 2900):
             amplitude = np.interp(time, np.linspace(0, 6, 31), rng.uniform(.05, 1, 31))
             far += 600 * amplitude * np.sin(2 * np.pi * frequency * time)
-        acoustic.verify('double', self.spoken + far, self.spoken * .9 + far * .01, far, self.physical)
+        acoustic.verify('double', self.spoken + far, processed(self.spoken * .9 + far * .01), far, self.physical)
         with self.assertRaisesRegex(AssertionError, 'confidence'):
             acoustic.verify('double', far, far * .01, far, self.physical)
 

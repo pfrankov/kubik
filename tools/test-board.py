@@ -129,7 +129,7 @@ static int esp_lcd_touch_new_i2c_cst816s(void *io, const esp_lcd_touch_config_t 
 // The real display initializer's transport is independently checked by firmware builds.
 static void display_panel_init(void);
 static void display_init(void) { display_panel_init(); }
-typedef struct {double pa_voltage, codec_dac_voltage;} gain_t;
+typedef struct {double pa_voltage, codec_dac_voltage, pa_gain;} gain_t;
 typedef struct {void *ctrl_if, *gpio_if; int codec_mode, pa_pin; bool use_mclk; gain_t hw_gain;} es8311_codec_cfg_t;
 #define ESP_CODEC_DEV_WORK_MODE_DAC 1
 #define ESP_CODEC_DEV_WORK_MODE_BOTH 3
@@ -140,6 +140,9 @@ static void check_codec(void) {
 TEST = r'''
     assert(es8311_cfg.pa_pin == (CHARACTER_S3 ? 46 : -1));
     assert(es8311_cfg.use_mclk && es8311_cfg.codec_mode == (CHARACTER_S3 ? ESP_CODEC_DEV_WORK_MODE_BOTH : ESP_CODEC_DEV_WORK_MODE_DAC));
+    assert(es8311_cfg.hw_gain.pa_voltage == (CHARACTER_S3 ? 3.3 : 5.0));
+    assert(es8311_cfg.hw_gain.codec_dac_voltage == 3.3);
+    assert(es8311_cfg.hw_gain.pa_gain == (CHARACTER_S3 ? 4.08 : 0.0));
 }
 int main(void) {
     const int s3[] = {15,14,11,4,5,6,7,12,21,-1,16,9,45,10,8,-1,0,-1};
@@ -220,40 +223,71 @@ struct codec {
     int (*set_reg)(const audio_codec_if_t *, int, int);
     int (*enable)(const audio_codec_if_t *, bool);
 };
-static int locked, value = 2, fail_read, fail_write, power_calls;
+static int locked, value = 2, route = 0x58, gain = 0x24, fail_read, fail_write, power_calls;
 static bool powered = true;
 static void xSemaphoreTake(int mutex, int wait) { (void)mutex; (void)wait; assert(!locked); locked = 1; }
 static void xSemaphoreGive(int mutex) { (void)mutex; assert(locked); locked = 0; }
 static int read_reg(const audio_codec_if_t *codec, int reg, int *out) {
-    (void)codec; assert(reg == 0x0e); *out = value; return fail_read ? -1 : 0;
+    (void)codec; assert(reg == 0x0e || reg == 0x44 || reg == 0x16);
+    *out = reg == 0x0e ? value : reg == 0x44 ? route : gain;
+    return fail_read == reg ? -1 : 0;
 }
 static int write_reg(const audio_codec_if_t *codec, int reg, int next) {
-    (void)codec; assert(reg == 0x0e); if (fail_write) return -1; value = next; return 0;
+    (void)codec; assert(reg == 0x0e || reg == 0x44 || reg == 0x16); if (fail_write == reg) return -1;
+    if (reg == 0x0e) value = next; else if (reg == 0x44) route = next; else gain = next;
+    return 0;
 }
 static int enable(const audio_codec_if_t *codec, bool on) {
-    (void)codec; powered = on; power_calls++; if (on) value = 2; return 0;
+    (void)codec; powered = on; power_calls++; if (on) { value = 2; gain = 0x24; } return 0;
 }
 '''
 gate_test = r'''
 int main(void) {
     const audio_codec_if_t codec = {.get_reg=read_reg, .set_reg=write_reg, .enable=enable};
     s_shared_codec = &codec;
+    assert(shared_adc_gain() == 0 && gain == 0x20); // Zero digital boost; preserve standard-clock ADC_SYNC.
+    gain = 0x3d;
+    assert(shared_adc_gain() == 0 && gain == 0x38); // Do not change inversion/RAM/control bits.
+    assert(shared_reference_route() == 0 && route == 0x48);
+    route = 0xdb; // Preserve loopback and the unrelated I2C/GPIO controls.
+    assert(shared_reference_route() == 0 && route == 0xcb);
+    fail_write = 0x44;
+    assert(shared_reference_route() != 0 && route == 0xcb);
+    fail_write = 0; fail_read = 0x44;
+    assert(shared_reference_route() != 0 && route == 0xcb);
+    fail_read = 0;
     assert(audio_board_adc_enable(false) == 0 && value == 0x62 && powered && !s_adc_on);
     assert(audio_board_adc_enable(true) == 0 && value == 2 && powered && s_adc_on);
+    assert(gain == 0x38);
     assert(power_calls == 0); // Stopping/starting the microphone never powers off DAC/PA.
     value = 0x8a;
     assert(audio_board_adc_enable(false) == 0 && value == 0xea); // Preserve all other control bits.
     assert(shared_output_power(NULL, false) == 0 && !powered);
+    route = 0x58;
     assert(shared_output_power(NULL, true) == 0 && powered && value == 0x62 && !s_adc_on);
+    assert(route == 0x48); // Every wake preserves the actual left speaker reference.
+    assert(gain == 0x20); // Every wake reapplies 0 dB digital gain before capture.
     assert(audio_board_adc_enable(true) == 0 && value == 2);
     assert(shared_output_power(NULL, false) == 0);
     assert(shared_output_power(NULL, true) == 0 && value == 2 && s_adc_on);
-    fail_write = 1;
+    fail_write = 0x0e;
     assert(audio_board_adc_enable(false) != 0 && s_adc_on);
-    fail_write = 0; fail_read = 1;
+    fail_write = 0; fail_read = 0x0e;
     assert(audio_board_adc_enable(false) != 0 && s_adc_on);
     fail_read = 0;
     assert(audio_board_adc_enable(false) == 0 && !s_adc_on && value == 0x62);
+    fail_write = 0x44;
+    assert(shared_output_power(NULL, true) != 0); // Do not hide a failed reference route on wake.
+    fail_write = 0; fail_read = 0x44;
+    assert(shared_output_power(NULL, true) != 0);
+    fail_read = 0;
+    assert(audio_board_adc_enable(false) == 0);
+    fail_read = 0x16;
+    assert(audio_board_adc_enable(true) != 0 && !s_adc_on && value == 0x62);
+    assert(shared_output_power(NULL, true) != 0);
+    fail_read = 0; fail_write = 0x16;
+    assert(audio_board_adc_enable(true) != 0 && !s_adc_on);
+    assert(shared_output_power(NULL, true) != 0);
 }
 '''
 with tempfile.TemporaryDirectory(prefix='kubik-shared-codec-') as temporary:
@@ -262,7 +296,54 @@ with tempfile.TemporaryDirectory(prefix='kubik-shared-codec-') as temporary:
     subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror',
                     '-fsanitize=address,undefined', str(source), '-o', str(executable)], check=True)
     subprocess.run([str(executable)], check=True)
-print('ES8311: independent ADC power, preserved DAC, wake re-gating and failed-register state passed')
+print('ES8311: left speaker reference, independent ADC power, preserved bits, wake routing and register errors passed')
+
+# Keep the two codecs' gain APIs distinct: ES8311's SDK gain is digital-only.
+mic_adc = function((ROOT / 'firmware/main/audio_mic_io.c').read_text(), 'static int set_adc(')
+mic_stub = r'''
+#include <assert.h>
+#include <stdbool.h>
+#define ESP_CODEC_DEV_OK 0
+#define MIC_GAIN_MASK 1
+#define MIC_GAIN_DB 30.0
+typedef struct codec audio_codec_if_t;
+struct codec {
+    int (*enable)(const audio_codec_if_t *, bool);
+    int (*set_mic_channel_gain)(const audio_codec_if_t *, int, float);
+};
+typedef struct { const audio_codec_if_t *codec; } mic_io_t;
+static int calls, result, gain_calls;
+static bool enabled;
+static int audio_board_adc_enable(bool on) { assert(CONFIG_IDF_TARGET_ESP32S3); enabled=on; calls++; return result; }
+static int power(const audio_codec_if_t *codec, bool on) {
+    (void)codec; assert(!CONFIG_IDF_TARGET_ESP32S3); enabled=on; calls++; return result;
+}
+static int gain(const audio_codec_if_t *codec, int mask, float db) {
+    (void)codec; assert(!CONFIG_IDF_TARGET_ESP32S3 && mask==1 && db==30.0); gain_calls++; return 0;
+}
+'''
+mic_test = r'''
+int main(void) {
+    audio_codec_if_t codec={.enable=power,.set_mic_channel_gain=gain};
+    mic_io_t io={.codec=&codec};
+    assert(set_adc(&io,true)==0 && calls==1 && enabled);
+    assert(gain_calls==(CONFIG_IDF_TARGET_ESP32S3?0:1));
+    assert(set_adc(&io,false)==0 && calls==2 && !enabled);
+    assert(gain_calls==(CONFIG_IDF_TARGET_ESP32S3?0:1));
+    result=-1;
+    assert(set_adc(&io,true)==-1 && calls==3);
+    assert(gain_calls==(CONFIG_IDF_TARGET_ESP32S3?0:1));
+}
+'''
+with tempfile.TemporaryDirectory(prefix='kubik-codec-gain-') as temporary:
+    source, executable = Path(temporary) / 'mic.c', Path(temporary) / 'mic'
+    source.write_text(mic_stub + mic_adc + mic_test)
+    for s3 in (0, 1):
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O1', '-Wall', '-Wextra',
+                        '-Werror', '-Wno-unused-function', '-fsanitize=address,undefined',
+                        f'-DCONFIG_IDF_TARGET_ESP32S3={s3}', str(source), '-o', str(executable)], check=True)
+        subprocess.run([str(executable)], check=True)
+print('ADC: S3 board owns shared gain; C6 retains MIC1 gain; power failure never applies gain')
 
 # Exercise the actual SPI callbacks and the UI/worker idle ownership boundary.
 callback_start = BOARD.index('static portMUX_TYPE s_lcd_start_lock')

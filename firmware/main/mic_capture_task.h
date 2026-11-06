@@ -21,6 +21,7 @@ typedef struct {
     uint16_t chunk_samples;
     uint16_t frame_samples;
     uint16_t voice_slot;
+    uint16_t reference_slot;
     uint16_t timeout_ms;
 } mic_task_config_t;
 

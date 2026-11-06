@@ -11,10 +11,12 @@ import math
 import os
 from pathlib import Path
 import socket
+import ssl
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 
@@ -68,10 +70,17 @@ def wav_bytes(samples=2401):
 
 class Providers:
     def __init__(self):
+        from voice_fixture import VoiceFixture
         self.calls = []
         self.transcript = 'kubik-first'
+        self.voice = VoiceFixture()
+        self.tool_calls = []
+        self.native_delay = 0
+        self.cancel_release = threading.Event()
 
     async def respond(self, request):
+        if request.path in ('/v1/realtime', '/v1/live/sessions'):
+            return await self.voice.serve(request)
         if request.path.endswith('/models/kubik-test'):
             return web.json_response({'id': 'kubik-test', 'object': 'model', 'context_length': 131072})
         if request.path == '/api/show':
@@ -88,23 +97,34 @@ class Providers:
             return web.Response(body=wav_bytes(), content_type='audio/wav')
         if request.path.endswith('/chat/completions'):
             self.calls.append(('llm', body))
-            messages = body['messages']
-            user = next((item['content'] for item in reversed(messages) if item['role'] == 'user'), '')
-            answer = 'kubik-answer:second' if 'kubik-second' in str(user) else 'kubik-answer:first'
-            data = {'id': 'chatcmpl-kubik', 'created': int(time.time()), 'model': body.get('model', 'kubik-test')}
-            if body.get('stream'):
-                response = web.StreamResponse(headers={'Content-Type': 'text/event-stream'})
-                await response.prepare(request)
-                for delta, finish in (({'role': 'assistant', 'content': answer}, None), ({}, 'stop')):
-                    chunk = {**data, 'object': 'chat.completion.chunk', 'choices': [{'index': 0, 'delta': delta, 'finish_reason': finish}]}
-                    await response.write(('data: ' + json.dumps(chunk) + '\n\n').encode())
-                await response.write(b'data: [DONE]\n\n')
-                await response.write_eof()
-                return response
-            return web.json_response({**data, 'object': 'chat.completion', 'choices': [{'index': 0,
-                'message': {'role': 'assistant', 'content': answer}, 'finish_reason': 'stop'}],
-                'usage': {'prompt_tokens': 25, 'completion_tokens': 5, 'total_tokens': 30}})
+            return await self.chat(request, body)
         raise AssertionError(f'Unexpected provider endpoint: {request.path}')
+
+    async def chat(self, request, body):
+        from voice_fixture import native_answer
+        messages = body['messages']
+        user = next((item['content'] for item in reversed(messages) if item['role'] == 'user'), '')
+        if self.native_delay and str(user).startswith('kubik-native-') and str(user).endswith('realtime') and messages[-1]['role'] == 'user':
+            await asyncio.sleep(self.native_delay)
+        answer = 'kubik-answer:second' if 'kubik-second' in str(user) else 'kubik-answer:first'
+        message, finish = native_answer(messages) or ({'role': 'assistant', 'content': answer}, 'stop')
+        data = {'id': 'chatcmpl-kubik', 'created': int(time.time()), 'model': body.get('model', 'kubik-test')}
+        if body.get('stream'):
+            response = web.StreamResponse(headers={'Content-Type': 'text/event-stream'})
+            await response.prepare(request)
+            delta = dict(message)
+            if 'tool_calls' in delta:
+                delta['tool_calls'] = [{**call, 'index': i} for i, call in enumerate(delta['tool_calls'])]
+            for current, reason in ((delta, None), ({}, finish)):
+                chunk = {**data, 'object': 'chat.completion.chunk',
+                         'choices': [{'index': 0, 'delta': current, 'finish_reason': reason}]}
+                await response.write(('data: ' + json.dumps(chunk) + '\n\n').encode())
+            await response.write(b'data: [DONE]\n\n')
+            await response.write_eof()
+            return response
+        return web.json_response({**data, 'object': 'chat.completion', 'choices': [{'index': 0,
+            'message': message, 'finish_reason': finish}],
+            'usage': {'prompt_tokens': 25, 'completion_tokens': 5, 'total_tokens': 30}})
 
 
 async def get_json(ws):
@@ -114,7 +134,7 @@ async def get_json(ws):
     return json.loads(message.data)
 
 
-async def pair(client, port, home, private_key, name='kubik-integration', volume=100, *, proof='valid'):
+async def pair(client, port, home, private_key, name='kubik-integration', volume=100, *, proof='valid', mode='classic'):
     ws = await client.ws_connect(f'wss://127.0.0.1:{port}/kubik/v1', ssl=False, compress=0)
     key = base64.b64encode(private_key.public_key().public_bytes(serialization.Encoding.X962,
         serialization.PublicFormat.UncompressedPoint)).decode()
@@ -146,7 +166,7 @@ async def pair(client, port, home, private_key, name='kubik-integration', volume
         reply = await get_json(ws)
     assert reply['t'] == 'welcome', reply
     capabilities = await get_json(ws)
-    assert capabilities['voice_mode'] == 'classic', capabilities
+    assert capabilities['voice_mode'] == mode, capabilities
     assert capabilities['stt']['available'] and capabilities['tts']['available'], capabilities
     return ws
 
@@ -183,7 +203,7 @@ async def voice(ws, codec, turn, expected):
     return audio
 
 
-def configure(home, backend_port):
+def configure(home, backend_port, voice_port, home_identity=None):
     from ruamel.yaml import YAML
     url = f'http://127.0.0.1:{backend_port}/v1'
     data = {'model': {'provider': 'custom', 'default': 'kubik-test', 'base_url': url, 'api_key': 'kubik-test-only', 'context_length': 131072},
@@ -192,7 +212,13 @@ def configure(home, backend_port):
         'kanban': {'dispatch_in_gateway': False, 'notify_in_gateway': False},
         'stt': {'enabled': True, 'provider': 'openai', 'openai': {'model': 'whisper-1', 'base_url': url, 'api_key': 'kubik-test-only'}},
         'tts': {'provider': 'openai', 'openai': {'model': 'tts-1', 'voice': 'alloy', 'base_url': url, 'api_key': 'kubik-test-only'}},
-        'agent': {'max_turns': 3}, 'memory': {'enabled': False}, 'toolsets': {'kubik': []}}
+        'voice': {'gpt_live': {'base_url': f'https://127.0.0.1:{voice_port}/v1',
+                               'api_key': 'kubik-voice-test-only', 'model': 'gpt-live-1', 'voice': 'marin'}},
+        'tools': {'tool_search': {'enabled': 'off'}},
+        'agent': {'max_turns': 3}, 'memory': {'enabled': False}, 'platform_toolsets': {'kubik': ['kubik_contract']}}
+    if home_identity:
+        data['platforms'] = {'kubik': {'home_channel': {
+            'platform': 'kubik', 'chat_id': home_identity, 'name': 'Kubik fixture'}}}
     with (home / 'config.yaml').open('w') as stream:
         YAML().dump(data, stream)
     (home / '.env').write_text(f'OPENAI_API_KEY=kubik-test-only\nOPENAI_BASE_URL={url}\n')
@@ -222,6 +248,16 @@ async def check_profile_scopes(adapter, home):
     assert dict(os.environ) == original_env
 
 
+async def stop_gateway(gateway, backend, voice_tasks):
+    try:
+        await asyncio.wait_for(gateway.stop(), 60)
+        await voice_tasks.check()
+    finally:
+        voice_tasks.restore()
+        await backend.cleanup()
+    print('Blocked non-loopback connection attempts:', len(BLOCKED), flush=True)
+
+
 async def main():
     import tornado
     assert (6, 5, 9) <= tornado.version_info[:3] < (7, 0, 0), 'Install hermes-kubik/requirements.txt before native acceptance'
@@ -229,10 +265,11 @@ async def main():
     home = Path(os.environ['HERMES_HOME'])
     home.mkdir(mode=0o700, parents=True, exist_ok=False)
     providers = Providers()
-    backend_reservation, device_reservation = reserve_loopback_ports(2)
+    backend_reservation, device_reservation, voice_reservation = reserve_loopback_ports(3)
     backend_port = backend_reservation.getsockname()[1]
     device_port = device_reservation.getsockname()[1]
-    configure(home, backend_port)
+    voice_port = voice_reservation.getsockname()[1]
+    configure(home, backend_port, voice_port)
     subprocess.run([sys.executable, str(ROOT / 'tools/install-hermes.py'), '--home', str(home),
                     '--bind', '127.0.0.1', '--port', str(device_port)], check=True)
     app = web.Application(client_max_size=5 * 1024 * 1024)
@@ -241,11 +278,20 @@ async def main():
     await backend.setup()
     release_reservation(backend_reservation)
     await web.TCPSite(backend, '127.0.0.1', backend_port).start()
+    identity = Path(os.environ['KUBIK_TEST_TLS_DIR'])
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(identity / 'provider-cert.pem', identity / 'provider-key.pem')
+    release_reservation(voice_reservation)
+    await web.TCPSite(backend, '127.0.0.1', voice_port, ssl_context=tls).start()
     from hermes_cli.plugins import get_plugin_manager
     get_plugin_manager().discover_and_load()
+    from voice_fixture import register_contract_tool
+    register_contract_tool(providers)
     from gateway.run import GatewayRunner
     from gateway.config import load_gateway_config, Platform
     gateway = GatewayRunner(load_gateway_config())
+    from lifecycle import VoiceTaskAudit
+    voice_tasks = VoiceTaskAudit()
     try:
         release_reservation(device_reservation)
         assert await asyncio.wait_for(gateway.start(), 60), 'Native Gateway did not start'
@@ -264,6 +310,8 @@ async def main():
             await pair(client, device_port, home, private_key, proof='invalid-signature')
             assert not providers.calls
             assert not ws.closed
+            from voice_contract import check_first_native
+            await check_first_native(client, device_port, home, codec, providers, pair)
             audio = await voice(ws, codec, 1, 'kubik-answer:first')
             assert len(audio) >= 4802, len(audio)
             assert {kind for kind, _ in providers.calls} == {'stt', 'llm', 'tts'}, providers.calls
@@ -277,6 +325,8 @@ async def main():
             history = next(body['messages'] for kind, body in reversed(providers.calls) if kind == 'llm')
             assert 'kubik-first' in json.dumps(history), history
             await ws.close()
+            from voice_contract import check_native_voice
+            await check_native_voice(client, device_port, home, private_key, adapter, codec, providers, pair)
             providers.transcript = 'kubik-independent'
             ws = await pair(client, device_port, home, ec.generate_private_key(ec.SECP256R1()), name='kubik-other', volume=0)
             await voice(ws, codec, 3, 'kubik-answer:first')
@@ -291,11 +341,11 @@ async def main():
             await ws.close()
         print('PASS: native Gateway/AIAgent, signed WSS approval, rejected signatures/bindings, STT, context across reconnect, TTS/IMA acknowledgements, muted text, separate devices, revocation and profile scopes', flush=True)
     finally:
+        providers.cancel_release.set()
         release_reservation(backend_reservation)
         release_reservation(device_reservation)
-        await asyncio.wait_for(gateway.stop(), 60)
-        await backend.cleanup()
-        print('Blocked non-loopback connection attempts:', len(BLOCKED), flush=True)
+        release_reservation(voice_reservation)
+        await stop_gateway(gateway, backend, voice_tasks)
 
 
 if __name__ == '__main__':

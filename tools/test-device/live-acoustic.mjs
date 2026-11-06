@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { EchoCleaner } from '../../openclaw-kubik/src/echo-cleaner.js';
+import { playNearSpeech } from './near-playback.mjs';
 
 const run = (command, args) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { stdio: ['ignore', 'inherit', 'inherit'], timeout: 30000 });
@@ -16,7 +17,6 @@ const run = (command, args) => new Promise((resolve, reject) => {
 // of the Cube's DAC reference. No provider or speech-recognition API is called.
 export async function nearSpeechProof(state, { info, hostUntil }) {
   const wav = process.env.KUBIK_TEST_NEAR_WAV;
-  assert.equal(process.platform, 'darwin', 'Near-end fixture uses macOS afplay');
   assert.ok(wav && state.samples, 'Set KUBIK_TEST_NEAR_WAV and use --echo --near');
   assert.ok(statSync(wav).size <= 1024 * 1024, 'Near-end WAV exceeds the fixture bound');
   assert.ok(process.env.KUBIK_TEST_SPEECH_PCM, 'Set KUBIK_TEST_SPEECH_PCM to a different spoken phrase');
@@ -42,7 +42,7 @@ export async function nearSpeechProof(state, { info, hostUntil }) {
         await hostUntil(() => state.progress?.gen !== previousGen && state.progress?.ms > 0, 'double-talk starts playing');
         clean(); // Begin the acoustic window after the hardware actually starts.
       }
-      await run('afplay', [source]); await sleep(500);
+      await playNearSpeech(source, { run }); await sleep(500);
       assert.ok(state.audioFrames > input + 100, 'Near speech did not stream continuously');
       assert.equal((await info()).mic_open, true);
       const frames = clean();

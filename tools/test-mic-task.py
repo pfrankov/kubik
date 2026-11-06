@@ -27,6 +27,7 @@ fixture = r'''
 #include <stdio.h>
 #include <string.h>
 #include "mic_capture_task.h"
+#include "audio_target.h"
 #include "ima_adpcm.h"
 static void mic_capture_center(int16_t *buf,size_t n,int32_t *dc) {(void)buf;(void)n;(void)dc;}
 #define RTC_NOINIT_ATTR
@@ -115,8 +116,9 @@ static void app_post(int type, int turn, int reason) {
 '''
 tests = r'''
 static bool duplex_capture(void *ctx) {(void)ctx;return true;}
-static void reference_packing(void) {
-    mic_task_config_t cfg={.duplex=duplex_capture,.slots=4,.voice_slot=3,.chunk_samples=240};
+static void reference_packing(int slots,int voice_slot,int reference_slot) {
+    mic_task_config_t cfg={.duplex=duplex_capture,.slots=slots,.voice_slot=voice_slot,
+        .reference_slot=reference_slot,.chunk_samples=240};
     ima_state_t actual={0},oracle={0};int32_t dc=0;
     int16_t raw[960],voice[960],near[960],far[960],decoded[960],expected[960];
     uint8_t packed[483],whole[483];
@@ -127,7 +129,8 @@ static void reference_packing(void) {
                 int at=chunk*240+i;
                 near[at]=(int16_t)(1000+at+frame*200);
                 far[at]=(int16_t)((at*71+frame*937)%6000-3000);
-                raw[4*i]=-123;raw[4*i+1]=far[at];raw[4*i+2]=456;raw[4*i+3]=near[at];
+                for(int slot=0;slot<slots;slot++) raw[slots*i+slot]=-123+slot*579;
+                raw[slots*i+reference_slot]=far[at];raw[slots*i+voice_slot]=near[at];
             }
             assert(copy_channels(&cfg,raw,voice,packed,chunk*240,&actual,&dc));
         }
@@ -140,7 +143,11 @@ static void reference_packing(void) {
     }
 }
 int main(void) {
-    reference_packing();
+    assert(AUDIO_CAPTURE_CHANNELS==(CONFIG_IDF_TARGET_ESP32S3?2:4));
+    assert(AUDIO_MIC_SLOT==(CONFIG_IDF_TARGET_ESP32S3?1:0));
+    assert(AUDIO_REFERENCE_SLOT==(CONFIG_IDF_TARGET_ESP32S3?0:1));
+    reference_packing(AUDIO_CAPTURE_CHANNELS,AUDIO_MIC_SLOT,AUDIO_REFERENCE_SLOT);
+    reference_packing(4,3,1); // Keep the nondefault voice-slot contrast.
     mic_task_config_t config = { .requested = requested, .sync = sync_capture, .read = read_pcm,
         .deliver = deliver, .epoch = capture_epoch, .slots = 4, .chunk_samples = 240,
         .frame_samples = 960, .voice_slot = 1, .timeout_ms = 20 };
@@ -197,6 +204,8 @@ with tempfile.TemporaryDirectory(prefix='c6-mic-task-') as directory:
     source = Path(directory) / 'test.c'
     binary = Path(directory) / 'test'
     source.write_text(fixture + task + capture_requested + queued + producer + gate + stop + suspend + tests)
-    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
-                    '-I', str(ROOT / 'firmware/main'), str(source), str(ROOT / "firmware/main/ima_adpcm.c"), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True)
+    for s3 in (0, 1):
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
+                        f'-DCONFIG_IDF_TARGET_ESP32S3={s3}', '-I', str(ROOT / 'firmware/main'),
+                        str(source), str(ROOT / "firmware/main/ima_adpcm.c"), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)

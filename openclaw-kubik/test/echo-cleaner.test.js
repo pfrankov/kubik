@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { EchoCleaner } from '../src/echo-cleaner.js';
 import { ImaEncoder, parseAudioFrame } from '../src/protocol.js';
@@ -6,7 +7,16 @@ import { ImaEncoder, parseAudioFrame } from '../src/protocol.js';
 function packet(mic, ref) {
   return parseAudioFrame(Buffer.concat([Buffer.from([5, 3]), mic, ref]));
 }
-const energy = pcm => { let sum = 0; for (let i = 0; i < pcm.length; i += 2) sum += pcm.readInt16LE(i) ** 2; return sum; };
+const LATENCY_BYTES = 480 * 2; // Measured independently by the impulse test below.
+
+function alignedMetrics(input, output, start = 0, end = input.length) {
+  let raw = 0, clean = 0, dot = 0;
+  for (let at = start; at < Math.min(end, input.length, output.length - LATENCY_BYTES); at += 2) {
+    const a = input.readInt16LE(at), b = output.readInt16LE(at + LATENCY_BYTES);
+    raw += a * a; clean += b * b; dot += a * b;
+  }
+  return { ratio: clean / raw, similarity: dot / Math.sqrt(raw * clean), erle: 10 * Math.log10(raw / clean) };
+}
 
 test('Live synchronized two-channel framing rejects malformed input and decodes each channel independently', () => {
   const mic = new ImaEncoder(), ref = new ImaEncoder();
@@ -26,7 +36,7 @@ function acousticCase(delay, gain) {
   const micEncoder = new ImaEncoder(), refEncoder = new ImaEncoder();
   let seed = 12345, low = 0;
   const history = new Int16Array(24000 * 12);
-  let rawEnergy = 0, cleanEnergy = 0, nearEnergy = 0, nearCorrelation = 0, cleanedNearEnergy = 0;
+  const raw = Buffer.alloc(history.length * 2), nearVoice = Buffer.alloc(raw.length), output = Buffer.alloc(raw.length);
   let processingMs = 0;
   for (let frame = 0; frame < 300; frame++) {
     const mic = Buffer.alloc(1920), reference = Buffer.alloc(1920), near = new Int16Array(960);
@@ -39,21 +49,19 @@ function acousticCase(delay, gain) {
       near[i] = frame >= 200 ? Math.round(2200 * (.45 + .55 * Math.sin(at / 2400) ** 2) *
         (Math.sin(at * 2 * Math.PI * 233 / 24000) + .65 * Math.sin(at * 2 * Math.PI * 349 / 24000) + .3 * Math.sin(at * 2 * Math.PI * 701 / 24000))) : 0;
       mic.writeInt16LE(Math.round(echo + near[i]), i * 2); reference.writeInt16LE(history[at], i * 2);
+      nearVoice.writeInt16LE(near[i], at * 2);
     }
     const decoded = packet(micEncoder.encode(mic), refEncoder.encode(reference));
     const start = performance.now(), cleaned = cleaner.process(decoded.pcm, decoded.reference);
     processingMs += performance.now() - start;
-    if (frame >= 100 && frame < 190) { rawEnergy += energy(decoded.pcm); cleanEnergy += energy(cleaned); }
-    if (frame >= 220) for (let i = 0; i < 960; i++) {
-      nearEnergy += near[i] ** 2; nearCorrelation += near[i] * cleaned.readInt16LE(i * 2);
-      cleanedNearEnergy += cleaned.readInt16LE(i * 2) ** 2;
-    }
+    decoded.pcm.copy(raw, frame * 1920); cleaned.copy(output, frame * 1920);
   }
-  const erle = 10 * Math.log10(rawEnergy / cleanEnergy);
-  const similarity = nearCorrelation / Math.sqrt(nearEnergy * cleanedNearEnergy);
+  const { erle } = alignedMetrics(raw, output, 100 * 1920, 190 * 1920);
+  const { similarity, ratio } = alignedMetrics(nearVoice, output, 220 * 1920);
   assert.ok(erle > 15, `Echo reduction too small: ${erle.toFixed(1)} dB`);
   assert.ok(similarity > .9, `Near speech lost during double-talk: ${similarity.toFixed(3)}`);
-  assert.ok(cleanedNearEnergy / nearEnergy > .7, 'Canceller muted near speech');
+  assert.ok(ratio > .7, 'Canceller muted near speech');
+  assert.equal(cleaner.warnings, 0, 'AEC emitted an unexpected diagnostic');
   assert.ok(processingMs < 600, 'AEC cannot process 12 seconds of audio with sufficient CPU margin');
   cleaner.close();
   console.log(`AEC: delay ${delay} gain ${gain}, IMA echo ${erle.toFixed(1)} dB, double-talk correlation ${similarity.toFixed(3)}, CPU ${processingMs.toFixed(1)} ms / 12 s`);
@@ -68,15 +76,17 @@ test('AEC rejects missing/skewed channels, releases idempotently and preserves n
   for (let i = 0; i < 960; i++) near.writeInt16LE(Math.round(2500 * Math.sin(i / 6)), i * 2);
   assert.throws(() => cleaner.process(near));
   assert.throws(() => cleaner.process(near, Buffer.alloc(960)));
-  const output = cleaner.process(near, Buffer.alloc(1920));
-  assert.ok(energy(output) / energy(near) > .7);
+  const output = Buffer.concat([cleaner.process(near, Buffer.alloc(1920)),
+    cleaner.process(Buffer.alloc(1920), Buffer.alloc(1920))]);
+  assert.ok(alignedMetrics(near, output).ratio > .7);
   cleaner.close(); cleaner.close(); assert.throws(() => cleaner.process(near, near));
 });
 
 test('Persistent near-only speech-like input remains audible through six seconds of adaptation', t => {
   const cleaner = new EchoCleaner(); t.after(() => cleaner.close());
   const encoder = new ImaEncoder(), reference = new ImaEncoder();
-  let seed = 73, previous = 0, nearEnergy = 0, cleanEnergy = 0, dot = 0;
+  let seed = 73, previous = 0;
+  const raw = [], cleaned = [];
   for (let frame = 0; frame < 150; frame++) {
     const near = Buffer.alloc(1920);
     for (let i = 0; i < 960; i++) {
@@ -88,11 +98,26 @@ test('Persistent near-only speech-like input remains audible through six seconds
     }
     const decoded = packet(encoder.encode(near), reference.encode(Buffer.alloc(1920)));
     const output = cleaner.process(decoded.pcm, decoded.reference);
-    for (let i = 0; i < 960; i++) {
-      const a = decoded.pcm.readInt16LE(i * 2), b = output.readInt16LE(i * 2);
-      nearEnergy += a * a; cleanEnergy += b * b; dot += a * b;
-    }
+    raw.push(decoded.pcm); cleaned.push(output);
   }
-  assert.ok(cleanEnergy / nearEnergy > .7, 'AEC attenuated a standalone user');
-  assert.ok(dot / Math.sqrt(cleanEnergy * nearEnergy) > .9, 'AEC distorted standalone speech-like input');
+  const { ratio, similarity } = alignedMetrics(Buffer.concat(raw), Buffer.concat(cleaned));
+  assert.ok(ratio > .7, 'AEC attenuated a standalone user');
+  assert.ok(similarity > .9, 'AEC distorted standalone speech-like input');
+});
+
+test('Residual echo overlap-add adds exactly 20 ms and private WASM memory cannot grow', t => {
+  const cleaner = new EchoCleaner(); t.after(() => cleaner.close());
+  const input = Buffer.alloc(1920 * 4); input.writeInt16LE(10000, 1920);
+  const output = Buffer.concat(Array.from({ length: 4 }, (_, i) =>
+    cleaner.process(input.subarray(i * 1920, (i + 1) * 1920), Buffer.alloc(1920))));
+  let peak = 0;
+  for (let at = 0; at < output.length; at += 2)
+    if (Math.abs(output.readInt16LE(at)) > Math.abs(output.readInt16LE(peak))) peak = at;
+  assert.equal(peak - 1920, LATENCY_BYTES);
+  assert.equal(cleaner.warnings, 0);
+  const module = new WebAssembly.Module(readFileSync(new URL('../src/vendor/speex-aec.wasm', import.meta.url)));
+  const api = new WebAssembly.Instance(module, { wasi_snapshot_preview1: {
+    fd_close: () => 8, fd_seek: () => 70, fd_write: () => 8 } }).exports;
+  assert.equal(api.memory.buffer.byteLength, 1024 * 1024);
+  assert.throws(() => api.memory.grow(1), RangeError);
 });

@@ -131,7 +131,10 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
                 content = content.replace("(scenarios/tess-skies-entry.md)", f"({target})")
             content = content.replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
             write_member(bundle, f"docs/{document}", content.encode("utf-8"))
-        write_member(bundle, "docs/scenarios/hermes.md", (root / "docs/scenarios/hermes.md").read_bytes())
+        hermes_scenarios = (root / "docs/scenarios/hermes.md").read_text()
+        native_scenarios = f"https://github.com/pfrankov/kubik/blob/{revision}/docs/scenarios/native-voice.md"
+        hermes_scenarios = hermes_scenarios.replace("(native-voice.md)", f"({native_scenarios})")
+        write_member(bundle, "docs/scenarios/hermes.md", hermes_scenarios.encode("utf-8"))
         write_member(bundle, "tools/test-hermes-native.py",
                      (root / "tools/test-hermes-native.py").read_bytes())
         for path in sorted((root / "tools/hermes_native").iterdir()):
@@ -141,6 +144,9 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
             if path.is_file() and path.suffix in (".py", ".yaml", ".txt"):
                 write_member(bundle, path.relative_to(root).as_posix(), path.read_bytes())
         write_member(bundle, "tools/install-hermes.py", (root / "tools/install-hermes.py").read_bytes())
+        write_member(bundle, "tools/hermes_runtime.py", (root / "tools/hermes_runtime.py").read_bytes())
+        echo = "openclaw-kubik/src/vendor/speex-aec.wasm"
+        write_member(bundle, echo, (root / echo).read_bytes())
         for notice in (root / "LICENSE", root / "NOTICE", *sorted((root / "licenses").iterdir())):
             write_member(bundle, notice.relative_to(root).as_posix(), notice.read_bytes())
         write_member(bundle, "openclaw-kubik/README.md",

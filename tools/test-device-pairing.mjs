@@ -3,8 +3,9 @@
 // Bridge: ws://127.0.0.1:18999/kubik/v1, or kubik://127.0.0.1:18999 with the trusted TLS identity.
 import assert from 'node:assert/strict';
 import { createUsbListener } from './test-device/usb-listener.mjs';
-import { fixtureBaseline, restoreFixture, routeRestored } from './test-device/fixture-baseline.mjs';
+import { assertSettingRestored, fixtureBaseline, restoreFixture, routeRestored } from './test-device/fixture-baseline.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { KubikServer } from '../openclaw-kubik/src/server.js';
 import { decodeDeviceKey } from '../openclaw-kubik/src/protocol.js';
 import { account, fakeEngine } from '../openclaw-kubik/test/helpers.js';
@@ -31,12 +32,12 @@ async function until(check, label, timeoutMs = 40000) {
   }
   throw Error(`Timed out: ${label}`);
 }
-async function restore(original) {
-  await sim('wifi', { ms: 1 });
-  await until(state => routeRestored(state, original) && !state.pair_visible, 'original connection');
-  if ((await info()).screen_dark !== original.screen_dark) await sim('pwr');
-  const current = await info();
-  for (const key of preserved) assert.ok(current[key] === original[key], `Setting changed: ${key}`);
+export async function restorePairingFixture(original, { simulate = sim, read = info, wait = until } = {}) {
+  await simulate('wifi', { ms: 1 });
+  await wait(state => routeRestored(state, original) && !state.pair_visible, 'original connection');
+  if ((await read()).screen_dark !== original.screen_dark) await simulate('pwr');
+  const current = await read();
+  for (const key of preserved) assertSettingRestored(current, original, key);
   console.log('PASS original connection, paired identity and settings restored');
 }
 async function main() {
@@ -85,8 +86,9 @@ async function main() {
     assert.equal(requests, 1, 'Retry must reuse the approved key');
     console.log('PASS physical pairing → approved startup failure → automatic welcome without another pairing request');
   } finally {
-    await restoreFixture({ offlineFixture, restore: async () => { if (entered) await restore(original); },
+    await restoreFixture({ offlineFixture, restore: async () => { if (entered) await restorePairingFixture(original); },
       close: async () => { try { await server.stop(); } finally { await listener.close(); } } });
   }
 }
-main().catch(error => { console.error(error.message); process.exitCode = 1; });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main().catch(error => { console.error(error.message); process.exitCode = 1; });

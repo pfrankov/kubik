@@ -96,8 +96,12 @@ not a separate companion process. It does not implement UDP discovery or the
 OpenClaw Gateway route. Approve the device's code with `python
 HERMES_HOME/plugins/kubik/pair.py CODE` as its service user. Its private approval
 store binds the same device ID and key fingerprint; replacing a device key
-requires another approval. Classic voice uses Hermes's own STT/TTS pipeline;
-Realtime/Live and device model selection are not provided by this platform.
+requires another approval. Classic voice uses Hermes's own STT/TTS pipeline.
+Platform 0.3.0 adds Realtime/Live through in-process OpenAI WebSocket providers
+and the same native Hermes conversation. `agent_options` / `agent_model` support
+`mode` and native `voice`, scoped to the approved device ID and key fingerprint;
+the native voice catalog contains the configured model only. Agent-model and
+Classic STT/TTS selection remain in Hermes. The default mode is Classic.
 
 ## WebSocket frames
 
@@ -132,7 +136,7 @@ the OpenClaw adapter normalizes TTS to this format.
 | Byte 0 | Direction | Byte 1 | Payload |
 |---|---|---|---|
 | `0x04` | device → server | `turn` (u8) | Classic/Realtime microphone IMA: 3-byte header + up to 480 bytes (40 ms) |
-| `0x05` | device → server | `turn` (u8) | Live: MIC1 IMA + synchronized codec loopback IMA; exactly 968 bytes total |
+| `0x05` | device → server | `turn` (u8) | Live: microphone IMA + synchronized speaker-reference IMA; exactly 968 bytes total |
 | `0x03` | server → device | `gen` (u8) | speech IMA ADPCM: `pred` (int16 LE), `index` (u8), then 4-bit codes, low nibble first |
 
 Microphone packets decode independently from their header (`index` 0..88), low nibble first;
@@ -558,6 +562,9 @@ the lease is released, so listening can resume.
 | `{"cmd":"sim","ev":"gravity","x":0.6,"y":0,"ms":2000}` | Test tilt: replaces the IMU's gravity on the panel (each axis −1..1) for at most 10 s, then the sensor returns. `{"ok":false}` for anything else |
 
 The saved home Wi-Fi password is write-only: `info` never returns it.
+`wifi_reason` is the last ESP-IDF station disconnect reason; `wifi_attempts`
+counts failed attempts for the current saved profile. The current `ssid` may
+rotate between saved profiles during an outage without a configuration write.
 
 On S3, `deadline_misses` includes a missed preparation deadline or an accepted
 TE later than the previously expected presentation edge by more than half the

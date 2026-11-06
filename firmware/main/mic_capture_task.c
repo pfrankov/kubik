@@ -15,9 +15,9 @@ static bool copy_channels(const mic_task_config_t *cfg, int16_t *raw, int16_t *v
     bool duplex = cfg->duplex && cfg->duplex(cfg->context);
     for (int i = 0; i < cfg->chunk_samples; i++) voice[filled + i] = raw[cfg->slots * i + cfg->voice_slot];
     if (duplex) {
-        // Reuse the DMA scratch after MIC1 was copied. Compacting forwards never
-        // overwrites a future TDM slot, and keeps a whole extra PCM frame out of RAM.
-        for (int i = 0; i < cfg->chunk_samples; i++) raw[i] = raw[cfg->slots * i + 1];
+        // Reuse the DMA scratch after the microphone was copied. Compacting
+        // forwards never overwrites a future slot or needs another PCM frame.
+        for (int i = 0; i < cfg->chunk_samples; i++) raw[i] = raw[cfg->slots * i + cfg->reference_slot];
         mic_capture_center(raw, cfg->chunk_samples, dc);
         uint8_t ima[IMA_HEADER_BYTES + 240 / 2];
         ima_encode(encoder, raw, cfg->chunk_samples, ima);
@@ -37,7 +37,7 @@ void mic_capture_task(void *arg) {
     // CPU-only scratch is fully overwritten before delivery; preserve DMA RAM for Wi-Fi.
     static RTC_NOINIT_ATTR int16_t raw[4 * 240];
     static RTC_NOINIT_ATTR int16_t voice[960];
-    static uint8_t reference[IMA_HEADER_BYTES + 960 / 2]; // Live only, synchronous codec loopback (TDM slot 1).
+    static uint8_t reference[IMA_HEADER_BYTES + 960 / 2]; // Live only, synchronous codec speaker reference.
     int32_t dc = 0, reference_dc = 0;
     ima_state_t reference_encoder = {0};
     int filled = 0;

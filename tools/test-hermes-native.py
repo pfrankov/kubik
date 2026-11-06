@@ -52,11 +52,25 @@ def run_contract(source):
         env = {name: os.environ[name] for name in ('PATH', 'SYSTEMROOT', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH') if name in os.environ}
         env.update(HOME=str(work), HERMES_HOME=str(work / 'hermes'),
                    PYTHONPATH=str(source), PYTHONDONTWRITEBYTECODE='1', PYTHONUNBUFFERED='1',
+                   HERMES_DISABLE_LAZY_INSTALLS='1',
                    XDG_CONFIG_HOME=str(work / 'config'), XDG_CACHE_HOME=str(work / 'cache'),
                    XDG_DATA_HOME=str(work / 'data'), NO_PROXY='127.0.0.1,localhost,::1',
                    LANG='C.UTF-8')
+        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/tls_fixture.py'), str(work)],
+                       env=env, timeout=15, check=True)
+        env.update(SSL_CERT_FILE=str(work / 'provider-cert.pem'), KUBIK_TEST_TLS_DIR=str(work))
+        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_control_test.py')],
+                       cwd=ROOT, env=env, timeout=20, check=True)
+        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_restore_test.py')],
+                       cwd=ROOT, env=env, timeout=20, check=True)
+        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_transport_test.py')],
+                       cwd=ROOT, env=env, timeout=20, check=True)
+        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/runtime_guards_test.py')],
+                       cwd=ROOT, env=env, timeout=20, check=True)
+        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/physical_fixture_test.py')],
+                       cwd=ROOT, env=env, timeout=20, check=True)
         subprocess.run([str(python), str(ROOT / 'tools/hermes_native/contract.py')],
-                       cwd=ROOT, env=env, timeout=300, check=True)
+                       cwd=ROOT, env=env, timeout=360, check=True)
     print(f'Hermes native acceptance passed: {PIN["tag"]} / {PIN["commit"]} / Python {version}')
 
 

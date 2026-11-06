@@ -207,7 +207,8 @@ test('Live input remains FIFO behind initial readiness ACK and the bridge receiv
   let connect, ready;
   const connected = new Promise(resolve => { connect = resolve; });
   const acknowledged = new Promise(resolve => { ready = resolve; });
-  const sent = [], raw = tone(40);
+  const sent = [], raw = Buffer.alloc(1920);
+  raw.writeInt16LE(8000, 120 * 2); raw.writeInt16LE(4000, 600 * 2); // 5/25 ms markers.
   const voice = new LiveVoiceSession({ turnId: 3, dispatch: async () => {}, config: { mode: 'live' },
     createBridge: () => ({ connect: () => connected, sendAudio: pcm => sent.push(Buffer.from(pcm)), close() {} }),
     port: { isCurrent: () => true, resumeInput: () => acknowledged, fail: assert.fail } });
@@ -219,7 +220,14 @@ test('Live input remains FIFO behind initial readiness ACK and the bridge receiv
   assert.equal(sent.length, 2);
   assert.ok(sent[0].some(value => value !== 0), 'First command was muted');
   assert.notDeepEqual(sent[0], raw, 'Live bypassed its echo/high-pass processing');
-  assert.ok(sent[0].reduce((sum, value) => sum + Math.abs(value), 0) > sent[1].reduce((sum, value) => sum + Math.abs(value), 0));
+  const peaks = sent.map(pcm => {
+    let peak = 0;
+    for (let at = 2; at < pcm.length; at += 2)
+      if (Math.abs(pcm.readInt16LE(at)) > Math.abs(pcm.readInt16LE(peak))) peak = at;
+    return peak / 2;
+  });
+  // Residual suppression adds 480 samples; the two markers remain FIFO at 25/45 ms.
+  assert.deepEqual(peaks, [600, 120]);
 });
 
 test('Overlapping provider clears wait for the first flush before replacement playback', async t => {

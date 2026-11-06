@@ -2,12 +2,13 @@ name: kubik
 label: Kubik
 kind: platform
 manifest_version: 2
-version: 0.2.1
+version: 0.3.0
 description: Native Kubik voice and text platform for Hermes Gateway; tested with Hermes 0.22.2.
 author: Kubik
 python_dependencies:
   - aiohttp==3.14.3
   - tornado>=6.5.9,<7
+  - wasmtime==50.0.1
 requires_env: []
 optional_env:
   - name: KUBIK_PORT

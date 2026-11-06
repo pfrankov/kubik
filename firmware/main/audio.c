@@ -479,7 +479,7 @@ static uint32_t task_epoch(void *context) { (void)context; return audio_capture_
 static const mic_task_config_t s_mic_task_config = {
     .context = &s_capture, .requested = task_requested, .sync = task_sync, .read = task_read,
     .deliver = task_deliver, .epoch = task_epoch, .duplex = task_duplex, .slots = AUDIO_CAPTURE_CHANNELS, .chunk_samples = MIC_CHUNK,
-    .frame_samples = MIC_FRAME_SAMPLES, .voice_slot = AUDIO_MIC_SLOT, .timeout_ms = 20,
+    .frame_samples = MIC_FRAME_SAMPLES, .voice_slot = AUDIO_MIC_SLOT, .reference_slot = AUDIO_REFERENCE_SLOT, .timeout_ms = 20,
 };
 void audio_set_volume(int pct) { audio_levels_set_speech(pct); }
 void audio_set_ui_volume(int pct) {

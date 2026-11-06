@@ -17,11 +17,15 @@ import sys
 import uuid
 
 
-def require_runtime():
+def require_python():
     if sys.version_info[:2] != (3, 14):
         raise ValueError('Use the Python 3.14 interpreter of Hermes 0.22.2, not system Python')
+
+
+def require_runtime():
+    require_python()
     missing = []
-    for name in ('hermes_cli', 'gateway', 'aiohttp', 'cryptography', 'ruamel.yaml'):
+    for name in ('hermes_cli', 'gateway', 'aiohttp', 'cryptography', 'ruamel.yaml', 'wasmtime'):
         try:
             found = importlib.util.find_spec(name)
         except (ImportError, ValueError):
@@ -30,7 +34,7 @@ def require_runtime():
             missing.append(name)
     if missing:
         raise ValueError('Missing in this Hermes environment: ' + ', '.join(missing)
-                         + '. Install hermes-kubik/requirements.txt with uv pip --python pointing to this interpreter')
+                         + '. For a managed Hermes installation, rerun with --prepare-runtime')
 
 
 def mapping(parent, key):
@@ -333,7 +337,37 @@ def promote_with_backup(staged, destination, config_path, prepared_config, befor
         raise
 
 
+def echo_artifact(source, validate=True):
+    path = source.parent / 'openclaw-kubik/src/vendor/speex-aec.wasm'
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
+        raise ValueError('Missing or invalid canonical Speex echo artifact')
+    data = path.read_bytes()
+    if data[:8] != b'\x00asm\x01\x00\x00\x00':
+        raise ValueError('Invalid Speex echo artifact')
+    if not validate:
+        return data
+    import wasmtime
+    try:
+        wasmtime.Module.validate(wasmtime.Engine(), data)
+    except wasmtime.WasmtimeError as error:
+        raise ValueError('Invalid Speex echo artifact') from error
+    return data
+
+
+def stage_plugin(source, staged, echo):
+    staged.mkdir(mode=0o700)
+    for path in sorted(source.iterdir()):
+        if path.is_file() and path.suffix in ('.py', '.yaml', '.txt'):
+            private_write(staged / path.name, path.read_bytes())
+    private_write(staged / 'speex-aec.wasm', echo)
+
+
+def stage_candidate(source, staged):
+    stage_plugin(source, staged, echo_artifact(source, validate=False))
+
+
 def install(source, home, port=None, bind=None, check_only=False):
+    echo = echo_artifact(source)
     home = home.expanduser().resolve()
     config_path = home / 'config.yaml'
     destination = home / 'plugins' / 'kubik'
@@ -354,10 +388,7 @@ def install(source, home, port=None, bind=None, check_only=False):
         destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with installation_work(home, destination) as (plugin_work, config_work, state):
             staged = plugin_work / 'plugin'
-            staged.mkdir(mode=0o700)
-            for path in sorted(source.iterdir()):
-                if path.is_file() and path.suffix in ('.py', '.yaml', '.txt'):
-                    private_write(staged / path.name, path.read_bytes())
+            stage_plugin(source, staged, echo)
             prepared_config = config_work / 'config.yaml'
             private_write(prepared_config, after)
             identity = staged.stat()
@@ -379,17 +410,43 @@ def install(source, home, port=None, bind=None, check_only=False):
         [sys.executable, str(destination / 'pair.py'), 'CODE']))
 
 
+def prepare_install(source, home, port, bind):
+    from functools import partial
+    from hermes_runtime import prepare_runtime
+
+    require_python()
+    home = home.expanduser().resolve()
+    regular_destination(home / 'plugins', directory=True)
+    regular_destination(home / 'plugins/kubik', directory=True)
+    regular_destination(home / 'config.before-kubik.yaml')
+    if (home / '.kubik-install.json').exists():
+        raise ValueError('Interrupted Kubik installation: recover it before preparing dependencies')
+    before, after, _port = configuration(home / 'config.yaml', port, bind)
+    command = [str(Path(__file__).resolve()), '--home', str(home)]
+    if port is not None:
+        command.extend(['--port', str(port)])
+    if bind is not None:
+        command.extend(['--bind', bind])
+    prepare_runtime(home, before, after, partial(stage_candidate, source), command)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--home', type=Path, default=Path(os.environ.get('HERMES_HOME', Path.home() / '.hermes')))
     parser.add_argument('--port', type=int, help='TLS port; preserve the configured port when omitted')
     parser.add_argument('--bind', help='Listener IP; preserve the configured address when omitted')
-    parser.add_argument('--check', action='store_true', help='Read-only runtime and configuration preflight')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--check', action='store_true', help='Read-only runtime and configuration preflight')
+    mode.add_argument('--prepare-runtime', action='store_true',
+                      help='Prepare dependencies through Hermes PM, then install with its selected Python')
     args = parser.parse_args()
     try:
+        source = Path(__file__).resolve().parent.parent / 'hermes-kubik'
+        if args.prepare_runtime:
+            prepare_install(source, args.home, args.port, args.bind)
+            return
         require_runtime()
-        install(Path(__file__).resolve().parent.parent / 'hermes-kubik', args.home,
-                args.port, args.bind, args.check)
+        install(source, args.home, args.port, args.bind, args.check)
     except (OSError, ValueError) as error:
         parser.exit(1, f'Kubik installation: {error}\n')
 

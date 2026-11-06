@@ -10,7 +10,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 REVISION = '1b28a0f61bc31162979e1f26f3981fc3637095c8'  # Xiph SpeexDSP 1.2.1
 EXPORTS = ('speex_echo_state_init', 'speex_echo_cancellation', 'speex_echo_ctl',
-           'speex_echo_state_destroy', 'malloc', 'free')
+           'speex_echo_state_destroy', 'malloc', 'free', 'speex_preprocess_state_init',
+           'speex_preprocess_state_destroy', 'speex_preprocess_run', 'speex_preprocess_ctl')
 
 
 def main():
@@ -35,7 +36,8 @@ typedef uint32_t spx_uint32_t;
         output = Path(tmp) / 'speex-aec.wasm'
         command = [args.emcc, '-O3', '-DFLOATING_POINT', '-DUSE_SMALLFT', '-DEXPORT=',
                    f'-I{source / "include"}']
-        command += [str(source / f'libspeexdsp/{name}.c') for name in ('mdf', 'fftwrap', 'smallft')]
+        command += [str(source / f'libspeexdsp/{name}.c')
+                    for name in ('mdf', 'fftwrap', 'smallft', 'preprocess', 'filterbank')]
         command += ['-s', 'STANDALONE_WASM=1', '--no-entry', '-s', 'INITIAL_MEMORY=1048576',
                     '-s', 'STACK_SIZE=65536', '-s',
                     'EXPORTED_FUNCTIONS=[' + ','.join(f'"_{name}"' for name in EXPORTS) + ']', '-o', str(output)]

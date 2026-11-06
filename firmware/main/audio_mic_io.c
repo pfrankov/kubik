@@ -33,8 +33,7 @@ static int set_adc(void *context, bool enabled) {
     mic_io_t *io = context;
 #if CONFIG_IDF_TARGET_ESP32S3
     int result = audio_board_adc_enable(enabled);
-    if (result == ESP_CODEC_DEV_OK && enabled)
-        result = io->codec->set_mic_gain(io->codec, MIC_GAIN_DB);
+    (void)io; // Shared ES8311 power and its distinct gain stages belong to the board.
 #else
     int result = io->codec->enable(io->codec, enabled);
     if (result == ESP_CODEC_DEV_OK && enabled)

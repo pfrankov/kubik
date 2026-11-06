@@ -3,11 +3,12 @@
 // Bridge: ws://127.0.0.1:18999/kubik/v1, or kubik://127.0.0.1:18999 with KUBIK_TEST_TLS_IDENTITY.
 import assert from 'node:assert/strict';
 import { createUsbListener } from './test-device/usb-listener.mjs';
-import { fixtureBaseline, restoreFixture, routeRestored } from './test-device/fixture-baseline.mjs';
+import { assertSettingRestored, fixtureBaseline, restoreFixture, routeRestored } from './test-device/fixture-baseline.mjs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { KubikServer } from '../openclaw-kubik/src/server.js';
 import { decodeDeviceKey } from '../openclaw-kubik/src/protocol.js';
 import { account, fakeEngine } from '../openclaw-kubik/test/helpers.js';
@@ -66,6 +67,19 @@ async function checkCronPassive(server) {
   console.log('PASS cron snapshots update status without waking the screen');
 }
 
+export async function restoreNotificationFixture(original, { request = control, wait = until } = {}) {
+  await request({ cmd: 'card', text: '' });
+  await request({ cmd: 'sim', ev: 'wifi', ms: 1 });
+  await wait(async () => routeRestored(await request({ cmd: 'info' }), original), 'original connection restored');
+  if (original.screen_dark !== (await request({ cmd: 'info' })).screen_dark)
+    await request({ cmd: 'sim', ev: 'pwr' });
+  const restored = await request({ cmd: 'info' });
+  for (const key of ['device', 'key', 'url', 'agent', 'ssid', 'volume', 'ui_volume', 'brightness',
+    'character', 'server_pinned', 'guide_done', 'screen_dark'])
+    assertSettingRestored(restored, original, key);
+  console.log('PASS original route, saved settings, paired identity and screen restored');
+}
+
 async function main() {
   const { original, offlineFixture } = await fixtureBaseline(() => control({ cmd: 'info' }));
   assert.ok(offlineFixture || original.online && original.via === 'wifi', 'Start with the normal Wi-Fi agent or an explicit offline TLS USB fixture');
@@ -109,19 +123,9 @@ async function main() {
           finally { rmSync(stateDir, { recursive: true, force: true }); }
         }
       },
-      restore: async () => {
-        await control({ cmd: 'card', text: '' });
-        await control({ cmd: 'sim', ev: 'wifi', ms: 1 });
-        await until(async () => routeRestored(await control({ cmd: 'info' }), original), 'original connection restored');
-        if (original.screen_dark !== (await control({ cmd: 'info' })).screen_dark)
-          await control({ cmd: 'sim', ev: 'pwr' });
-        const restored = await control({ cmd: 'info' });
-        for (const key of ['device', 'key', 'url', 'agent', 'ssid', 'volume', 'ui_volume', 'brightness',
-          'character', 'server_pinned', 'guide_done', 'screen_dark'])
-          assert.equal(restored[key], original[key], `${key} changed`);
-        console.log('PASS original route, saved settings, paired identity and screen restored');
-      } });
+      restore: () => restoreNotificationFixture(original) });
   }
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main().catch((error) => { console.error(error.message); process.exitCode = 1; });

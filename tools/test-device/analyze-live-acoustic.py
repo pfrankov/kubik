@@ -5,6 +5,7 @@ import wave
 import numpy as np
 
 RATE = 24000
+CLEAN_DELAY_SAMPLES = 480  # Speex Preprocessor overlap-add: one 20 ms frame.
 BANDS = ((100, 300), (300, 600), (600, 1000), (1000, 1600),
          (1600, 2500), (2500, 4000), (4000, 6000))
 
@@ -39,7 +40,7 @@ def calibrate(raw, source):
 
 
 def projection(signal, template, lag=None):
-    """Match a physical microphone template; reuse raw's lag for cleaned audio."""
+    """Match a physical microphone template; clean uses raw's lag plus fixed DSP delay."""
     if lag is None:
         count = min(RATE, len(signal) - len(template) + 1)
         assert count > 0, 'Missing complete physical phrase'
@@ -57,7 +58,7 @@ def projection(signal, template, lag=None):
 def verify(label, raw, clean, reference, template, lag=None):
     assert len(raw) == len(clean) == len(reference), 'Unmatched capture lengths'
     before, corr_raw, lag = projection(raw, template, lag)
-    after, corr_clean, _ = projection(clean, template, lag)
+    after, corr_clean, _ = projection(clean, template, lag + CLEAN_DELAY_SAMPLES)
     overlap = reference[lag:lag + 3 * RATE]
     assert len(overlap) == 3 * RATE, 'Missing matched reference interval'
     ref_rms = np.sqrt(np.mean(overlap ** 2))
