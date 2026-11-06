@@ -94,11 +94,15 @@ def choose(page, index, name):
 
 
 def advance_frames(page, count):
-    page.evaluate("""async count => {
-      running = true;
-      await frame(count); clearTimeout(frameTimer);
-      running = false;
-    }""", count)
+    # Read the state rendered by this frame, before image decoding or a slow runner
+    # can expire the touch lease. A separate raw /frame bypasses the heartbeat.
+    with page.expect_response(lambda response: response.url.endswith(f"/frame?steps={count}")) as response:
+        page.evaluate("""async count => {
+          running = true;
+          await frame(count); clearTimeout(frameTimer);
+          running = false;
+        }""", count)
+    return json.loads(response.value.header_value("X-Kubik-State"))
 
 
 def preview_frames(page, screens):
@@ -149,9 +153,7 @@ def multitouch(page, screens):
         session.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": points})
         # The paused timer must not bypass the real frame's touch heartbeat. A slow CDP event can outlast
         # the server's lease even though the two accepted browser contacts are still held.
-        with page.expect_response(lambda response: response.url.endswith("/frame?steps=1")) as response:
-            advance_frames(page, 1)
-        return json.loads(response.value.header_value("X-Kubik-State"))
+        return advance_frames(page, 1)
     try:
         state = touch("touchStart", [first])
         assert state["contacts"] == state["sky_contacts"] == 1
@@ -287,23 +289,30 @@ def rectangular_browser(browser):
         page.mouse.move(*point(200, 560)); page.mouse.down()
         page.mouse.move(*point(250, 583), steps=4)
         assert page.evaluate("[...contacts.values()].map(p => [p.x,p.y])") == [[250, 583]]
-        advance_frames(page, 1)
-        assert read_state(page)["contacts"] == 1
-        page.mouse.up(); advance_frames(page, 1)
-        assert read_state(page)["contacts"] == 0
+        assert advance_frames(page, 1)["contacts"] == 1
+        page.mouse.up()
+        assert advance_frames(page, 1)["contacts"] == 0
+        # A slow image decode must not turn a held touch into an expired second frame.
+        page.evaluate("""() => {
+          const decode = createImageBitmap;
+          window.createImageBitmap = async (...args) => {
+            window.createImageBitmap = decode;
+            const image = await decode(...args);
+            await new Promise(resolve => setTimeout(resolve, 450));
+            return image;
+          };
+        }""")
         session = page.context.new_cdp_session(page)
         try:
             for id, x, y in ((11, 150, 250), (29, 300, 400)):
                 px, py = point(x, y)
                 session.send("Input.dispatchTouchEvent", {"type":"touchStart", "touchPoints":[{"id":id,"x":px,"y":py}]})
-                advance_frames(page, 1)
-                assert read_state(page)["contacts"] == 1
+                assert advance_frames(page, 1)["contacts"] == 1
                 assert page.evaluate("contacts.size") == 1
         finally:
             session.send("Input.dispatchTouchEvent", {"type":"touchCancel", "touchPoints":[]})
             session.detach()
-        advance_frames(page, 1)
-        assert read_state(page)["contacts"] == 0
+        assert advance_frames(page, 1)["contacts"] == 0
         assert page.request.post(url + "/event", data={"command":"touches","args":[1,20,584,1,0,0,0,0]}).status == 400
         assert not page.locator("#error").inner_text()
     finally:
