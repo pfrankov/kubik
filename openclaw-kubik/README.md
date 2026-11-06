@@ -147,8 +147,9 @@ Use `print` only for an explicit user request. Text must be nonblank, well-forme
 Unicode of at most **1024 UTF-8 bytes**. Tabs and line feeds are allowed; other
 C0 controls, DEL/C1 controls, escape sequences and extra arguments are rejected.
 The tool returns `not_configured` until a physical printer and its device-side
-driver are configured. The current firmware implements that honest state; it
-does not implement Bluetooth pairing or a printer-specific protocol yet.
+driver are configured. Firmware built from the current source implements that
+state; released firmware 0.6.4 reports the tool as unsupported. Bluetooth pairing
+and a printer-specific protocol are not implemented yet.
 
 Requests use the existing authenticated device link with a fresh pairing check,
 one in-flight request per device and a **five-second deadline**. There is no

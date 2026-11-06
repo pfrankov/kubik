@@ -25,7 +25,7 @@ python3 -m venv .venv
 .venv/bin/python flash-device.py
 ```
 
-On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\python.exe` instead. The installer checks image hashes before writing and preserves saved Wi-Fi networks, pairing and settings. For a new device, continue with the steps below; for an existing device, let it reconnect. Current firmware: **0.6.4**. Published channel: **openclaw-kubik 0.6.13**; update the channel from npm with the installation command below.
+On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\python.exe` instead. The installer checks image hashes before writing and preserves saved Wi-Fi networks, pairing and settings. For a new device, continue with the steps below; for an existing device, let it reconnect. Current firmware: **0.6.4**. Published channel: **openclaw-kubik 0.6.14**; update the channel from npm with the installation command below.
 
 ## Get connected
 
@@ -101,9 +101,10 @@ Kubik remembers up to eight Wi-Fi networks. Automatic sleep is silent. While sle
 
 OpenClaw can use the optional `kubik_printer` tool to request text printing from
 the printer attached to the current Kubik. The tool uses the paired device link;
-no server-side printer is required. The current firmware reports
+no server-side printer is required. Firmware built from the current source reports
 `not_configured` until a driver for a selected physical printer is added.
-This tool is available in source builds and has not been published to npm yet.
+The tool requires firmware with printer RPC support; released firmware 0.6.4
+does not support it.
 See [the printer contract and limits](docs/printer.md).
 
 Tess is the default character. Plush is a separate firmware build, selected before flashing; there is no character switch on the device.
