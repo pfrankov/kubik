@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { restoreNativeFixture } from './native-cleanup.mjs';
+import { cleanupPreservingFailure, restoreNativeFixture, restoreNativeScreen } from './native-cleanup.mjs';
 
 function fixture(offlineFixture, failure) {
   const events = [];
@@ -62,4 +62,58 @@ test('failed route restoration cannot retain the fixture listener', async () => 
     await assert.rejects(restoreNativeFixture(item.callbacks), /route failed/);
     assert.equal(item.server(), false); assert.equal(item.listener(), false); assert.equal(item.closes(), 1);
   }
+});
+
+function screenFixture(original, current, ignoreMenu = false) {
+  const state = { ...current }, commands = [], checks = [];
+  const info = async () => ({ ...state });
+  const sim = async event => {
+    commands.push(event);
+    if (event === 'pwr') state.screen_dark = !state.screen_dark;
+    else if (!state.screen_dark && !ignoreMenu) state.menu = !state.menu;
+  };
+  const until = async (predicate, label) => {
+    checks.push(label);
+    const fresh = await info();
+    assert.ok(predicate(fresh), label);
+    return fresh;
+  };
+  return { state, commands, checks, run: () => restoreNativeScreen(original, { info, sim, until }) };
+}
+
+test('screen restoration verifies all dark/menu combinations before reporting success', async () => {
+  for (const screen_dark of [false, true]) {
+    for (const menu of [false, true]) {
+      const original = { screen_dark, menu };
+      for (const current of [{ screen_dark: false, menu: false }, { screen_dark: true, menu: !menu }]) {
+        const fixture = screenFixture(original, current);
+        assert.deepEqual(await fixture.run(), original);
+        assert.deepEqual(fixture.state, original);
+        assert.equal(fixture.checks.at(-1), 'original screen and menu restored');
+      }
+    }
+  }
+  const regression = screenFixture({ screen_dark: true, menu: true }, { screen_dark: false, menu: false });
+  await regression.run();
+  assert.deepEqual(regression.commands, ['menu', 'pwr']);
+});
+
+test('an ignored menu input fails restoration instead of trusting the command acknowledgement', async () => {
+  const fixture = screenFixture({ screen_dark: true, menu: true }, { screen_dark: false, menu: false }, true);
+  await assert.rejects(fixture.run(), /original menu restored/);
+  assert.deepEqual(fixture.commands, ['menu']);
+});
+
+test('cleanup failures remain failures and never replace the original playback error', async () => {
+  const primary = Error('Speaker gaps: 1'), secondary = Error('Menu was not restored'), reported = [];
+  const cleanup = async () => { throw secondary; };
+  await assert.rejects(cleanupPreservingFailure(undefined, cleanup), error => error === secondary);
+  const operation = async () => {
+    let failure;
+    try { throw primary; }
+    catch (error) { failure = error; throw error; }
+    finally { await cleanupPreservingFailure(failure, cleanup, error => reported.push(error)); }
+  };
+  await assert.rejects(operation(), error => error === primary);
+  assert.deepEqual(reported, [secondary]);
 });

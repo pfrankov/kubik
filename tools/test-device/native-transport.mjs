@@ -3,15 +3,19 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isIP } from 'node:net';
-import { createUsbListener } from './usb-listener.mjs';
+import { createUsbListener, loadFixtureTlsIdentity } from './usb-listener.mjs';
+import { pinnedFixture } from './fixture-baseline.mjs';
 import { LanListener } from '../../openclaw-kubik/src/lan.js';
 import { loadTlsIdentity } from '../../openclaw-kubik/src/tls-identity.js';
 import { startRadioRelay } from '../radio-relay.mjs';
 
 /** USB control remains separate from the authenticated audio route under test. */
-export async function nativeTransport(server, original, wifi) {
+export async function nativeTransport(server, original, wifi, { identityPath = process.env.KUBIK_TEST_TLS_IDENTITY,
+  pinnedEndpoint = process.env.KUBIK_TEST_PINNED_ENDPOINT } = {}) {
+  const pinned = pinnedFixture(original, { wifi, identityPath, pinnedEndpoint });
+  if (pinned) return pinnedTransport(server, pinned);
   if (!wifi) {
-    const listener = createUsbListener({ allowPlain: original.url.startsWith('wss://') && !original.server_pinned });
+    const listener = createUsbListener({ identityPath, allowPlain: original.url.startsWith('wss://') && !original.server_pinned });
     listener.http.on('upgrade', (req, socket, head) => server.handleUpgrade(req, socket, head,
       { via: 'usb', bind: listener.bind, remote: '127.0.0.1', hint: '' }));
     try { await listener.listen(); } catch (error) { await listener.close(); throw error; }
@@ -38,4 +42,14 @@ export async function nativeTransport(server, original, wifi) {
   catch (error) { await close(); throw error; }
   return { via: 'wifi', enter: (_sim, control) => control({ cmd: 'set', url: relay?.url ?? `kubik://${host}:${listener.port}` }),
     restore: (_sim, control) => control({ cmd: 'set', url: original.url }), close };
+}
+
+async function pinnedTransport(server, { port, identityPath }) {
+  const identity = loadFixtureTlsIdentity(identityPath);
+  const listener = new LanListener({ identity: { ...identity, spkiHash: identity.bind }, port,
+    host: '0.0.0.0', discoveryPort: 0, discoveryHost: '127.0.0.1', publicPeers: true,
+    onUpgrade: (req, socket, head, transport) => server.handleUpgrade(req, socket, head, transport) });
+  try { await listener.start(); } catch (error) { await listener.stop(); throw error; }
+  // The exact saved endpoint and radio state remain untouched before and after the test.
+  return { via: 'wifi', enter: async () => {}, restore: async () => {}, close: () => listener.stop() };
 }

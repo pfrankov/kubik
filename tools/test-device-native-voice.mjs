@@ -11,7 +11,7 @@ import { nearSpeechProof } from './test-device/live-acoustic.mjs';
 import { writeFileSync } from 'node:fs';
 import { nativeTransport } from './test-device/native-transport.mjs';
 import { assertSettingRestored, fixtureBaseline, routeRestored } from './test-device/fixture-baseline.mjs';
-import { restoreNativeFixture } from './test-device/native-cleanup.mjs';
+import { cleanupPreservingFailure, restoreNativeFixture, restoreNativeScreen } from './test-device/native-cleanup.mjs';
 import { speechProfile, PROFILE_MS } from './test-device/speech-profile.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { KubikServer } from '../openclaw-kubik/src/server.js';
@@ -381,6 +381,7 @@ async function main() {
     } });
   server.start();
   let transport;
+  let primaryError;
   let paused = false;
   try {
     transport = await nativeTransport(server, original, wifi);
@@ -401,7 +402,10 @@ async function main() {
     if ((await info()).setup_ap) { await sim('boot'); await until(device => !device.setup_ap, 'initial setup closed before native voice'); }
     if ((await info()).menu) await sim('menu');
     await nativeProofs(server, state, original.character);
-  } finally {
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally { await cleanupPreservingFailure(primaryError, async () => {
     const cancelCapture = async () => {
       if ((await info()).mic_open) { await sim('ptt_up'); await sim('ptt_down'); await sim('ptt_up'); }
     };
@@ -415,9 +419,8 @@ async function main() {
       offlineFixture ? 'original route released or normal Wi-Fi recovered' : 'original network route', 45000);
     for (const key of ['device', 'agent', 'volume', 'ui_volume', 'brightness', 'ssid', 'url', 'key', 'character', 'server_pinned', 'guide_done'])
       assertSettingRestored(restored, original, key);
-    if (restored.screen_dark !== original.screen_dark) await sim('pwr');
-    if (restored.menu !== original.menu) await sim('menu');
+    await restoreNativeScreen(original, { info, sim, until });
     console.log('PASS original network, pairing identity, volume, brightness and screen restored');
-  }
+  }); }
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

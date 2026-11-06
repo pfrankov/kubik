@@ -19,6 +19,11 @@
 _Static_assert(LIVE_FRAMES % LIVE_BLOCKS == 0, "whole Live frames per block");
 #define IMA_BYTES (IMA_HEADER_BYTES + SAMPLES / 2)
 #define STACK_BYTES 4096
+#if CONFIG_IDF_TARGET_ESP32S3
+#define LIVE_QUEUE_CAPS (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+#else
+#define LIVE_QUEUE_CAPS (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+#endif
 typedef struct { uint32_t epoch; uint8_t ima[IMA_HEADER_BYTES + SAMPLES / 2]; } frame_t;
 #define WORKSPACE_BYTES (FRAMES * sizeof(frame_t) + SAMPLES * sizeof(int16_t))
 static frame_t *s_frames;
@@ -100,12 +105,11 @@ static bool reserve_queue(bool duplex) {
     s_stride = duplex ? sizeof(frame_t) + IMA_BYTES + 1 : sizeof(frame_t); // 4-byte aligned
     s_workspace_bytes = s_capacity * s_stride + (duplex ? 0 : SAMPLES * sizeof(int16_t));
     if (duplex) {
-        // Same 16-frame capacity; one 972-byte frame per allocation preserves
-        // larger free heap regions for Wi-Fi packets instead of taking them.
-        // No contiguous 15.5 KB hole is required
-        // beside the TLS record. Every partial allocation is owned and cleared.
+        // CPU-only packed frames: S3 PSRAM keeps 15,552 bytes out of Wi-Fi's
+        // internal packet heap. C6 retains small blocks in its internal heap.
+        // Capacity and ownership stay fixed; allocation failure aborts capture.
         for (int block = 0; block < LIVE_BLOCKS; ++block) {
-            s_live_blocks[block] = heap_caps_malloc(LIVE_BLOCK_FRAMES * s_stride, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            s_live_blocks[block] = heap_caps_malloc(LIVE_BLOCK_FRAMES * s_stride, LIVE_QUEUE_CAPS);
             if (!s_live_blocks[block]) { release_buffers(); return false; }
         }
         s_frames = s_live_blocks[0];

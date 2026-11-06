@@ -18,8 +18,8 @@ def nibble(state, code):
     return state[0]
 
 
-def decode(frame):
-    if len(frame) < 4 or len(frame) > 483 or frame[2] > 88:
+def decode(frame, *, max_samples=960):
+    if len(frame) < 4 or len(frame) > 3 + max_samples // 2 or frame[2] > 88:
         raise ValueError('Invalid microphone frame')
     state = [struct.unpack('<h', frame[:2])[0], frame[2]]
     samples = [nibble(state, code) for value in frame[3:] for code in (value & 15, value >> 4)]

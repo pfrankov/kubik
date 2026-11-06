@@ -101,12 +101,12 @@ bool audio_board_init(mic_capture_t *capture, esp_codec_dev_handle_t *output,
         .slot_cfg = {.data_bit_width = I2S_DATA_BIT_WIDTH_16BIT,
                      .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO,
                      .slot_mode = I2S_SLOT_MODE_STEREO,
-                     .slot_mask = I2S_TDM_SLOT0 | I2S_TDM_SLOT1 | I2S_TDM_SLOT2 | I2S_TDM_SLOT3,
+                     .slot_mask = I2S_TDM_SLOT0 | I2S_TDM_SLOT1,
                      .ws_width = I2S_TDM_AUTO_WS_WIDTH,
                      .ws_pol = false,
                      .bit_shift = true,
                      .left_align = false,
-                     .total_slot = I2S_TDM_AUTO_SLOT_NUM},
+                     .total_slot = AUDIO_CAPTURE_FRAME_SLOTS},
         .gpio_cfg = {.mclk = PIN_I2S_MCLK, .bclk = PIN_I2S_BCLK, .ws = PIN_I2S_WS, .dout = I2S_GPIO_UNUSED,
                      .din = PIN_I2S_DIN},
     };
@@ -161,7 +161,9 @@ bool audio_board_init(mic_capture_t *capture, esp_codec_dev_handle_t *output,
     }
     esp_codec_dev_sample_info_t fs_in = {
         .bits_per_sample = 16,
-        .channel = AUDIO_CAPTURE_CHANNELS,
+        // esp_codec_dev uses channel for total TDM slots, mask for RX DMA.
+        // Keeping four C6 wire slots preserves the ES7210 and shared TX clocks.
+        .channel = AUDIO_CAPTURE_FRAME_SLOTS,
         .channel_mask = (1u << AUDIO_CAPTURE_CHANNELS) - 1,
         .sample_rate = AUDIO_RATE,
     };

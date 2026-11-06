@@ -6,7 +6,8 @@ import { createServer } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
 import { spkiSha256 } from '../../openclaw-kubik/src/protocol.js';
 
-function tlsIdentity(path) {
+export function loadFixtureTlsIdentity(path) {
+  assert.ok(typeof path === 'string' && path.length > 0, 'KUBIK_TEST_TLS_IDENTITY must name an identity file');
   assert.ok(statSync(path).size <= 16 * 1024, 'KUBIK_TEST_TLS_IDENTITY exceeds 16 KB');
   const stored = JSON.parse(readFileSync(path, 'utf8'));
   assert.ok(typeof stored.key === 'string' && typeof stored.cert === 'string',
@@ -24,7 +25,7 @@ export function createUsbListener(options = {}) {
   let http, bind, protocol;
   if (identityPath !== undefined) {
     assert.ok(typeof identityPath === 'string' && identityPath.length > 0, 'KUBIK_TEST_TLS_IDENTITY must name an identity file');
-    const identity = tlsIdentity(identityPath);
+    const identity = loadFixtureTlsIdentity(identityPath);
     http = createTlsServer({ key: identity.key, cert: identity.cert, minVersion: 'TLSv1.2' });
     bind = identity.bind; protocol = 'wss';
   } else {

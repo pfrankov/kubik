@@ -16,7 +16,7 @@ PLAYWRIGHT = "playwright==1.63.0"
 IDF_TOOLS = {level: ("idf.py", "clang") for level in ("host", "host-portable", "native", "native-portable", "ci")}
 IDF_TOOLS["build"] = ("idf.py",)
 HOST_TESTS = (
-    "board", "task-placement", "motion-target", "display-s3", "display-te", "frame-pacing-s3", "present-bursts", "native-overlay", "qr-layout", "flash-reset", "target-memory", "diagnostics", "network-memory", "agent-menu", "tls-memory", "audio-capture", "mic-task", "mic-delivery", "audio-stream", "audio-levels", "menu-hold", "audio-wake", "wake-word", "native-voice", "guide", "ima", "link", "navigation", "pin", "power-network",
+    "board", "task-placement", "motion-target", "display-s3", "display-te", "frame-pacing-s3", "present-bursts", "native-overlay", "qr-layout", "flash-reset", "target-memory", "diagnostics", "network-memory", "agent-menu", "tls-memory", "audio-capture", "audio-dma", "mic-task", "mic-delivery", "audio-stream", "audio-levels", "menu-hold", "audio-wake", "wake-word", "native-voice", "guide", "ima", "link", "navigation", "pin", "power-network",
     "event-journal", "printer-protocol", "emulator-target", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "tls-duplex", "tls-header", "settings", "nvs", "setup", "setup-dns", "muse", "devkey", "hermes", "speech", "state", "status-json", "tess", "tess-games", "wifi", "radio-relay",
 )
 
@@ -105,7 +105,7 @@ def agent():
     bridge = ROOT / "tools/usb-bridge"
     run(["npm", "ci"], bridge)
     run(["node", "--test", *[str(p) for p in sorted(bridge.glob("*.test.mjs"))]])
-    run(["node", "--test", "tools/check-live-voice.test.mjs", "tools/test-device/frames.test.mjs", "tools/test-device/mock.test.mjs", "tools/test-device/diagnostics.test.mjs", "tools/test-device/usb-listener.test.mjs", "tools/test-device/guide.test.mjs", "tools/test-device/fixture-baseline.test.mjs", "tools/test-device/native-cleanup.test.mjs", "tools/test-device/navigation.test.mjs", "tools/test-device/geometry.test.mjs", "tools/test-device/tess-memory.test.mjs", "tools/test-device/acoustic.test.mjs", "tools/test-device/near-playback.test.mjs", "tools/test-install/device.test.mjs"])
+    run(["node", "--test", "tools/check-live-voice.test.mjs", "tools/test-device/frames.test.mjs", "tools/test-device/mock.test.mjs", "tools/test-device/diagnostics.test.mjs", "tools/test-device/usb-listener.test.mjs", "tools/test-device/guide.test.mjs", "tools/test-device/fixture-baseline.test.mjs", "tools/test-device/native-transport.test.mjs", "tools/test-device/native-cleanup.test.mjs", "tools/test-device/navigation.test.mjs", "tools/test-device/geometry.test.mjs", "tools/test-device/tess-memory.test.mjs", "tools/test-device/acoustic.test.mjs", "tools/test-device/near-playback.test.mjs", "tools/test-install/device.test.mjs"])
     run([sys.executable, "tools/test-device/near-playback.test.py"])
     run(["uv", "run", "--with", "numpy==2.2.6", "python", "tools/test-device/analyze-live-acoustic.test.py"])
     run(["node", "tools/test-portal.mjs"])

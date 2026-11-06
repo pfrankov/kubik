@@ -19,6 +19,7 @@ mock = r'''
 #define CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN 1024
 #define MALLOC_CAP_INTERNAL 1
 #define MALLOC_CAP_8BIT 2
+#define MALLOC_CAP_SPIRAM 4
 #define ESP_OK 0
 #define ESP_ERR_NO_MEM -1
 #define ESP_ERROR_CHECK(x) assert((x) == 0)
@@ -26,13 +27,20 @@ mock = r'''
 #define ESP_LOGI(...) ((void)0)
 #define portMAX_DELAY 0
 typedef int SemaphoreHandle_t;
-static bool held, pressure;
+static bool held, pressure, internal_pressure, external_pressure;
 static unsigned frees;
 static int xSemaphoreCreateMutex(void) { return 1; }
 static void xSemaphoreTake(int m, int t) { (void)m; (void)t; assert(!held); held = true; }
 static void xSemaphoreGive(int m) { (void)m; assert(held); held = false; }
-static void *heap_caps_malloc(size_t n, int flags) { (void)flags; return pressure ? NULL : malloc(n); }
-static void *heap_caps_calloc(size_t n, size_t size, int flags) { (void)flags; return pressure ? NULL : calloc(n, size); }
+static void *heap_caps_malloc(size_t n, int flags) {
+    assert(n==17408 && flags==((CONFIG_IDF_TARGET_ESP32S3 ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL)|MALLOC_CAP_8BIT));
+    bool exhausted=flags&MALLOC_CAP_INTERNAL ? internal_pressure : external_pressure;
+    return pressure || exhausted ? NULL : malloc(n);
+}
+static void *heap_caps_calloc(size_t n, size_t size, int flags) {
+    assert(flags==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+    return pressure || internal_pressure ? NULL : calloc(n, size);
+}
 static void heap_caps_free(void *p) { if (p) { frees++; } free(p); }
 static void mbedtls_platform_set_calloc_free(void *(*a)(size_t,size_t), void (*f)(void *)) { assert(a && f); }
 '''
@@ -98,12 +106,28 @@ int main(void) {
     }
     void *idle_record=tls_calloc(1,4865); assert(idle_record==s_record && s_record_busy);
     tls_free(idle_record); assert(!s_record);
+    internal_pressure=true;
+    assert(tls_mem_turn(true)==!!CONFIG_IDF_TARGET_ESP32S3);
+    tls_mem_turn(false); assert(!s_record);
+    idle_record=tls_calloc(1,4865);
+    assert(!!idle_record==!!CONFIG_IDF_TARGET_ESP32S3);
+    tls_free(idle_record); assert(!s_record);
+    internal_pressure=false; external_pressure=true;
+    assert(tls_mem_turn(true)==!CONFIG_IDF_TARGET_ESP32S3);
+    tls_mem_turn(false); assert(!s_record); // S3 cannot fall back into the Wi-Fi heap.
+    idle_record=tls_calloc(1,4865); assert(!!idle_record==!CONFIG_IDF_TARGET_ESP32S3);
+    tls_free(idle_record); assert(!s_record);
+    capture=tls_mem_capture_take(16560); assert(!!capture==!CONFIG_IDF_TARGET_ESP32S3);
+    tls_mem_capture_release(); assert(!s_record && !s_capture);
+    external_pressure=false;
     puts("TLS: full record under heap pressure; delayed release, reuse and overflow checks passed");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='kubik-tls-') as temp:
     source, binary = Path(temp) / 'test.c', Path(temp) / 'test'
     source.write_text(mock + body + tests)
-    subprocess.run(['cc', '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
-                    '-fsanitize=address,undefined', str(source), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True)
+    for s3 in (0, 1):
+        subprocess.run(['cc', '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
+                        f'-DCONFIG_IDF_TARGET_ESP32S3={s3}', '-fsanitize=address,undefined',
+                        str(source), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)

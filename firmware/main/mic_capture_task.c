@@ -1,6 +1,7 @@
 #include "mic_capture_task.h"
 
 #include "mic_capture.h"
+#include "audio_target.h"
 #include "ima_adpcm.h"
 #include <string.h>
 #include "esp_log.h"
@@ -32,10 +33,15 @@ static void read_failed(const mic_task_config_t *cfg, int32_t *dc, uint32_t epoc
         cfg->deliver(cfg->context, NULL, NULL, dc, epoch);
 }
 
+static bool capture_shape_valid(const mic_task_config_t *cfg) {
+    return cfg->slots == AUDIO_CAPTURE_CHANNELS && cfg->chunk_samples == 240 && cfg->frame_samples == 960;
+}
+
 void mic_capture_task(void *arg) {
     const mic_task_config_t *cfg = arg;
+    configASSERT(capture_shape_valid(cfg));
     // CPU-only scratch is fully overwritten before delivery; preserve DMA RAM for Wi-Fi.
-    static RTC_NOINIT_ATTR int16_t raw[4 * 240];
+    static RTC_NOINIT_ATTR int16_t raw[AUDIO_CAPTURE_CHANNELS * 240];
     static RTC_NOINIT_ATTR int16_t voice[960];
     static uint8_t reference[IMA_HEADER_BYTES + 960 / 2]; // Live only, synchronous codec speaker reference.
     int32_t dc = 0, reference_dc = 0;

@@ -27,6 +27,13 @@ static atomic_bool s_slot_busy;
 // Include TLS framing and allocator metadata, retaining the full 16 KB RX limit.
 // This same workspace holds the Classic/Realtime capture queue between phases.
 #define SPEECH_RECORD_BYTES (CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + 1024)
+#if CONFIG_IDF_TARGET_ESP32S3
+// IDF supports TLS records in PSRAM, including bounded AES DMA staging.
+// Keep task stacks, the TX slot and other TLS allocations in internal memory.
+#define RECORD_CAPS (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+#else
+#define RECORD_CAPS (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+#endif
 static SemaphoreHandle_t s_lock;
 static void *s_record;
 static bool s_record_busy, s_speech, s_turn, s_capture;
@@ -37,7 +44,7 @@ static void release_record_locked(void) {
 
 static void reserve_locked(bool active) {
     if (active && !s_record)
-        s_record = heap_caps_malloc(SPEECH_RECORD_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        s_record = heap_caps_malloc(SPEECH_RECORD_BYTES, RECORD_CAPS);
     if (active && !s_record) ESP_LOGW("tls_mem", "speech record reservation failed");
     release_record_locked();
 }
@@ -62,7 +69,7 @@ void *tls_mem_capture_take(size_t bytes) {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     void *record = NULL;
     if (!s_capture && !s_record_busy && !s_speech) {
-        if (!s_record) s_record = heap_caps_malloc(SPEECH_RECORD_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!s_record) s_record = heap_caps_malloc(SPEECH_RECORD_BYTES, RECORD_CAPS);
         record = s_record;
         s_capture = record != NULL;
     }
@@ -77,7 +84,7 @@ void tls_mem_capture_release(void) {
     xSemaphoreGive(s_lock);
 }
 
-static void *speech_record(size_t bytes) {
+static void *speech_record(size_t bytes, bool *reservation_failed) {
     // Keep the full RX reservation available for a coalesced incoming record.
     // A simultaneous small microphone TX must not borrow it and force RX to
     // allocate another buffer. Normal speech RX also uses this reservation;
@@ -86,8 +93,14 @@ static void *speech_record(size_t bytes) {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     // A coalesced record may itself contain `speak`. Allocate its full capacity
     // now so speech can retain this very buffer instead of allocating a second one.
-    if (!s_record && bytes > RECORD_TRIGGER_BYTES)
-        s_record = heap_caps_malloc(SPEECH_RECORD_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!s_record && bytes > RECORD_TRIGGER_BYTES) {
+        s_record = heap_caps_malloc(SPEECH_RECORD_BYTES, RECORD_CAPS);
+#if CONFIG_IDF_TARGET_ESP32S3
+        *reservation_failed = !s_record;
+#else
+        (void)reservation_failed;
+#endif
+    }
     void *record = s_record && !s_record_busy && !s_capture ? s_record : NULL;
     if (record) s_record_busy = true;
     xSemaphoreGive(s_lock);
@@ -98,8 +111,9 @@ static void *speech_record(size_t bytes) {
 static void *tls_calloc(size_t n, size_t size) {
     size_t bytes = n * size;
     if (size && bytes / size != n) return NULL;
-    void *record = speech_record(bytes);
-    if (record) return record;
+    bool reservation_failed = false;
+    void *record = speech_record(bytes, &reservation_failed);
+    if (record || reservation_failed) return record;
     if (bytes >= SLOT_MIN && bytes <= SLOT_BYTES && !atomic_exchange(&s_slot_busy, true)) {
         memset(s_slot, 0, bytes);
         return s_slot;

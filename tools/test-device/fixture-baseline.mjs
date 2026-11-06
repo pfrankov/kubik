@@ -16,13 +16,37 @@ function requireOfflineSnapshot(state) {
   for (const key of flags) assert.equal(typeof state[key], 'boolean', `Missing device status: ${key}`);
   for (const [key, [low, high]] of Object.entries(numbers))
     assert.ok(Number.isSafeInteger(state[key]) && state[key] >= low && state[key] <= high, `Invalid device status: ${key}`);
-  assert.equal(state.online, false, 'Offline USB fixture requires an offline device');
-  assert.equal(state.via, 'none', 'Offline USB fixture requires no active route');
+  assert.equal(state.online, false, 'Offline fixture requires an offline device');
+  assert.equal(state.via, 'none', 'Offline fixture requires no active route');
   for (const key of ['mic_open', 'live_active', 'auto_recording']) assert.equal(state[key], false, `Device is active: ${key}`);
 }
 
+export function pinnedFixture(original, { wifi = false, identityPath = process.env.KUBIK_TEST_TLS_IDENTITY,
+  pinnedEndpoint = process.env.KUBIK_TEST_PINNED_ENDPOINT } = {}) {
+  if (pinnedEndpoint === undefined) return null;
+  assert.equal(wifi, true, 'KUBIK_TEST_PINNED_ENDPOINT requires --wifi');
+  assert.ok(typeof identityPath === 'string' && identityPath.length, 'Pinned Wi-Fi requires KUBIK_TEST_TLS_IDENTITY');
+  assert.ok(typeof pinnedEndpoint === 'string' && pinnedEndpoint.length, 'Pinned Wi-Fi requires an explicit endpoint');
+  const endpoint = new URL(pinnedEndpoint), port = Number(endpoint.port);
+  assert.ok(endpoint.protocol === 'kubik:' && endpoint.hostname && !endpoint.username && !endpoint.password &&
+    !endpoint.pathname && !endpoint.search && !endpoint.hash && Number.isInteger(port) && port >= 1024 && port <= 65535,
+    'Pinned Wi-Fi endpoint must be kubik://host:port with an explicit listener port');
+  assert.equal(original.url, pinnedEndpoint, 'Pinned Wi-Fi endpoint must exactly match the saved device URL');
+  assert.equal(original.server_pinned, true, 'Pinned Wi-Fi requires the existing device TLS pin');
+  assert.equal(original.online, false, 'Stop the idle production listener before pinned Wi-Fi acceptance');
+  assert.equal(original.via, 'none', 'Pinned Wi-Fi requires the disconnected production baseline');
+  return { port, identityPath };
+}
+
 export async function fixtureBaseline(read, { wifi = false, identityPath = process.env.KUBIK_TEST_TLS_IDENTITY,
+  pinnedEndpoint = process.env.KUBIK_TEST_PINNED_ENDPOINT,
   waitForLink = waitForDeviceLink } = {}) {
+  if (pinnedEndpoint !== undefined) {
+    const state = await read();
+    pinnedFixture(state, { wifi, identityPath, pinnedEndpoint });
+    requireOfflineSnapshot(state);
+    return { original: state, offlineFixture: true };
+  }
   if (wifi || identityPath === undefined) return { original: await waitForLink(read), offlineFixture: false };
   assert.ok(typeof identityPath === 'string' && identityPath.length, 'TLS USB fixture requires an explicit identity file');
   const state = await read();

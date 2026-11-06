@@ -184,7 +184,7 @@ async def voice(ws, codec, turn, expected):
             message = await ws.receive()
             if message.type == WSMsgType.BINARY:
                 assert message.data[0] == 3
-                audio.extend(codec.decode(message.data[2:]))
+                audio.extend(codec.decode(message.data[2:], max_samples=2400))
                 played = len(audio) // 48
                 await ws.send_json({'t': 'progress', 'gen': message.data[1], 'ms': played})
                 continue

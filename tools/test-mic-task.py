@@ -39,16 +39,18 @@ static unsigned yields;
 static void vTaskDelay(unsigned ms) { assert(ms == 1); yields++; }
 static void ulTaskNotifyTake(int clear, unsigned wait) { (void)clear; (void)wait; assert(0); }
 static jmp_buf done;
+static jmp_buf invalid_shape;
+#define configASSERT(condition) do { if (!(condition)) longjmp(invalid_shape, 1); } while (0)
 static unsigned reads, deliveries, epoch = 1;
 static bool requested(void *ctx) { (void)ctx; return true; }
 static bool sync_capture(void *ctx, bool open) { (void)ctx; assert(open); return true; }
 static uint32_t capture_epoch(void *ctx) { (void)ctx; return epoch; }
 static bool read_pcm(void *ctx, bool permitted, void *data, size_t bytes, uint32_t timeout) {
-    (void)ctx; assert(permitted && bytes == 4 * 240 * sizeof(int16_t) && timeout == 20);
+    (void)ctx; assert(permitted && bytes == AUDIO_CAPTURE_CHANNELS * 240 * sizeof(int16_t) && timeout == 20);
     if (++reads == 13) longjmp(done, 1);
     if (reads == 2 || reads == 8) ++epoch;
     int16_t *pcm = data;
-    for (int i = 0; i < 960; ++i) pcm[i] = (int16_t)(100 * epoch + reads);
+    for (int i = 0; i < AUDIO_CAPTURE_CHANNELS * 240; ++i) pcm[i] = (int16_t)(100 * epoch + reads);
     return true;
 }
 static void deliver(void *ctx, int16_t *pcm, const uint8_t *reference, int32_t *dc, uint32_t frame_epoch) {
@@ -143,14 +145,18 @@ static void reference_packing(int slots,int voice_slot,int reference_slot) {
     }
 }
 int main(void) {
-    assert(AUDIO_CAPTURE_CHANNELS==(CONFIG_IDF_TARGET_ESP32S3?2:4));
+    assert(AUDIO_CAPTURE_CHANNELS==2);
+    assert(AUDIO_CAPTURE_FRAME_SLOTS==(CONFIG_IDF_TARGET_ESP32S3?2:4));
     assert(AUDIO_MIC_SLOT==(CONFIG_IDF_TARGET_ESP32S3?1:0));
     assert(AUDIO_REFERENCE_SLOT==(CONFIG_IDF_TARGET_ESP32S3?0:1));
     reference_packing(AUDIO_CAPTURE_CHANNELS,AUDIO_MIC_SLOT,AUDIO_REFERENCE_SLOT);
     reference_packing(4,3,1); // Keep the nondefault voice-slot contrast.
     mic_task_config_t config = { .requested = requested, .sync = sync_capture, .read = read_pcm,
         .deliver = deliver, .epoch = capture_epoch, .slots = 4, .chunk_samples = 240,
-        .frame_samples = 960, .voice_slot = 1, .timeout_ms = 20 };
+        .frame_samples = 960, .voice_slot = AUDIO_MIC_SLOT, .timeout_ms = 20 };
+    if (!setjmp(invalid_shape)) { mic_capture_task(&config); assert(0); }
+    assert(!reads && !deliveries); // Four DMA samples per frame cannot overrun the two-channel scratch.
+    config.slots = AUDIO_CAPTURE_CHANNELS;
     if (!setjmp(done)) mic_capture_task(&config);
     assert(deliveries == 2 && yields == 2); // no mixed/partial pre-transition audio reached either callback
     s_automatic = true; app_wake_suspend();

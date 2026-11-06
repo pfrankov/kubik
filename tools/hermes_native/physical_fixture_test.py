@@ -1,11 +1,13 @@
 """An answer's PCM duration follows its exact text, never the number of delivered blocks."""
 import os
+import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from device_voice import PhysicalConnection
+from device_voice import Observations, PhysicalConnection
 
 
 class PhysicalFixtureTests(unittest.TestCase):
@@ -39,6 +41,33 @@ class PhysicalFixtureTests(unittest.TestCase):
             self.assertEqual(data['platforms']['kubik']['home_channel'], {
                 'platform': 'kubik', 'chat_id': 'kubik-test:' + 'a' * 32, 'name': 'Kubik fixture'})
             self.assertEqual(data['model']['default'], 'kubik-test')
+
+
+class PhysicalEchoGateTests(unittest.TestCase):
+    def measure(self, reference, clean, evidence):
+        observation = Observations.__new__(Observations)
+        pcm = lambda level: struct.pack('<h', level) * 960
+        observation.frames = [(pcm(1000), pcm(reference), pcm(clean))] * 125
+        return observation.acoustic(evidence)
+
+    def test_present_reference_with_bypassed_cleaning_fails_and_keeps_measurements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory)
+            with self.assertRaisesRegex(AssertionError, 'echo suppression'):
+                self.measure(1000, 1000, evidence)
+            self.assertEqual(json.loads((evidence / 'acoustic.json').read_text())['erle_db'], 0)
+            self.assertTrue(all((evidence / name).is_file() for name in ('mic.pcm', 'reference.pcm', 'clean.pcm')))
+
+    def test_present_reference_and_twenty_db_attenuation_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.measure(1000, 100, Path(directory))
+            self.assertAlmostEqual(result['erle_db'], 20)
+            self.assertEqual(result['reference_rms'], 1000)
+
+    def test_missing_reference_fails_even_when_output_is_attenuated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(AssertionError, 'reference is absent'):
+                self.measure(0, 100, Path(directory))
 
 
 if __name__ == '__main__':

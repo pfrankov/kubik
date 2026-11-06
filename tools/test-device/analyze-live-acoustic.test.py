@@ -1,6 +1,7 @@
 """Acceptance contrasts for measured-path speech preservation, without any API."""
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
 import numpy as np
 
@@ -43,6 +44,41 @@ class MeasuredPath(unittest.TestCase):
         acoustic.verify('double', self.raw, processed(self.spoken * .9 + self.far * .02), self.far, template)
         with self.assertRaisesRegex(AssertionError, 'suppressed'):
             acoustic.verify('double', self.raw, processed(self.spoken * .1 + self.far * .02), self.far, template)
+
+    def test_complete_phrases_after_one_second_are_found_without_relaxing_confidence(self):
+        lag = 37920  # Recorded calibration phrase offset: 1.58 seconds.
+        near = np.pad(self.physical, (lag, 18000))
+        template, found = acoustic.calibrate(near, self.source)
+        self.assertEqual(found, lag)
+        gain, correlation, found = acoustic.projection(near, self.physical)
+        self.assertEqual(found, lag)
+        self.assertAlmostEqual(gain, 1)
+        self.assertAlmostEqual(correlation, 1)
+        acoustic.verify('near', near, processed(near * .9), np.zeros(len(near)), template, lag)
+        for delay in (0, 960):
+            with self.subTest(delay=delay), self.assertRaises(AssertionError):
+                acoustic.verify('near', near, np.pad(near, (delay, 0))[:len(near)],
+                                np.zeros(len(near)), template, lag)
+
+    def test_capture_bound_is_checked_before_search_or_reading(self):
+        oversized = np.zeros(acoustic.MAX_CAPTURE_SAMPLES + 1)
+        for check in (acoustic.calibrate, acoustic.projection):
+            with self.subTest(check=check.__name__), self.assertRaisesRegex(AssertionError, '30 second'):
+                check(oversized, self.source)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'capture.pcm'
+            with path.open('wb') as stream:
+                stream.truncate(acoustic.MAX_CAPTURE_SAMPLES * 2 + 2)
+            with self.assertRaisesRegex(AssertionError, '30 second'):
+                acoustic.read_capture(path)
+            path.write_bytes(b'\0')
+            with self.assertRaisesRegex(AssertionError, 'incomplete PCM16'):
+                acoustic.read_capture(path)
+
+    def test_failed_calibration_reports_measured_scores_and_original_thresholds(self):
+        noise = np.random.default_rng(23).normal(0, 100, len(self.near) + RATE * 2)
+        with self.assertRaisesRegex(AssertionError, r'envelope=.*required >0.800.*bands=.*required >0.650'):
+            acoustic.calibrate(noise, self.source)
 
     def test_only_the_measured_preprocessor_delay_is_accepted(self):
         for delay in (0, 960):

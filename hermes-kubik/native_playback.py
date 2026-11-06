@@ -6,6 +6,8 @@ from .codec import encode
 
 MAX_QUEUED = 60 * 24000 * 2
 SPEECH_LEAD_MS = 800  # Fill the firmware prebuffer; retain 100 ms ring headroom.
+PACKET_BYTES = 100 * 48
+STALL_SECONDS = 5
 
 
 class NativePlayback:
@@ -49,24 +51,11 @@ class NativePlayback:
 
     async def stream(self):
         peer = self.peer
-        pending = bytearray()
         state = [0, 0]
         done = asyncio.Event()
         try:
-            while True:
-                block = await self.queue.get()
-                if block is None:
-                    break
-                pending.extend(block)
-                while len(pending) >= 1920:
-                    await self.send_block(bytes(pending[:1920]), state, done)
-                    del pending[:1920]
-                    self.queued -= 1920
-            if pending:
-                self.queued -= len(pending)
-                if len(pending) % 4:
-                    pending.extend(b'\0\0')
-                await self.send_block(bytes(pending), state, done)
+            async for block in self.frames():
+                await self.send_block(block, state, done)
             if self.gen is not None:
                 await peer.send('speak_end', gen=self.gen)
                 await asyncio.wait_for(done.wait(), 12)
@@ -75,6 +64,41 @@ class NativePlayback:
         finally:
             if self.gen is not None:
                 peer.receipts.pop(('played', self.gen), None)
+
+    async def next_input(self, deadline):
+        try:
+            async with asyncio.timeout_at(deadline):
+                return await self.queue.get()
+        except TimeoutError:
+            return b''
+
+    def take_frame(self, pending):
+        pcm = bytes(pending)
+        pending.clear()
+        self.queued -= len(pcm)
+        return pcm + b'\0\0' if len(pcm) % 4 else pcm
+
+    async def frames(self):
+        pending, deadline = bytearray(), None
+        while True:
+            block = await self.next_input(deadline)
+            if block is None:
+                break
+            view = memoryview(block)
+            while view:
+                size = min(PACKET_BYTES - len(pending), len(view))
+                pending.extend(view[:size])
+                view = view[size:]
+                if len(pending) == PACKET_BYTES:
+                    yield self.take_frame(pending)
+                    deadline = None
+            if pending and deadline is None:
+                deadline = asyncio.get_running_loop().time() + .1
+            if not block and pending:
+                yield self.take_frame(pending)
+                deadline = None
+        if pending:
+            yield self.take_frame(pending)
 
     async def send_block(self, block, state, done):
         if not self.current():
@@ -88,11 +112,21 @@ class NativePlayback:
             peer.played_ms = peer.sent_ms = 0
             peer.receipts[('played', self.gen)] = done
             await peer.send('speak', gen=self.gen, kind='reply')
-        while self.sent_bytes + len(block) > (peer.played_ms + SPEECH_LEAD_MS) * 48:
-            peer.progress.clear()
-            await asyncio.wait_for(peer.progress.wait(), 5)
-            if not self.current():
-                raise ConnectionError('Native voice disconnected')
+        await self.wait_for_credit(len(block))
         await peer.socket.send_bytes(bytes((3, self.gen)) + encode(block, state))
         self.sent_bytes += len(block)
         peer.sent_ms = self.sent_bytes // 48
+
+    async def wait_for_credit(self, size):
+        peer, loop = self.peer, asyncio.get_running_loop()
+        confirmed = peer.played_ms
+        deadline = loop.time() + STALL_SECONDS
+        while self.sent_bytes + size > (peer.played_ms + SPEECH_LEAD_MS) * 48:
+            peer.progress.clear()
+            async with asyncio.timeout_at(deadline):
+                await peer.progress.wait()
+            if not self.current():
+                raise ConnectionError('Native voice disconnected')
+            if peer.played_ms > confirmed:
+                confirmed = peer.played_ms
+                deadline = loop.time() + STALL_SECONDS

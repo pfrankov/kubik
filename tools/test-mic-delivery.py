@@ -36,6 +36,7 @@ static void sem_destroy(sem_t *s) {pthread_cond_destroy(&s->changed);pthread_mut
 #define MALLOC_CAP_RTCRAM 1
 #define MALLOC_CAP_8BIT 2
 #define MALLOC_CAP_INTERNAL 4
+#define MALLOC_CAP_SPIRAM 8
 #define pdTRUE 1
 #define portMAX_DELAY 0xffffffffu
 typedef uint8_t StackType_t;
@@ -67,6 +68,8 @@ static void xSemaphoreGive(SemaphoreHandle_t s) { sem_post(s); }
 static void xSemaphoreTake(SemaphoreHandle_t s, unsigned timeout) { (void)timeout; assert(!sem_wait(s)); }
 static int alloc_fail=-1, held;
 static size_t largest_internal=1000;
+static size_t internal_budget=SIZE_MAX, internal_bytes, external_bytes;
+static struct { void *p; size_t bytes; unsigned caps; } allocations[17];
 static void *checked_malloc(size_t n) {
     if (alloc_fail==0) return NULL;
     if (alloc_fail>0) alloc_fail--;
@@ -74,10 +77,29 @@ static void *checked_malloc(size_t n) {
 }
 static void checked_free(void *p) { if(p) { held--; } free(p); }
 static void *heap_caps_malloc(size_t n, unsigned caps) {
-    assert(((n==4096 || n==3072) && caps==((CONFIG_IDF_TARGET_ESP32S3 ? MALLOC_CAP_INTERNAL : MALLOC_CAP_RTCRAM)|MALLOC_CAP_8BIT)) || (n==972 && n<=largest_internal && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));
-    return checked_malloc(n);
+    unsigned queue_caps=(CONFIG_IDF_TARGET_ESP32S3 ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL)|MALLOC_CAP_8BIT;
+    assert(((n==4096 || n==3072) && caps==((CONFIG_IDF_TARGET_ESP32S3 ? MALLOC_CAP_INTERNAL : MALLOC_CAP_RTCRAM)|MALLOC_CAP_8BIT)) || (n==972 && caps==queue_caps));
+    if ((caps&MALLOC_CAP_INTERNAL) && (internal_bytes+n>internal_budget || (n==972 && n>largest_internal))) return NULL;
+    void *p=checked_malloc(n); if(!p)return NULL;
+    for(unsigned i=0;i<17;i++)if(!allocations[i].p) {
+        allocations[i].p=p; allocations[i].bytes=n; allocations[i].caps=caps;
+        if(caps&MALLOC_CAP_INTERNAL)internal_bytes+=n;
+        if(caps&MALLOC_CAP_SPIRAM)external_bytes+=n;
+        return p;
+    }
+    assert(false); return NULL;
 }
-static void heap_caps_free(void *p) { checked_free(p); }
+static void heap_caps_free(void *p) {
+    if(!p)return;
+    for(unsigned i=0;i<17;i++)if(allocations[i].p==p) {
+        size_t n=allocations[i].bytes; unsigned caps=allocations[i].caps;
+        if(caps&MALLOC_CAP_INTERNAL)internal_bytes-=n;
+        if(caps&MALLOC_CAP_SPIRAM)external_bytes-=n;
+        if(n==972)for(size_t j=0;j<n;j++)assert(((uint8_t *)p)[j]==0);
+        allocations[i].p=NULL; checked_free(p); return;
+    }
+    assert(false);
+}
 static void *workspace;
 static void *tls_mem_capture_take(size_t n) {
     assert(n==16560); // Packed slots and decode scratch fit the existing TLS workspace.
@@ -161,6 +183,21 @@ static void duplex_proof(void) {
     mic_delivery_stop(); assert(calls==48 && !errors && !held);
     duplex_sequence=false;
 }
+static void heap_pressure_proof(void) {
+    calls=errors=0; internal_budget=4096;
+    bool started=mic_delivery_start(deliver_duplex,&calls,true);
+    assert(started==!!CONFIG_IDF_TARGET_ESP32S3);
+    if(started) {
+        assert(internal_bytes==3072 && external_bytes==15552);
+        int16_t near[960], far[960]; for(int i=0;i<960;i++){near[i]=1000;far[i]=-1000;}
+        uint8_t reference[483]; ima_state_t encoder={0}; ima_encode(&encoder,far,960,reference);
+        mic_delivery_push(near,42,reference); mic_delivery_stop(); assert(calls==1 && !errors);
+    }
+    assert(!held && !internal_bytes && !external_bytes && !s_task);
+    internal_budget=SIZE_MAX;
+    assert(mic_delivery_start(deliver_duplex,&calls,true)); mic_delivery_stop();
+    assert(!held && !internal_bytes && !external_bytes); // Failed admission and stop both allow a new Live session.
+}
 int main(void) {
     sem_init(&entered,0,0); sem_init(&release,0,0); sem_init(&processed,0,0);
     for(int fail=0;fail<2;fail++) {
@@ -190,6 +227,7 @@ int main(void) {
     mic_delivery_stop(); assert(calls==FRAMES*3 && errors==0 && !held);
     assert(!s_pcm);
     duplex_proof();
+    heap_pressure_proof();
     puts("mic delivery: ordered drain, copied PCM, bounded overflow abort, allocation cleanup, restart");
 }
 '''

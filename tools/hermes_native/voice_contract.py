@@ -22,7 +22,7 @@ class Device:
         async for frame in self.socket:
             if frame.type == WSMsgType.BINARY:
                 assert frame.data[0] == 3
-                pcm = self.codec.decode(frame.data[2:])
+                pcm = self.codec.decode(frame.data[2:], max_samples=2400)
                 self.audio.extend(pcm)
                 gen = frame.data[1]
                 self.played[gen] = self.played.get(gen, 0) + len(pcm) // 48

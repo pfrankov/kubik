@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { WebSocketServer, WebSocket } from 'ws';
 import { loadTlsIdentity } from '../../openclaw-kubik/src/tls-identity.js';
 import { spkiSha256 } from '../../openclaw-kubik/src/protocol.js';
-import { createUsbListener } from './usb-listener.mjs';
+import { createUsbListener, loadFixtureTlsIdentity } from './usb-listener.mjs';
 
 function directory(t) {
   const dir = mkdtempSync(join(tmpdir(), 'kubik-usb-listener-test-'));
@@ -37,6 +37,7 @@ test('TLS handshake presents the exact selected identity and SPKI binding', { ti
   const identity = loadTlsIdentity(directory(t));
   const original = readFileSync(identity.path);
   const listener = createUsbListener({ identityPath: identity.path });
+  assert.deepEqual(loadFixtureTlsIdentity(identity.path), { key: identity.key, cert: identity.cert, bind: identity.spkiHash });
   assert.equal(listener.protocol, 'wss'); assert.equal(listener.bind, identity.spkiHash);
   const { ws, port } = await open(listener, t);
   assert.equal(spkiSha256(ws._socket.getPeerCertificate(true).raw), listener.bind);

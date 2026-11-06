@@ -162,6 +162,7 @@ class Observations:
                   'erle_db': 10 * math.log10(max(1, power[0]) / max(1, power[2]))}
         save(evidence / 'acoustic.json', result)
         assert result['reference_rms'] > 100, 'Physical speaker reference is absent'
+        assert result['erle_db'] > 10, 'Physical echo suppression did not exceed 10 dB'
         print('MEASURE actual Hermes AEC:', json.dumps(result), flush=True)
         return result
 

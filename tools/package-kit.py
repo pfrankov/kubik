@@ -122,7 +122,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         write_member(bundle, "docs/agent-controls.md", controls.encode("utf-8"))
         native = (root / "docs/native-voice.md").read_text().replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
         write_member(bundle, "docs/native-voice.md", native.encode("utf-8"))
-        for document in ("protocol.md", "printer.md", "acceptance.md", "muse.md", "hermes.md", "events.md", "pairing.md", "hardware-s3.md"):
+        for document in ("protocol.md", "printer.md", "acceptance.md", "acceptance-pinned-wifi.md", "muse.md", "hermes.md", "events.md", "pairing.md", "hardware-s3.md"):
             content = (root / "docs" / document).read_text()
             if document == "acceptance.md":
                 content = rewrite_acceptance_links(content, revision)

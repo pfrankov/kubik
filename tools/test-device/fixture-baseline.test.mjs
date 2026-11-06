@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertSettingRestored, fixtureBaseline, restoreFixture, routeRestored } from './fixture-baseline.mjs';
+import { assertSettingRestored, fixtureBaseline, pinnedFixture, restoreFixture, routeRestored } from './fixture-baseline.mjs';
 import { restoreNotificationFixture } from '../test-device-notify.mjs';
 import { restorePairingFixture } from '../test-device-pairing.mjs';
 
@@ -21,6 +21,23 @@ test('offline fixture is deliberate, complete, and does not mutate saved state',
       assert.deepEqual(state, before);
     }
   }
+});
+
+test('explicit pinned Wi-Fi accepts only the exact disconnected saved endpoint and identity', async () => {
+  const pinnedEndpoint = 'kubik://n8n.frankova.ru:18794';
+  const state = offline({ url: pinnedEndpoint, wifi_connected: true });
+  const options = { wifi: true, identityPath: '/existing/identity.json', pinnedEndpoint,
+    waitForLink: () => assert.fail('Production was deliberately stopped') };
+  assert.deepEqual(await fixtureBaseline(async () => state, options), { original: state, offlineFixture: true });
+  assert.deepEqual(pinnedFixture(state, options), { port: 18794, identityPath: options.identityPath });
+  for (const changed of [{ url: 'kubik://other:18794' }, { url: 'kubik://n8n.frankova.ru:18793' },
+    { server_pinned: false }, { online: true, via: 'wifi' }, { via: 'usb' }, { mic_open: true }])
+    await assert.rejects(fixtureBaseline(async () => ({ ...state, ...changed }), options));
+  for (const changed of [{ wifi: false }, { identityPath: '' }, { pinnedEndpoint: '' },
+    { pinnedEndpoint: 'kubik://host' }, { pinnedEndpoint: 'kubik://host:0' },
+    { pinnedEndpoint: 'kubik://user:secret@host:18794' }, { pinnedEndpoint: 'kubik://host:18794/path' },
+    { pinnedEndpoint: 'wss://host:18794' }])
+    await assert.rejects(fixtureBaseline(async () => state, { ...options, ...changed }));
 });
 
 test('normal, Wi-Fi and already online TLS baselines retain the link wait contract', async () => {
