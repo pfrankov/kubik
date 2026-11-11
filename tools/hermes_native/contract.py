@@ -68,6 +68,12 @@ def wav_bytes(samples=2401):
     return output.getvalue()
 
 
+def fixture_answer(messages, answer):
+    from voice_fixture import native_answer
+    from printer_contract import printer_answer
+    return printer_answer(messages) or native_answer(messages) or ({'role': 'assistant', 'content': answer}, 'stop')
+
+
 class Providers:
     def __init__(self):
         from voice_fixture import VoiceFixture
@@ -101,13 +107,12 @@ class Providers:
         raise AssertionError(f'Unexpected provider endpoint: {request.path}')
 
     async def chat(self, request, body):
-        from voice_fixture import native_answer
         messages = body['messages']
         user = next((item['content'] for item in reversed(messages) if item['role'] == 'user'), '')
         if self.native_delay and str(user).startswith('kubik-native-') and str(user).endswith('realtime') and messages[-1]['role'] == 'user':
             await asyncio.sleep(self.native_delay)
         answer = 'kubik-answer:second' if 'kubik-second' in str(user) else 'kubik-answer:first'
-        message, finish = native_answer(messages) or ({'role': 'assistant', 'content': answer}, 'stop')
+        message, finish = fixture_answer(messages, answer)
         data = {'id': 'chatcmpl-kubik', 'created': int(time.time()), 'model': body.get('model', 'kubik-test')}
         if body.get('stream'):
             response = web.StreamResponse(headers={'Content-Type': 'text/event-stream'})
@@ -138,7 +143,7 @@ async def pair(client, port, home, private_key, name='kubik-integration', volume
     ws = await client.ws_connect(f'wss://127.0.0.1:{port}/kubik/v1', ssl=False, compress=0)
     key = base64.b64encode(private_key.public_key().public_bytes(serialization.Encoding.X962,
         serialization.PublicFormat.UncompressedPoint)).decode()
-    await ws.send_json({'t': 'hello', 'v': 5, 'device': name, 'key': key, 'volume': volume})
+    await ws.send_json({'t': 'hello', 'v': 5, 'device': name, 'key': key, 'volume': volume, 'printer': 2})
     challenge = await get_json(ws)
     assert challenge['t'] == 'challenge', challenge
     cert = x509.load_pem_x509_certificate((home / 'kubik/cert.pem').read_bytes())
@@ -339,6 +344,8 @@ async def main():
             denied = await get_json(ws)
             assert denied['t'] == 'error' and len(providers.calls) == before, denied
             await ws.close()
+            from printer_contract import check_printer_tools
+            await check_printer_tools(adapter, providers, client, device_port, home, codec, pair)
         print('PASS: native Gateway/AIAgent, signed WSS approval, rejected signatures/bindings, STT, context across reconnect, TTS/IMA acknowledgements, muted text, separate devices, revocation and profile scopes', flush=True)
     finally:
         providers.cancel_release.set()

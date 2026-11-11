@@ -95,7 +95,6 @@ async function cleanOpenClaw() {
   const provider = JSON.stringify({ baseUrl: ctx.mock.url, apiKey: 'sk-mock', models: [], request: { allowPrivateNetwork: true } });
   await ctx.box.mustRun(`openclaw config set models.providers.openai '${provider}' --strict-json`);
   await ctx.box.mustRun(`openclaw config set tts '${tts}' --strict-json`);
-  await ctx.box.mustRun(`openclaw config set tools.alsoAllow '["kubik_printer"]' --strict-json`);
   // Documented for reverse proxies (deploy/cloudflared): the Gateway trusts the forwarder for client addresses.
   await ctx.box.mustRun(`openclaw config set gateway.trustedProxies '["127.0.0.1"]' --strict-json`);
   const { plugins } = JSON.parse(await ctx.box.mustRun('openclaw plugins list --json'));

@@ -9,6 +9,9 @@ class Peer:
         self.ready = False
         self.native = None
         self.session_id = secrets.token_hex(8)
+        self.printer_version = hello.get('printer')
+        if self.printer_version is not None and (type(self.printer_version) is not int or not 1 <= self.printer_version <= 255):
+            raise ValueError('Invalid printer version')
         self.volume = hello.get('volume', 0)
         if type(self.volume) is not int or not 0 <= self.volume <= 100:
             raise ValueError('Invalid volume')

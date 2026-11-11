@@ -9,7 +9,7 @@ export class SpeechStream {
   constructor(kind, epoch) {
     this.kind = kind; this.epoch = epoch; this.items = []; this.ended = false; this.cancelled = false;
     this.trace = new SpeechTrace();
-    this.carry = null; this.gen = null; this.spokenChars = 0; this.failed = null;
+    this.carry = null; this.gen = null; this.spokenChars = 0; this.failed = null; this.inFlightBytes = 0;
     // inShow tracks an unclosed [[show]] block; shown is the current device card.
     this.inShow = false; this.chunked = false; this.shown = ''; this.textOnly = false;
     this.done = new Promise((resolve, reject) => { this.resolve = resolve; this.reject = reject; });

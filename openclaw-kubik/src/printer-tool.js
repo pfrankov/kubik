@@ -11,6 +11,10 @@ export const printerParameters = {
     action: { type: 'string', enum: ['status', 'print'], description: 'Inspect the printer, or print text requested by the user.' },
     text: { type: 'string', minLength: 1, maxLength: PRINTER_TEXT_BYTES,
       description: 'Required only for print. Plain text, at most 1024 UTF-8 bytes; tabs and line feeds are allowed.' },
+    format: { type: 'string', enum: ['text', 'qr'], description: 'Print text by default, or a QR code (at most 256 UTF-8 bytes).' },
+    width_mm: { type: 'number', minimum: 1, maximum: 216, description: 'Optional output width in millimetres, within the printable width returned by status.' },
+    height_mm: { type: 'number', minimum: 1, maximum: 150, description: 'Optional height limit in millimetres. Content must fit without cropping.' },
+    font_mm: { type: 'number', minimum: 1.5, maximum: 8, description: 'Optional text font height in millimetres; not used for QR codes.' },
   },
 };
 
@@ -43,16 +47,17 @@ export function createPrinterToolFactory({ currentConfig, runtime = getRuntime, 
     };
     return {
       name: PRINTER_TOOL, label: 'Kubik printer', parameters: printerParameters,
-      description: 'Inspect or print plain text on the printer physically connected to this conversation\'s Kubik. ' +
+      description: 'Inspect or print text and QR codes on the printer automatically found by this conversation\'s Kubik. ' +
+        'Call status first for its printable width, DPI and supported formats; use those dimensions when sizing a job. ' +
+        'Media height is not sensed: do not guess the loaded label size. Width comes from the identified model profile. ' +
         'Print only when the user explicitly requests it. A sent result means submitted, never proof of paper output. ' +
-        'If a print outcome is unknown, do not retry automatically. No printer is configured until its device driver is installed.',
+        'Content must fit the requested dimensions without truncation. If a print outcome is unknown, do not retry automatically.',
       async execute(toolCallId, parameters, signal) {
         if (!binding.server || !binding.session) return toolResult({ status: 'error', code: 'device_offline', outcome: 'not_sent', paperConfirmed: false }, true);
         try {
           if (!allowed()) throw new PrinterError('device_replaced');
           const result = await printerJobs(binding.server).request(binding.session, toolCallId, parameters, { signal, allowed });
-          const unavailable = parameters.action === 'print' && result.status === 'not_configured';
-          return toolResult({ ...result, ...(unavailable ? { code: 'printer_not_configured' } : {}) }, unavailable || result.status === 'error');
+          return toolResult(result, result.status === 'error');
         } catch (error) {
           const known = isPrinterError(error);
           return toolResult({ status: 'error', code: known ? error.code : 'printer_failed',
@@ -65,5 +70,5 @@ export function createPrinterToolFactory({ currentConfig, runtime = getRuntime, 
 
 export function registerPrinterTool(api) {
   api.registerTool(createPrinterToolFactory({ currentConfig: () => api.runtime?.config?.current?.() ?? api.config }),
-    { name: PRINTER_TOOL, optional: true });
+    { name: PRINTER_TOOL, optional: false });
 }

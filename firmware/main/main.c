@@ -14,6 +14,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_pm.h"
+#include "esp_bt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,7 +22,6 @@
 #include "render.h"
 #include "settings.h"
 #include "muse_store.h"
-#include "esp_bt.h"
 #include "wifi.h"
 #include "setup.h"
 #include "tls_mem.h"
@@ -437,6 +437,10 @@ static void initialize_home_face(void) {
     }
 }
 
+static void release_paired_muse_bluetooth(muse_state_t state) {
+    if (state == MUSE_PAIRED) ESP_ERROR_CHECK(esp_bt_mem_release(ESP_BT_MODE_BLE));
+}
+
 void app_main(void) {
     frame_diagnostics_init();
     tls_mem_init();  // before anything uses mbedTLS
@@ -447,8 +451,8 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_pm_configure(&power));
     settings_load();
     muse_state_t muse = muse_store_state();
-    // Pairing is the only Bluetooth lifetime; changing agents/pairing restarts.
-    if (muse != MUSE_PAIRING) ESP_ERROR_CHECK(esp_bt_mem_release(ESP_BT_MODE_BLE));
+    // Host printers and Muse pairing need BLE later; paired Muse changes agents only by rebooting.
+    release_paired_muse_bluetooth(muse);
     board_init();
     bool setup_requested = settings_take_provisioning();  // one-shot flag from older firmware
     if (muse != MUSE_PAIRING) wifi_start_sta();

@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate as yieldIo } from 'node:timers/promises';
 import { connectDevice, deviceKey } from './helpers.js';
-import { printerFixture, toolFixture } from './printer-fixture.js';
+import { printerFixture, toolFixture, printerInfo, printerResult } from './printer-fixture.js';
 import { printerJobs } from '../src/printer-jobs.js';
 import { registerPrinterTool } from '../src/printer-tool.js';
 import { PrinterError } from '../src/printer-contract.js';
 
-test('printer tool is optional, model-visible only for the authoritative device/agent/account route', async (t) => {
+test('printer tool is available by default, model-visible only for the authoritative device/agent/account route', async (t) => {
   const f = await printerFixture(t);const { factory, context, tool } = toolFixture(f.server, f.identity.device);
   assert.equal(tool.name, 'kubik_printer');assert.equal(tool.parameters.additionalProperties, false);
-  assert.deepEqual(Object.keys(tool.parameters.properties), ['action', 'text']);
+  assert.deepEqual(Object.keys(tool.parameters.properties), ['action', 'text', 'format', 'width_mm', 'height_mm', 'font_mm']);
   for (const changed of [{ messageChannel: 'telegram' }, { messageChannel: undefined }, { nativeChannelId: undefined },
     { nativeChannelId: 'kubik-other' }, { sessionKey: 'agent:main:main' }, { sessionKey: undefined },
     { agentId: 'other' }, { agentId: undefined }, { agentAccountId: 'foreign' }]) {
@@ -19,23 +19,33 @@ test('printer tool is optional, model-visible only for the authoritative device/
   assert.equal(factory({ ...context, nativeChannelId: '../escape' }), null);
   const registered = [];
   registerPrinterTool({ runtime: {}, config: {}, registerTool: (...args) => registered.push(args) });
-  assert.equal(typeof registered[0][0], 'function');assert.deepEqual(registered[0][1], { name: 'kubik_printer', optional: true });
+  assert.equal(typeof registered[0][0], 'function');assert.deepEqual(registered[0][1], { name: 'kubik_printer', optional: false });
 });
 
-test('registered production factory sends a correlated operation and gives the model an honest not-configured result', async (t) => {
+test('production tool exposes measured printer capabilities and exact layout without echoing content', async (t) => {
   const f = await printerFixture(t);const { tool } = toolFixture(f.server, f.identity.device);
   const pending = tool.execute('tool-print', { action: 'print', text: 'Print this list' });
   const request = await f.device.waitFor((event) => event.t === 'printer');
-  f.device.send({ t: 'printer_result', rid: request.rid, status: 'not_configured' });
+  f.device.send(printerResult(request.rid, 'sent'));
   const result = await pending;
-  assert.equal(result.isError, true);assert.equal(result.details.code, 'printer_not_configured');
-  assert.equal(result.details.status, 'not_configured');assert.equal(result.details.outcome, 'not_sent');
+  assert.equal(result.isError, undefined);assert.equal(result.details.outcome, 'submitted');
+  assert.deepEqual(result.details.printer, printerInfo());assert.equal(result.details.layout.width_dots, 240);
   assert.equal(result.details.paperConfirmed, false);assert.deepEqual(JSON.parse(result.content[0].text), result.details);
   assert.equal(JSON.stringify(result).includes('Print this list'), false, 'printed content is not echoed to tool logs/results');
   const status = tool.execute('tool-status', { action: 'status' });
   const statusRequest = await f.device.waitForNth((event) => event.t === 'printer', 2);
-  f.device.send({ t: 'printer_result', rid: statusRequest.rid, status: 'not_configured' });
-  assert.equal((await status).isError, undefined, 'reading an unavailable printer is still a successful status query');
+  f.device.send(printerResult(statusRequest.rid, 'ready'));
+  assert.deepEqual((await status).details.printer, printerInfo());
+});
+
+test('not-found print is explicitly not sent and discovery failure remains visible to the model', async (t) => {
+  const f = await printerFixture(t);const { tool } = toolFixture(f.server, f.identity.device);
+  const pending = tool.execute('missing-printer', { action: 'print', text: 'one copy' });
+  const request = await f.device.waitFor(event => event.t === 'printer');
+  f.device.send(printerResult(request.rid, 'error', { code: 'printer_not_found' }));
+  const result = await pending;
+  assert.equal(result.isError, true);assert.equal(result.details.code, 'printer_not_found');
+  assert.equal(result.details.outcome, 'not_sent');assert.equal(result.details.paperConfirmed, false);
 });
 
 test('tool rejects arguments before sending and uses current config, not its captured allow decision', async (t) => {
@@ -52,7 +62,7 @@ test('tool rejects arguments before sending and uses current config, not its cap
 test('a tool bound to an old socket/key cannot target its replacement or another server instance', async (t) => {
   const f = await printerFixture(t);const { tool } = toolFixture(f.server, f.identity.device);
   const otherKey = deviceKey(f.identity.device);f.pairing.state.allowed.push(otherKey.entry);
-  const next = await connectDevice(f.url, { hello: otherKey.hello({ printer: 1 }), auth: (nonce) => otherKey.sign(nonce) });t.after(() => next.close());
+  const next = await connectDevice(f.url, { hello: otherKey.hello({ printer: 2 }), auth: (nonce) => otherKey.sign(nonce) });t.after(() => next.close());
   const result = await tool.execute('old-context', { action: 'print', text: 'x' });
   assert.equal(result.details.code, 'device_replaced');assert.equal(next.events.some((event) => event.t === 'printer'), false);
   let current = f.server;
@@ -75,7 +85,7 @@ test('module copies share the account job cache and do not resend an earlier eff
   assert.equal(copy.printerJobs(f.server), original);
   const params = { action: 'print', text: 'one' };const job = original.request(f.session, 'module-copy', params);
   const request = await f.device.waitFor((event) => event.t === 'printer');
-  f.device.send({ t: 'printer_result', rid: request.rid, status: 'sent' });await job;
+  f.device.send(printerResult(request.rid, 'sent'));await job;
   assert.equal((await copy.printerJobs(f.server).request(f.session, 'module-copy', params)).status, 'sent');
   await yieldIo();assert.equal(f.device.events.filter((event) => event.t === 'printer').length, 1);
 });

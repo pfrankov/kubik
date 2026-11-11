@@ -17,7 +17,7 @@ const manifest = {
   description: 'Kubik voice desk device channel (push-to-talk ESP32-C6, OpenAI-compatible voice)',
   channels: [CHANNEL_ID], categories: ['channels'],
   contracts: { tools: [PRINTER_TOOL] },
-  toolMetadata: { [PRINTER_TOOL]: { optional: true } },
+  toolMetadata: { [PRINTER_TOOL]: { optional: false } },
   // Current config/private-state formats require no Doctor migration. Explicit
   // metadata lets OpenClaw complete deferred inspection during plugin updates.
   doctorContract: { configRepair:false, stateMigrations:[] },

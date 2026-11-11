@@ -3,7 +3,18 @@ import { start } from './server-fixture.js';
 import { PrinterJobs } from '../src/printer-jobs.js';
 import { createPrinterToolFactory } from '../src/printer-tool.js';
 
-export async function printerFixture(t, { printer = 1, timeoutMs = 500, now, identity = deviceKey(), settings } = {}) {
+export const printerInfo = () => ({ name: 'PeriPage+TEST', model: 'PeriPage A6+', firmware: 'V1.12_304dpi',
+  hardware: 'v3.38.21_AY', dpi: 304, width_dots: 576, printable_width_mm: 576 * 25.4 / 304,
+  battery_pct: 100, formats: ['text', 'qr'], max_height_mm: 150, media_height_mm: null, size_source: 'model_profile' });
+export const printerLayout = () => ({ format: 'text', width_dots: 240, height_dots: 120,
+  width_mm: 240 * 25.4 / 304, height_mm: 120 * 25.4 / 304, font_mm: 3 });
+export function printerResult(rid, status, { code, outcome, action = 'print', ...overrides } = {}) {
+  return { t: 'printer_result', rid, status,
+    ...(status === 'error' ? { code, ...(action === 'print' ? { outcome: outcome ?? 'not_sent' } : {}) } : { printer: printerInfo() }),
+    ...(status === 'sent' ? { layout: printerLayout(), outcome: 'submitted' } : {}), ...overrides };
+}
+
+export async function printerFixture(t, { printer = 2, timeoutMs = 500, now, identity = deviceKey(), settings } = {}) {
   const pairing = fakePairing({ allowed: [identity.entry] });
   const { server, url } = await start(t, { pairing, settings, serverOptions: { pairingPollMs: 60_000 } });
   const options = { hello: identity.hello(printer === false ? {} : { printer }), auth: (nonce) => identity.sign(nonce) };
@@ -27,6 +38,6 @@ export function toolFixture(server, deviceId, { cfg = config(), serverFor = () =
 
 export async function replyToPrinter(device, job, status, code) {
   const request = await device.waitFor((event) => event.t === 'printer' && event.rid === job);
-  device.send({ t: 'printer_result', rid: request.rid, status, ...(code ? { code } : {}) });
+  device.send(printerResult(request.rid, status, { code, action: request.action }));
   return request;
 }

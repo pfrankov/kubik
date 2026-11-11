@@ -1,11 +1,12 @@
 import { SpeechPacer } from './audio.js';
-import { BYTES_PER_MS, ImaEncoder, nextGen, out, pcmDurationMs } from './protocol.js';
+import { BYTES_PER_MS, ImaEncoder, out, pcmDurationMs } from './protocol.js';
 import { chunkSpeech, parseReply, sanitizeForDisplay, splitShown } from './speech.js';
 import { SessionControl } from './session-control.js';
 import { SpeechStream } from './speech-stream.js';
 import { runRecordedTurn } from './recorded-turn.js';
 import { NativeSession } from './native-session.js';
 import { logRecordedLatency } from './voice-turn-trace.js';
+import { SessionOutputLease, beginSpeechGeneration } from './session-output.js';
 
 const MAX_TURN_MS = 60_000;
 const PLAYED_GRACE_MS = 2500;
@@ -36,6 +37,7 @@ export class DeviceSession {
   #ima = null; // { gen, encoder } of the speech being sent as IMA ADPCM
   #native = null;
   #outputCancel = null;
+  #outputLease = new SessionOutputLease({ idle: () => this.activeGen == null && !this.#outputCancel });
 
   constructor({ ws, device, engine, dispatch, authorize = async () => true, log = () => {}, onActivity = () => {}, lastGen = 0,
     sessionId, volume = 0, textMode = 'auto', agentControl, current = () => this }) {
@@ -72,6 +74,8 @@ export class DeviceSession {
   }
 
   get closed() { return this.#closed; }
+  acquireOutputLease(signal) { return this.#outputLease.acquire(signal); }
+  withOutputGeneration(begin, valid, authorize) { return this.#outputLease.speech(begin, valid, authorize); }
 
   #sendRaw(data) {
     if (this.#closed || this.ws.readyState !== 1) return false;
@@ -107,6 +111,7 @@ export class DeviceSession {
   }
 
   handleMessage(message) {
+    this.#outputLease.acknowledge(message);
     switch (message.t) {
       case 'live_input_ack': this.#native?.acknowledge(message); return;
       case 'cancelled':
@@ -295,7 +300,12 @@ export class DeviceSession {
         }
         if (this.#turn && this.#turn.phase !== 'native' && stream.gen == null) { await this.#idleWait(); continue; } // never start talking over the user
         const segment = stream.take();
-        if (segment) { await this.#speakSegment(stream, segment); continue; }
+        if (segment) {
+          stream.inFlightBytes = segment.pcm?.length ?? 0;
+          try { await this.#speakSegment(stream, segment); }
+          finally { stream.inFlightBytes = 0; }
+          continue;
+        }
         if (!stream.ended) { await this.#idleWait(); continue; }
         this.#streams.shift();
         await this.#finishStream(stream);
@@ -322,22 +332,8 @@ export class DeviceSession {
       return;
     }
     if (stream.gen == null) {
-      await this.#waitDelivery(); // the previous gen must finish playing before a new one starts
-      if (stream.cancelled || stream.epoch !== this.epoch || this.#closed) return;
-      if (stream.beforeAttempt && !await this.authorize()) {
-        stream.failed = new Error('device disconnected');
-        return;
-      }
-      if (stream.cancelled || stream.epoch !== this.epoch || this.#closed) return;
-      if (!this.#beginNotifyAttempt(stream)) return;
-      this.gen = nextGen(this.gen);
-      stream.gen = this.gen;
-      this.activeGen = this.gen;
-      if (segment.emotion) this.send(out.emotion(segment.emotion));
-      this.send(out.speak(stream.gen, stream.kind));
-      stream.voiceTrace?.phase('host-output');
-      this.pacer.startGen(stream.trace);
-      this.#setState('speaking');
+      if (!await beginSpeechGeneration(this, stream, segment, { delivery: () => this.#waitDelivery(),
+        attempt: value => this.#beginNotifyAttempt(value), state: value => this.#setState(value) })) return;
     } else if (segment.emotion) {
       const emotion = segment.emotion;
       const epoch = this.epoch;
@@ -427,7 +423,9 @@ export class DeviceSession {
     this.#deliveryWait = null;
     clearTimeout(wait.timer);
     if (wait.kind === 'played' && this.activeGen === wait.id) {
+      if (!acknowledged) this.#outputLease.uncertain(wait.id, wait.minPlayedMs);
       this.pacer.finishTrace(acknowledged ? 'played' : 'ack_timeout'); this.activeGen = null;
+      this.#outputLease.changed();
     }
     // The gen finished playing: an emotion scheduled for it is stale.
     for (const timer of this.#emotionTimers) clearTimeout(timer);
@@ -446,7 +444,7 @@ export class DeviceSession {
 
   /** Provider barge-in flushes only this Live reply, preserving capture, tools and session epoch. */
   async cancelLiveOutput(stream) {
-    stream.cancel(); stream.resolve({ cancelled: true });
+    stream.cancel(); stream.resolve({ cancelled: true }); this.#outputLease.changed(true);
     if (this.#outputCancel) { this.#kick(); return this.#outputCancel.promise; }
     const gen = stream.gen;
     if (gen == null || gen !== this.activeGen) { this.#kick(); return; }
@@ -459,7 +457,7 @@ export class DeviceSession {
     const wait = this.#outputCancel = { gen, promise, resolve, reject };
     this.send(out.speakCancel(gen)); this.#kick();
     try { await promise; }
-    finally { clearTimeout(timer); if (this.#outputCancel === wait) this.#outputCancel = null; }
+    finally { clearTimeout(timer); if (this.#outputCancel === wait) this.#outputCancel = null; this.#outputLease.changed(); }
   }
 
   /** Stops speech, drops queued/pending work of the current epoch. The agent run is not aborted. */
@@ -475,12 +473,14 @@ export class DeviceSession {
       this.engine.cancelTranscription?.();
       this.#turn = null;
     }
+    if (this.activeGen != null && reason !== 'ptt') this.#outputLease.uncertain(this.activeGen, Math.max(1, Math.floor(this.pacer.sentMs)));
     this.pacer.finishTrace(reason); this.pacer.clear();
     for (const timer of this.#emotionTimers) clearTimeout(timer);
     this.#emotionTimers.clear();
     for (const stream of this.#streams) stream.cancel();
     if (this.#deliveryWait) { clearTimeout(this.#deliveryWait.timer); const wait = this.#deliveryWait; this.#deliveryWait = null; wait.resolve({ acknowledged: false }); }
     this.activeGen = null;
+    this.#outputLease.changed(true);
     const interrupted = this.#interrupted;
     this.#armInterrupt();
     interrupted.resolve();
@@ -491,6 +491,7 @@ export class DeviceSession {
   close() {
     if (this.#closed) return;
     this.#closed = true;
+    this.#outputLease.close();
     for (const stream of this.#streams.splice(0)) { stream.cancel(); stream.reject(new Error('device disconnected')); }
     this.interrupt('disconnect');
     this.#wakeWorker?.();

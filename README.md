@@ -99,13 +99,13 @@ Kubik remembers up to eight Wi-Fi networks. Automatic sleep is silent. While sle
 
 ## Make it your own
 
-OpenClaw can use the optional `kubik_printer` tool to request text printing from
-the printer attached to the current Kubik. The tool uses the paired device link;
-no server-side printer is required. Firmware built from the current source reports
-`not_configured` until a driver for a selected physical printer is added.
-The tool requires firmware with printer RPC support; released firmware 0.6.4
-does not support it.
-See [the printer contract and limits](docs/printer.md).
+Current source builds automatically discover a nearby **PeriPage A6+ over BLE**
+after Kubik connects to its agent. OpenClaw and native Hermes expose `kubik_printer`
+for text and QR printing with dimensions in millimetres. The device reports its
+recognized print-head profile and DPI, wraps content and rejects jobs that do not
+fit. No phone app or manual Bluetooth address is needed. Update the firmware and
+agent integration together; published firmware 0.6.4 and npm 0.6.14 do not include
+this physical driver. See [printer setup, sizing and limits](docs/printer.md).
 
 Tess is the default character. Plush is a separate firmware build, selected before flashing; there is no character switch on the device.
 

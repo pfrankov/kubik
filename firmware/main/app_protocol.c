@@ -231,8 +231,7 @@ static void sim_mood_hook(cJSON *j) {  // Native Tess mood diagnostics.
         face_unlock();
     }
 }
-// Test hooks beyond plain input events: force a face mode, open the setup screen, show a pairing code, flush the
-// display statistics (tools/test-device.mjs).
+// Screen, pairing and display diagnostic hooks (tools/test-device.mjs).
 static bool sim_screen_hook(cJSON *j, const char *event) {
     if (!strcmp(event, "mode")) {
         cJSON *mode = cJSON_GetObjectItem(j, "mode"), *ms = cJSON_GetObjectItem(j, "ms");
@@ -449,8 +448,8 @@ static void config_info(char *reply, size_t cap) {
     status_json_integer(info, "heap_min", esp_get_minimum_free_heap_size());
     status_json_integer(info, "app_stack_free", app_stack_free());
     status_json_integer(info, "heap_failures", hp_allocation_failures());
-    muse_state_t muse = muse_store_state();
-    status_json_string(info, "native_agent", muse == MUSE_OFF ? "" : "Muse");
+    printer_protocol_info(info);
+    muse_state_t muse = muse_store_state(); status_json_string(info, "native_agent", muse == MUSE_OFF ? "" : "Muse");
     status_json_bool(info, "muse_pairing", muse == MUSE_PAIRING);
     if (!status_json_end(info))
         snprintf(reply, cap, "{\"ok\":false,\"error\":\"status unavailable\"}");

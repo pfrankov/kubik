@@ -68,19 +68,19 @@ test('install printer device advertises RPC support and replies with the exact r
   const messages = new EventEmitter();
   const requests = [];
   const device = new SimDevice({ id: 'kubik-abcdef', keyPem: newDeviceKeyPem(),
-    printerReply: request => { requests.push(request); return { status: 'not_configured' }; } });
+    printerReply: request => { requests.push(request); return { status: 'error', code: 'printer_not_found' }; } });
   t.after(() => { device.close(); for (const socket of sockets.clients) socket.terminate();
     sockets.close(); server.close(); rmSync(dir, { recursive: true, force: true }); });
   sockets.on('connection', socket => socket.on('message', data => messages.emit('message', JSON.parse(data))));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const hello = once(messages, 'message');
   await device.connect(`wss://127.0.0.1:${server.address().port}/kubik/v1`);
-  assert.equal((await hello)[0].printer, 1);
+  assert.equal((await hello)[0].printer, 2);
   const [peer] = [...sockets.clients];
   const result = once(messages, 'message');
   const request = { t: 'printer', rid: '0123456789abcdef0123456789abcdef', action: 'status' };
   peer.send(JSON.stringify(request));
-  assert.deepEqual((await result)[0], { t: 'printer_result', rid: request.rid, status: 'not_configured' });
+  assert.deepEqual((await result)[0], { t: 'printer_result', rid: request.rid, status: 'error', code: 'printer_not_found' });
   assert.deepEqual(requests, [request]);
   peer.on('message', data => {
     const event = JSON.parse(data);
@@ -92,16 +92,22 @@ test('install printer device advertises RPC support and replies with the exact r
 test('printer model fixture is inactive by default and requires the real tool result before replying', () => {
   const fixture = createPrinterFixture();
   assert.equal(fixture.sttOverride(), undefined); assert.equal(fixture.chatReply({}), null);
-  fixture.begin('not_configured');
-  assert.match(fixture.sttOverride(), /PRINT_FIXTURE_not_configured/);
+  fixture.begin('error');
+  assert.match(fixture.sttOverride(), /PRINT_FIXTURE_error/);
   const messages = [{ role: 'user', content: fixture.sttOverride() }];
   assert.throws(() => fixture.chatReply({ tools: [], messages }), /discovery surface is available/);
   const first = fixture.chatReply({ tools: [{ function: { name: 'kubik_printer' } }], messages });
   assert.equal(first.tool_calls.length, 1);
   assert.equal(first.tool_calls[0].function.name, 'kubik_printer');
-  const result = fixture.chatReply({ messages: [...messages, { role: 'assistant', tool_calls: [{ id: 'normalized-id', function: { name: 'kubik_printer' } }] },
-    { role: 'tool', tool_call_id: 'normalized-id', content: '{"status":"not_configured","paperConfirmed":false}' }] });
-  assert.match(result.content, /not configured.*Nothing was sent/);
+  assert.deepEqual(JSON.parse(first.tool_calls[0].function.arguments), { action: 'status' });
+  const statusMessages = [...messages, first, { role: 'tool', tool_call_id: first.tool_calls[0].id,
+    content: '{"status":"ready","printer":{"width_dots":576,"dpi":304}}' }];
+  const print = fixture.chatReply({ tools: [{ function: { name: 'kubik_printer' } }], messages: statusMessages });
+  const parameters = JSON.parse(print.tool_calls[0].function.arguments);
+  assert.equal(parameters.action, 'print');assert.equal(parameters.width_mm, 30);assert.equal(parameters.height_mm, 20);
+  const result = fixture.chatReply({ messages: [...statusMessages, print,
+    { role: 'tool', tool_call_id: print.tool_calls[0].id, content: '{"status":"error","code":"printer_not_found","outcome":"not_sent","paperConfirmed":false}' }] });
+  assert.match(result.content, /not found.*Nothing was sent/);
   fixture.end(); assert.equal(fixture.sttOverride(), undefined);
 });
 
@@ -127,12 +133,16 @@ test('compact model fixture follows normalized reply ids and the exact qualified
   assert.equal(describe.function.name, 'tool_describe'); assert.deepEqual(JSON.parse(describe.function.arguments), { id });
   messages.push({ role: 'assistant', tool_calls: [{ id: 'normalized-describe-456', function: { name: 'tool_describe' } }] },
     { role: 'tool', tool_call_id: 'normalized-describe-456', content: '{"name":"kubik_printer","input":"action text"}' });
+  const status = fixture.chatReply({ tools, messages }).tool_calls[0];
+  assert.equal(status.function.name, 'tool_call');assert.equal(JSON.parse(status.function.arguments).args.action, 'status');
+  messages.push({ role: 'assistant', tool_calls: [{ id: 'normalized-status-789', function: { name: 'tool_call' } }] },
+    { role: 'tool', tool_call_id: 'normalized-status-789', content: '{"result":{"details":{"status":"ready","printer":{"width_dots":576,"dpi":304}}}}' });
   const print = fixture.chatReply({ tools, messages }).tool_calls[0];
   assert.equal(print.function.name, 'tool_call'); assert.equal(JSON.parse(print.function.arguments).id, id);
   messages.push({ role: 'assistant', tool_calls: [{ id: 'normalized-print-789', function: { name: 'tool_call' } }] },
     { role: 'tool', tool_call_id: 'normalized-print-789', content: '{"result":{"details":{"status":"sent","paperConfirmed":false}}}' });
   assert.match(fixture.chatReply({ tools, messages }).content, /sent to the printer.*not confirmed/);
-  assert.equal(run.calls, 1); assert.equal(run.modelRequests, 4); fixture.end();
+  assert.equal(run.calls, 1); assert.equal(run.modelRequests, 5); fixture.end();
 });
 
 test('mock model skips the current SDK runtime-context user blocks instead of replying to metadata', () => {

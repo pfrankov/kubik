@@ -13,6 +13,8 @@
 #include "wifi.h"
 #include "tls_mem.h"
 #include "muse_pair.h"
+#include "printer_protocol.h"
+#include "printer_guard.h"
 #include "tess.h"
 
 static const char *TAG = "app";
@@ -39,6 +41,11 @@ static bool fallen_character(void) {
 }
 
 void ptt_down(void) {
+    if (!printer_protocol_before_voice()) {
+        s_ignore_up = true;
+        face_lock(); face_card(&g_face, "Voice memory is busy. Try " KUBIK_VOICE_BUTTON " again."); face_unlock();
+        return;
+    }
     app_wake_suspend();
     ESP_LOGI(TAG, "key down");
     s_last_touch_or_key = now_ms();
@@ -221,9 +228,11 @@ void app_touch_event(const app_ev_t *e) {
 
 // All credentials, device identity and preferences are erased. Restart into first-run setup; the new key needs pairing again.
 esp_err_t factory_reset(void) {
+    if (!printer_protocol_reset_ready()) return ESP_ERR_INVALID_STATE;
     esp_err_t err = settings_factory_reset();
     ESP_LOGW(TAG, "factory reset: %s", esp_err_to_name(err));
     if (err == ESP_OK) {
+        printer_guard_reset();
         // Reboot is queued. The app's next flush must not restore erased wins.
         face_lock();
         tess_games_restore(&g_face, 0);

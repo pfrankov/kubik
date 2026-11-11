@@ -1,6 +1,7 @@
 #include "task_placement.h"
 // Native Muse v5 framing. Cryptography lives in the pinned upstream component.
 #include "muse_ble.h"
+#include "ble_runtime.h"
 #include "muse_store.h"
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -9,8 +10,6 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
@@ -34,6 +33,7 @@ static const char *device_name;
 static muse_ble_command_t dispatch;
 static QueueHandle_t commands;
 static SemaphoreHandle_t tx_lock;
+static TaskHandle_t worker_task;
 static uint8_t *rx;
 static size_t rx_size;
 static unsigned rx_total, rx_next;
@@ -129,7 +129,6 @@ static void advertise(void) {
     ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER, &params, gap_event, NULL);
 }
 static void synced(void) { if (!ble_hs_util_ensure_addr(0)) advertise(); }
-static void host_task(void *arg) { (void)arg; nimble_port_run(); nimble_port_freertos_deinit(); }
 static void worker(void *arg) {
     (void)arg; command_t command;
     for (;;) {
@@ -139,18 +138,30 @@ static void worker(void *arg) {
     }
 }
 
-esp_err_t muse_ble_start(const char *name, muse_ble_command_t handler) {
-    device_name = name; dispatch = handler;
-    commands = xQueueCreate(2, sizeof(command_t)); tx_lock = xSemaphoreCreateMutex();
-    if (!commands || !tx_lock) return ESP_ERR_NO_MEM;
-    esp_err_t err = nimble_port_init();
-    if (err != ESP_OK) return err;
+static esp_err_t prepare_services(void) {
     ble_svc_gap_init(); ble_svc_gatt_init();
     if (ble_gatts_count_cfg(services) || ble_gatts_add_svcs(services)) return ESP_FAIL;
-    ble_svc_gap_device_name_set(name); ble_hs_cfg.sync_cb = synced;
-    if (xTaskCreatePinnedToCore(worker, "muse_pair", 6144, NULL, 4, NULL, KUBIK_UI_CORE) != pdPASS) return ESP_ERR_NO_MEM;
-    nimble_port_freertos_init(host_task);
-    return ESP_OK;
+    return ble_svc_gap_device_name_set(device_name) ? ESP_FAIL : ESP_OK;
+}
+
+static void release_worker(void) {
+    if (worker_task) { vTaskDelete(worker_task); worker_task = NULL; }
+    if (commands) { vQueueDelete(commands); commands = NULL; }
+    if (tx_lock) { vSemaphoreDelete(tx_lock); tx_lock = NULL; }
+}
+
+esp_err_t muse_ble_start(const char *name, muse_ble_command_t handler) {
+    if (!name || !handler) return ESP_ERR_INVALID_ARG;
+    if (commands || tx_lock) return ESP_ERR_INVALID_STATE;
+    device_name = name; dispatch = handler;
+    commands = xQueueCreate(2, sizeof(command_t)); tx_lock = xSemaphoreCreateMutex();
+    if (!commands || !tx_lock) { release_worker(); return ESP_ERR_NO_MEM; }
+    if (xTaskCreatePinnedToCore(worker, "muse_pair", 6144, NULL, 4, &worker_task, KUBIK_UI_CORE) != pdPASS) {
+        release_worker(); return ESP_ERR_NO_MEM;
+    }
+    esp_err_t result = ble_runtime_start(BLE_RUNTIME_MUSE, prepare_services, synced);
+    if (result != ESP_OK) release_worker();
+    return result;
 }
 
 bool muse_ble_send(const char *json, uint32_t generation) {

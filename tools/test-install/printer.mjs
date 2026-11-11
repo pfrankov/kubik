@@ -22,8 +22,10 @@ const call = (id, name, args) => ({ role: 'assistant', content: null, tool_calls
 
 function discoveredCall(body, messages, active) {
   const names = body.tools?.map(tool => tool.function?.name) ?? [];
-  const args = { action: 'print', text: TEXT };
-  if (names.includes(TOOL)) return call(active.callId, TOOL, args);
+  const args = active.phase === 'status' ? { action: 'status' } :
+    { action: 'print', text: TEXT, format: 'text', width_mm: 30, height_mm: 20, font_mm: 3 };
+  const id = active.phase === 'status' ? `${active.callId}_status` : active.callId;
+  if (names.includes(TOOL)) return call(id, TOOL, args);
   assert.ok(names.includes('tool_search') && names.includes('tool_describe') && names.includes('tool_call'),
     'neither the printer nor the SDK tool discovery surface is available to the model');
   const described = toolMessage(messages, ['tool_describe']);
@@ -31,7 +33,7 @@ function discoveredCall(body, messages, active) {
     const schema = messageText(described);
     assert.match(schema, /kubik_printer/); assert.match(schema, /action/); assert.match(schema, /text/);
     assert.ok(active.resultId, 'discovery did not provide an exact printer id');
-    return call(active.callId, 'tool_call', { id: active.resultId, args });
+    return call(id, 'tool_call', { id: active.resultId, args });
   }
   const searched = toolMessage(messages, ['tool_search']);
   if (searched) {
@@ -40,9 +42,24 @@ function discoveredCall(body, messages, active) {
     const matches = catalog.filter(result => result.name === TOOL);
     assert.equal(matches.length, 1, 'printer was missing or ambiguous in the actual policy-filtered tool catalog');
     assert.equal(typeof matches[0].id, 'string'); active.resultId = matches[0].id;
-    return call(`${active.callId}_describe`, 'tool_describe', { id: active.resultId });
+    return call(`${id}_describe`, 'tool_describe', { id: active.resultId });
   }
-  return call(`${active.callId}_search`, 'tool_search', { query: TOOL, limit: 3 });
+  return call(`${id}_search`, 'tool_search', { query: TOOL, limit: 3 });
+}
+
+function fixturePrinter() {
+  return { name: 'PeriPage+TEST', model: 'PeriPage A6+', firmware: 'V1.12_304dpi',
+    hardware: 'v3.38.21_AY', dpi: 304, width_dots: 576, printable_width_mm: 576 * 25.4 / 304,
+    battery_pct: 100, formats: ['text', 'qr'], max_height_mm: 150, media_height_mm: null, size_source: 'model_profile' };
+}
+
+function nextCall(body, messages, active) {
+  const response = discoveredCall(body, messages, active);
+  const stage = `${active.phase}:${response.tool_calls[0].function.name}`;
+  assert.ok(!active.stages.has(stage), 'printer fixture repeated a completed tool stage');
+  active.stages.add(stage);
+  if (response.tool_calls[0].id === active.callId) assert.equal(active.calls++, 0, 'model fixture attempted the print more than once');
+  return response;
 }
 
 /** Explicit hooks for the clean-install test only; ordinary STT/LLM behavior stays unchanged. */
@@ -52,7 +69,7 @@ export function createPrinterFixture() {
     begin(status) {
       assert.equal(active, null);
       active = { status, callId: `printer_fixture_${status}`, calls: 0, modelRequests: 0,
-        stages: new Set(), requests: [], speech: [], result: null };
+        phase: 'status', statusCalls: 0, stages: new Set(), requests: [], speech: [], result: null };
       return active;
     },
     end() { active = null; },
@@ -64,30 +81,41 @@ export function createPrinterFixture() {
     },
     chatReply(body) {
       if (!active) return null;
-      assert.ok(++active.modelRequests <= 6, 'printer fixture exceeded its bounded model loop');
+      assert.ok(++active.modelRequests <= 8, 'printer fixture exceeded its bounded model loop');
       const messages = currentMessages(body, active);
       const result = toolMessage(messages, [TOOL, 'tool_call']);
       if (result) {
         const text = messageText(result);
+        if (active.phase === 'status') {
+          assert.match(text, /"status"\s*:\s*"ready"/);
+          assert.match(text, /"width_dots"\s*:\s*576/);assert.match(text, /"dpi"\s*:\s*304/);
+          active.phase = 'print';
+          return nextCall(body, messages, active);
+        }
         assert.match(text, new RegExp(`"status"\\s*:\\s*"${active.status}"`), 'model did not receive the real device result');
         active.result = text;
         return { role: 'assistant', content: active.status === 'sent' ?
           'The text was sent to the printer. Paper output is not confirmed.' :
-          'The printer is not configured. Nothing was sent for printing.' };
+          'The printer was not found. Nothing was sent for printing.' };
       }
-      const response = discoveredCall(body, messages, active);
-      const stage = response.tool_calls[0].function.name;
-      assert.ok(!active.stages.has(stage), 'printer fixture repeated a completed tool stage');
-      active.stages.add(stage);
-      if (response.tool_calls[0].id === active.callId) assert.equal(active.calls++, 0, 'model fixture attempted the print more than once');
-      return response;
+      return nextCall(body, messages, active);
     },
     printerReply(request) {
       assert.ok(active, 'unexpected printer request outside a fixture turn');
+      if (request.action === 'status') {
+        assert.equal(active.statusCalls++, 0);
+        active.requests.push(request);
+        return { status: 'ready', printer: fixturePrinter() };
+      }
       assert.equal(request.action, 'print'); assert.equal(request.text, TEXT);
+      assert.equal(request.format, 'text');assert.equal(request.width_mm, 30);
+      assert.equal(request.height_mm, 20);assert.equal(request.font_mm, 3);
       assert.match(request.rid, /^[0-9a-f]{32}$/);
       active.requests.push(request);
-      return { status: active.status };
+      return active.status === 'sent' ? { status: 'sent', outcome: 'submitted', printer: fixturePrinter(),
+        layout: { format: 'text', width_dots: 359, height_dots: 239,
+          width_mm: 359 * 25.4 / 304, height_mm: 239 * 25.4 / 304, font_mm: 3 } } :
+        { status: 'error', code: 'printer_not_found', outcome: 'not_sent' };
     },
   };
 }
@@ -103,17 +131,17 @@ export async function assertPrinterModelTurns(ctx, pcm, say) {
   try {
     await device.connect(ctx.lanUrl);
     assert.equal((await device.outcome(15000)).t, 'welcome');
-    for (const [index, status] of ['sent', 'not_configured'].entries()) {
+    for (const [index, status] of ['sent', 'error'].entries()) {
       const run = ctx.printerFixture.begin(status);
       try {
         const reply = await device.pushToTalk(pcm, 20 + index);
-        assert.equal(run.calls, 1); assert.equal(run.requests.length, 1);
+        assert.equal(run.calls, 1); assert.equal(run.statusCalls, 1);assert.equal(run.requests.length, 2);
         assert.ok(run.result, 'tool result did not return to the model');
         assert.ok(reply.frames > 5 && reply.rms > 0.005, 'printer result did not reach audible device speech');
         const text = run.speech.join(' ');
-        assert.match(text, status === 'sent' ? /sent to the printer.*not confirmed/i : /not configured.*Nothing was sent/i);
+        assert.match(text, status === 'sent' ? /sent to the printer.*not confirmed/i : /not found.*Nothing was sent/i);
         assert.doesNotMatch(text, /successfully printed|paper printed/i);
-        say(`printer ${status}: actual model tool call, one wire request, matching device result and honest final reply`);
+        say(`printer ${status}: actual model tool call, capability query, one print request and honest final reply`);
       } finally { ctx.printerFixture.end(); }
     }
   } catch (error) {

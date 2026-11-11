@@ -69,6 +69,8 @@ def run_contract(source):
                        cwd=ROOT, env=env, timeout=20, check=True)
         subprocess.run([str(python), str(ROOT / 'tools/hermes_native/physical_fixture_test.py')],
                        cwd=ROOT, env=env, timeout=20, check=True)
+        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_printer_test.py')],
+                       cwd=ROOT, env=env, timeout=20, check=True)
         subprocess.run([str(python), str(ROOT / 'tools/hermes_native/contract.py')],
                        cwd=ROOT, env=env, timeout=360, check=True)
     print(f'Hermes native acceptance passed: {PIN["tag"]} / {PIN["commit"]} / Python {version}')

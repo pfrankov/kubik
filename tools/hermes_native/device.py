@@ -20,6 +20,10 @@ def arguments():
     parser.add_argument('--port', type=int, default=18999, help='Loopback fixture listener forwarded to the USB bridge')
     parser.add_argument('--wifi', action='store_true', help='Use the existing pinned Wi-Fi endpoint after the owner stops production')
     parser.add_argument('--endpoint', help='Exact saved kubik://host:port required in --wifi mode')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--printer', action='store_true', help='Real printer acceptance: status and exactly one small text/QR print each')
+    modes.add_argument('--printer-live-status', action='store_true', help='Physical Live microphone plus one printer status RPC; printing is blocked')
+    modes.add_argument('--printer-stream-check', action='store_true', help='Exactly one NEW BLE 20 ms text print, 30x10 mm at 3 mm font')
     parser.add_argument('--evidence', required=True, type=Path, help='NEW private evidence directory')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -62,7 +66,13 @@ def launch(args):
                    '--port', str(args.port), '--evidence', str(args.evidence)]
         if args.wifi:
             command += ['--wifi', '--endpoint', args.endpoint]
-        subprocess.run(command, cwd=ROOT, env=env, timeout=240, check=True)
+        if args.printer:
+            command.append('--printer')
+        if args.printer_live_status:
+            command.append('--printer-live-status')
+        if args.printer_stream_check:
+            command.append('--printer-stream-check')
+        subprocess.run(command, cwd=ROOT, env=env, timeout=400 if printer_mode(args) else 240, check=True)
 
 
 async def prepare(args, original, identity):
@@ -104,13 +114,31 @@ async def prepare(args, original, identity):
     return GatewayRunner(load_gateway_config()), backend, providers
 
 
+def printer_mode(args):
+    return args.printer or args.printer_live_status or args.printer_stream_check
+
+
+def acceptance(args):
+    if args.printer_stream_check:
+        from device_printer import StreamObservations, check_stream
+        return StreamObservations, check_stream, 'one new stream transport print submitted'
+    if args.printer_live_status:
+        from device_printer import LiveObservations, check_live_status
+        return LiveObservations, check_live_status, 'Live microphone and real printer status without printing'
+    if args.printer:
+        from device_printer import Observations, check
+        return Observations, check, 'printer tool and two submitted test prints'
+    from device_voice import Observations, check
+    return Observations, check, 'Realtime/Live, real agent tools and playback'
+
+
 async def worker(args):
     import logging
     from contract import BLOCKED, network_guard
     from device_control import Control, save
     from device_restore import cleanup
     from device_transport import connect, validate_baseline
-    from device_voice import Observations, check
+    Observations, check, label = acceptance(args)
     from voice_fixture import eventually
     logging.basicConfig(level=logging.WARNING)
     sys.addaudithook(network_guard)
@@ -127,13 +155,17 @@ async def worker(args):
         observations = Observations(adapter)
         observations.install()
         await connect(args, control)
+        if printer_mode(args) and not args.wifi:
+            await control.sim('wifi', ms=360000)
         await eventually(lambda: identity in adapter.peers and adapter.peers[identity].ready)
         peer = adapter.peers[identity]
         observations.watch_socket(peer.socket)  # Wi-Fi may authenticate before Gateway.start returns.
         await control.prepare_screen()
         result = await check(adapter, peer, control, providers, observations)
         result.update(device=original['device'], transport='wifi' if args.wifi else 'usb',
-                      voice_provider='local fixture', blocked_network_attempts=len(BLOCKED))
+                      model_provider='local fixture', blocked_network_attempts=len(BLOCKED))
+        if not args.printer:
+            result['voice_provider'] = 'local fixture'
         save(args.evidence / 'result.json', result)
     except BaseException as error:
         primary = error
@@ -141,7 +173,7 @@ async def worker(args):
     finally:
         await cleanup(gateway, adapter, peer, control, original, observations, backend, providers, primary,
                       release_wifi_pause=not args.wifi)
-    print('PASS physical Kubik through native Hermes Gateway, Realtime/Live, real agent tools and playback', flush=True)
+    print('PASS physical Kubik through native Hermes Gateway, ' + label, flush=True)
 
 
 if __name__ == '__main__':

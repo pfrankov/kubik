@@ -51,7 +51,7 @@ export class SimDevice {
       ws.once('error', reject);
     });
     ws.send(JSON.stringify({ t: 'hello', v: 5, device: this.id, key: this.publicKey, fw: this.fw, volume: this.volume, name: 'Install test',
-      ...(this.printerReply ? { printer: 1 } : {}) }));
+      ...(this.printerReply ? { printer: 2 } : {}) }));
   }
 
   send(message) { this.ws.send(JSON.stringify(message)); }

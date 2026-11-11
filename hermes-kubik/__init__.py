@@ -3,16 +3,19 @@
 
 def register(ctx):
     from .runtime import dependencies_available
+    from .printer_tool import register_printer
 
     from hermes_constants import get_hermes_home
     from .telegram_pairing import TelegramPairing
     pairing = TelegramPairing(get_hermes_home())
     ctx.register_telegram_handler(pairing.install)
+    printer = register_printer(ctx)
 
     def create_adapter(config):
         from .adapter import KubikAdapter
         adapter = KubikAdapter(config)
         adapter.telegram_pairing = pairing
+        printer.adapter = adapter
         return adapter
 
     ctx.register_platform(

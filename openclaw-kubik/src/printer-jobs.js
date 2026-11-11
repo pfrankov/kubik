@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { PrinterError, validPrinterParameters } from './printer-contract.js';
+import { PrinterError, PRINTER_PROTOCOL_VERSION, validPrinterParameters, canonicalPrinterParameters } from './printer-contract.js';
 
 const BROKER = Symbol.for('openclaw.kubik.printer-jobs');
 const CACHE_MS = 10 * 60_000;
 const CACHE_LIMIT = 64;
-const TIMEOUT_MS = 5000;
+const TIMEOUT_MS = { status: 20_000, print: 120_000 };
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const validCallId = (value) => typeof value === 'string' && !!value.trim() && value.isWellFormed() && Buffer.byteLength(value) <= 256;
 
@@ -13,8 +13,8 @@ export class PrinterJobs {
   #records = new Map();
   #active = new Set();
 
-  constructor(server, { timeoutMs = TIMEOUT_MS, now = Date.now } = {}) {
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new Error('Invalid printer timeout');
+  constructor(server, { timeoutMs, now = Date.now } = {}) {
+    if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000)) throw new Error('Invalid printer timeout');
     Object.assign(this, { server, timeoutMs, now });
   }
 
@@ -27,7 +27,7 @@ export class PrinterJobs {
 
   #admit(device, rid, signal) {
     if (this.#records.size >= CACHE_LIMIT || this.#active.has(device.id)) throw new PrinterError('printer_busy', { rid });
-    if (device.printer !== 1) throw new PrinterError('printer_unsupported', { rid });
+    if (device.printer !== PRINTER_PROTOCOL_VERSION) throw new PrinterError('printer_unsupported', { rid });
     if (signal?.aborted) throw new PrinterError('cancelled', { rid });
   }
 
@@ -49,11 +49,11 @@ export class PrinterJobs {
   }
 
   #result(record, parameters, response) {
-    const outcome = parameters.action !== 'print' ? undefined : response.status === 'sent' ? 'sent' :
-      response.code === 'printer_failed' ? 'unknown' : 'not_sent';
+    const outcome = parameters.action === 'print' ? response.outcome : undefined;
     record.uncertain = outcome === 'unknown';
     return { rid: response.rid, status: response.status, ...(response.code ? { code: response.code } : {}),
-      ...(outcome ? { outcome } : {}), paperConfirmed: false };
+      ...(outcome ? { outcome } : {}), ...(response.printer ? { printer: response.printer } : {}),
+      ...(response.layout ? { layout: response.layout } : {}), paperConfirmed: false };
   }
 
   request(session, toolCallId, parameters, { signal, allowed = () => true } = {}) {
@@ -62,7 +62,8 @@ export class PrinterJobs {
     const device = session?.device;
     if (!device || session.closed || this.server.getSession(device.id) !== session) return Promise.reject(new PrinterError('device_offline'));
     const rid = hash(`${device.id}\n${device.fingerprint}\n${toolCallId}`).slice(0, 32);
-    const payload = hash(JSON.stringify([parameters.action, parameters.text ?? null]));
+    parameters = canonicalPrinterParameters(parameters);
+    const payload = hash(JSON.stringify(parameters));
     const canSend = () => this.#canSend(session, allowed);
     try {
       if (!canSend()) throw new PrinterError('unauthorized', { rid });
@@ -70,7 +71,8 @@ export class PrinterJobs {
       if (previous) return previous.payload === payload ? previous.promise : Promise.reject(new PrinterError('request_conflict', { rid }));
       this.#admit(device, rid, signal);
     } catch (error) { return Promise.reject(error); }
-    return this.#start(session, rid, parameters, payload, { signal, allowed: canSend, timeoutMs: this.timeoutMs });
+    return this.#start(session, rid, parameters, payload, { signal, allowed: canSend,
+      timeoutMs: this.timeoutMs ?? TIMEOUT_MS[parameters.action] });
   }
 }
 

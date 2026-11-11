@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-
 #include "character.h"
 #include "app_mailbox.h"
 #include "esp_err.h"
@@ -217,6 +216,7 @@ static void app_voice_input_end(int a, int b, uint32_t session) {
     (void)session;
 }
 static void esp_restart(void) {}
+#include "printer_reset_cases.h"
 /* PRODUCTION_GAME_TAPS */
 /* PRODUCTION_POST */
 /* PRODUCTION_FACTORY_RESET */
@@ -491,7 +491,7 @@ int main(void) {
     test_welcome_survives_full_queue_and_keeps_session_fence();
     test_reserved_slots_keep_key_speech_order_and_coalesce();
     test_progress_flush_is_coalesced_retryable_and_independent_of_queue(); test_sky_progress_flush_waits_for_the_sky_to_settle();
-    test_factory_reset_cannot_resurrect_progress_before_queued_reboot();
+    test_factory_reset_cannot_resurrect_progress_before_queued_reboot(); test_printer_reset_guard();
     test_game_taps_defer_across_priority_events();
     test_only_effective_preemption_cancels_game_taps();
     test_game_tap_stays_canceled_after_recovery();

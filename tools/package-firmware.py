@@ -172,7 +172,7 @@ def build_inputs(build):
     inputs.update([ROOT / "firmware/main/CMakeLists.txt", ROOT / "firmware/CMakeLists.txt",
                    partition_table(character), Path(description['config_file']),
                    ROOT / 'firmware' / lock, *sdkconfig_inputs(description, target),
-                   ROOT / "tools/font/gen-font.swift", ROOT / "tools/font/write-font.py",
+                   ROOT / "tools/configure-printer.py", ROOT / "tools/font/gen-font.swift", ROOT / "tools/font/write-font.py",
                    *(ROOT / "tools/font/sources").glob("*.ttf")])
     if target == 'esp32c6' and character == 'PLUSH':
         inputs.update((ROOT / 'firmware/sdkconfig', ROOT / 'tools/configure-plush.py'))

@@ -65,7 +65,7 @@ class NativeJob:
                 if not self.voice.current():
                     return
                 with profile_scope(self.owner.adapter.home):
-                    await self.owner.adapter.handle_message(self.event)
+                    await self.owner.adapter._handle_bound_message(self.peer, self.event)
                     self.accepted = bool(getattr(self.event, '_gateway_accepted', False))
                     if not self.accepted:
                         raise ValueError('Hermes rejected native voice input')

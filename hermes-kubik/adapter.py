@@ -18,6 +18,8 @@ from gateway.platforms.event import MessageEvent, MessageType
 from .codec import decode
 from .pairing_wait import wait_pairing
 from .peer import Peer
+from .printer_jobs import PrinterJobs
+from .printer_tool import printer_origin
 from .voice_controls import VoiceControls
 from .native_jobs import NativeJobs, active_job
 from .native_voice import NativeVoice
@@ -37,7 +39,10 @@ class KubikAdapter(BasePlatformAdapter):
         self.transcriptions = set()
         self.voice_controls = VoiceControls(self)
         self.native_jobs = NativeJobs(self)
+        self.printer_jobs = PrinterJobs(self)
+        self.printer_loop = None
     async def connect(self, *, is_reconnect=False):
+        self.printer_loop = asyncio.get_running_loop()
         if self.runner is not None:
             return True
         with profile_scope(self.home):
@@ -64,6 +69,7 @@ class KubikAdapter(BasePlatformAdapter):
             await socket.close(code=1001)
         if runner is not None:
             await runner.cleanup()
+        await self.printer_jobs.shutdown()
     async def receive_json(self, socket):
         message = await socket.receive(timeout=8)
         if message.type != WSMsgType.TEXT:
@@ -133,6 +139,7 @@ class KubikAdapter(BasePlatformAdapter):
         if not peer:
             return
         peer.ready = False
+        self.printer_jobs.close(peer)
         if self.peers.get(peer.identity) is peer:
             del self.peers[peer.identity]
         await self.cancel(peer)
@@ -169,11 +176,16 @@ class KubikAdapter(BasePlatformAdapter):
         kind = value.get('t')
         if kind in ('ping', 'device_state', 'ptt', 'cancel'):
             await self._control_command(peer, kind, value)
-        elif kind in ('progress', 'played', 'shown'):
-            self._playback_command(peer, kind, value)
+        elif kind in ('progress', 'played', 'shown', 'cancelled'):
+            if kind == 'cancelled':
+                self._cancel_receipt(peer, value)
+            else:
+                self._playback_command(peer, kind, value)
         elif kind in ('agent_options', 'agent_model'):
             await self.voice_controls.handle(peer, value)
-        elif kind in ('live_input_ack', 'cancelled') and peer.native:
+        elif kind == 'printer_result':
+            self.printer_jobs.accept(peer, value)
+        elif kind == 'live_input_ack' and peer.native:
             peer.native.acknowledge(kind, value)
     async def _control_command(self, peer, kind, value):
         if kind == 'ping':
@@ -197,6 +209,13 @@ class KubikAdapter(BasePlatformAdapter):
             full = kind == 'shown' or (type(value.get('ms')) is int and value['ms'] >= peer.sent_ms)
             if full and key in peer.receipts:
                 peer.receipts[key].set()
+    def _cancel_receipt(self, peer, value):
+        if type(value.get('gen')) is int:
+            receipt = peer.receipts.get(('cancelled', value['gen']))
+            if receipt:
+                receipt.set()
+        if peer.native:
+            peer.native.acknowledge('cancelled', value)
     async def ptt(self, peer, value):
         turn = value.get('turn')
         if type(turn) is not int or not 0 <= turn <= 255 or type(value.get('on')) is not bool:
@@ -359,20 +378,25 @@ class KubikAdapter(BasePlatformAdapter):
     def _authorized_voice_event(self, peer, text):
         if not self._is_approved(peer.identity):
             return None
+        message_id = secrets.token_hex(8)
         # This device's request enters the normal gateway memory/tool/voice-reply pipeline.
         return MessageEvent(text=text, message_type=MessageType.VOICE,
             source=self.build_source(peer.identity, chat_name='Kubik', user_id=peer.identity,
-                                     role_authorized=True),
-            user_id=peer.identity, message_id=secrets.token_hex(8))
+                                     role_authorized=True, message_id=message_id),
+            user_id=peer.identity, message_id=message_id)
     async def _run_voice_event(self, peer, event):
         peer.complete.clear()
         peer.message_id = event.message_id
         peer.stage = 'agent'
         async with asyncio.timeout(240):
-            await self.handle_message(event)
+            await self._handle_bound_message(peer, event)
             if not event._gateway_accepted:
                 raise ValueError('Hermes rejected voice event')
             await peer.complete.wait()
+    async def _handle_bound_message(self, peer, event):
+        self.printer_loop = asyncio.get_running_loop()
+        with printer_origin(self, peer, event):
+            await self.handle_message(event)
     def finish_transcription(self, task, path):
         self.transcriptions.discard(task)
         Path(path).unlink(missing_ok=True)

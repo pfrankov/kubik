@@ -16,7 +16,7 @@
   },
   "toolMetadata": {
     "kubik_printer": {
-      "optional": true
+      "optional": false
     }
   },
   "doctorContract": {

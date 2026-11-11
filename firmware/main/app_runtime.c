@@ -4,6 +4,7 @@
 #include "app_game_probe.h"
 #include "muse_backend.h"
 #include "printer_protocol.h"
+#include "printer_platform.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -256,7 +257,7 @@ static power_network_inputs_t network_sleep_inputs(void) {
         .access_point_active = wifi_ap_active() || wifi_ap_clients() > 0,
         .usb_host_active = !diagnostic && link_usb_host_present(),
         .work_active = app_voice_live_active() || s_talk != TALK_IDLE || s_gen >= 0 || audio_stream_playing() ||
-                       s_srv != SS_IDLE || s_act_own || muse_backend_selected(),
+                       s_srv != SS_IDLE || s_act_own || muse_backend_selected() || printer_protocol_busy(),
         .saved_networks = g_settings.wifi_profile_count > 0,
     };
 }
@@ -300,6 +301,23 @@ static void tick_sleep(int64_t t) {
 int app_tick_ms(void) {
     bool quiet = power_is_dark(s_power) && s_talk == TALK_IDLE && s_gen < 0 && s_srv == SS_IDLE;
     return quiet ? 250 : 50;
+}
+
+static uint32_t printer_blockers(bool enabled) {
+    bool listening = talk_is_listening(s_talk) && !app_voice_live_active();
+    return (!enabled << 0) | (!s_online << 1) | (!!s_setup << 2) | (!!s_pair_code[0] << 3) |
+        (!!s_power_off_at << 4) | (listening << 5) | ((s_gen >= 0) << 6) | (audio_stream_busy() << 7) |
+        (app_voice_live_active() << 8) | ((s_talk != TALK_IDLE) << 9) | ((s_srv != SS_IDLE) << 10) |
+        (!!s_act_own << 11);
+}
+
+void printer_app_state(printer_app_state_t *state) {
+    state->session = link_session();
+    state->online = s_online;
+    state->enabled = !muse_backend_selected();
+    state->blockers = printer_blockers(state->enabled);
+    state->can_start = !(state->blockers & 255u);
+    state->automatic_allowed = !state->blockers;
 }
 
 void app_tick(void) {

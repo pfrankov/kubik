@@ -33,7 +33,8 @@ export class NativeSession {
           this.trace.phase('provider-audio');
           if (muted()) return true;
           const stream = this.stream ??= this.#stream();
-          const queued = session.pacer.queuedBytes + stream.items.reduce((bytes, item) => bytes + (item.pcm?.length ?? 0), 0);
+          const queued = session.pacer.queuedBytes + (stream.inFlightBytes ?? 0) +
+            stream.items.reduce((bytes, item) => bytes + (item.pcm?.length ?? 0), 0);
           if (queued + pcm.length > MAX_NATIVE_AUDIO_BYTES) return false;
           stream.trace.source(pcm.length); stream.enqueuePcm(pcm, 400 * BYTES_PER_MS);
           session.wakeSpeech(); return true;

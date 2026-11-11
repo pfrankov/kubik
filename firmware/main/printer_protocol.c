@@ -1,150 +1,99 @@
 #include "printer_protocol.h"
+#include "printer_parse.h"
+#include "printer_work.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "link.h"
 
-typedef struct { char rid[33]; uint32_t session; bool invalid; } printer_reply_t;
-static printer_reply_t s_replies[PRINTER_REPLY_SLOTS];
-static unsigned s_head, s_count;
-static uint32_t s_session;
-static portMUX_TYPE s_reply_mux = portMUX_INITIALIZER_UNLOCKED;
+typedef struct { char rid[33]; uint32_t session; const char *error; bool printing; } printer_reply_t;
+static printer_reply_t replies[PRINTER_REPLY_SLOTS];
+static unsigned head, count;
+static uint32_t reply_session;
+static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 
-static bool lower_hex(unsigned char c) {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-}
-
-static bool request_id(const cJSON *item) {
-    if (!cJSON_IsString(item) || !item->valuestring || strlen(item->valuestring) != 32) return false;
-    for (unsigned i = 0; i < 32; i++) if (!lower_hex((unsigned char)item->valuestring[i])) return false;
-    return true;
-}
-
-static bool raw_string_invalid(const char *raw, size_t len) {
-    if (!raw || !len || len > LINK_JSON_MAX || memchr(raw, 0, len)) return true;
-    bool quoted = false;
-    for (size_t i = 0; i < len; i++) {
-        if (raw[i] == '"') quoted = !quoted;
-        if (quoted && (unsigned char)raw[i] < 0x20) return true;
-        if (quoted && raw[i] == '\\') {
-            if (i + 5 < len && !memcmp(raw + i + 1, "u0000", 5)) return true;
-            i++; // Literal escaped backslashes do not introduce a Unicode NUL.
-        }
-    }
+static bool already_queued(const char *rid) {
+    for (unsigned i = 0; i < count; i++)
+        if (!strcmp(replies[(head + i) % PRINTER_REPLY_SLOTS].rid, rid)) return true;
     return false;
 }
 
-static bool scalar_valid(uint32_t cp, uint32_t minimum) {
-    return cp >= minimum && cp <= 0x10ffff && (cp < 0xd800 || cp > 0xdfff);
-}
-
-static bool next_codepoint(const unsigned char **cursor, uint32_t *codepoint) {
-    const unsigned char *p = *cursor;
-    unsigned char first = *p++;
-    unsigned tail;
-    uint32_t minimum;
-    if (first < 0x80) { *codepoint = first; *cursor = p; return true; }
-    if (first >= 0xc2 && first <= 0xdf) { tail = 1; minimum = 0x80; *codepoint = first & 0x1f; }
-    else if (first >= 0xe0 && first <= 0xef) { tail = 2; minimum = 0x800; *codepoint = first & 0x0f; }
-    else if (first >= 0xf0 && first <= 0xf4) { tail = 3; minimum = 0x10000; *codepoint = first & 0x07; }
-    else return false;
-    for (unsigned i = 0; i < tail; i++) {
-        if ((*p & 0xc0) != 0x80) return false;
-        *codepoint = (*codepoint << 6) | (*p++ & 0x3f);
-    }
-    if (!scalar_valid(*codepoint, minimum)) return false;
-    *cursor = p;
-    return true;
-}
-
-static bool whitespace(uint32_t cp) {
-    static const uint32_t ranges[][2] = {{9,13},{32,32},{0x85,0x85},{0xa0,0xa0},{0x1680,0x1680},
-        {0x2000,0x200a},{0x2028,0x2029},{0x202f,0x202f},{0x205f,0x205f},{0x3000,0x3000},{0xfeff,0xfeff}};
-    for (unsigned i = 0; i < sizeof ranges / sizeof ranges[0]; i++)
-        if (cp >= ranges[i][0] && cp <= ranges[i][1]) return true;
-    return false;
-}
-
-static bool forbidden_control(uint32_t cp) {
-    return (cp < 0x20 && cp != '\n' && cp != '\t') || (cp >= 0x7f && cp <= 0x9f);
-}
-
-static bool printable_text(const cJSON *item) {
-    if (!cJSON_IsString(item) || !item->valuestring) return false;
-    size_t len = strnlen(item->valuestring, PRINTER_TEXT_MAX_BYTES + 1);
-    if (!len || len > PRINTER_TEXT_MAX_BYTES) return false;
-    const unsigned char *p = (const unsigned char *)item->valuestring;
-    bool visible = false;
-    while (*p) {
-        uint32_t cp;
-        if (!next_codepoint(&p, &cp) || forbidden_control(cp)) return false;
-        visible |= !whitespace(cp);
-    }
-    return visible;
-}
-
-static bool request_fields(cJSON *request) {
-    static const char *const names[] = {"t", "rid", "action", "text"};
-    unsigned seen = 0;
-    const cJSON *item;
-    cJSON_ArrayForEach(item, request) {
-        unsigned i = 0;
-        while (i < 4 && strcmp(item->string, names[i])) i++;
-        if (i == 4 || (seen & (1u << i))) return false;
-        seen |= 1u << i;
-    }
-    return (seen & 7u) == 7u;
-}
-
-static bool complete_json(const char *raw, size_t len, size_t consumed) {
-    if (!raw || consumed > len) return false;
-    for (size_t i = consumed; i < len; i++) if (!strchr(" \t\r\n", raw[i])) return false;
-    return true;
-}
-
-static bool valid_request(cJSON *request, const char *raw, size_t len, size_t consumed) {
-    if (raw_string_invalid(raw, len) || !complete_json(raw, len, consumed) || !request_fields(request)) return false;
-    const char *action = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(request, "action"));
-    cJSON *text = cJSON_GetObjectItemCaseSensitive(request, "text");
-    if (!action) return false;
-    if (!strcmp(action, "status")) return !text;
-    return !strcmp(action, "print") && printable_text(text);
-}
-
-static void enqueue(const char *rid, uint32_t session, bool invalid) {
-    portENTER_CRITICAL(&s_reply_mux);
-    if (s_session != session) { s_session = session; s_head = s_count = 0; }
-    bool duplicate = false;
-    for (unsigned i = 0; i < s_count; i++)
-        duplicate |= !strcmp(s_replies[(s_head + i) % PRINTER_REPLY_SLOTS].rid, rid);
-    if (!duplicate && s_count < PRINTER_REPLY_SLOTS) {
-        printer_reply_t *reply = &s_replies[(s_head + s_count++) % PRINTER_REPLY_SLOTS];
+static void enqueue(const char *rid, uint32_t session, bool printing, const char *error) {
+    portENTER_CRITICAL(&lock);
+    if (reply_session != session) { reply_session = session; head = count = 0; }
+    if (!already_queued(rid) && count < PRINTER_REPLY_SLOTS) {
+        printer_reply_t *reply = &replies[(head + count++) % PRINTER_REPLY_SLOTS];
         memcpy(reply->rid, rid, sizeof reply->rid);
-        reply->session = session;
-        reply->invalid = invalid;
+        reply->session = session; reply->printing = printing; reply->error = error;
     }
-    portEXIT_CRITICAL(&s_reply_mux);
+    portEXIT_CRITICAL(&lock);
 }
 
 bool printer_protocol_receive(cJSON *request, const char *raw, size_t len, size_t consumed, uint32_t session) {
     const char *type = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(request, "t"));
     if (!type || strcmp(type, "printer")) return false;
-    cJSON *rid = cJSON_GetObjectItemCaseSensitive(request, "rid");
-    if (session && request_id(rid)) enqueue(rid->valuestring, session, !valid_request(request, raw, len, consumed));
+    const char *rid = printer_parse_id(request);
+    if (!session || !rid) return true;
+    if (printer_work_has_id(rid)) return true;
+    printer_input_t input;
+    if (!printer_parse_request(request, raw, len, consumed, &input)) {
+        const char *action = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(request, "action"));
+        enqueue(rid, session, action && !strcmp(action, "print"), "invalid_request");
+        return true;
+    }
+    printer_admission_t admitted = printer_work_submit(&input, session);
+    if (admitted == PRINTER_WORK_BUSY) enqueue(rid, session, input.printing, "printer_busy");
+    if (admitted == PRINTER_WORK_FAILED) enqueue(rid, session, input.printing, "printer_failed");
     return true;
 }
 
-void printer_protocol_poll(void) {
+static void send_error(void) {
     printer_reply_t reply;
-    portENTER_CRITICAL(&s_reply_mux);
-    bool pending = s_count > 0;
-    if (pending) { reply = s_replies[s_head]; s_head = (s_head + 1) % PRINTER_REPLY_SLOTS; s_count--; }
-    portEXIT_CRITICAL(&s_reply_mux);
+    portENTER_CRITICAL(&lock);
+    bool pending = count > 0;
+    if (pending) { reply = replies[head]; head = (head + 1) % PRINTER_REPLY_SLOTS; count--; }
+    portEXIT_CRITICAL(&lock);
     if (!pending || reply.session != link_session()) return;
-    char json[144];
-    // No physical driver is configured. Receiving text never means that paper was printed.
-    const char *result = reply.invalid ? "\"error\",\"code\":\"invalid_request\"" : "\"not_configured\"";
-    snprintf(json, sizeof json, "{\"t\":\"printer_result\",\"rid\":\"%s\",\"status\":%s}", reply.rid, result);
+    char json[192];
+    snprintf(json, sizeof json, "{\"t\":\"printer_result\",\"rid\":\"%s\",\"status\":\"error\",\"code\":\"%s\"%s}",
+        reply.rid, reply.error, reply.printing ? ",\"outcome\":\"not_sent\"" : "");
     link_send_json_in_session(json, reply.session);
+}
+
+void printer_protocol_poll(void) {
+    char *json; uint32_t session;
+    if (printer_work_poll(&json, &session)) {
+        if (json && session == link_session()) link_send_json_in_session(json, session);
+        free(json);
+        return;
+    }
+    send_error();
+}
+
+bool printer_protocol_busy(void) { return printer_work_busy(); }
+bool printer_protocol_discovered(void) { return printer_work_discovered(); }
+bool printer_protocol_before_voice(void) { return printer_work_before_voice(); }
+bool printer_protocol_reset_ready(void) {
+    printer_work_before_voice();
+    return !printer_work_busy();
+}
+
+void printer_protocol_info(status_json_t *info) {
+    printer_diagnostics_t snapshot;
+    printer_work_diagnostics(&snapshot);
+    status_json_bool(info, "printer_busy", printer_work_busy());
+    status_json_bool(info, "printer_discovered", printer_work_discovered());
+    status_json_integer(info, "printer_session", snapshot.state.session);
+    status_json_integer(info, "printer_observed_session", snapshot.observed_session);
+    status_json_bool(info, "printer_enabled", snapshot.state.enabled);
+    status_json_bool(info, "printer_online", snapshot.state.online);
+    status_json_bool(info, "printer_can_start", snapshot.state.can_start);
+    status_json_bool(info, "printer_auto_allowed", snapshot.state.automatic_allowed);
+    status_json_integer(info, "printer_blockers", snapshot.state.blockers);
+    status_json_bool(info, "printer_guard_allowed", snapshot.guard_allowed);
+    status_json_integer(info, "printer_attempts", snapshot.attempts);
+    status_json_integer(info, "printer_due_ms", snapshot.due_in_ms);
+    status_json_integer(info, "reset_reason", printer_platform_reset_reason());
 }

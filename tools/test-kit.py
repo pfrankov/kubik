@@ -146,7 +146,7 @@ with zipfile.ZipFile(kit_path) as kit:
                 "hermes-kubik/adapter.py", "hermes-kubik/plugin.yaml", "hermes-kubik/pair.py",
                 "hermes-kubik/requirements.txt", "tools/install-hermes.py", "tools/hermes_runtime.py", "docs/hermes.md",
                 "hermes-kubik/echo.py", "openclaw-kubik/src/vendor/speex-aec.wasm",
-                "docs/scenarios/hermes.md", "docs/hardware-s3.md", "docs/printer.md", "docs/acceptance-pinned-wifi.md", "tools/test-hermes-native.py",
+                "docs/scenarios/hermes.md", "docs/scenarios/printer.md", "docs/hardware-s3.md", "docs/printer.md", "docs/printer-protocol.md", "docs/acceptance-pinned-wifi.md", "tools/test-hermes-native.py",
                 "tools/hermes_native/contract.py", "tools/hermes_native/upstream.json", "docs/events.md"}
     assert required <= names, sorted(required - names)
     echo = "openclaw-kubik/src/vendor/speex-aec.wasm"
