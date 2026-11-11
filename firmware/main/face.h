@@ -15,6 +15,7 @@
 #include "event_journal.h"
 #include "device_status.h"
 #include "face_printer.h"
+#include "face_emoji.h"
 
 typedef enum {
     EMO_NEUTRAL = 0,
@@ -87,7 +88,8 @@ typedef enum {
     BUB_COUNT
 } bubble_icon_t;
 
-#define FACE_CARD_LINES 40
+#define FACE_CARD_LINES 1001
+#define FACE_CARD_PAGES 192
 #define FACE_CARD_PAGE 6  // lines per page
 #define FACE_NP 28  // number of animated float parameters
 
@@ -212,7 +214,7 @@ typedef struct {
     bool shaken;
 } tess_mood_t;
 
-typedef struct {
+typedef struct face {
     character_t character;
     float tess_phase, tess_energy;  // only advanced for Tess
     float tess_position[TESS_N][3], tess_velocity[TESS_N][3];
@@ -330,8 +332,10 @@ typedef struct {
     // Text card: what OpenClaw wants read rather than heard, or could not say.
     // Word-wrapped once when it arrives; shown a page at a time over the face.
     char card_buf[1152];             // wrapped lines, NUL-separated
-    uint16_t card_line[FACE_CARD_LINES];
-    int card_n, card_page;
+    int card_n, card_page, card_pages;
+    uint16_t card_page_start[FACE_CARD_PAGES];
+    uint8_t card_page_count[FACE_CARD_PAGES];
+    face_emoji_t card_emoji;
     uint32_t card_hash;              // of the source text, to tell a longer version of it
     int card_src_len;
     float card_t, card_page_t, card_left;  // seconds shown, on this page; left (<0 = not closing yet)
@@ -385,6 +389,7 @@ emotion_t face_emotion_from_name(const char *name);
 // Text card over the face (UTF-8, "\n" breaks lines); NULL or "" closes it. A text that
 // extends the one shown (the same reply growing) keeps the current page.
 void face_card(face_t *f, const char *text);
+const char *face_card_line(const face_t *f, int index); // bounded inspection, not a draw-time index
 // Settings menu hit test at a panel point: the tile (menu_row_t, -1 = none) and, in *part, what was hit:
 // sliders: value 0..100; actions: 0 (Wi-Fi), 1 (reset), 2 (power).
 int face_menu_hit(const face_t *f, int x, int y, int *part);

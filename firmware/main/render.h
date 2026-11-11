@@ -24,6 +24,7 @@
 #include "font.h"
 #include "icons.h"
 #include "viewport.h"
+#include "render_emoji.h"
 
 #define R_FPS 30
 #define R_W (UI_RENDER_W / 2)
@@ -85,8 +86,10 @@ typedef struct {
     int8_t glass_n;  // outline vertices (0 = no outline, no clipping)
     float glass_cx, glass_cy, glass_r[24];  // the glass as radii around a centre, panel px
     const uint8_t *qr;  // PK_QR modules, n*n bytes (nonzero = dark); one code per scene
-    uint8_t text[R_TEXT_POOL];  // PK_TEXT glyphs (copied, so strings need not outlive the call)
+    uint16_t text[R_TEXT_POOL]; // Glyph indices, or R_EMOJI_TOKEN + immutable scene slot.
     int text_n;
+    render_emoji_snapshot_t emoji;
+    uint32_t emoji_hash[R_EMOJI_SLOTS];
     // A band along the panel's rounded edge (sc_edge), drawn like text on the upscaled rows: a static
     // band never enters the canvas diff and costs no rasterising. 0 = none.
     uint8_t edge_w, edge_r;  // band width and corner radius, panel px
@@ -132,6 +135,9 @@ float text_width(int font, const char *utf8, float spacing);  // design (= panel
 // Text set by a role (font.h): the middle of its capitals on `cy`, so labels centre the same way in every font.
 prim_t *sc_label(scene_t *s, text_role_t role, const char *utf8, float x, float cy, int align, uint32_t rgb, float alpha);
 float label_width(text_role_t role, const char *utf8);
+void scene_emoji_snapshot(scene_t *s, const render_emoji_snapshot_t *snapshot);
+prim_t *sc_rich_label(scene_t *s, text_role_t role, const char *utf8, float x, float cy, int align, uint32_t rgb, float alpha);
+float rich_label_width(text_role_t role, const char *utf8);
 // Longest whole UTF-8 prefix within both limits, including suffix width and kerning.
 size_t label_prefix(text_role_t role, const char *utf8, size_t max_bytes, float width, const char *suffix);
 // Draws the scene's text into panel rows y0..y0+rows of a window starting at

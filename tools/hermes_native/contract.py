@@ -71,7 +71,8 @@ def wav_bytes(samples=2401):
 def fixture_answer(messages, answer):
     from voice_fixture import native_answer
     from printer_contract import printer_answer
-    return printer_answer(messages) or native_answer(messages) or ({'role': 'assistant', 'content': answer}, 'stop')
+    from device_screen_emoji import screen_answer
+    return screen_answer(messages) or printer_answer(messages) or native_answer(messages) or ({'role': 'assistant', 'content': answer}, 'stop')
 
 
 class Providers:
@@ -143,7 +144,7 @@ async def pair(client, port, home, private_key, name='kubik-integration', volume
     ws = await client.ws_connect(f'wss://127.0.0.1:{port}/kubik/v1', ssl=False, compress=0)
     key = base64.b64encode(private_key.public_key().public_bytes(serialization.Encoding.X962,
         serialization.PublicFormat.UncompressedPoint)).decode()
-    await ws.send_json({'t': 'hello', 'v': 5, 'device': name, 'key': key, 'volume': volume, 'printer': 2})
+    await ws.send_json({'t': 'hello', 'v': 5, 'device': name, 'key': key, 'volume': volume, 'printer': 2, 'screen_emoji': 1})
     challenge = await get_json(ws)
     assert challenge['t'] == 'challenge', challenge
     cert = x509.load_pem_x509_certificate((home / 'kubik/cert.pem').read_bytes())
@@ -346,6 +347,8 @@ async def main():
             await ws.close()
             from printer_contract import check_printer_tools
             await check_printer_tools(adapter, providers, client, device_port, home, codec, pair)
+            from screen_contract import check_screen_transport
+            await check_screen_transport(adapter, providers, client, device_port, home, codec, pair)
         print('PASS: native Gateway/AIAgent, signed WSS approval, rejected signatures/bindings, STT, context across reconnect, TTS/IMA acknowledgements, muted text, separate devices, revocation and profile scopes', flush=True)
     finally:
         providers.cancel_release.set()

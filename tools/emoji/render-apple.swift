@@ -10,6 +10,7 @@ let font = CTFontCreateWithName("AppleColorEmoji" as CFString, 48, nil)
 struct Rendered: Codable {
     let sequence: String
     let bitmap: String
+    let rgba: String?
 }
 struct Unsupported: Codable {
     let sequence: String
@@ -62,7 +63,7 @@ func context(_ width: Int, _ height: Int, white: Bool) throws -> CGContext {
     return result
 }
 
-func render(_ line: CTLine) throws -> [UInt8] {
+func render(_ line: CTLine, color: inout [UInt8]?) throws -> [UInt8] {
     let bounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
     guard bounds.width > 0, bounds.height > 0, bounds.width.isFinite, bounds.height.isFinite else {
         throw Failure.renderFailed
@@ -79,7 +80,21 @@ func render(_ line: CTLine) throws -> [UInt8] {
     guard let pointer = canvas.data?.bindMemory(to: UInt8.self, capacity: edge * edge * 4) else {
         throw Failure.renderFailed
     }
+    if color != nil { color = straightRGBA(pointer) }
     return monochrome(pointer)
+}
+
+func straightRGBA(_ pixels: UnsafePointer<UInt8>) -> [UInt8] {
+    var result = [UInt8](repeating: 0, count: edge * edge * 4)
+    for at in stride(from: 0, to: result.count, by: 4) {
+        let alpha = Int(pixels[at + 3])
+        if alpha == 0 { continue }
+        for channel in 0..<3 {
+            result[at + channel] = UInt8(min(255, (Int(pixels[at + channel]) * 255 + alpha / 2) / alpha))
+        }
+        result[at + 3] = UInt8(alpha)
+    }
+    return result
 }
 
 func boundary(_ pixels: UnsafePointer<UInt8>, _ x: Int, _ y: Int) -> Bool {
@@ -151,7 +166,8 @@ func preview(_ output: Result, _ path: String) throws {
 
 func main() throws {
     let args = CommandLine.arguments
-    guard args.count == 4 else { throw Failure.invalidArguments }
+    guard args.count == 4 || (args.count == 5 && args[4] == "--color") else { throw Failure.invalidArguments }
+    let colored = args.count == 5
     guard CTFontCopyPostScriptName(font) as String == "AppleColorEmoji" else { throw Failure.invalidFont }
     let input = try FileHandle(forReadingFrom: URL(fileURLWithPath: args[1]))
     defer { try? input.close() }
@@ -168,12 +184,14 @@ func main() throws {
             unsupported.append(Unsupported(sequence: text, reason: reason))
             continue
         }
-        let bits = try render(line)
+        var rgba: [UInt8]? = colored ? [] : nil
+        let bits = try render(line, color: &rgba)
         if !bits.contains(where: { $0 != 0 }) {
             unsupported.append(Unsupported(sequence: text, reason: "empty_raster"))
             continue
         }
-        glyphs.append(Rendered(sequence: text, bitmap: Data(bits).base64EncodedString()))
+        glyphs.append(Rendered(sequence: text, bitmap: Data(bits).base64EncodedString(),
+                               rgba: rgba.map { Data($0).base64EncodedString() }))
     }
     let url = CTFontCopyAttribute(font, kCTFontURLAttribute) as? URL
     let result = Result(postscript: CTFontCopyPostScriptName(font) as String,

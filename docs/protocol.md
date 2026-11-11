@@ -252,6 +252,9 @@ the same frame still apply. Invalid numbers are never truncated or persisted.
   `voice_failed` error is sent), and for every reply when
   `channels.kubik.text = "always"`. The device word-wraps and pages it; a tap
   turns the page or closes the card, a new push-to-talk closes it.
+  Color Apple Emoji use the authenticated, page-scoped `emoji_get` / `emoji`
+  exchange; see [screen Emoji](screen-emoji.md). Compound sequences stay whole
+  during wrapping. A text `shown` receipt does not confirm glyph availability.
 * `activity` (firmware ≥ 0.3.0; older firmware ignores it) says what OpenClaw is busy
   with right now, in the categories of its status reactions: `thinking` (🧠),
   `tool` (🛠️), `coding` (💻), `web` (🌐), `deploy` (🛫), `build` (🏗️), `concierge`

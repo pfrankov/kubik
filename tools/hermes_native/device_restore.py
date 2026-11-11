@@ -89,7 +89,7 @@ async def cleanup(gateway, adapter, peer, control, original, observations, backe
         await step('stop_gateway', gateway.stop(), 30)
     if original:
         await step('restore_route_settings_screen',
-                   control.restore(original, release_wifi_pause=release_wifi_pause), 55)
+                   control.restore(original, release_wifi_pause=release_wifi_pause), 300 if original['screen_sleeping'] else 55)
     if observations:
         try:
             observations.persist(control.evidence, providers)

@@ -49,15 +49,15 @@ def pinned_sequences(data):
     return parse_sequences(data)
 
 
-def encode(glyphs):
+def encode_payloads(glyphs, magic, glyph_bytes, maximum):
     if not 1 <= len(glyphs) <= MAX_ENTRIES:
         raise ValueError('Atlas entry count is outside the bound')
     ordered = sorted(glyphs.items(), key=lambda item: sequence_bytes(item[0]))
     keys = bytearray()
     for key, bitmap in ordered:
         sequence_bytes(key)
-        if not isinstance(bitmap, bytes) or len(bitmap) != GLYPH_BYTES:
-            raise ValueError('An emoji bitmap must contain exactly 128 bytes')
+        if not isinstance(bitmap, bytes) or len(bitmap) != glyph_bytes:
+            raise ValueError('An emoji bitmap has the wrong payload size')
         keys.extend(key.encode('utf-8'))
     keys_offset = HEADER.size + len(ordered) * ENTRY.size
     bits_offset = (keys_offset + len(keys) + 3) & ~3
@@ -71,42 +71,50 @@ def encode(glyphs):
         records.extend(ENTRY.pack(cursor, offsets[bitmap], len(encoded), 0))
         cursor += len(encoded)
     size = bits_offset + len(pixels)
-    if size > MAX_BYTES:
-        raise ValueError('Atlas exceeds its two MiB bound')
-    header = HEADER.pack(b'KEMJ', 1, EDGE, len(ordered), HEADER.size,
+    if size > maximum:
+        raise ValueError('Atlas exceeds its format size bound')
+    header = HEADER.pack(magic, 1, EDGE, len(ordered), HEADER.size,
                          keys_offset, bits_offset, size)
     return header + records + keys + bytes(bits_offset - cursor) + pixels
 
 
-def _header(data):
-    if not HEADER.size <= len(data) <= MAX_BYTES:
+def _header(data, magic, glyph_bytes, maximum):
+    if not HEADER.size <= len(data) <= maximum:
         raise ValueError('Atlas length is outside the bound')
-    magic, version, edge, count, index, keys, bits, size = HEADER.unpack_from(data)
-    valid = magic == b'KEMJ' and version == 1 and edge == EDGE
+    signature, version, edge, count, index, keys, bits, size = HEADER.unpack_from(data)
+    valid = signature == magic and version == 1 and edge == EDGE
     valid &= 1 <= count <= MAX_ENTRIES and index == HEADER.size
     valid &= keys == index + count * ENTRY.size and keys <= bits <= size == len(data)
-    valid &= bits % 4 == 0 and (size - bits) % GLYPH_BYTES == 0
+    valid &= bits % 4 == 0 and (size - bits) % glyph_bytes == 0
     if not valid:
-        raise ValueError('Invalid KEMJ v1 header')
+        raise ValueError('Invalid emoji atlas v1 header')
     return count, index, keys, bits
 
 
-def decode(data):
-    count, index, keys, bits = _header(data)
+def decode_payloads(data, magic, glyph_bytes, maximum):
+    count, index, keys, bits = _header(data, magic, glyph_bytes, maximum)
     result, previous, cursor = {}, b'', keys
     for number in range(count):
         key, bitmap, length, flags = ENTRY.unpack_from(data, index + number * ENTRY.size)
         valid = not flags and key == cursor and 1 <= length <= MAX_SEQUENCE_BYTES
         valid &= key + length <= bits and bitmap >= bits
-        valid &= (bitmap - bits) % GLYPH_BYTES == 0 and bitmap + GLYPH_BYTES <= len(data)
+        valid &= (bitmap - bits) % glyph_bytes == 0 and bitmap + glyph_bytes <= len(data)
         if not valid:
             raise ValueError('Invalid atlas index entry')
         encoded = data[key:key + length]
         value = encoded.decode('utf-8', errors='strict')
         if sequence_bytes(value) != encoded or encoded <= previous:
             raise ValueError('Atlas keys must be unique and UTF-8 lexicographically sorted')
-        result[value] = data[bitmap:bitmap + GLYPH_BYTES]
+        result[value] = data[bitmap:bitmap + glyph_bytes]
         previous, cursor = encoded, key + length
     if bits - cursor > 3 or any(data[cursor:bits]):
         raise ValueError('Atlas key padding is not canonical')
     return result
+
+
+def encode(glyphs):
+    return encode_payloads(glyphs, b'KEMJ', GLYPH_BYTES, MAX_BYTES)
+
+
+def decode(data):
+    return decode_payloads(data, b'KEMJ', GLYPH_BYTES, MAX_BYTES)

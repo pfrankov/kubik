@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
         f"firmware/main/{name}.c" for name in (
             "agent_menu", "face_agent", "ui_kit", "render", "render_dots", "render_glass",
             "render_output", "render_pipeline", "render_raster", "render_projection", "render_scene",
-            "render_text", "render_overlay_s3", "font", "font_data",
+            "render_text", "render_overlay_s3", "render_emoji", "emoji_cluster", "font", "font_data",
         )
     ]
     for name, test, defines in (

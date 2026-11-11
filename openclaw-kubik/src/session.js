@@ -1,6 +1,6 @@
 import { SpeechPacer } from './audio.js';
 import { BYTES_PER_MS, ImaEncoder, out, pcmDurationMs } from './protocol.js';
-import { chunkSpeech, parseReply, sanitizeForDisplay, splitShown } from './speech.js';
+import { chunkSpeech, parseReply, sanitizeForDisplay, sanitizeForScreenReply, splitShown } from './speech.js';
 import { SessionControl } from './session-control.js';
 import { SpeechStream } from './speech-stream.js';
 import { runRecordedTurn } from './recorded-turn.js';
@@ -228,12 +228,13 @@ export class DeviceSession {
     stream.inShow = inShow;
     const { segments, pendingEmotion } = parseReply(speech, { carry: stream.carry });
     stream.carry = pendingEmotion;
-    if (this.textMode === 'always' && segments.length) this.#show(stream, segments.map((s) => s.text).join(' '));
+    const screen = this.textMode === 'always' || !(Number.isFinite(this.volume) && this.volume >= 20 && this.engine.canSpeak !== false && segments.length);
+    if (screen) this.#show(stream, sanitizeForScreenReply(speech));
     for (const part of shown) this.#show(stream, part);
     for (const segment of segments) {
       let first = true;
       for (const chunk of chunkSpeech(segment.text, { first: !stream.chunked })) {
-        if (!await stream.enqueue({ emotion: first ? segment.emotion : null, text: chunk })) return false;
+        if (!await stream.enqueue({ emotion: first ? segment.emotion : null, text: chunk, screenShown: screen })) return false;
         first = false;
         this.#kick();
       }
@@ -328,7 +329,7 @@ export class DeviceSession {
       // Nothing can be spoken: the reply is read from the screen.
       stream.textOnly = true;
       if (segment.emotion) this.send(out.emotion(segment.emotion));
-      if (segment.text && this.textMode !== 'always') this.#show(stream, segment.text);
+      if (segment.text && !segment.screenShown && this.textMode !== 'always') this.#show(stream, segment.text);
       return;
     }
     if (stream.gen == null) {

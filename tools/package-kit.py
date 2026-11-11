@@ -58,6 +58,20 @@ def rewrite_acceptance_links(document, revision):
     return re.sub(r"\]\(([^)]+)\)", rewrite, document)
 
 
+def scenario_links(path, members, revision):
+    def rewrite(match):
+        target, marker, fragment = match.group(1).partition("#")
+        if not target or ":" in target: return match.group(0)
+        resolved = (path.parent / target).resolve()
+        source = resolved.relative_to(root).as_posix()
+        if not resolved.is_file(): raise ValueError(f"Broken scenario link: {path}: {target}")
+        if source in members: return match.group(0)
+        anchor = f"#{fragment}" if marker else ""
+        return f"](https://github.com/pfrankov/kubik/blob/{revision}/{source}{anchor})"
+
+    return re.sub(r"\]\(([^)]+)\)", rewrite, path.read_text())
+
+
 validate_buyer_documents()
 revision = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
                           check=True, capture_output=True, text=True).stdout.strip()
@@ -122,7 +136,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         write_member(bundle, "docs/agent-controls.md", controls.encode("utf-8"))
         native = (root / "docs/native-voice.md").read_text().replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
         write_member(bundle, "docs/native-voice.md", native.encode("utf-8"))
-        for document in ("protocol.md", "printer.md", "printer-protocol.md", "printer-emoji.md", "acceptance.md", "acceptance-pinned-wifi.md", "muse.md", "hermes.md", "events.md", "pairing.md", "hardware-s3.md"):
+        for document in ("protocol.md", "printer.md", "printer-protocol.md", "printer-emoji.md", "screen-emoji.md", "emoji-assets.md", "acceptance.md", "acceptance-pinned-wifi.md", "muse.md", "hermes.md", "events.md", "pairing.md", "hardware-s3.md"):
             content = (root / "docs" / document).read_text()
             if document == "acceptance.md":
                 content = rewrite_acceptance_links(content, revision)
@@ -131,11 +145,10 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
                 content = content.replace("(scenarios/tess-skies-entry.md)", f"({target})")
             content = content.replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
             write_member(bundle, f"docs/{document}", content.encode("utf-8"))
-        hermes_scenarios = (root / "docs/scenarios/hermes.md").read_text()
-        native_scenarios = f"https://github.com/pfrankov/kubik/blob/{revision}/docs/scenarios/native-voice.md"
-        hermes_scenarios = hermes_scenarios.replace("(native-voice.md)", f"({native_scenarios})")
-        write_member(bundle, "docs/scenarios/hermes.md", hermes_scenarios.encode("utf-8"))
-        write_member(bundle, "docs/scenarios/printer.md", (root / "docs/scenarios/printer.md").read_bytes())
+        scenarios = sorted((root / "docs/scenarios").glob("*.md"))
+        members = set(bundle.namelist()) | {f"docs/scenarios/{path.name}" for path in scenarios}
+        for scenario in scenarios:
+            write_member(bundle, f"docs/scenarios/{scenario.name}", scenario_links(scenario, members, revision).encode())
         write_member(bundle, "tools/test-hermes-native.py",
                      (root / "tools/test-hermes-native.py").read_bytes())
         for path in sorted((root / "tools/hermes_native").iterdir()):

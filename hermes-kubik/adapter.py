@@ -24,6 +24,7 @@ from .voice_controls import VoiceControls
 from .native_jobs import NativeJobs, active_job
 from .native_voice import NativeVoice
 from .security import Security
+from .screen_emoji import ScreenEmoji, display_text
 from .runtime import listener_options, profile_scope, speech_available
 
 
@@ -40,6 +41,7 @@ class KubikAdapter(BasePlatformAdapter):
         self.voice_controls = VoiceControls(self)
         self.native_jobs = NativeJobs(self)
         self.printer_jobs = PrinterJobs(self)
+        self.screen_emoji = ScreenEmoji(self)
         self.printer_loop = None
     async def connect(self, *, is_reconnect=False):
         self.printer_loop = asyncio.get_running_loop()
@@ -105,6 +107,7 @@ class KubikAdapter(BasePlatformAdapter):
         try:
             await socket.prepare(request)
             peer = await self.authenticate(socket)
+            peer.transport = request.transport
             old = self.peers.get(peer.identity)
             # Publish the replacement before close yields to another handshake.
             self.peers[peer.identity] = peer
@@ -139,6 +142,7 @@ class KubikAdapter(BasePlatformAdapter):
         if not peer:
             return
         peer.ready = False
+        await self.screen_emoji.close(peer)
         self.printer_jobs.close(peer)
         if self.peers.get(peer.identity) is peer:
             del self.peers[peer.identity]
@@ -185,6 +189,8 @@ class KubikAdapter(BasePlatformAdapter):
             await self.voice_controls.handle(peer, value)
         elif kind == 'printer_result':
             self.printer_jobs.accept(peer, value)
+        elif kind == 'emoji_get':
+            await self.screen_emoji.handle(peer, value)
         elif kind == 'live_input_ack' and peer.native:
             peer.native.acknowledge(kind, value)
     async def _control_command(self, peer, kind, value):
@@ -444,7 +450,9 @@ class KubikAdapter(BasePlatformAdapter):
         done = asyncio.Event()
         peer.receipts[('shown', receipt)] = done
         try:
-            await peer.send('text', text=str(content).encode()[:1000].decode('utf-8', errors='ignore'),
+            text = display_text(content)
+            self.screen_emoji.text(peer, text)
+            await peer.send('text', text=text,
                             kind='reply' if peer.native or (peer.task and not peer.task.done()) else 'notify',
                             receipt=receipt)
             await asyncio.wait_for(done.wait(), 10)

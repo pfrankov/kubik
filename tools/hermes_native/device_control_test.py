@@ -1,11 +1,12 @@
 """Fixture restoration guards use a real local control server, never a USB device."""
 import base64
+import asyncio
 from pathlib import Path
 import tempfile
 import unittest
 
 from aiohttp import web
-from device_control import Control
+from device_control import Control, screen_restore_action
 
 
 class PhysicalControlTests(unittest.IsolatedAsyncioTestCase):
@@ -15,7 +16,7 @@ class PhysicalControlTests(unittest.IsolatedAsyncioTestCase):
                       'character': 'Tess', 'voice_mode': 'classic', 'agent': 'hermes', 'ssid': '', 'url': '',
                       'server_pinned': True, 'volume': 34, 'ui_volume': 34, 'brightness': 200,
                       'guide_done': True, 'online': False, 'via': 'none', 'wifi_connected': False,
-                      'screen_dark': False, 'menu': False, 'mic_open': False,
+                      'screen_dark': False, 'screen_sleeping': False, 'menu': False, 'mic_open': False,
                       'live_active': False, 'auto_recording': False}
         self.requests = []
         app = web.Application()
@@ -43,6 +44,8 @@ class PhysicalControlTests(unittest.IsolatedAsyncioTestCase):
             pass  # BOOT/menu input is ignored after explicit PWR sleep on the real device.
         elif flag:
             self.state[flag] = not self.state[flag]
+            if flag == 'screen_dark':
+                self.state['screen_sleeping'] = False
         else:
             self.assertEqual(value, {'cmd': 'sim', 'ev': 'wifi', 'ms': 1})
         return web.json_response({'ok': True})
@@ -110,6 +113,42 @@ class PhysicalControlTests(unittest.IsolatedAsyncioTestCase):
         for url in ('http://example.com:18792', 'https://127.0.0.1', 'http://user:secret@127.0.0.1'):
             with self.assertRaises(ValueError):
                 Control(url, Path(self.directory.name))
+
+    def test_pure_power_plan_distinguishes_auto_sleep_and_manual_off(self):
+        flags = ((False, False), (False, True), (True, False), (True, True))
+        expected = (('done', 'power', 'power', 'power'),
+                    ('wait', 'done', 'power', 'power'),
+                    ('power', 'power', 'done', 'power'),
+                    ('wait', 'wait', 'power', 'done'))
+        for i, target in enumerate(flags):
+            original = dict(zip(('screen_dark', 'screen_sleeping'), target))
+            for j, actual in enumerate(flags):
+                current = dict(zip(('screen_dark', 'screen_sleeping'), actual))
+                self.assertEqual(screen_restore_action(original, current), expected[i][j])
+
+    async def test_original_auto_sleep_waits_naturally_without_pressing_power(self):
+        self.state.update(screen_dark=True, screen_sleeping=True)
+        original, _ = await self.control.baseline()
+        self.state.update(screen_dark=False, screen_sleeping=False)
+        async def natural_sleep():
+            await asyncio.sleep(1)
+            self.state.update(screen_dark=True, screen_sleeping=True)
+        timer = asyncio.create_task(natural_sleep())
+        try:
+            await self.control.restore(original)
+        finally:
+            await timer
+        self.assertTrue(self.state['screen_sleeping'])
+        self.assertFalse(any(row.get('ev') == 'pwr' for row in self.requests))
+
+    async def test_original_manual_off_stays_manual_and_never_waits_for_auto_sleep(self):
+        self.state.update(screen_dark=True, screen_sleeping=False)
+        original, _ = await self.control.baseline()
+        self.state.update(screen_dark=False, screen_sleeping=False)
+        await self.control.restore(original)
+        self.assertTrue(self.state['screen_dark'])
+        self.assertFalse(self.state['screen_sleeping'])
+        self.assertEqual(sum(row.get('ev') == 'pwr' for row in self.requests), 1)
 
 
 if __name__ == '__main__':

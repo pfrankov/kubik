@@ -5,5 +5,6 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-subprocess.run([sys.executable, str(ROOT / 'tools/emoji/test-atlas.py')],
-               cwd=ROOT, check=True, timeout=60)
+for test in ('test-atlas.py', 'test-color-atlas.py'):
+    subprocess.run([sys.executable, str(ROOT / 'tools/emoji' / test)],
+                   cwd=ROOT, check=True, timeout=60)

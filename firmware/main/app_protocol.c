@@ -1,4 +1,5 @@
 #include "frame_diagnostics.h"
+#include "app_emoji.h"
 #include "app_lab.h"
 #include "app_models.h"
 #include "app_status.h"
@@ -139,7 +140,7 @@ static void on_json(const char *json, size_t len) {
     const char *end; cJSON *j = cJSON_ParseWithLengthOpts(json, len, &end, false);
     if (!j) { ESP_LOGW(TAG, "JSON rejected (%u bytes)", (unsigned)len); return; }
     const char *type = cJSON_GetStringValue(cJSON_GetObjectItem(j, "t"));
-    if (!printer_protocol_receive(j, json, len, (size_t)(end - json), link_session()) && type &&
+    if (!app_emoji_receive(j, json, len, (size_t)(end - json)) && !printer_protocol_receive(j, json, len, (size_t)(end - json), link_session()) && type &&
         (!strcmp(type, "agent_options") ? !agent_protocol_has_nul_escape(json, len) : true)) dispatch_json(j, type);
     cJSON_Delete(j);
 }
@@ -354,12 +355,11 @@ static void add_agent_view(status_json_t *info) {
     status_json_bool(info, "pair_visible", s_pair_code[0] && !s_pair_hidden && !s_setup);
     status_json_bool(info, "guide_done", g_settings.guide_done);
     app_journal_info(info);
-    app_status_info(info);
+    app_status_info(info); app_emoji_info(info);
     status_json_integer(info, "agent_loaded", loaded);
     status_json_integer(info, "agent_listed", listed);
     status_json_integer(info, "agent_scroll", scroll);
 }
-// The listed model ids and the voice model alone: with the full status they would not fit the reply.
 static void config_info(char *reply, size_t cap) {
     power_status_t power;
     pmic_read(&power);

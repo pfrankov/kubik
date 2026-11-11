@@ -95,14 +95,31 @@ def private_write(path, data):
         Path(temporary).unlink(missing_ok=True)
 
 
-def render(requests, preview):
+def render(requests, preview, color=False):
     with tempfile.TemporaryDirectory(prefix='kubik-apple-emoji-') as directory:
         work = Path(directory)
         source, destination = work / 'sequences.json', work / 'rendered.json'
         source.write_text(json.dumps(requests, ensure_ascii=False))
-        subprocess.run(['swift', str(RENDERER), str(source), str(destination), str(preview)],
+        command = ['swift', str(RENDERER), str(source), str(destination), str(preview)]
+        subprocess.run(command + (['--color'] if color else []),
                        check=True, timeout=180, capture_output=True, text=True)
         return json.loads(destination.read_text())
+
+
+def provenance(result, requests, glyphs, atlas, format_name, bitmap):
+    checks = {sequence: sequence in glyphs for sequence in ('😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺', '👨‍👩‍👧‍👦')}
+    return {
+        'format': format_name, 'edge': 32, 'bitmap': bitmap,
+        'created_utc': datetime.now(timezone.utc).isoformat(),
+        'unicode': {'version': '17.0', 'url': UNICODE_URL, 'sha256': UNICODE_SHA256},
+        'font': {'postscript': result['postscript'], 'version': result['version'],
+                 'system_path': str(FONT), 'sha256': file_hash(FONT)},
+        'atlas_sha256': hashlib.sha256(atlas).hexdigest(), 'atlas_bytes': len(atlas),
+        'requested_sequences': len(requests), 'rendered_sequences': len(glyphs),
+        'unsupported_reasons': dict(Counter(row['reason'] for row in result['unsupported'])),
+        'unsupported': result['unsupported'], 'checks': checks,
+        'artwork_scope': 'Private system-font rasterization; artwork and font are not bundled with source',
+    }
 
 
 def build(source, output, preview):
@@ -118,21 +135,9 @@ def build(source, output, preview):
         raise ValueError('Generated atlas failed its complete round trip')
     private_write(output, atlas)
     preview.chmod(0o600)
-    checks = {sequence: sequence in glyphs for sequence in ('😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺', '👨‍👩‍👧‍👦')}
-    provenance = {
-        'format': 'KEMJ v1', 'edge': 32, 'bitmap': 'MSB-first 1-bit black on white',
-        'created_utc': datetime.now(timezone.utc).isoformat(),
-        'unicode': {'version': '17.0', 'url': UNICODE_URL, 'sha256': UNICODE_SHA256},
-        'font': {'postscript': result['postscript'], 'version': result['version'],
-                 'system_path': str(FONT), 'sha256': file_hash(FONT)},
-        'atlas_sha256': hashlib.sha256(atlas).hexdigest(), 'atlas_bytes': len(atlas),
-        'requested_sequences': len(requests), 'rendered_sequences': len(glyphs),
-        'unsupported_reasons': dict(Counter(row['reason'] for row in result['unsupported'])),
-        'unsupported': result['unsupported'], 'checks': checks,
-        'artwork_scope': 'Private system-font rasterization; artwork and font are not bundled with source',
-    }
-    private_write(output.with_suffix('.source.json'), json.dumps(provenance, ensure_ascii=False, indent=2).encode())
-    return provenance
+    record = provenance(result, requests, glyphs, atlas, 'KEMJ v1', 'MSB-first 1-bit black on white')
+    private_write(output.with_suffix('.source.json'), json.dumps(record, ensure_ascii=False, indent=2).encode())
+    return record
 
 
 def main():

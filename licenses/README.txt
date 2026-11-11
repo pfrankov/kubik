@@ -78,3 +78,5 @@ and software pairing test harness retain their source notices and LICENSE.
 Source license does not grant rights to distribute a personal Muse SDK token.
 
 ODbL-1.0-SIMBAD.txt — Skies source coordinate extract and generated projected star table; see root NOTICE for attribution and source.
+
+Unicode-3.0.txt — Unicode 17.0 emoji-test data used to derive emoji cluster start ranges; no Apple artwork.

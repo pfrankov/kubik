@@ -2,6 +2,7 @@
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "icon_data.h"
+#include "render_internal.h"
 #include <string.h>
 
 static int maximum(int a, int b) { return a > b ? a : b; }
@@ -157,16 +158,19 @@ static R_HOT void glyph_overlay(const font_t *font, const font_glyph_t *glyph, u
 static R_HOT void text_overlay(const scene_t *scene, const prim_t *p, uint16_t *out,
                          int x0, int y0, int width, int rows, int stride, bool swap) {
     const font_t *font = &g_fonts[p->r];
-    int top = native_floor(p->sub_y - font->ascent - 2);
-    int bottom = native_ceil(p->sub_y + font->descent + 2);
-    if (top >= y0 + rows || bottom <= y0) return;
     int pen = p->sub_x * 16;
     for (int i = 0; i < p->b; i++) {
         unsigned index = scene->text[p->a + i];
-        const font_glyph_t *glyph = &font->g[index];
-        int gx = ((pen + 8) >> 4) + glyph->x, gy = p->sub_y - glyph->top;
-        glyph_overlay(font, glyph, out, x0, y0, width, rows, stride, gx, gy, p->color, p->alpha, swap);
-        pen += glyph->adv + p->sub_r + (i + 1 < p->b ? font_kern(font, index, scene->text[p->a + i + 1]) : 0);
+        if(index>=R_EMOJI_TOKEN)
+            render_emoji_overlay(scene,(uint16_t)index,out,x0,y0,width,rows,stride,(pen+8)>>4,
+                p->sub_y-(font->cap+R_EMOJI_EDGE)/2,p->alpha,swap);
+        else {
+            const font_glyph_t *glyph=&font->g[index];
+            int gx=((pen+8)>>4)+glyph->x,gy=p->sub_y-glyph->top;
+            glyph_overlay(font,glyph,out,x0,y0,width,rows,stride,gx,gy,p->color,p->alpha,swap);
+        }
+        pen+=render_token_advance(font,(uint16_t)index)+p->sub_r+
+            (i+1<p->b ? render_token_kern(font,(uint16_t)index,scene->text[p->a+i+1]) : 0);
     }
 }
 

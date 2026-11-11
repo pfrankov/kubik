@@ -22,7 +22,7 @@ static bool valid_text(const char *text, size_t *length) {
     bool visible = false;
     while (p < end) {
         uint32_t cp;
-        if (!printer_utf8_read(&p, end, &cp)) return false;
+        if (!emoji_utf8_read(&p, end, &cp)) return false;
         if ((cp < 0x20 && cp != '\n' && cp != '\t') || (cp >= 0x7f && cp <= 0x9f)) return false;
         visible |= !unicode_space(cp);
     }

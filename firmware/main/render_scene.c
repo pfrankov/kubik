@@ -38,6 +38,9 @@ void scene_begin(scene_t *s, uint16_t bg) {
     s->glass_a = s->glass_b = -1;
     s->glass_n = 0;
     s->text_n = 0;
+    memset(s->emoji.keys, 0, sizeof s->emoji.keys);
+    memset(s->emoji.ready, 0, sizeof s->emoji.ready);
+    memset(s->emoji_hash, 0, sizeof s->emoji_hash);
     s->edge_w = 0;
 }
 
@@ -267,10 +270,14 @@ size_t label_prefix(text_role_t role, const char *utf8, size_t max_bytes, float 
     return fit;
 }
 
-static prim_t *make_text_primitive(scene_t *s, const font_t *f, int font, int start, int len, float x, float y,
+prim_t *render_make_text(scene_t *s, const font_t *f, int font, int start, int len, float x, float y,
                                    int align, float spacing, uint32_t rgb, float alpha) {
     int track = (int)lrintf(spacing * 16), w = (len - 1) * track;
-    for (int i = 0; i < len; i++) w += f->g[s->text[start + i]].adv + (i ? font_kern(f, s->text[start + i - 1], s->text[start + i]) : 0);
+    bool emoji = false;
+    for (int i = 0; i < len; i++) {
+        unsigned token=s->text[start+i];emoji |= token>=R_EMOJI_TOKEN;
+        w += render_token_advance(f,token) + (i ? render_token_kern(f,s->text[start+i-1],token) : 0);
+    }
     prim_t *p = &s->p[s->n++];
     memset(p, 0, sizeof(*p));
     p->kind = PK_TEXT;
@@ -289,6 +296,11 @@ static prim_t *make_text_primitive(scene_t *s, const font_t *f, int font, int st
     p->by0 = (int16_t)imax(base - f->ascent - 2, 0);
     p->bx1 = (int16_t)imin(ox + (w + 15) / 16 + 2, UI_W - 1);
     p->by1 = (int16_t)imin(base + f->descent + 2, UI_H - 1);
+    if (emoji) {
+        int top=base-(f->cap+R_EMOJI_EDGE)/2;
+        p->by0=(int16_t)imax(0,imin(p->by0,top-2));
+        p->by1=(int16_t)imin(UI_H-1,imax(p->by1,top+R_EMOJI_EDGE+2));
+    }
     s_extent[p - s->p] = -2.f;
     return p;
 }
@@ -302,7 +314,7 @@ prim_t *sc_text(scene_t *s, int font, const char *utf8, float x, float y, int al
         s->text[s->text_n++] = (uint8_t)font_glyph(f, font_utf8_next(&c));
     int len = s->text_n - start;
     if (len <= 0) return NULL;
-    return make_text_primitive(s, f, font, start, len, x, y, align, spacing, rgb, alpha);
+    return render_make_text(s, f, font, start, len, x, y, align, spacing, rgb, alpha);
 }
 
 prim_t *sc_label(scene_t *s, text_role_t role, const char *utf8, float x, float cy, int align, uint32_t rgb, float alpha) {

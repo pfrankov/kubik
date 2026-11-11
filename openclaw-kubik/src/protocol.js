@@ -1,6 +1,7 @@
 // Kubik device protocol v5. Pure functions: no sockets, no timers.
 import { createHash, createPublicKey, X509Certificate } from 'node:crypto';
 import { validPrinterResult, normalizePrinterResult } from './printer-contract.js';
+import { validScreenEmojiRequest } from './screen-emoji-contract.js';
 
 export const PROTOCOL_VERSION = 5;
 export const AUTH_CONTEXT = 'kubik-auth-v5';
@@ -83,13 +84,15 @@ const DEVICE_MESSAGE_PARSERS = new Map([
       [(message) => message.name === undefined || (typeof message.name === 'string' && DISPLAY_NAME.test(message.name)), 'invalid name'],
       [(message) => message.volume === undefined || (Number.isInteger(message.volume) && message.volume >= 0 && message.volume <= 100), 'invalid volume'],
       [(message) => message.printer === undefined || Number.isInteger(message.printer) && message.printer >= 1 && message.printer <= 255, 'invalid printer protocol'],
+      [(message) => message.screen_emoji === undefined || message.screen_emoji === 1, 'invalid screen emoji capability'],
       [(message) => shortString(message.device, 64) && typeof message.key === 'string', 'hello needs device and key'],
     ],
     normalize: (message) => {
       decodeDeviceKey(message.key);
       return { t: 'hello', v: PROTOCOL_VERSION, device: message.device, key: message.key, fw: message.fw, name: message.name,
         ...(message.volume !== undefined ? { volume: message.volume } : {}),
-        ...(message.printer !== undefined ? { printer: message.printer } : {}) };
+        ...(message.printer !== undefined ? { printer: message.printer } : {}),
+        ...(message.screen_emoji !== undefined ? { screen_emoji: message.screen_emoji } : {}) };
     },
   }],
   ['auth', {
@@ -145,6 +148,10 @@ const DEVICE_MESSAGE_PARSERS = new Map([
   ['printer_result', {
     checks: [[validPrinterResult, 'invalid printer result']],
     normalize: normalizePrinterResult,
+  }],
+  ['emoji_get', {
+    checks: [[validScreenEmojiRequest, 'invalid screen emoji request']],
+    normalize: message => ({ t: 'emoji_get', id: message.id, seq: [...message.seq] }),
   }],
   ['agent_options', {
     checks: [

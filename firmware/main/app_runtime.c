@@ -1,4 +1,5 @@
 #include "app_lab.h"
+#include "app_emoji.h"
 #include "app_status.h"
 #include "app_internal.h"
 #include "app_game_probe.h"
@@ -32,7 +33,6 @@ static bool s_power_network_ready;
 static uint32_t s_network_transitions;
 int app_network_phase(void) { return s_power_network_ready ? s_power_network.phase : POWER_NETWORK_ACTIVE; }
 uint32_t app_network_transitions(void) { return s_network_transitions; }
-
 // The status bubble for an OpenClaw activity (as its status reactions: 🧠 🛠️ 💻 🌐 🛫 🏗️ 🗜️ ⏳).
 static void activity_bubble(int act, bool elsewhere, int *icon, int *text) {
     switch (act) {
@@ -324,6 +324,7 @@ void printer_app_state(printer_app_state_t *state) {
 
 void app_tick(void) {
     printer_protocol_poll();
+    app_emoji_poll();
     int64_t t = now_ms();
     if (tick_power_off(t)) return;
     tick_ui_timeouts(t);

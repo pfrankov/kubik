@@ -63,6 +63,7 @@ static void dispatch_json(cJSON *request, const char *type) {
 static bool agent_protocol_has_nul_escape(const char *json, size_t len) {
     (void)len; return strstr(json, "\\u0000") != NULL;
 }
+static bool app_emoji_receive(const cJSON *j,const char *raw,size_t len,size_t parsed) {(void)j;(void)raw;(void)len;(void)parsed;return false;}
 /* PRODUCTION_ON_JSON */
 static int64_t now_ms(void) { return clock_ms; }
 static bool tick_power_off(int64_t now) { (void)now; return true; }
@@ -76,6 +77,7 @@ static void tick_connection(int64_t now) { (void)now; }
 static void tick_playback(int64_t now) { (void)now; }
 static void tick_conversation(int64_t now) { (void)now; }
 static void tick_sleep(int64_t now) { (void)now; }
+static void app_emoji_poll(void) {}
 /* PRODUCTION_APP_TICK */
 
 void printer_app_state(printer_app_state_t *state) { *state = app_state; state->session = session; }

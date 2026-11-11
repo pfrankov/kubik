@@ -9,8 +9,12 @@ class Peer:
     def __init__(self, socket, identity, hello):
         self.socket, self.identity = socket, identity
         self.ready = False
+        self.transport = None
         self.native = None
         self.session_id = secrets.token_hex(8)
+        self.screen_emoji_version = hello.get('screen_emoji')
+        if self.screen_emoji_version is not None and (type(self.screen_emoji_version) is not int or not 1 <= self.screen_emoji_version <= 255):
+            raise ValueError('Invalid screen emoji version')
         self.printer_version = hello.get('printer')
         if self.printer_version is not None and (type(self.printer_version) is not int or not 1 <= self.printer_version <= 255):
             raise ValueError('Invalid printer version')

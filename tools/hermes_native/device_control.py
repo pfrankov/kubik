@@ -31,6 +31,24 @@ def verify_settings(original, current):
             raise AssertionError('Device setting changed: ' + field)
 
 
+def screen_flags(state):
+    values = state['screen_dark'], state['screen_sleeping']
+    if not all(type(value) is bool for value in values):
+        raise ValueError('Invalid screen power flags')
+    return values
+
+
+def screen_restore_action(original, current):
+    target, actual = screen_flags(original), screen_flags(current)
+    if target == actual:
+        return 'done'
+    if target[1]:
+        if actual[1]:
+            return 'wait' if target[0] else 'power'
+        return 'power' if actual[0] else 'wait'
+    return 'power'
+
+
 class Control:
     def __init__(self, url, evidence):
         parsed = urlsplit(url)
@@ -73,9 +91,10 @@ class Control:
 
     async def baseline(self):
         original = await self.info()
-        for field in PRESERVED + ('voice_mode', 'online', 'via', 'wifi_connected', 'screen_dark', 'menu'):
+        for field in PRESERVED + ('voice_mode', 'online', 'via', 'wifi_connected', 'screen_dark', 'screen_sleeping', 'menu'):
             if field not in original:
                 raise ValueError('Incomplete device status: ' + field)
+        screen_flags(original)
         if original['via'] not in ('wifi', 'none'):
             raise ValueError('Release the previous USB fixture before this test')
         if any(original.get(field) is not False for field in ('mic_open', 'live_active', 'auto_recording')):
@@ -114,13 +133,28 @@ class Control:
                 await self.until(lambda item: not item['screen_dark'], 'wake before restoring menu')
             await self.sim('menu')
             await self.until(lambda item: item['menu'] == original['menu'], 'original menu restored')
-        state = await self.info()
-        if state['screen_dark'] != original['screen_dark']:
-            await self.sim('pwr')
-        state = await self.until(lambda item: item['screen_dark'] == original['screen_dark'] and
-                                 item['menu'] == original['menu'], 'original screen restored')
+        state = await self.restore_screen(original)
+        assert state['menu'] == original['menu'], 'Original menu changed while restoring screen'
         save(self.evidence / 'after.json', state)
         print('PASS physical device identity, settings, route and screen restored', flush=True)
+
+    async def restore_screen(self, original):
+        powers = 0
+        async with asyncio.timeout(220 if original['screen_sleeping'] else 15):
+            while True:
+                state = await self.info()
+                action = screen_restore_action(original, state)
+                if action == 'done':
+                    return state
+                if action == 'power':
+                    if powers >= 2:
+                        raise RuntimeError('Screen power restoration exceeded two PWR transitions')
+                    powers += 1
+                    previous = screen_flags(state)
+                    await self.sim('pwr')
+                    await self.until(lambda item: screen_flags(item) != previous, 'screen power transition', timeout=5)
+                else:
+                    await asyncio.sleep(1)  # Natural 180 s sleep + 15 s fade; never turn it into manual-off.
 
 
 def fault_window(before, after):

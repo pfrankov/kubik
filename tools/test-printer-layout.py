@@ -12,7 +12,7 @@ from contextlib import nullcontext
 from frame_diff import write_png
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ('printer_layout', 'printer_layout_text', 'printer_layout_qr', 'printer_emoji')
+SOURCES = ('printer_layout', 'printer_layout_text', 'printer_layout_qr', 'printer_emoji', 'emoji_cluster')
 QR = ROOT / 'firmware/managed_components/espressif__qrcode'
 CC = os.environ.get('CC', 'cc')
 FLAGS = ['-std=c11', '-D_POSIX_C_SOURCE=200809L', '-O1', '-g', '-Wall', '-Wextra', '-Werror',

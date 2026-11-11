@@ -14,11 +14,10 @@ static const uint8_t *fetch(uint32_t offset, uint32_t bytes, uint32_t hint, uint
     return offset <= pack_size && bytes <= pack_size - offset ? pack + offset : NULL;
 }
 static void card(face_t *f) {
-    f->card_n = FACE_CARD_LINES; f->card_t = 1; f->card_left = -1; f->card_hold = true;
-    for (unsigned i = 0; i < FACE_CARD_LINES; ++i) {
-        f->card_line[i] = i * 20;
-        memcpy(f->card_buf + i * 20, "A full text line", sizeof "A full text line");
-    }
+    char text[1001] = "";
+    for (unsigned i = 0; i < 58; i++) strcat(text, "A full text line\n");
+    face_card(f, text);
+    f->card_t = 1; f->card_left = -1; f->card_hold = true;
 }
 static void check(face_t *f) {
     scene_t scene; face_draw(f, &scene);
@@ -34,7 +33,7 @@ static void overlays(face_t *f) {
     f->live_active = f->live_ready = f->live_mic = true;
     card(f);
     f->bub_t = 1; f->bub_left = 10; strcpy(f->bub_text, "Status message");
-    for (int page = 0; page < (FACE_CARD_LINES + FACE_CARD_PAGE - 1) / FACE_CARD_PAGE; ++page) {
+    for (int page = 0; page < f->card_pages; ++page) {
         f->card_page = page;
         for (int icon = 0; icon < BUB_COUNT; ++icon) {
             f->bub_icon = icon;

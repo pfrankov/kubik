@@ -6,8 +6,8 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-RENDER = ['render', 'render_dots', 'render_glass', 'render_output', 'render_pipeline', 'render_raster', 'render_projection', 'render_scene', 'render_text', 'render_overlay_s3', 'sprite', 'font', 'font_data']
-FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_update', 'face_setup', 'face_menu', 'sound_levels', 'face_status', 'ui_kit', 'face_plush', 'face_rub', 'tess_geometry', 'tess_growth', 'tess_games', 'tess_gather', 'tess_sky', 'tess_sky_stream', 'tess_sky_compose', 'tess_sky_plan', 'tess_sky_melody', 'tess_sky_touch', 'tess_sky_summon', 'tess_sky_sound', 'tess_sky_draw', 'tess_play_shape', 'tess_stretch', 'tess_temper', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
+RENDER = ['render', 'render_dots', 'render_glass', 'render_output', 'render_pipeline', 'render_raster', 'render_projection', 'render_scene', 'render_text', 'render_emoji', 'emoji_cluster', 'render_overlay_s3', 'sprite', 'font', 'font_data']
+FACE = ['event_journal', 'event_journal_draw', 'face', 'face_params', 'face_body', 'face_card', 'face_emoji', 'face_update', 'face_setup', 'face_menu', 'sound_levels', 'face_status', 'ui_kit', 'face_plush', 'face_rub', 'tess_geometry', 'tess_growth', 'tess_games', 'tess_gather', 'tess_sky', 'tess_sky_stream', 'tess_sky_compose', 'tess_sky_plan', 'tess_sky_melody', 'tess_sky_touch', 'tess_sky_summon', 'tess_sky_sound', 'tess_sky_draw', 'tess_play_shape', 'tess_stretch', 'tess_temper', 'tess_motion', 'tess_rub', 'rub', 'tess_mood', 'mood', 'tess_feel', 'tess_gaze', 'tess_play', 'tess_touch', 'tess_scatter', 'tess_fall', 'tess_draw']
 
 def face_sources(extra=(), omit=()):
     # Tests that include a .c for a private reference omit that translation unit.
@@ -52,11 +52,12 @@ TESTS = {
     'tess_gaze': face_sources(extra=[], omit=[]),
     'menu_layout': face_sources(extra=[], omit=[]),
     'text_layout': face_sources(extra=[], omit=[]),
+    'face_card_emoji': face_sources(extra=[], omit=[]),
     'tess_fall': face_sources(extra=[], omit=['tess_fall']),
     'tess_shimmer': face_sources(extra=['canvas'], omit=[]),
     'present': face_sources(extra=['present', 'frame_store', 'canvas'], omit=[]),
-    'edge_overlay': ['render', 'render_dots', 'render_glass', 'render_output', 'render_pipeline', 'render_raster', 'render_projection', 'render_scene', 'render_text', 'render_overlay_s3', 'sprite', 'font', 'font_data'],
-    'icons': ['render_scene', 'render_text', 'render_overlay_s3', 'font', 'font_data'],
+    'edge_overlay': ['render', 'render_dots', 'render_glass', 'render_output', 'render_pipeline', 'render_raster', 'render_projection', 'render_scene', 'render_text', 'render_emoji', 'emoji_cluster', 'render_overlay_s3', 'sprite', 'font', 'font_data'],
+    'icons': ['render_scene', 'render_text', 'render_emoji', 'emoji_cluster', 'render_overlay_s3', 'font', 'font_data'],
     'tess_conversation': face_sources(extra=[], omit=['tess_draw']),
     'stroke_fast': RENDER,
 }
@@ -83,6 +84,7 @@ def main():
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=8"]))
         runs.append(("icons", TESTS["icons"], ["-DICON_TEST_COUNT=24"]))
         runs.append(("output_flat", TESTS["output_flat"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
+        runs.append(("face_card_emoji", TESTS["face_card_emoji"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("rectangle_layout", face_sources(), ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("render_projection", [source for source in RENDER if source != "sprite"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("tess_scene_capacity", TESTS["tess_scene_capacity"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))

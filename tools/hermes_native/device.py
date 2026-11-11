@@ -25,6 +25,7 @@ def arguments():
     modes.add_argument('--printer-live-status', action='store_true', help='Physical Live microphone plus one printer status RPC; printing is blocked')
     modes.add_argument('--printer-stream-check', action='store_true', help='Exactly one NEW BLE 20 ms text print, 30x10 mm at 3 mm font')
     modes.add_argument('--printer-quality-check', action='store_true', help='Two NEW jobs: personal Apple emoji text and square 20 mm QR')
+    modes.add_argument('--screen-emoji-check', action='store_true', help='Real agent Apple emoji cards across pages with Live microphone; zero prints')
     parser.add_argument('--evidence', required=True, type=Path, help='NEW private evidence directory')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -75,7 +76,9 @@ def launch(args):
             command.append('--printer-stream-check')
         if args.printer_quality_check:
             command.append('--printer-quality-check')
-        subprocess.run(command, cwd=ROOT, env=env, timeout=400 if printer_mode(args) else 240, check=True)
+        if args.screen_emoji_check:
+            command.append('--screen-emoji-check')
+        subprocess.run(command, cwd=ROOT, env=env, timeout=720 if long_mode(args) else 600, check=True)
 
 
 async def prepare(args, original, identity):
@@ -99,6 +102,8 @@ async def prepare(args, original, identity):
     save(state / 'voice.json', {'version': 1, 'entries': {identity: {'mode': original['voice_mode']}}})
     if args.printer_quality_check:
         copy_private_emoji(args, state)
+    if args.screen_emoji_check:
+        copy_private_color(args, state)
     providers = Providers()
     app = web.Application(client_max_size=5 * 1024 * 1024)
     app.router.add_route('*', '/{tail:.*}', providers.respond)
@@ -123,6 +128,29 @@ def printer_mode(args):
     return args.printer or args.printer_live_status or args.printer_stream_check or args.printer_quality_check
 
 
+def long_mode(args):
+    return printer_mode(args) or args.screen_emoji_check
+
+
+def copy_private_color(args, state):
+    import hashlib
+    import importlib
+    from types import ModuleType
+    from device_control import save
+    from device_screen_emoji import SEQUENCES
+    package = ModuleType('kubik_screen_fixture')
+    package.__path__ = [str(ROOT / 'hermes-kubik')]
+    sys.modules[package.__name__] = package
+    module = importlib.import_module(package.__name__ + '.screen_emoji')
+    data = module.read_color(args.tls_identity.parent / 'apple-emoji-color.bin')
+    entries = module.parse_color(data)
+    if not all(sequence in entries for sequence in SEQUENCES):
+        raise ValueError('Private color atlas lacks a required screen-test emoji')
+    save(state / 'apple-emoji-color.bin', data)
+    save(args.evidence / 'apple-color-atlas.json', {'bytes': len(data), 'entries': len(entries),
+                    'sha256': hashlib.sha256(data).hexdigest(), 'private_state': True})
+
+
 def copy_private_emoji(args, state):
     import hashlib
     import importlib.util
@@ -143,6 +171,9 @@ def copy_private_emoji(args, state):
 
 
 def acceptance(args):
+    if args.screen_emoji_check:
+        from device_screen_emoji import Observations, check
+        return Observations, check, 'native agent color emoji cards and continuous Live microphone, zero prints'
     if args.printer_quality_check:
         from device_printer import QualityObservations, check_quality
         return QualityObservations, check_quality, 'two new quality jobs with personal Apple emoji submitted'
@@ -182,7 +213,7 @@ async def worker(args):
         observations = Observations(adapter)
         observations.install()
         await connect(args, control)
-        if printer_mode(args) and not args.wifi:
+        if long_mode(args) and not args.wifi:
             await control.sim('wifi', ms=360000)
         await eventually(lambda: identity in adapter.peers and adapter.peers[identity].ready)
         peer = adapter.peers[identity]

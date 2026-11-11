@@ -59,18 +59,9 @@ def run_contract(source):
         subprocess.run([str(python), str(ROOT / 'tools/hermes_native/tls_fixture.py'), str(work)],
                        env=env, timeout=15, check=True)
         env.update(SSL_CERT_FILE=str(work / 'provider-cert.pem'), KUBIK_TEST_TLS_DIR=str(work))
-        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_control_test.py')],
-                       cwd=ROOT, env=env, timeout=20, check=True)
-        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_restore_test.py')],
-                       cwd=ROOT, env=env, timeout=20, check=True)
-        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_transport_test.py')],
-                       cwd=ROOT, env=env, timeout=20, check=True)
-        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/runtime_guards_test.py')],
-                       cwd=ROOT, env=env, timeout=20, check=True)
-        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/physical_fixture_test.py')],
-                       cwd=ROOT, env=env, timeout=20, check=True)
-        subprocess.run([str(python), str(ROOT / 'tools/hermes_native/device_printer_test.py')],
-                       cwd=ROOT, env=env, timeout=20, check=True)
+        subprocess.run([str(python), '-m', 'unittest', 'discover',
+                        '-s', str(ROOT / 'tools/hermes_native'), '-p', '*_test.py'],
+                       cwd=ROOT, env=env, timeout=60, check=True)
         subprocess.run([str(python), str(ROOT / 'tools/hermes_native/contract.py')],
                        cwd=ROOT, env=env, timeout=360, check=True)
     print(f'Hermes native acceptance passed: {PIN["tag"]} / {PIN["commit"]} / Python {version}')

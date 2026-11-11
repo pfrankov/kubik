@@ -7,7 +7,9 @@
 
 ```sh
 python3 tools/emoji/build-apple.py --output /absolute/private/path/apple-emoji.bin
+python3 tools/emoji/build-apple-color.py --output /absolute/private/path/apple-emoji-color.bin
 python3 tools/emoji/test-atlas.py
+python3 tools/emoji/test-color-atlas.py
 ```
 
 По умолчанию загружается официальный `emoji-test.txt` Unicode 17.0 с проверкой
@@ -31,3 +33,8 @@ ZWJ-последовательности на отдельные emoji-ячей�
 Синтетические тесты проверяют формат без распространения Apple artwork;
 на macOS дополнительно проверяются настоящие составные glyphs и отказ
 от подстановки другого шрифта.
+
+Для цветного экрана используется отдельный KEMC v1: 15 адаптивных цветов
+RGBA плюс прозрачный и 4-битные индексы, 576 байт на глиф. Сглаживание
+сохраняет частичную alpha; KEMJ остаётся прежним. Полный контракт:
+[docs/emoji-assets.md](../../docs/emoji-assets.md).

@@ -139,9 +139,9 @@ class Protocol(ProtocolFixture):
         tasks = []
         with patch('hermes_kubik.adapter.web.WebSocketResponse', side_effect=[first, latest]):
             try:
-                tasks.append(asyncio.create_task(adapter.accept(None)))
+                tasks.append(asyncio.create_task(adapter.accept(SimpleNamespace(transport=None))))
                 await asyncio.wait_for(old.close_started.wait(), 1)
-                tasks.append(asyncio.create_task(adapter.accept(None)))
+                tasks.append(asyncio.create_task(adapter.accept(SimpleNamespace(transport=None))))
                 await asyncio.wait_for(latest.prepared.wait(), 1)
                 self.assertTrue(first.closed, 'the second reconnect must close its actual predecessor')
                 release_old.set()
@@ -184,7 +184,7 @@ class Protocol(ProtocolFixture):
         with patch.object(speech, 'play_file', play_file), \
                 patch('hermes_kubik.adapter.web.WebSocketResponse', return_value=replacement):
             try:
-                task = asyncio.create_task(adapter.accept(None))
+                task = asyncio.create_task(adapter.accept(SimpleNamespace(transport=None)))
                 await asyncio.wait_for(old.close_started.wait(), 1)
                 peer = adapter.peers[identity]
                 self.assertIs(peer.socket, replacement)
@@ -347,6 +347,7 @@ class Protocol(ProtocolFixture):
         self.assertEqual(saved['platforms']['telegram'], config['platforms']['telegram'])
         self.assertEqual(saved['plugins']['enabled'], ['existing-plugin', 'kubik'])
         self.assertTrue((home / 'plugins/kubik/plugin.yaml').exists())
+        self.assertEqual((home / 'plugins/kubik/screen_emoji.py').read_bytes(), (ROOT / 'hermes-kubik/screen_emoji.py').read_bytes())
         installer.install(ROOT / 'hermes-kubik', home, 18793)
         manifests = list((home / 'plugins').rglob('plugin.yaml'))
         self.assertEqual(manifests, [home / 'plugins/kubik/plugin.yaml'])

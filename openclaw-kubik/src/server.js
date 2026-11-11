@@ -5,7 +5,7 @@ import { HttpEngine } from './engines/http.js';
 import { authMessage, CLOSE, decodeDeviceKey, out, ProtocolError } from './protocol.js';
 import { attachDeviceMessages } from './server-connection.js';
 import { guardSessionFrames, readAllowed, sendPairingChallenge, withPairingTimeout } from './pairing-access.js';
-import { PrinterDeviceSession as DeviceSession } from './printer-session.js';
+import { ScreenEmojiDeviceSession as DeviceSession, ColorEmojiAtlas } from './screen-emoji-session.js';
 import { NotificationError, NotificationQueue } from './notification-queue.js';
 import { refreshSessionActivity, sendSessionCron } from './server-status.js';
 import { sanitizeForDisplay, speakableText } from './speech.js';
@@ -52,7 +52,7 @@ export class KubikServer {
     pairing = null, pairingPollMs = PAIRING_POLL_MS, pairingTimeoutMs = PAIRING_TIMEOUT_MS, activity = null, cron = null,
     notificationPath = null, agentControl = null, stateDir = null }) {
     Object.assign(this, { account, dispatch, log, setStatus, engineFactory, engineOptions, pairing, pairingPollMs, pairingTimeoutMs });
-    Object.assign(this, { cron, activity, agentControl, stateDir });
+    Object.assign(this, { cron, activity, agentControl, stateDir, screenEmojiAtlas: new ColorEmojiAtlas(stateDir) });
     this.#notifications = new NotificationQueue({ path: notificationPath, log });
   }
 
@@ -405,7 +405,7 @@ export class KubikServer {
     const { ws, remote, hello, deviceId } = conn;
     const configured = this.account.devices.get(deviceId);
     const device = { id: deviceId, name: configured && configured.name !== deviceId ? configured.name : hello.name || deviceId,
-      enabled: true, fingerprint: conn.fingerprint, fw: hello.fw, reportedName: hello.name, printer: hello.printer,
+      enabled: true, fingerprint: conn.fingerprint, fw: hello.fw, reportedName: hello.name, printer: hello.printer, screen_emoji: hello.screen_emoji,
       ...(hello.volume !== undefined ? { volume: hello.volume } : {}) };
     const engine = this.#engineFor(device);
     const getVoice = this.agentControl?.voiceSettings ? () => this.agentControl.voiceSettings(device) : undefined;
@@ -436,7 +436,7 @@ export class KubikServer {
     }
     const authorize = () => this.#authorizeSession(session);
     const session = new DeviceSession({
-      ws, device, engine, log: this.log,
+      ws, device, engine, log: this.log, screenEmojiAtlas: this.screenEmojiAtlas,
       lastGen: previous?.gen ?? this.#lastGen.get(deviceId) ?? 0, sessionId: `s-${admission}`, volume: this.account.volume ?? hello.volume,
       agentControl: this.agentControl, textMode: this.account.text ?? 'auto',
       onActivity: () => this.setStatus({ lastInboundAt: Date.now() }),

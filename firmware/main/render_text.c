@@ -94,17 +94,25 @@ static void render_text_primitive(const scene_t *s, const prim_t *p, uint16_t *o
     int xe = x0 + width - 1, ye = y0 + rows - 1;
     const font_t *f = &g_fonts[p->r];
     int base = p->sub_y;
-    if (base + f->descent + 2 < y0 || base - f->ascent - 2 > ye) return;
+    int top=s->raster_ready ? p->by0*R_SCALE : p->by0;
+    int bottom=s->raster_ready ? (p->by1+1)*R_SCALE : p->by1+1;
+    if (bottom<y0 || top>ye)return;
     int pen = p->sub_x * 16;
     uint8_t alpha[16];
     for (unsigned v = 0; v < 16; v++)
         alpha[v] = (uint8_t)((v * p->alpha * 32 + 15 * 255 / 2) / (15 * 255));
     uint16_t c = swap ? rgb565_bswap(p->color) : p->color;
     for (int i = 0; i < p->b; i++) {
-        const font_glyph_t *g = &f->g[s->text[p->a + i]];
-        int gx = ((pen + 8) >> 4) + g->x, gy = base - g->top;
-        pen += g->adv + p->sub_r + (i + 1 < p->b ? font_kern(f, s->text[p->a + i], s->text[p->a + i + 1]) : 0);
-        render_text_glyph(f, g, out, x0, y0, xe, ye, stride, gx, gy, alpha, c, p->color, swap);
+        uint16_t token=s->text[p->a+i];
+        if(token>=R_EMOJI_TOKEN)
+            render_emoji_overlay(s,token,out,x0,y0,width,rows,stride,(pen+8)>>4,
+                base-(f->cap+R_EMOJI_EDGE)/2,p->alpha,swap);
+        else {
+            const font_glyph_t *g=&f->g[token];
+            render_text_glyph(f,g,out,x0,y0,xe,ye,stride,((pen+8)>>4)+g->x,base-g->top,alpha,c,p->color,swap);
+        }
+        pen+=render_token_advance(f,token)+p->sub_r+
+            (i+1<p->b ? render_token_kern(f,token,s->text[p->a+i+1]) : 0);
     }
 }
 
@@ -331,7 +339,10 @@ static bool signature_hash_primitive(const scene_t *s, const prim_t *p, uint32_t
     signature_mix(hash, (uint32_t)p->sub_x); signature_mix(hash, (uint32_t)p->sub_y);
     signature_mix(hash, (uint32_t)p->sub_r); signature_mix(hash, p->alpha); signature_mix(hash, p->color);
     signature_mix(hash, (uint32_t)p->r); signature_mix(hash, (uint32_t)p->b);
-    for (int i = 0; i < p->b; i++) signature_mix(hash, s->text[p->a + i]);
+    for (int i = 0; i < p->b; i++) {
+        unsigned token=s->text[p->a+i];signature_mix(hash,token);
+        if(token>=R_EMOJI_TOKEN && token<R_EMOJI_PLACEHOLDER)signature_mix(hash,s->emoji_hash[token-R_EMOJI_TOKEN]);
+    }
     return true;
 }
 

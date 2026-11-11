@@ -285,10 +285,13 @@ test('outbound: offline notification is queued, not-running errors are clear; no
   assert.equal(queued.meta.deliveryStatus, 'queued');
   assert.equal(queued.meta.spokenChars, 0);
   await assert.rejects(channelPlugin.outbound.sendText({ to: 'kubik:nope nope', text: 'x' }), /Invalid Kubik target/);
-  await assert.rejects(channelPlugin.outbound.sendText({ to: `kubik:${DEVICE}`, text: '😀 🙂' }), /Nothing to say or show/);
+  await assert.rejects(channelPlugin.outbound.sendText({ to: `kubik:${DEVICE}`, text: '*** [[happy]]' }), /Nothing to say or show/);
 
   const device = await connectDevice(url);
   await device.waitFor((e) => e.t === 'state' && e.s === 'idle');
+  const emoji = await channelPlugin.outbound.sendText({ to: `kubik:${DEVICE}`, text: '😀 🙂', accountId: 'default' });
+  assert.equal(emoji.meta.deliveryStatus, 'shown'); assert.equal(emoji.meta.spokenChars, 0);
+  await device.waitFor(e => e.t === 'text' && e.text.includes('😀 🙂'));
   const result = await channelPlugin.outbound.sendText({ to: `kubik:${DEVICE}`, text: '[[proud]] Пора пить воду!', accountId: 'default' });
   assert.equal(result.channel, 'kubik');
   assert.deepEqual(result.target, { kind: 'chat', id: DEVICE });

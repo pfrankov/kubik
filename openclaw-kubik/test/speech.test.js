@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EMOTIONS, chunkSpeech, emotionOf, parseReply, sanitizeForDisplay, sanitizeForSpeech, speakableText, splitShown } from '../src/speech.js';
+import { EMOTIONS, chunkSpeech, emotionOf, parseReply, sanitizeForDisplay, sanitizeForScreenReply, sanitizeForSpeech, speakableText, splitShown } from '../src/speech.js';
+import { validScreenEmojiSequence } from '../src/screen-emoji-contract.js';
 
 test('emotion list matches the device contract', () => {
   assert.deepEqual([...EMOTIONS], ['neutral', 'happy', 'joy', 'love', 'sad', 'angry', 'surprised', 'confused',
@@ -109,10 +110,30 @@ test('splitShown separates [[show]] blocks and carries an unclosed one over', ()
 
 test('sanitizeForDisplay keeps links and numbers, turns lists into bullets and caps the size', () => {
   assert.equal(sanitizeForDisplay('## Итог\n- **раз** 🙂\n- [сайт](https://a.b/c)\n\n\n| a | b |\n|---|---|'),
-    'Итог\n• раз\n• сайт (https://a.b/c)\n\na · b');
-  assert.equal(sanitizeForDisplay('🙂 ***'), '');
+    'Итог\n• раз 🙂\n• сайт (https://a.b/c)\n\na · b');
+  assert.equal(sanitizeForDisplay('🙂'), '🙂');
   const long = sanitizeForDisplay('слово '.repeat(400));
   assert.ok(Buffer.byteLength(long) <= 1000 && long.endsWith('…'));
+});
+
+test('screen display retains whole emoji while speech, code filtering and hidden markers keep their roles', () => {
+  const input = 'Привет 👨‍👩‍👧‍👦 🇷🇺 👍🏽 ❤️! [[happy]] [[unknown]] ```js\nsecret();\n``` https://example.com';
+  assert.equal(sanitizeForSpeech(input), 'Привет!');
+  assert.equal(sanitizeForScreenReply(input), 'Привет 👨‍👩‍👧‍👦 🇷🇺 👍🏽 ❤️!');
+  assert.equal(sanitizeForDisplay('[[happy]][[unknown]]Привет\u200b\u200d ❤️'), 'Привет ❤️');
+  const plain = 'Обычный **текст**. ```js\ncode();\n``` https://example.com';
+  assert.equal(sanitizeForScreenReply(plain), sanitizeForSpeech(plain));
+  assert.equal(sanitizeForDisplay('```js\ncode();\n```'), 'code();');
+});
+
+test('screen truncation never creates a partial ZWJ, flag or variation sequence', () => {
+  const family = '👨‍👩‍👧‍👦', text = '😀'.repeat(245) + family;
+  const shown = sanitizeForDisplay(text);
+  assert.ok(Buffer.byteLength(shown) <= 1000 && shown.endsWith('…'));
+  const segments = [...new Intl.Segmenter('und', { granularity: 'grapheme' }).segment(shown.slice(0, -1))];
+  assert.ok(segments.every(item => validScreenEmojiSequence(item.segment)));
+  assert.equal(shown.includes('\u200d'), false);
+  assert.equal(sanitizeForDisplay(family.repeat(60)).isWellFormed(), true);
 });
 
 test('chunkSpeech: short first request, sentence boundaries, decimals kept', () => {

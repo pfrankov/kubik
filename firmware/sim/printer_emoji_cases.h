@@ -15,11 +15,11 @@ static printer_emoji_glyph_t emoji_glyph(const char *sequence, bool cross) {
 
 static void emoji_sequences(void) {
     static const char *valid[] = {
-        "😀", "❤", "❤️", "👩‍💻", "👍🏽", "🇷🇺", "#️⃣", "1️⃣", "👨‍👩‍👧‍👦",
+        "😀", "❤", "❤️", "👩‍💻", "👍🏽", "🇷🇺", "#️⃣", "1️⃣", "👨‍👩‍👧‍👦", "🏽",
         "\U0001f3f4\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f",
     };
     static const char *invalid[] = {
-        "", "A", "😀😀", "\U0001f3fd", "\U0001f1f7", "👩\u200d", "👩\u200dA",
+        "", "A", "😀😀", "🏽🏻", "\U0001f1f7", "👩\u200d", "👩\u200dA",
         "❤\ufe0f\ufe0f", "\xc0\xaf", "\xed\xa0\x80", "\U0001f3f4\U000e0067", "1",
     };
     for (unsigned i = 0; i < sizeof valid / sizeof *valid; i++)

@@ -17,7 +17,7 @@ class RestorationTests(unittest.IsolatedAsyncioTestCase):
         self.events = []
         self.state = dict(voice_mode='live', mic_open=True, live_active=True,
                           screen_dark=False, menu=False)
-        self.original = {'voice_mode': 'classic'}
+        self.original = {'voice_mode': 'classic', 'screen_sleeping': False}
         self.peer = SimpleNamespace(identity='approved', ready=True, native=None,
                                     socket=SimpleNamespace(closed=False, close_code=None))
         self.current = self.peer

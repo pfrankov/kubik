@@ -89,6 +89,7 @@ static void check_hello(const char *text) {
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"key")),"BFakePublicKeyBase64=="));
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"fw")),KUBIK_FW_VERSION));
     assert(cJSON_GetObjectItem(j,"printer") && cJSON_GetObjectItem(j,"printer")->valueint==PRINTER_PROTOCOL_VERSION);
+    assert(cJSON_GetObjectItem(j,"screen_emoji")->valueint==1);
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"name")),g_settings.name));
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"server")),g_settings.server_url));
     assert(cJSON_GetObjectItem(j,"volume")->valueint==g_settings.volume);

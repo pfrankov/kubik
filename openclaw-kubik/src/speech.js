@@ -1,5 +1,6 @@
 // Turns agent reply text into speakable segments: emotion tags become events,
 // everything a voice cannot say (markdown, URLs, code, emoji) is removed.
+import { cleanScreenControls, containsScreenEmoji, truncateScreenText } from './screen-emoji-contract.js';
 
 export const EMOTIONS = Object.freeze(['neutral', 'happy', 'joy', 'love', 'sad', 'angry', 'surprised', 'confused',
   'sleepy', 'thinking', 'wink', 'shy', 'proud']);
@@ -21,7 +22,7 @@ export function emotionOf(tagBody) {
  * Makes one piece of reply text safe to read aloud. Returns '' when nothing speakable remains.
  * Order matters: code and links are handled before generic punctuation cleanup.
  */
-export function sanitizeForSpeech(input) {
+function sanitizeReplyText(input, keepEmoji) {
   let text = String(input ?? '').replace(/\r\n?/g, '\n');
   text = text.replace(TAG_RE, ' ');
   text = text.replace(/```[\s\S]*?(?:```|$)/g, ' ').replace(/~~~[\s\S]*?(?:~~~|$)/g, ' '); // fenced code is not read
@@ -32,7 +33,7 @@ export function sanitizeForSpeech(input) {
   text = text.replace(/^\s*\[[^\]\n]+\]:\s*\S+.*$/gm, ' '); // link definitions
   text = text.replace(URL_RE, ' ').replace(EMAIL_RE, ' ');
   text = text.replace(/`([^`\n]*)`/g, '$1');
-  text = text.replace(EMOJI_RE, '');
+  if (!keepEmoji) text = text.replace(EMOJI_RE, '');
   text = text.replace(/:[a-z0-9_+-]{0,29}[a-z][a-z0-9_+-]{0,29}:/g, " "); // :shortcode: emoji
   const lines = [];
   for (let line of text.split('\n')) {
@@ -57,8 +58,11 @@ export function sanitizeForSpeech(input) {
     .replace(/([.,!?…:;])(?:\s*[.,;:])+(?=\s|$)/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  return /[\p{L}\p{N}]/u.test(text) ? text : '';
+  return /[\p{L}\p{N}]/u.test(text) || keepEmoji && containsScreenEmoji(text) ? text : '';
 }
+
+export function sanitizeForSpeech(input) { return sanitizeReplyText(input, false); }
+export function sanitizeForScreenReply(input) { return sanitizeReplyText(input, true); }
 
 // [[show]] … [[/show]]: text for Kubik's screen, never spoken. A block may stop inside one (`inShow`).
 const SHOW_OPEN_RE = /\[\[\s*show\s*\]\]/i;
@@ -90,7 +94,7 @@ export function splitShown(input, { inShow = false } = {}) {
 const DISPLAY_MAX_BYTES = 1000;
 
 /**
- * Makes reply text fit for Kubik's small screen: markdown markup and emoji go, links and numbers stay, list
+ * Makes reply text fit for Kubik's small screen: markdown markup goes, emoji, links and numbers stay, list
  * items become "• " lines. Returns '' when nothing is left; long text is cut at DISPLAY_MAX_BYTES with "…".
  */
 export function sanitizeForDisplay(input) {
@@ -98,7 +102,7 @@ export function sanitizeForDisplay(input) {
   text = text.replace(TAG_RE, ' ').replace(/```[^\n]*\n?|~~~[^\n]*\n?/g, '');
   text = text.replace(/<\/?[a-z][^>\n]*>/gi, ' ').replace(/!\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
     .replace(/\[([^\]\n]+)\]\(([^)\s\n]*)\)/g, (m, label, url) => (label === url ? url : `${label} (${url})`));
-  text = text.replace(EMOJI_RE, '').replace(/[\u200B-\u200F\u2060]/g, '');
+  text = cleanScreenControls(text);
   const lines = [];
   for (let line of text.split('\n')) {
     if (/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line)) continue;
@@ -113,13 +117,8 @@ export function sanitizeForDisplay(input) {
   }
   while (lines.length && !lines.at(-1)) lines.pop();
   text = lines.join('\n');
-  if (!/[\p{L}\p{N}]/u.test(text)) return '';
-  if (Buffer.byteLength(text) > DISPLAY_MAX_BYTES) {
-    let cut = text.slice(0, DISPLAY_MAX_BYTES);
-    while (Buffer.byteLength(cut) > DISPLAY_MAX_BYTES - 3) cut = cut.slice(0, -1);
-    text = `${cut.replace(/\s+\S*$/, '')}…`;
-  }
-  return text;
+  if (!/[\p{L}\p{N}]/u.test(text) && !containsScreenEmoji(text)) return '';
+  return truncateScreenText(text, DISPLAY_MAX_BYTES);
 }
 
 const FIRST_CHUNK_MIN = 30;
