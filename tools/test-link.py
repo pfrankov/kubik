@@ -14,6 +14,7 @@ source = '\n'.join(without_includes(root / 'firmware/main' / name)
 source = source.replace('malloc(s_expected + 1)', 'rx_malloc(s_expected + 1)')
 mock = (root / 'tools/fixtures/link_stubs.c').read_text()
 mock += '\n#include "printer_protocol.h"\n'
+mock += '\nstatic void usb_parser_cases(void);\n'
 tests = r'''
 static void replace_session_before_send(SemaphoreHandle_t lock) {
     if(lock==s_ws_io_mtx) { before_take=NULL; atomic_fetch_add(&s_session,1); }
@@ -442,11 +443,13 @@ int main(void) {
     assert(allocations==destroys);
     assert(link_usb_crc8(0,(const uint8_t*)"123456789",9)==0xf4);
     assert(s_ws_rx==NULL);
+    usb_parser_cases();
     puts("link: strict v5 device protocol and v2 USB transport, epoch routing, immediate welcome ordering, WS cleanup/backoff, WSS time gating, challenge/auth with binding over WS and USB (0x23), LAN discovery/pinning/key-changed, pairing hold, refusal/no-plugin/no-server passed");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='c6-link-test-') as tmp:
-    src=Path(tmp)/'test.c';exe=Path(tmp)/'test';src.write_text(mock+source+tests)
+    cases = (root / 'tools/fixtures/link_usb_parser_cases.c').read_text()
+    src=Path(tmp)/'test.c';exe=Path(tmp)/'test';src.write_text(mock+source+tests+cases)
     for s3 in (0,1):
         subprocess.run(['clang','-std=c11','-Wall','-Wextra','-Wno-unused-function','-Wno-unused-variable','-Wno-unused-parameter','-Wno-deprecated-declarations',
             '-fsanitize=address,undefined','-g','-O1',f'-DCONFIG_IDF_TARGET_ESP32S3={s3}',f'-DCONFIG_IDF_TARGET_ESP32C6={1-s3}',

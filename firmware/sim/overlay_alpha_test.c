@@ -109,6 +109,19 @@ static int reference_axis(int pixel,int origin,int size) {
     int end=(ICON_MASK_SIZE-1)*256;
     return q>end?end:q;
 }
+static void column_coordinates(void) {
+    uint16_t out[UI_W + 2];
+    const int sizes[]={1,15,16,17,31,127,255,512,767,1024,7680,32767};
+    for(unsigned n=0;n<sizeof sizes/sizeof *sizes;n++)
+        for(int origin=-79;origin<100;origin++)for(int xs=-3;xs<UI_W;xs+=29) {
+            int count=UI_W-xs; if(count>UI_W)count=UI_W;
+            out[0]=out[count+1]=0xA55A;
+            icon_columns(out+1,xs,count,origin,sizes[n]);
+            for(int x=0;x<count;x++)assert(out[x+1]==reference_axis(xs+x,origin,sizes[n]));
+            assert(out[0]==0xA55A && out[count+1]==0xA55A);
+        }
+    puts("icon columns: exact scalar division coordinates, signed fractional origins, clipped spans and canaries");
+}
 static unsigned mask_pixel(const uint8_t *mask,int x,int y) {
     int i=y*ICON_MASK_SIZE+x;
     return (mask[i/2]>>((i%2)?0:4))&15;
@@ -278,7 +291,7 @@ static void kern_clones(void) {
     scene_end(&scene);scene_end(&copy);
 }
 int main(void) {
-    black_first_use();palettes();black_palettes();black_glyphs();interval_bounds();clipped_icons();full_width_icon();text_boundaries();kern_pairs();kern_pixels();kern_clones();
+    black_first_use();palettes();black_palettes();black_glyphs();interval_bounds();column_coordinates();clipped_icons();full_width_icon();text_boundaries();kern_pairs();kern_pixels();kern_clones();
     puts("black palette: all opacity/coverage, all RGB565 colors at boundaries, key churn, clipped/overlapping glyphs and stride guards exact");
     puts("scene kerning: every font pair/emoji, signed/zero deltas, prefix guards, old scalar pen pixels, split windows and clone/rebuild exact");
     puts("overlay alpha: all 4096 opacity/coverage values, eviction churn, fractional clipping and stride guards match original scalar math");

@@ -26,17 +26,23 @@ def screen_answer(messages):
 class ScreenConnection(MicConnection):
     def __init__(self, *args):
         super().__init__(*args)
+        self.transcripts = []
+        self.expect_reply(TEXT, 100)
+
+    def expect_reply(self, text, offset):
         self.result_text, self.transcript_sent = '', False
+        self.expected_text, self.transcript_offset = text, offset
 
     async def respond(self, event):
         await super().respond(event)
         if event['type'] != 'session.commentary.append':
             return
         self.result_text += event.get('content', '')
-        if self.result_text == TEXT and not self.transcript_sent:
+        if self.result_text == self.expected_text and not self.transcript_sent:
             self.transcript_sent = True
-            await self.socket.send_json({'type': 'session.output_transcript.delta', 'delta': TEXT,
-                                         'start_ms': 0, 'end_ms': 100})
+            self.transcripts.append(self.expected_text)
+            await self.socket.send_json({'type': 'session.output_transcript.delta', 'delta': self.expected_text,
+                                         'start_ms': self.transcript_offset - 100, 'end_ms': self.transcript_offset})
 
 
 class Observations:
@@ -95,7 +101,13 @@ class Observations:
             socket.send_json = original
 
 
-async def pages(control, observations):
+def current_card(observations, row, text, after, previous_id):
+    visible = any(item['value'].get('t') == 'text' and item['value'].get('text') == text
+                  for item in observations.wire[after:])
+    return visible and (previous_id is None or row['emoji_id'] != previous_id)
+
+
+async def pages(control, observations, text=TEXT, sequences=SEQUENCES, after=0, previous_id=None):
     ready, candidate, stable = set(), None, 0
     async with asyncio.timeout(40):
         while True:
@@ -108,44 +120,46 @@ async def pages(control, observations):
             observations.persist_wire()
             assert row['live_active'] and row['mic_open'] and row['mic_rx_enabled'], row
             assert not row['emoji_missing'], row
-            if row['emoji_count'] and row['emoji_ready'] == row['emoji_count']:
+            current = current_card(observations, row, text, after, previous_id)
+            if current and row['emoji_count'] and row['emoji_ready'] == row['emoji_count']:
                 ready.add(row['card_page'])
-                if not any(frame['page'] == row['card_page'] for frame in observations.frames):
-                    await frame_snapshot(control, observations, row['card_page'])
-            candidate, stable, complete = page_progress(observations, row, ready, candidate, stable)
+                if not any(frame['page'] == row['card_page'] and frame['text'] == text
+                           for frame in observations.frames):
+                    await frame_snapshot(control, observations, row['card_page'], text)
+            candidate, stable, complete = page_progress(observations, row, ready, candidate, stable,
+                                                        sequences, after, current)
             if complete:
                 return ready
             await asyncio.sleep(.25)
 
 
-def page_progress(observations, row, ready, candidate, stable):
-    visible = any(item['value'].get('t') == 'text' and item['value'].get('text') == TEXT for item in observations.wire)
-    total = row['card_pages'] if visible and row['emoji_count'] else 0
+def page_progress(observations, row, ready, candidate, stable, sequences, after, current):
+    total = row['card_pages'] if current and row['emoji_count'] else 0
     stable = stable + 1 if total == candidate else 1
-    covered = {item['value']['seq'] for item in observations.wire
+    covered = {item['value']['seq'] for item in observations.wire[after:]
                if item['value'].get('t') == 'emoji' and item['value'].get('data') is not None}
-    complete = total > 0 and stable >= 2 and set(range(total)) <= ready and set(SEQUENCES) <= covered
+    complete = total > 0 and stable >= 2 and set(range(total)) <= ready and set(sequences) <= covered
     return total, stable, complete
 
 
-async def frame_snapshot(control, observations, page):
+async def frame_snapshot(control, observations, page, text):
     try:
         value = await control.sim('stats')
-        observations.frames.append({'page': page, 'metrics': value})
+        observations.frames.append({'page': page, 'text': text, 'metrics': value})
     except Exception as error:
-        observations.frames.append({'page': page, 'unavailable': type(error).__name__})
+        observations.frames.append({'page': page, 'text': text, 'unavailable': type(error).__name__})
     observations.persist_wire()
 
 
-def verify_replies(observations, replies):
+def verify_replies(observations, replies, sequences=SEQUENCES):
     seen = set()
     for row in replies:
         value = row['value']
-        assert value['data'] is not None and value['seq'] in SEQUENCES, value
+        assert value['data'] is not None and value['seq'] in sequences, value
         glyph = base64.b64decode(value['data'], validate=True)
         assert len(glyph) == 576 and glyph == observations.adapter.screen_emoji.atlas.entries[value['seq']]
         seen.add(value['seq'])
-    assert seen == set(SEQUENCES), seen
+    assert seen == set(sequences), seen
     return len(seen)
 
 
@@ -161,6 +175,24 @@ def verify(observations, baseline):
     assert mic, 'Provider input stopped during color glyph requests'
     assert all(row['heap_failures'] == baseline['heap_failures'] for row in observations.states)
     return {'glyphs_received': received, 'page_requests': len(requests), 'mic_frames_during_requests': len(mic)}
+
+
+async def emoji_only(control, observations, connection, baseline):
+    previous = await control.info()
+    after, started = len(observations.wire), time.monotonic()
+    connection.expect_reply(ONLY_TEXT, 300)
+    token = uuid.uuid4().hex[:16]
+    await connection.delegate(ONLY_MARKER + token, 'screen-emoji-only-' + token, 300)
+    await eventually(lambda: connection.transcript_sent)
+    ready = await pages(control, observations, ONLY_TEXT, SEQUENCES[:5], after, previous['emoji_id'])
+    replies = [row for row in observations.wire[after:] if row['value'].get('t') == 'emoji']
+    received = verify_replies(observations, replies, SEQUENCES[:5])
+    assert connection.transcripts == [TEXT, ONLY_TEXT], connection.transcripts
+    assert all(row['heap_failures'] == baseline['heap_failures'] for row in observations.states)
+    mic = [at for at in connection.mic_times if started < at < time.monotonic()]
+    assert mic, 'Live input stopped during the emoji-only continuation'
+    return {'emoji_only_continuation': True, 'emoji_only_ready_pages': len(ready),
+            'emoji_only_mic_frames': len(mic), 'emoji_only_glyphs_received': received}
 
 
 async def check(adapter, peer, control, providers, observations):
@@ -179,9 +211,11 @@ async def check(adapter, peer, control, providers, observations):
         await eventually(lambda: connection.transcript_sent)
         ready = await pages(control, observations)
         measured = verify(observations, baseline)
+        continued = await emoji_only(control, observations, connection, baseline)
         fault_window(before, await control.request(cmd='bridge-diagnostics'))
         return {'screen_emoji': True, 'native_agent_reply': True, 'ready_pages': len(ready),
-                'live_continuous': True, 'test_prints_submitted': 0, 'paid_provider_calls': 0, **measured}
+                'live_continuous': True, 'test_prints_submitted': 0, 'paid_provider_calls': 0,
+                **measured, **continued}
     finally:
         peer.volume = old_volume
         observations.persist(control.evidence, providers)

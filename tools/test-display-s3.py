@@ -30,7 +30,7 @@ send_window = presentation[helper_start:helper_end] + presentation[presentation.
 board = (ROOT / 'firmware/main/board.h').read_text()
 present = (ROOT / 'firmware/main/present.h').read_text()
 pool_macros = re.search(r'#if CONFIG_IDF_TARGET_ESP32S3\n#define LCD_PIPE 3\n#define LCD_DMA_CREDITS \(LCD_PIPE - 1\)\n#else\n#define LCD_PIPE 2\n#define LCD_DMA_CREDITS LCD_PIPE\n#endif', board)[0]
-row_macros = re.search(r'#if CONFIG_IDF_TARGET_ESP32S3\n#define OUTPUT_ROWS 8\n#else\n#define OUTPUT_ROWS 4[^\n]*\n#endif', present)[0]
+row_macros = re.search(r'#if CONFIG_IDF_TARGET_ESP32S3\n#define OUTPUT_ROWS 8\n#else\n#define OUTPUT_ROWS 6[^\n]*\n#endif', present)[0]
 order_fixture = r'''
 #include <assert.h>
 #include <stdbool.h>

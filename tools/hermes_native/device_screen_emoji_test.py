@@ -3,12 +3,13 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from device import ROOT, arguments, copy_private_color
-from device_screen_emoji import MARKER, ONLY_MARKER, ONLY_TEXT, Observations, SEQUENCES, ScreenConnection, TEXT, pages, screen_answer
+from device_screen_emoji import MARKER, ONLY_MARKER, ONLY_TEXT, Observations, SEQUENCES, ScreenConnection, TEXT, check, pages, screen_answer
 
 
 class ScreenFixtureTests(unittest.IsolatedAsyncioTestCase):
@@ -27,6 +28,57 @@ class ScreenFixtureTests(unittest.IsolatedAsyncioTestCase):
         events = [row.args[0] for row in socket.send_json.await_args_list]
         transcripts = [event for event in events if event['type'] == 'session.output_transcript.delta']
         self.assertEqual([event['delta'] for event in transcripts], [TEXT])
+        connection.expect_reply(ONLY_TEXT, 300)
+        await connection.respond({'type': 'session.commentary.append', 'event_id': 'c', 'content': ONLY_TEXT})
+        await connection.respond({'type': 'session.commentary.append', 'event_id': 'd', 'content': ''})
+        events = [row.args[0] for row in socket.send_json.await_args_list]
+        transcripts = [event for event in events if event['type'] == 'session.output_transcript.delta']
+        self.assertEqual([event['delta'] for event in transcripts], [TEXT, ONLY_TEXT])
+        self.assertEqual([(event['start_ms'], event['end_ms']) for event in transcripts], [(0, 100), (200, 300)])
+
+    async def test_check_executes_emoji_only_second_turn_on_same_live_connection(self):
+        connection = ScreenConnection('live', SimpleNamespace(send_json=AsyncMock()))
+        turns = []
+        async def delegate(text, identifier, offset):
+            turns.append((text, identifier, offset))
+            await connection.respond({'type': 'session.commentary.append', 'event_id': identifier,
+                                      'content': connection.expected_text})
+            connection.mic_times.append(time.monotonic())
+        connection.delegate = delegate
+        control = SimpleNamespace(evidence=Path('/unused'), info=AsyncMock(return_value={'emoji_id': 7, 'heap_failures': 0}),
+                                  request=AsyncMock(return_value={}), sim=AsyncMock())
+        observations = SimpleNamespace(wire=[], states=[], persist=Mock())
+        peer, providers = SimpleNamespace(screen_emoji_version=1, volume=34), SimpleNamespace(voice=None)
+        with patch('device_screen_emoji.begin', AsyncMock(return_value=connection)), \
+                patch('device_screen_emoji.pages', AsyncMock(side_effect=[{0, 1, 2, 3}, {0, 1}])) as read_pages, \
+                patch('device_screen_emoji.verify', return_value={}), \
+                patch('device_screen_emoji.verify_replies', return_value=5), patch('device_screen_emoji.fault_window'):
+            result = await check(object(), peer, control, providers, observations)
+        self.assertEqual([row[2] for row in turns], [100, 300])
+        self.assertTrue(turns[0][0].startswith(MARKER) and turns[1][0].startswith(ONLY_MARKER))
+        self.assertEqual(connection.transcripts, [TEXT, ONLY_TEXT])
+        self.assertTrue(result['emoji_only_continuation'])
+        self.assertEqual(result['emoji_only_ready_pages'], 2)
+        self.assertGreater(result['emoji_only_mic_frames'], 0)
+        self.assertEqual(read_pages.await_args_list[1].args[2:], (ONLY_TEXT, SEQUENCES[:5], 0, 7))
+        self.assertEqual(peer.volume, 34)
+
+    async def test_emoji_only_pages_reject_stale_previous_card_and_require_fresh_reply(self):
+        observation = SimpleNamespace(states=[], frames=[{'page': page, 'text': ONLY_TEXT} for page in range(2)],
+                                      wire=[{'value': {'t': 'text', 'text': TEXT}}], persist_wire=lambda: None)
+        visited = []
+        async def info():
+            index = len(visited)
+            visited.append(index)
+            if index == 1:
+                observation.wire += [{'value': {'t': 'text', 'text': ONLY_TEXT}}]
+                observation.wire += [{'value': {'t': 'emoji', 'seq': seq, 'data': 'ready'}} for seq in SEQUENCES[:5]]
+            return {'emoji_id': 9 if index < 2 else 10, 'emoji_count': 1, 'emoji_ready': 1, 'emoji_missing': 0,
+                    'card_page': 0 if index < 3 else 1, 'card_pages': 2, 'heap_internal': 10000, 'heap_failures': 0,
+                    'live_active': True, 'mic_open': True, 'mic_rx_enabled': True}
+        ready = await pages(SimpleNamespace(info=info), observation, ONLY_TEXT, SEQUENCES[:5], 1, 9)
+        self.assertEqual(ready, {0, 1})
+        self.assertEqual(visited, [0, 1, 2, 3])
 
     async def test_fixture_blocks_every_printer_rpc_before_forwarding(self):
         adapter = SimpleNamespace(command=AsyncMock(), authenticate=AsyncMock())
@@ -63,7 +115,7 @@ class ScreenFixtureTests(unittest.IsolatedAsyncioTestCase):
                     arguments()
 
     async def test_all_four_actual_pages_and_tenth_glyph_are_required(self):
-        observation = SimpleNamespace(states=[], frames=[{'page': page} for page in range(4)],
+        observation = SimpleNamespace(states=[], frames=[{'page': page, 'text': TEXT} for page in range(4)],
                                       wire=[{'value': {'t': 'text', 'text': TEXT}}], persist_wire=lambda: None)
         visited = []
         async def info():

@@ -102,6 +102,26 @@ static void wifi_link_attempt_started(void) { if (poll_mode) poll_attempts++; }
 const char *esp_err_to_name(esp_err_t e) { (void)e; return "mock"; }
 static unsigned char usb_bytes[32768]; static size_t usb_size;
 static unsigned char usb_input[8192]; static size_t usb_input_size, usb_input_pos;
+static void *usb_frame_allocation;
+static size_t usb_frame_bytes, usb_frame_last_bytes;
+static unsigned usb_frame_allocations, usb_frame_frees, usb_frame_failures;
+#define MALLOC_CAP_INTERNAL 1
+#define MALLOC_CAP_DMA 2
+#define MALLOC_CAP_8BIT 4
+static void *heap_caps_malloc(size_t bytes,unsigned caps) {
+    assert(caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA|MALLOC_CAP_8BIT));
+    assert(!usb_frame_allocation && bytes>0 && bytes<=LINK_USB_CONFIG_REPLY_CAP);
+    usb_frame_last_bytes=bytes;
+    if(usb_frame_failures){usb_frame_failures--;return NULL;}
+    usb_frame_allocation=malloc(bytes);assert(usb_frame_allocation);
+    memset(usb_frame_allocation,0xa5,bytes);usb_frame_bytes=bytes;usb_frame_allocations++;
+    return usb_frame_allocation;
+}
+static void heap_caps_free(void *pointer) {
+    assert(pointer && pointer==usb_frame_allocation);
+    for(size_t i=0;i<usb_frame_bytes;i++)assert(((const uint8_t *)pointer)[i]==0);
+    free(pointer);usb_frame_allocation=NULL;usb_frame_bytes=0;usb_frame_frees++;
+}
 static bool stop_usb_rx; static jmp_buf usb_rx_jmp;
 static int usb_serial_jtag_write_bytes(const void *p,size_t n,unsigned timeout) { (void)timeout; if(n>2048)return 0; assert(usb_size+n<=sizeof usb_bytes); memcpy(usb_bytes+usb_size,p,n); usb_size+=n; return n; }
 static int usb_serial_jtag_read_bytes(void *p,size_t n,unsigned timeout) {

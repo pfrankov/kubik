@@ -82,6 +82,22 @@ static inline int icon_axis_q8(int pixel, int origin_q4, int size_q4) {
     return q > max ? max : q;
 }
 
+// Exact quotient/remainder stepping: two division pairs per span instead of
+// one division per column, including fractional left edges and clipped spans.
+static void icon_columns(uint16_t *out, int xs, int count, int origin, int size) {
+    int numerator = (xs * 16 + 8 - origin) * ICON_MASK_SIZE * 256;
+    int step = 16 * ICON_MASK_SIZE * 256;
+    int q = numerator / size, r = numerator % size;
+    int dq = step / size, dr = step % size;
+    if (r < 0) { --q; r += size; } // floor; negative coordinates clamp to zero below
+    for (int x = 0; x < count; x++) {
+        int value = q - 128;
+        out[x] = (uint16_t)imax(0, imin(value, (ICON_MASK_SIZE - 1) << 8));
+        q += dq; r += dr;
+        if (r >= size) { r -= size; ++q; }
+    }
+}
+
 static inline int icon_floor_q4(int q4) { return q4 >= 0 ? q4 / 16 : -((-q4 + 15) / 16); }
 static inline int icon_ceil_q4(int q4) { return q4 >= 0 ? (q4 + 15) / 16 : -((-q4) / 16); }
 
@@ -125,7 +141,7 @@ static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0
     assert(xe - xs < UI_W);
     // Each column samples the same source coordinate on every row of this window.
     uint16_t xq[UI_W];  // fixed frame: no dynamic-SP save/restore across inlined overlay branches
-    for (int x = xs; x <= xe; x++) xq[x - xs] = (uint16_t)icon_axis_q8(x, left, size);
+    icon_columns(xq, xs, xe - xs + 1, left, size);
     const uint8_t *palette = coverage_palette(p->alpha);
     uint16_t source_color = p->color;
     for (int y = ys; y <= ye; y++) {

@@ -8,6 +8,8 @@
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -17,11 +19,14 @@ _Static_assert(LINK_USB_CONFIG_REPLY_CAP > LINK_USB_PAYLOAD_MAX, "shared RX/repl
 static SemaphoreHandle_t s_usb_mtx;
 static link_usb_handlers_t s_handlers;
 typedef struct {
-    uint8_t frame[LINK_USB_CONFIG_REPLY_CAP];
-    uint8_t type;
+    uint8_t *frame;
+    uint8_t type, crc;
+    bool no_memory;
     int state;
-    size_t len, received;
+    size_t len, received, capacity;
+    int64_t deadline;
 } usb_parser_t;
+#define USB_FRAME_TIMEOUT_US 5000000
 
 uint8_t link_usb_crc8(uint8_t crc, const uint8_t *data, size_t len) {
     static uint8_t table[256];
@@ -118,6 +123,51 @@ static void dispatch_frame(uint8_t type, uint8_t *frame, size_t len) {
     }
 }
 
+static void parser_release(usb_parser_t *parser) {
+    if (parser->frame) {
+        memset(parser->frame, 0, parser->capacity);
+        heap_caps_free(parser->frame);
+    }
+    parser->frame = NULL; parser->capacity = 0; parser->deadline = 0;
+}
+
+static void parser_reset(usb_parser_t *parser) {
+    parser_release(parser);
+    memset(parser, 0, sizeof *parser);
+}
+
+static void parser_error(usb_parser_t *parser, const char *message) {
+    if (parser->type == F_CONFIG) link_usb_frame(F_CONFIG_REPLY, message, strlen(message), NULL, 0);
+}
+
+static void parser_expire(usb_parser_t *parser) {
+    if (!parser->frame || esp_timer_get_time() < parser->deadline) return;
+    parser_release(parser);
+    // Preserve the declared boundary: late payload bytes are never new headers.
+    parser_error(parser, "{\"ok\":false,\"error\":\"USB frame timeout\"}");
+}
+
+static TickType_t parser_wait(const usb_parser_t *parser) {
+    int64_t ms = parser->frame ? (parser->deadline - esp_timer_get_time() + 999) / 1000 : 1000;
+    if (ms > 1000) ms = 1000;
+    TickType_t ticks = ms > 0 ? pdMS_TO_TICKS(ms) : 0;
+    return ticks ? ticks : 1;
+}
+
+static void parser_begin(usb_parser_t *parser) {
+    bool config = parser->type == F_CONFIG;
+    bool json = parser->type == F_HOST_HELLO;
+    bool routed = parser->type == F_JSON || parser->type == F_AUDIO || parser->type == F_BIND;
+    size_t limit = config || json ? LINK_JSON_MAX : LINK_USB_PAYLOAD_MAX;
+    parser->received = 0; parser->crc = 0;
+    parser->state = parser->len ? 5 : 6;
+    if ((!config && !json && !routed) || parser->len > limit) return;
+    parser->capacity = config ? LINK_USB_CONFIG_REPLY_CAP : parser->len + 1;
+    parser->frame = heap_caps_malloc(parser->capacity, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    parser->no_memory = !parser->frame;
+    if (parser->frame) parser->deadline = esp_timer_get_time() + USB_FRAME_TIMEOUT_US;
+}
+
 static void parser_header_byte(usb_parser_t *parser, uint8_t byte) {
     switch (parser->state) {
     case 0: parser->state = byte == 0xA5 ? 1 : 0; break;
@@ -126,10 +176,7 @@ static void parser_header_byte(usb_parser_t *parser, uint8_t byte) {
     case 3: parser->len = byte; parser->state = 4; break;
     case 4:
         parser->len |= (size_t)byte << 8;
-        parser->received = 0;
-        size_t limit = parser->type == F_CONFIG || parser->type == F_HOST_HELLO
-                           ? LINK_JSON_MAX : LINK_USB_PAYLOAD_MAX;
-        parser->state = parser->len > limit ? 0 : (parser->len ? 5 : 6);
+        parser_begin(parser);
         break;
     }
 }
@@ -140,12 +187,17 @@ static bool parser_feed_byte(usb_parser_t *parser, uint8_t byte) {
         return false;
     }
     if (parser->state == 5) {
-        parser->frame[parser->received++] = byte;
+        if (parser->frame) parser->frame[parser->received] = byte;
+        else if (parser->no_memory) parser->crc = link_usb_crc8(parser->crc, &byte, 1);
+        parser->received++;
         if (parser->received == parser->len) parser->state = 6;
         return false;
     }
-    parser->state = 0;
-    return link_usb_crc8(0, parser->frame, parser->len) == byte;
+    if (parser->frame && link_usb_crc8(0, parser->frame, parser->len) == byte) return true;
+    if (parser->no_memory && parser->crc == byte)
+        parser_error(parser, "{\"ok\":false,\"error\":\"USB buffer unavailable\"}");
+    parser_reset(parser);
+    return false;
 }
 
 static void usb_rx_task(void *arg) {
@@ -153,9 +205,14 @@ static void usb_rx_task(void *arg) {
     static usb_parser_t parser;
     uint8_t chunk[256];
     while (1) {
-        int count = usb_serial_jtag_read_bytes(chunk, sizeof(chunk), pdMS_TO_TICKS(1000));
-        for (int i = 0; i < count; i++)
-            if (parser_feed_byte(&parser, chunk[i])) dispatch_frame(parser.type, parser.frame, parser.len);
+        parser_expire(&parser);
+        int count = usb_serial_jtag_read_bytes(chunk, sizeof(chunk), parser_wait(&parser));
+        parser_expire(&parser);
+        for (int i = 0; i < count; i++) {
+            if (!parser_feed_byte(&parser, chunk[i])) continue;
+            dispatch_frame(parser.type, parser.frame, parser.len);
+            parser_reset(&parser);
+        }
     }
 }
 

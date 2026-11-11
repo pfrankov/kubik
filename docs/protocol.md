@@ -455,11 +455,27 @@ The USB Serial/JTAG port carries a framed byte stream. Anything outside frames
 the payload only. A frame with a bad CRC is dropped and the parser resyncs on
 the next `A5 5A`.
 
-The configuration parser and reply share a 6144-byte buffer: handlers parse the
-request into owned data before overwriting it. Replies are streamed under one
+The parser allocates one temporary internal DMA-capable buffer only after a
+complete accepted header: 6144 bytes for configuration, otherwise `len + 1`.
+The configuration request and reply share that allocation: handlers parse the
+request into owned data before overwriting it. All callbacks and reply writes
+finish synchronously before the buffer is scrubbed and freed; bad CRC also
+scrubs and frees it. There is no allocated frame buffer between requests.
+Replies are streamed under one
 frame lock in writes of at most 1024 bytes; the driver TX ring is 2048 bytes.
 This preserves complete framed replies without requiring an atomic driver write
 as large as the reply.
+
+An allocated incoming frame has a whole-frame deadline of 5 seconds from its
+complete header; receiving more bytes does not extend it. Expiry scrubs and frees
+the buffer and returns `{"ok":false,"error":"USB frame timeout"}` for config.
+Allocation failure drains the declared payload and CRC without dispatch; config
+with a valid CRC receives `{"ok":false,"error":"USB buffer unavailable"}`.
+Both discard paths consume the exact remaining declared payload and CRC before
+accepting another header: embedded `A5 5A` bytes are opaque payload. A sender
+that abandons a truncated frame must finish its declared tail and CRC before
+sending a new frame; an embedded new header cannot restore framing. No request
+is queued or replayed. Driver rings and accepted input/reply limits are unchanged.
 
 A heartbeat reports physical bridge presence separately from server availability.
 `status` is `disabled`, `probing`, `ready`, or `unavailable`; `epoch` is a nonzero

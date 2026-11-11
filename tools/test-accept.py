@@ -111,6 +111,8 @@ def check_firmware_profiles():
     flags = cmake[start:end]
     start = cmake.index('# C6 keeps short DMA strips')
     hot = cmake[start:cmake.index('endif()', start) + len('endif()')]
+    start = cmake.index('# Configuration and diagnostic handlers are cold paths;')
+    cold = cmake[start:cmake.index('# Plush has a smaller app partition:', start)]
     bound = 'set_property(SOURCE render_text.c APPEND PROPERTY COMPILE_OPTIONS -Werror=vla)'
     assert bound in cmake
     with tempfile.TemporaryDirectory(prefix='kubik-firmware-profiles-') as temporary:
@@ -124,7 +126,13 @@ function(target_compile_definitions target)
     file(APPEND "${RESULT}" "sdk:${target}:${ARGN}\\n")
 endfunction()
 function(set_source_files_properties)
-    file(APPEND "${RESULT}" "hot:${ARGN}\\n")
+    list(GET ARGN -1 optimization)
+    if(optimization STREQUAL "-O3")
+        set(profile hot)
+    else()
+        set(profile cold)
+    endif()
+    file(APPEND "${RESULT}" "${profile}:${ARGN}\\n")
 endfunction()
 function(set_property)
     file(APPEND "${RESULT}" "bound:${ARGN}\\n")
@@ -132,7 +140,7 @@ endfunction()
 function(target_compile_options target)
     file(APPEND "${RESULT}" "app:${target}:${ARGN}\\n")
 endfunction()
-""" + logs + '\n' + hot + '\n' + bound + '\n' + flags)
+""" + logs + '\n' + hot + '\n' + bound + '\n' + flags + '\n' + cold)
         for target in ('esp32c6', 'esp32s3'):
             for character in ('TESS', 'PLUSH'):
                 result = root / (target + character)
@@ -144,7 +152,11 @@ endfunction()
 
 def verify_firmware_profile(lines, target, character):
     small = target == 'esp32c6' and character == 'PLUSH'
-    assert lines[-1].startswith('app:main:PRIVATE;' + ('-Os' if small else '-O2') + ';')
+    app = [line for line in lines if line.startswith('app:')]
+    assert len(app) == 1 and app[0].startswith('app:main:PRIVATE;' + ('-Os' if small else '-O2') + ';')
+    cold = [line for line in lines if line.startswith('cold:')]
+    expected = '-Os;-msave-restore' if small else '-Os'
+    assert len(cold) == 1 and cold[0].endswith('PROPERTIES;COMPILE_OPTIONS;' + expected)
     verify_sdk_profile(lines, small)
     verify_fast_profile(lines, target == 'esp32c6' and character == 'TESS')
     assert 'bound:SOURCE;render_text.c;APPEND;PROPERTY;COMPILE_OPTIONS;-Werror=vla' in lines

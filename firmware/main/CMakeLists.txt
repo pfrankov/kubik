@@ -105,8 +105,11 @@ endforeach()
 target_include_directories(${COMPONENT_LIB} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../managed_components/espressif__qrcode)
 # Keep the measured rendering optimization; compile the SDK for size.
 set(MAIN_OPTIMIZATION -O2)
+set(COLD_OPTIMIZATION -Os)
 if(IDF_TARGET STREQUAL "esp32c6" AND KUBIK_CHARACTER STREQUAL "PLUSH")
     set(MAIN_OPTIMIZATION -Os)
+    # Share register-save prologues only in non-IRAM configuration/diagnostics.
+    list(APPEND COLD_OPTIMIZATION -msave-restore)
 endif()
 target_compile_options(${COMPONENT_LIB} PRIVATE ${MAIN_OPTIMIZATION} -Wno-format-truncation -Wno-stringop-truncation)
 # Tess's point loops dominate interactive frames on the software-float C6.
@@ -128,7 +131,7 @@ set_source_files_properties(sound_levels.c connection_store.c connection_record.
     status_json.c frame_diagnostics.c setup_dns.c app_speech.c link_usb.c app_lab.c
     agent_menu.c agent_protocol.c settings.c screen_lab_fixture.c screen_lab_events.c screen_lab.c
     link_tls.c app_protocol.c ${PRINTER_SRCS} app_models.c app_menu.c app_guide.c app_status.c
-    PROPERTIES COMPILE_OPTIONS "-Os")
+    PROPERTIES COMPILE_OPTIONS "${COLD_OPTIMIZATION}")
 
 # Plush has a smaller app partition: size-optimize UI and hardware-I/O glue.
 # S3 preserves its measured pixel/audio flags; C6 Plush uses the size profile above.

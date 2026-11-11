@@ -15,7 +15,7 @@ static struct {const uint16_t *data;int count;uint32_t hash;} pending[LCD_DMA_CR
 static unsigned pending_n;
 static bool reserved;
 static unsigned submitted,completed,chunks,compositions,max_inflight;
-static int win_pixels,win_sent,win_width;static bool last_seen;
+static int win_pixels,win_sent,win_width,band_chunks;static bool last_seen;
 static int64_t clock_now;
 static int64_t esp_timer_get_time(void){return ++clock_now;}
 static void *output_for(frame_out_t *frame){return frame;}
@@ -52,6 +52,10 @@ static void display_write(const uint16_t *data,int count,bool last) {
 #endif
     assert(reserved && pending_n<LCD_DMA_CREDITS);reserved=false;
     assert(count>0 && count<=LCD_W*OUTPUT_ROWS && count%win_width==0 && !last_seen);
+    if(win_width==480 && win_pixels==480*16) {
+        const int expected_rows[]={6,6,4};assert(band_chunks<3);
+        assert(count==480*expected_rows[band_chunks++]);
+    }
     pending[pending_n].data=data;pending[pending_n].count=count;pending[pending_n].hash=digest(data,count);
     pending_n++;if(pending_n>max_inflight)max_inflight=pending_n;
     submitted+=count;win_sent+=count;chunks++;last_seen=last;
@@ -60,16 +64,16 @@ static void display_write(const uint16_t *data,int count,bool last) {
 static void display_end(void){assert(last_seen && win_sent==win_pixels && !reserved);}
 /* ACTUAL_SEND_WINDOW */
 int main(void) {
-    _Static_assert(LCD_PIPE==2 && OUTPUT_ROWS==4 && LCD_DMA_CREDITS==2,"C6 two four-row buffers reserve before composition");
+    _Static_assert(LCD_PIPE==2 && OUTPUT_ROWS==6 && LCD_DMA_CREDITS==2,"C6 two six-row buffers reserve before composition");
     frame_out_t frame={0};for(int i=0;i<LCD_PIPE;i++)frame.bufs[i]=buffers[i];
-    const render_win_t windows[]={{0,0,480,480},{17,13,400,112},{0,0,47,479},{452,17,480,204},{0,0,480,480},{0,0,480,480}};
+    const render_win_t windows[]={{0,8,480,24},{0,0,480,480},{17,13,400,112},{0,0,47,479},{452,17,480,204},{0,0,480,480},{0,0,480,480}};
     unsigned expected=0;
     for(unsigned i=0;i<sizeof windows/sizeof *windows;i++) {
         const render_win_t *w=&windows[i];expected+=(w->x1-w->x0)*(w->y1-w->y0);send_window(&frame,w);
         assert(pending_n); // end() must preserve the tail's ownership across windows.
     }
     while(pending_n)complete_dma();assert(submitted==expected && completed==expected && frame.px==expected);
-    assert(max_inflight==LCD_DMA_CREDITS && chunks==compositions && frame.windows==6);
-    assert(sizeof buffers==7680);
-    puts("C6 DMA: actual window chunker preserves delayed source ownership across full/clipped/odd windows; 2x4 uses 7680 bytes");
+    assert(max_inflight==LCD_DMA_CREDITS && chunks==compositions && frame.windows==7 && band_chunks==3);
+    assert(sizeof buffers==11520);
+    puts("C6 DMA: delayed ownership/full/clipped/odd windows and exact 6+6+4 band tail passed; 2x6 uses 11520 bytes");
 }

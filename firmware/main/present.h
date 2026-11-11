@@ -13,7 +13,7 @@
 #if CONFIG_IDF_TARGET_ESP32S3
 #define OUTPUT_ROWS 8
 #else
-#define OUTPUT_ROWS 4  // two 480x4 DMA strips; reserve before composition to preserve FIFO ownership
+#define OUTPUT_ROWS 6  // two 480x6 DMA strips; reserve before composition to preserve FIFO ownership
 #endif
 #define PLAN_WINDOWS (RENDER_BAND_WINDOWS + 4)  // the windows of a band: its changed stripes, the edge band's ring
 
