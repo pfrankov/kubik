@@ -17,6 +17,7 @@ typedef int esp_err_t;
 #define MALLOC_CAP_INTERNAL 1
 #define MALLOC_CAP_8BIT 2
 #define MALLOC_CAP_DMA 4
+#define MALLOC_CAP_RTCRAM 8
 #define ESP_LOGI(tag,format,a,b) ((void)(tag),(void)(format),(void)(a),(void)(b))
 #define CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE 4096
 #define CONFIG_BT_NIMBLE_PINNED_TO_CORE 0
@@ -38,9 +39,18 @@ static uint32_t waited;
 static TaskHandle_t fake_host, fake_stop;
 static TaskHandle_t fake_current;
 static unsigned join_delay, delayed_ticks;
+static bool output_busy,reserved;
+static unsigned reservations,releases;
+static bool audio_ble_reserve(void) {
+    assert(!reserved);if(output_busy)return false;reserved=true;reservations++;return true;
+}
+static void audio_ble_release(void) {
+    assert(reserved && allocations==frees);reserved=false;releases++;
+}
 enum { eRunning, eSuspended };
 static void *heap_caps_malloc(size_t n,int caps) {
-    assert(caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT|MALLOC_CAP_DMA));attempts++;
+    unsigned expected=CONFIG_IDF_TARGET_ESP32S3 ? MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT|MALLOC_CAP_DMA : MALLOC_CAP_RTCRAM|MALLOC_CAP_8BIT;
+    assert(reserved && (unsigned)caps==expected);attempts++;
     if(fail_attempt==attempts)return NULL;
     allocations++;return malloc(n);
 }
@@ -67,7 +77,7 @@ static TaskHandle_t xTaskCreateStaticPinnedToCore(void (*entry)(void *),const ch
     }
     return storage;
 }
-static int nimble_port_init(void) { init_calls++;return init_fails?ESP_FAIL:ESP_OK; }
+static int nimble_port_init(void) { assert(reserved);init_calls++;return init_fails?ESP_FAIL:ESP_OK; }
 static int nimble_port_deinit(void) { deinit_calls++;return deinit_fails?ESP_FAIL:ESP_OK; }
 static void nimble_port_run(void) {}
 static int nimble_port_stop(void) { stop_calls++;TaskHandle_t prior=fake_current;fake_current=fake_host;fake_host->entry(NULL);fake_current=prior;return 0; }
@@ -78,13 +88,16 @@ static esp_err_t prepare(void) { return prepare_fails?ESP_FAIL:ESP_OK; }
 static void synchronized(void) { syncs++; }
 static void clean(void) {
     assert(ble_runtime_owned(BLE_RUNTIME_NONE));assert(!host_stack&&!stop_stack);
-    assert(allocations==frees);
+    assert(allocations==frees && !reserved && reservations==releases);
 }
 
 int main(void) {
     assert(ble_runtime_start(BLE_RUNTIME_NONE,prepare,synchronized)==ESP_ERR_INVALID_ARG);
     assert(ble_runtime_start(BLE_RUNTIME_PRINTER,NULL,synchronized)==ESP_ERR_INVALID_ARG);
     clean();
+    output_busy=true;
+    assert(ble_runtime_start(BLE_RUNTIME_PRINTER,prepare,synchronized)==ESP_ERR_INVALID_STATE);
+    assert(!attempts && !init_calls);clean();output_busy=false;
     for(unsigned n=0;n<50;n++){
         assert(ble_runtime_start(BLE_RUNTIME_PRINTER,prepare,synchronized)==ESP_OK);
         ble_hs_cfg.sync_cb();assert(syncs==n+1);
@@ -105,6 +118,7 @@ int main(void) {
     assert(ble_runtime_start(BLE_RUNTIME_PRINTER,prepare,synchronized)==ESP_OK);stop_hangs=true;
     unsigned before=stop_calls;assert(ble_runtime_stop(BLE_RUNTIME_PRINTER)==ESP_ERR_TIMEOUT);
     assert(waited==8000&&stop_calls==before&&ble_runtime_owned(BLE_RUNTIME_PRINTER));
+    assert(reserved && reservations==releases+1);
     assert(ble_runtime_start(BLE_RUNTIME_MUSE,prepare,synchronized)==ESP_ERR_INVALID_STATE);
     stop_hangs=false;fake_current=fake_stop;fake_stop->entry(NULL);fake_current=NULL; // Join the same late stop, not a second one.
     assert(ble_runtime_stop(BLE_RUNTIME_PRINTER)==ESP_OK&&stop_calls==before+1);clean();
@@ -113,6 +127,7 @@ int main(void) {
     prepare_fails=deinit_fails=true;
     assert(ble_runtime_start(BLE_RUNTIME_MUSE,prepare,synchronized)==ESP_FAIL);
     assert(ble_runtime_owned(BLE_RUNTIME_MUSE)&&runtime_fault&&!host_stack&&!stop_stack);
+    assert(reserved && reservations==releases+1);
     assert(ble_runtime_start(BLE_RUNTIME_PRINTER,prepare,synchronized)==ESP_ERR_INVALID_STATE);
     assert(ble_runtime_stop(BLE_RUNTIME_MUSE)==ESP_FAIL);
     puts("BLE runtime actual code: exclusive ownership, 50 release cycles, allocation failures and bounded late shutdown passed");

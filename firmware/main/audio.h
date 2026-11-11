@@ -88,7 +88,10 @@ void audio_mic_status(audio_mic_status_t *status);
 uint32_t audio_mic_dropped_ms(void); // DMA queue overflow, cumulative across capture sessions
 
 // Speech stream (server replies).
-void audio_stream_begin(void);  // drop anything buffered, start prebuffering
+bool audio_stream_begin(void); // No state/allocation on refusal; otherwise start prebuffering.
+// Shared Muse/printer lease: free an idle ring before BLE uses its memory.
+bool audio_ble_reserve(void);
+void audio_ble_release(void); // Only after all BLE stacks and tasks are released.
 size_t audio_stream_write_ima(const uint8_t *frame, size_t bytes);  // one IMA ADPCM frame (ima_adpcm.h)
 void audio_stream_end(void);  // no more data will come: play out the tail
 void audio_stream_stop(void);  // stop immediately

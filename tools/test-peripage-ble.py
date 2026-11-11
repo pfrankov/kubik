@@ -41,10 +41,10 @@ with tempfile.TemporaryDirectory(prefix='kubik-peripage-') as temporary:
         body = common + '\n' + '\n'.join(source(name) for name in names)
         (directory / 'actual.inc').write_text(body)
         fixture = ROOT / f'tools/fixtures/{lane}_test.c'
-        handles = (0, 42) if lane == 'peripage_ble' else (None,)
+        handles = (0, 42) if lane == 'peripage_ble' else ('c6', 's3')
         for handle in handles:
             executable = directory / f'{lane}-{handle}'
-            flags = [f'-DMOCK_HANDLE={handle}'] if handle is not None else []
+            flags = [f'-DMOCK_HANDLE={handle}'] if lane == 'peripage_ble' else [f'-DCONFIG_IDF_TARGET_ESP32S3={int(handle == "s3")}']
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O1', *flags,
                             '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
                             '-I', str(directory), str(fixture), '-o', str(executable)], check=True)

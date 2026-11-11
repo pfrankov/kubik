@@ -1,4 +1,5 @@
 #include "ble_runtime.h"
+#include "audio.h"
 
 #include <stdatomic.h>
 #include "esp_heap_caps.h"
@@ -68,15 +69,25 @@ static bool valid_start(ble_runtime_owner_t owner, ble_runtime_prepare_t prepare
     return owner != BLE_RUNTIME_NONE && prepare && sync;
 }
 
+static void failed_start_cleanup(void) {
+    runtime_sync = NULL; release_stacks();
+    if (!runtime_fault) { audio_ble_release(); atomic_store(&runtime_owner, BLE_RUNTIME_NONE); }
+}
+
 esp_err_t ble_runtime_start(ble_runtime_owner_t owner, ble_runtime_prepare_t prepare, void (*sync)(void)) {
     int expected = BLE_RUNTIME_NONE;
     if (!valid_start(owner, prepare, sync)) return ESP_ERR_INVALID_ARG;
     if (!atomic_compare_exchange_strong(&runtime_owner, &expected, owner)) return ESP_ERR_INVALID_STATE;
+    if (!audio_ble_reserve()) { atomic_store(&runtime_owner, BLE_RUNTIME_NONE); return ESP_ERR_INVALID_STATE; }
     host_done = xSemaphoreCreateBinaryStatic(&host_done_storage);
     stop_done = xSemaphoreCreateBinaryStatic(&stop_done_storage);
     stop_started = runtime_fault = false; stop_result = ESP_OK; runtime_sync = sync; host_free = 0;
-    // C6 LP SRAM is needed by the speaker ring; these stacks use DRAM only.
+    // The output lease frees C6's idle LP ring before either BLE stack exists.
+#if CONFIG_IDF_TARGET_ESP32S3
     unsigned stack_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA;
+#else
+    unsigned stack_caps = MALLOC_CAP_RTCRAM | MALLOC_CAP_8BIT;
+#endif
     host_stack = heap_caps_malloc(CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE, stack_caps);
     stop_stack = heap_caps_malloc(STOP_STACK, stack_caps);
     esp_err_t result = host_stack && stop_stack ? nimble_port_init() : ESP_ERR_NO_MEM;
@@ -90,10 +101,7 @@ esp_err_t ble_runtime_start(ble_runtime_owner_t owner, ble_runtime_prepare_t pre
         }
         if (result != ESP_OK && nimble_port_deinit() != ESP_OK) runtime_fault = true;
     }
-    if (result != ESP_OK) {
-        runtime_sync = NULL; release_stacks();
-        if (!runtime_fault) atomic_store(&runtime_owner, BLE_RUNTIME_NONE);
-    }
+    if (result != ESP_OK) failed_start_cleanup();
     return result;
 }
 
@@ -111,7 +119,7 @@ esp_err_t ble_runtime_stop(ble_runtime_owner_t owner) {
     unsigned stop_free = uxTaskGetStackHighWaterMark(stop_task);
     vTaskDelete(stop_task); stop_task = NULL;
     if (stop_result != ESP_OK) { runtime_fault = true; return stop_result; }
-    runtime_sync = NULL; release_stacks(); atomic_store(&runtime_owner, BLE_RUNTIME_NONE);
+    runtime_sync = NULL; release_stacks(); audio_ble_release(); atomic_store(&runtime_owner, BLE_RUNTIME_NONE);
     ESP_LOGI("ble_runtime", "released host-stack-free=%u stop-stack-free=%u", host_free, stop_free);
     return ESP_OK;
 }

@@ -7,7 +7,7 @@
 
 extern atomic_int s_gen; // active generation, or -1; observation by the UI/power coordinator
 void app_speech_init(void);
-void app_speech_begin(int gen, uint32_t session);
+bool app_speech_begin(int gen, uint32_t session);
 bool app_speech_matches(int gen, uint32_t session);
 void app_speech_write(int gen, uint32_t session, const uint8_t *frame, size_t bytes);
 bool app_speech_end(int gen, uint32_t session);

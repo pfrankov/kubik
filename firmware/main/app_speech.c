@@ -58,8 +58,13 @@ static bool matches(int gen, uint32_t session) {
     return gen >= 0 && gen == s_gen && session && session == s_session && session == link_session();
 }
 
-void app_speech_begin(int gen, uint32_t session) {
+bool app_speech_begin(int gen, uint32_t session) {
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (!audio_stream_begin()) {
+        xSemaphoreGive(s_lock);
+        ESP_LOGW("app", "speech rejected gen=%d: output memory busy or unavailable", gen);
+        return false;
+    }
     s_gen = gen;
     s_session = session;
     s_ended = false;
@@ -69,8 +74,8 @@ void app_speech_begin(int gen, uint32_t session) {
     s_progress_ms = s_started_us / 1000;
     app_wake_suspend();
     tls_mem_speech(!strcmp(link_via(), "wifi"));
-    audio_stream_begin();
     xSemaphoreGive(s_lock);
+    return true;
 }
 
 bool app_speech_matches(int gen, uint32_t session) {

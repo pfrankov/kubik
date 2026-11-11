@@ -7,12 +7,15 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-audio = (ROOT / "firmware/main/audio.c").read_text()
-state = audio[audio.index("static uint8_t *s_ring"):audio.index("static volatile bool s_speech_audible")]
-doze = audio[audio.index("static bool may_doze"):audio.index("static void doze_while_quiet")]
-reader = audio[audio.index("static bool decode_speech_frame"):audio.index("static bool mix_speaker_frame")]
+audio = (ROOT / "firmware/main/audio_ring.c").read_text()
+codec = (ROOT / "firmware/main/audio.c").read_text()
+state = audio[audio.index("static uint8_t *s_ring"):audio.index("static bool decode_speech_frame")]
+doze = codec[codec.index("static bool may_doze"):codec.index("static void doze_while_quiet")]
+reader = audio[audio.index("static bool decode_speech_frame"):audio.index("void audio_ring_init")]
+reader += audio[audio.index("bool audio_ring_active"): ]
 mock = r'''
 #include <assert.h>
+#include <stdatomic.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -36,6 +39,7 @@ mock = r'''
 #define MALLOC_CAP_RTCRAM 4
 #define MALLOC_CAP_SPIRAM 8
 #define portMAX_DELAY 1
+#define pdMS_TO_TICKS(n) (n)
 #define pdTRUE 1
 #define ESP_LOGW(...) ((void)0)
 #define portMUX_INITIALIZER_UNLOCKED 0
@@ -48,7 +52,8 @@ static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static bool decoding, release_decode, restart_started, restart_done;
 static unsigned allocation_limit = RING_BLOCKS, allocations, held, kicks;
 static bool probe_kick;
-static int xSemaphoreTake(SemaphoreHandle_t m, int timeout) { return (timeout ? pthread_mutex_lock(m) : pthread_mutex_trylock(m)) == 0; }
+static unsigned quiets;
+static int xSemaphoreTake(SemaphoreHandle_t m, int timeout) { return (timeout && timeout != 100 ? pthread_mutex_lock(m) : pthread_mutex_trylock(m)) == 0; }
 static void xSemaphoreGive(SemaphoreHandle_t m) { assert(!pthread_mutex_unlock(m)); }
 static void *heap_caps_malloc(size_t bytes, int flags) {
     assert(bytes==RING_BLOCK_BYTES && flags==(CONFIG_IDF_TARGET_ESP32S3 ? (MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT) : ((allocations%RING_BLOCKS < RING_BLOCKS*2/3 ? MALLOC_CAP_RTCRAM : MALLOC_CAP_INTERNAL)|MALLOC_CAP_8BIT)));
@@ -56,7 +61,8 @@ static void *heap_caps_malloc(size_t bytes, int flags) {
     held++; return malloc(bytes);
 }
 static void heap_caps_free(void *p) { if(p) { assert(held);held--; } free(p); }
-static void audio_sfx_quiet(void) {}
+static void audio_sfx_quiet(void) { quiets++; }
+void audio_kick(void);
 static int64_t now;
 static int64_t esp_timer_get_time(void) { return now; }
 
@@ -82,9 +88,26 @@ bool audio_sfx_playing(void) { return effect; }
 bool audio_self_audible(void) { return self_audible; }
 '''
 test = r'''
+static void ble_output_lease(void) {
+    assert(!audio_ble_reserve());s_ring_lock=&chunk;now=1000000;
+    assert(audio_stream_begin());assert(held==RING_BLOCKS && s_ring_cap==10800);
+    assert(!audio_ble_reserve()); // Empty prebuffer still owns a live stream.
+    audio_stream_end();assert(!audio_stream_busy() && held==RING_BLOCKS);
+    assert(audio_ble_reserve());assert(!held && !s_ring_cap && atomic_load(&s_ble_reserved));
+    unsigned old_alloc=allocations,old_kicks=kicks,old_quiets=quiets;uint32_t epoch=s_stream_epoch;
+    assert(!audio_stream_begin());assert(allocations==old_alloc && kicks==old_kicks && quiets==old_quiets);
+    assert(s_stream_epoch==epoch && !audio_ble_reserve());audio_ble_release();
+    pthread_mutex_lock(&chunk);assert(!audio_ble_reserve());pthread_mutex_unlock(&chunk);
+    allocations=0;assert(audio_stream_begin());uint8_t packet[IMA_HEADER_BYTES+FRAME_BYTES]={0};
+    assert(audio_stream_write_ima(packet,sizeof packet)==FRAME_BYTES);audio_stream_end();assert(!audio_ble_reserve());
+    audio_stream_stop();s_output_in_flight=true;assert(!audio_ble_reserve());s_output_in_flight=false;
+    audio_output_tail_mark(&s_output_tail,now);assert(!audio_ble_reserve());now=s_output_tail.until;
+    assert(audio_ble_reserve() && !held);audio_ble_release();
+    allocations=kicks=quiets=0;s_ring_lock=NULL;
+}
 static void *read_a(void *arg) {
     (void)arg; int16_t samples[480]; int32_t mix[480] = {0};
-    assert(read_speech_frame(samples, mix)); assert(mix[0] == 123); return NULL;
+    assert(audio_ring_read(samples, mix)); assert(mix[0] == 123); return NULL;
 }
 static void *begin_b(void *arg) {
     (void)arg;
@@ -94,6 +117,7 @@ static void *begin_b(void *arg) {
     return NULL;
 }
 int main(void) {
+    ble_output_lease();
     s_ring_lock = &chunk; probe_kick = true; audio_stream_begin(); assert(kicks == 1);
     assert(audio_stream_busy()); // prebuffer owns output even before audible PCM
     static uint8_t packet[5000]; assert(audio_stream_write_ima(packet, IMA_HEADER_BYTES + FRAME_BYTES) == FRAME_BYTES);
@@ -112,15 +136,15 @@ int main(void) {
     release_decode = true; pthread_cond_broadcast(&condition); pthread_mutex_unlock(&gate);
     pthread_join(a, NULL); pthread_join(b, NULL);
     assert(s_output_in_flight); // restart must not forget A's mixed frame
-    output_written();
+    audio_ring_output_written();
     assert(restart_done && s_rd == 0 && s_wr == 0 && s_played_bytes == 0 && !s_ended && s_active);
     assert(audio_stream_write_ima(packet, sizeof packet) > 0 && s_rd == 0);
-    audio_stream_stop(); ring_release_if_idle(); assert(!s_ring_cap && !s_active);
-    allocation_limit = 0; allocations = 0; probe_kick = false; audio_stream_begin(); // buffer refusal is explicitly not playback
+    audio_stream_stop(); audio_ring_release_idle(); assert(!s_ring_cap && !s_active);
+    allocation_limit = 0; allocations = 0; probe_kick = false; assert(!audio_stream_begin()); // allocation refusal is not playback
     assert(!s_active && audio_stream_write_ima(packet, sizeof packet) == 0);
     audio_stream_end(); assert(s_rd == s_wr && s_played_bytes == 0);
     for(unsigned failed=0;failed<RING_BLOCKS;failed++) {
-        allocation_limit = failed; allocations = 0; audio_stream_begin();
+        allocation_limit = failed; allocations = 0; assert(!audio_stream_begin());
         assert(!s_active && !s_ring_cap && !held); // Every partial allocation releases all blocks.
         for(int i=0;i<RING_BLOCKS;i++)assert(!s_ring[i]);
     }
@@ -143,50 +167,50 @@ int main(void) {
     int16_t samples[480]; int32_t mix[480] = {0};
     assert(PREBUF_BYTES == 800 * RING_BYTES_PER_MS);
     for (int i = 0; i < 7; i++) assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
-    assert(!read_speech_frame(samples, mix)); // 700 ms cannot start before the full host credit arrives.
+    assert(!audio_ring_read(samples, mix)); // 700 ms cannot start before the full host credit arrives.
     assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
-    assert(read_speech_frame(samples, mix)); output_written();
+    assert(audio_ring_read(samples, mix)); audio_ring_output_written();
     audio_stream_begin();
     for(int i=0;i<8;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
-    for(int i=0;i<35;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
+    for(int i=0;i<35;i++) { assert(audio_ring_read(samples,mix)); audio_ring_output_written(); }
     assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
-    assert(read_speech_frame(samples,mix) && !s_gaps && !s_gap_frames); output_written();
+    assert(audio_ring_read(samples,mix) && !s_gaps && !s_gap_frames); audio_ring_output_written();
     // Existing capacity now covers a 700 ms gap without hiding real starvation below.
     audio_stream_begin();
     assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
-    now = s_start_deadline_us - 1; assert(!read_speech_frame(samples, mix));
+    now = s_start_deadline_us - 1; assert(!audio_ring_read(samples, mix));
     now++; // Short answer starts without waiting for a provider end marker.
-    for(int i=0;i<5;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
-    assert(!read_speech_frame(samples,mix));
-    assert(!read_speech_frame(samples,mix)); // quiet terminal tail
-    audio_stream_end(); assert(!read_speech_frame(samples,mix) && !s_gaps && !s_gap_frames);
+    for(int i=0;i<5;i++) { assert(audio_ring_read(samples,mix)); audio_ring_output_written(); }
+    assert(!audio_ring_read(samples,mix));
+    assert(!audio_ring_read(samples,mix)); // quiet terminal tail
+    audio_stream_end(); assert(!audio_ring_read(samples,mix) && !s_gaps && !s_gap_frames);
     audio_stream_begin();
     for(int i=0;i<8;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
-    for(int i=0;i<40;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
-    for(int i=0;i<5;i++)assert(!read_speech_frame(samples,mix));
+    for(int i=0;i<40;i++) { assert(audio_ring_read(samples,mix)); audio_ring_output_written(); }
+    for(int i=0;i<5;i++)assert(!audio_ring_read(samples,mix));
     for(int i=0;i<3;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
-    assert(read_speech_frame(samples,mix) && s_gaps==1 && s_gap_frames==5); // true mid-speech starvation remains visible
-    output_written(); audio_stream_begin();
+    assert(audio_ring_read(samples,mix) && s_gaps==1 && s_gap_frames==5); // true mid-speech starvation remains visible
+    audio_ring_output_written(); audio_stream_begin();
     for(int i=0;i<8;i++)assert(audio_stream_write_ima(wire_packet,sizeof wire_packet)==1200);
     assert(audio_stream_write_ima(wire_packet,IMA_HEADER_BYTES+24)==24);
-    for(int i=0;i<40;i++) { assert(read_speech_frame(samples,mix)); output_written(); }
-    for(int i=0;i<5;i++)assert(!read_speech_frame(samples,mix));
-    audio_stream_end(); assert(read_speech_frame(samples,mix)); output_written();
+    for(int i=0;i<40;i++) { assert(audio_ring_read(samples,mix)); audio_ring_output_written(); }
+    for(int i=0;i<5;i++)assert(!audio_ring_read(samples,mix));
+    audio_stream_end(); assert(audio_ring_read(samples,mix)); audio_ring_output_written();
     assert(!s_gaps && !s_gap_frames); // preexisting partial terminal tail is not new speech
     audio_stream_begin();
     for (int i = 0; i < 9; i++) assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 1200);
     assert(audio_stream_write_ima(wire_packet, sizeof wire_packet) == 0); // full packet refused on overflow
     audio_stream_end();
-    while (read_speech_frame(samples, mix)) {
+    while (audio_ring_read(samples, mix)) {
         assert(s_output_in_flight && !audio_stream_drained());
-        now += 20000; output_written();
+        now += 20000; audio_ring_output_written();
     }
     assert(s_played_bytes == 10800);
     assert(s_rd == s_wr && !audio_stream_drained()); // empty ring is not speaker completion
     audio_stream_stop(); // an explicit cancel still owns its already submitted DMA tail
     now = s_output_tail.until - 1; assert(!audio_stream_drained() && audio_stream_busy());
     now++; assert(audio_stream_drained() && !audio_stream_busy());
-    audio_stream_stop(); ring_release_if_idle(); assert(!s_ring_cap && !s_active);
+    audio_stream_stop(); audio_ring_release_idle(); assert(!s_ring_cap && !s_active);
     s_doze = true; now = 1000; audio_output_tail_mark(&s_output_tail, now);
     assert(AUDIO_OUTPUT_TAIL_US == 80000);
     assert(!may_doze()); now = s_output_tail.until - 1; assert(!may_doze());

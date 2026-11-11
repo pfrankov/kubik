@@ -40,12 +40,15 @@ mock = r'''
 #define ESP_ERROR_CHECK(x) assert((x) == 0)
 static char diagnostic[512];
 #define ESP_LOGI(tag, ...) ((void)snprintf(diagnostic, sizeof diagnostic, __VA_ARGS__))
+#define ESP_LOGW(tag, ...) ((void)snprintf(diagnostic, sizeof diagnostic, __VA_ARGS__))
 #define portMAX_DELAY 0
 typedef int SemaphoreHandle_t;
 static bool held, ended, change_before_send;
 static unsigned bytes, sent, begins, stops;
 static unsigned wake_suspends;
 static bool active;
+static bool output_refused;
+static unsigned tls_changes;
 static uint32_t current = 1;
 static char last[128];
 static app_mailbox_t inbox;
@@ -69,9 +72,12 @@ static bool link_send_json_in_session(const char *json, uint32_t session) {
 static void hp_mark(const char *name) { (void)name; }
 static unsigned hp_allocation_failures(void) { return 0; }
 static audio_output_profile_t audio_output_profile_read(bool reset) { assert(!reset); return (audio_output_profile_t){0}; }
-static void tls_mem_speech(bool active) { (void)active; }
+static void tls_mem_speech(bool active) { (void)active; tls_changes++; }
 static void app_wake_suspend(void) { assert(held); wake_suspends++; }
-static void audio_stream_begin(void) { assert(held && wake_suspends == begins + 1); active = true; ended = false; bytes = 0; begins++; }
+static bool audio_stream_begin(void) {
+    assert(held);if(output_refused)return false;
+    active=true;ended=false;bytes=0;begins++;return true;
+}
 static void audio_stream_end(void) { assert(held); ended = true; }
 static void audio_stream_stop(void) { assert(held); active = false; ended = true; bytes = 0; stops++; }
 static unsigned audio_stream_write_ima(const uint8_t *p, size_t len) {
@@ -134,10 +140,19 @@ static void validate_generations(void) {
     assert(app_mailbox_take(&inbox, &event) && event.type == EV_SRV_SPEAK_END && event.a == 255);
     handle_speak_end_event(&event); assert(app_speech_tick(5000, false) && s_gen == -1);
 }
+static void refused_speak_has_no_effect(void) {
+    int gen=s_gen;bool was_active=active;
+    unsigned old_begins=begins,old_wake=wake_suspends,old_tls=tls_changes,old_sent=sent;
+    output_refused=true;speak_payload("{\"t\":\"speak\",\"gen\":42}");output_refused=false;
+    assert(s_gen==gen && active==was_active && begins==old_begins && wake_suspends==old_wake);
+    assert(tls_changes==old_tls && sent==old_sent && strstr(diagnostic,"speech rejected"));
+    app_ev_t rejected;assert(!app_mailbox_take(&inbox,&rejected));
+}
 int main(void) {
-    app_speech_init(); speak();
+    app_speech_init(); refused_speak_has_no_effect();speak();
     app_ev_t event; assert(app_mailbox_take(&inbox, &event));
     app_ev_t old_speak = event;
+    refused_speak_has_no_effect();
     end(); // END remains pending while USB RX (priority 8) reads the replacement session's SPEAK
     current++; speak();
     assert(app_mailbox_take(&inbox, &event) && event.type == EV_SRV_SPEAK_END && event.session == 1);

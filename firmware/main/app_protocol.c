@@ -80,9 +80,9 @@ static void handle_speak_json(cJSON *j) {
     const char *kind = cJSON_GetStringValue(cJSON_GetObjectItem(j, "kind"));
     if (gen < 0) return;
     uint32_t session = link_session();
+    if (!app_speech_begin(gen, session)) return;
     ESP_LOGI(TAG, "speech begin gen=%d via=%s", gen, link_via());
     hp_mark("speech begin");
-    app_speech_begin(gen, session);
     app_post_in_session(EV_SRV_SPEAK, gen, kind && !strcmp(kind, "notify"), session);
 }
 static void handle_speak_end_json(cJSON *j) {
