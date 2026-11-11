@@ -10,7 +10,11 @@
 #include "frame_store.h"
 #include "render.h"
 
-#define OUTPUT_ROWS 8  // three DMA buffers use 22.5 KiB; bound both GUI transfer cost and Wi-Fi headroom
+#if CONFIG_IDF_TARGET_ESP32S3
+#define OUTPUT_ROWS 8
+#else
+#define OUTPUT_ROWS 4  // three 480x4 DMA strips use 11.25 KiB, retaining Wi-Fi/Live/BLE headroom
+#endif
 #define PLAN_WINDOWS (RENDER_BAND_WINDOWS + 4)  // the windows of a band: its changed stripes, the edge band's ring
 
 typedef struct {

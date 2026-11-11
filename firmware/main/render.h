@@ -98,6 +98,10 @@ typedef struct {
 
 // Float builders (a few dozen calls per frame; soft-float cost is negligible).
 void scene_begin(scene_t *s, uint16_t bg);
+// End every rendered frame before reuse or destruction, also on present errors/dark.
+// scene_begin initializes first-use storage without reading uninitialized pointers.
+void scene_end(scene_t *s);
+void scene_clone(scene_t *out, const scene_t *source); // New owned clone; out holds no prior pins.
 void sc_blur_dot(scene_t *s, float x, float y, float radius, uint32_t rgb);
 void sc_glow_dot(scene_t *s, float x, float y, float radius, uint32_t rgb, uint8_t glow);
 // The same dot already in 1/8 panel px (Tess projects its points on integers).

@@ -77,9 +77,11 @@ static void route_and_page(const char *encoded) {
     uint32_t id = g_face.card_emoji.id;
     app_emoji_poll(); assert(requests == 1);
     receive(id - 1, "😀", encoded); assert(!g_face.card_emoji.glyphs.ready[0]);
+    assert(!render_emoji_entries_live());
     receive(id, "🎉", encoded); assert(!g_face.card_emoji.glyphs.ready[0]);
     receive(id, "😀", encoded); assert(g_face.card_emoji.glyphs.ready[0] == 1);
-    assert(g_face.card_emoji.glyphs.data[0][7] == 255);
+    assert(render_emoji_entries_live()==1);receive(id,"😀",encoded);assert(render_emoji_entries_live()==1);
+    assert(render_emoji_entry_pixels(g_face.card_emoji.glyphs.entries[0])[7] == 255);
     receive(id, "❤️", NULL); assert(g_face.card_emoji.glyphs.ready[1] == 2);
     assert(face_card_tap(&g_face)); app_emoji_poll(); assert(requests == 2);
     receive(id, "🇷🇺", encoded); assert(!g_face.card_emoji.glyphs.ready[0]);
@@ -100,5 +102,6 @@ int main(void) {
     uint8_t pixels[576] = {0}; pixels[4] = 255; pixels[7] = 255; memset(pixels + 64, 0x11, 512);
     char encoded[769]; encode(pixels, encoded);
     protocol_boundary(encoded); route_and_page(encoded);
+    face_emoji_reset(&g_face);assert(!render_emoji_entries_live());
     puts("screen emoji: strict glyph parsing, real RX/cache ownership, route epochs, bounded requests and page status passed");
 }

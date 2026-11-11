@@ -40,6 +40,7 @@ void scene_begin(scene_t *s, uint16_t bg) {
     s->text_n = 0;
     memset(s->emoji.keys, 0, sizeof s->emoji.keys);
     memset(s->emoji.ready, 0, sizeof s->emoji.ready);
+    memset(s->emoji.entries, 0, sizeof s->emoji.entries);
     memset(s->emoji_hash, 0, sizeof s->emoji_hash);
     s->edge_w = 0;
 }

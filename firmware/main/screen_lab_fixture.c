@@ -132,6 +132,7 @@ static void apply_screen(screen_lab_t *lab, int screen) {
 }
 
 void screen_lab_dispose(screen_lab_t *lab) {
+    face_emoji_reset(&lab->face);
     agent_menu_clear_catalog(&lab->face.agent);
     if (face_character(&lab->face) != CHARACTER_TESS) return;
     tess_games_set_available(&lab->face, false);

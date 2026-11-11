@@ -5,13 +5,24 @@
 #include <math.h>
 #include <stdlib.h>
 static scene_t scene,plain;
+static unsigned allocation_calls,free_calls;
+void *emoji_test_malloc(size_t bytes){allocation_calls++;return malloc(bytes);}
+void emoji_test_free(void *data){if(data)free_calls++;free(data);}
 static render_emoji_snapshot_t atlas;
+static uint8_t atlas_pixels[R_EMOJI_SLOTS][R_EMOJI_BYTES];
+static void publish_atlas(void) {
+    render_emoji_snapshot_release(&atlas);
+    for(unsigned i=0;i<R_EMOJI_SLOTS;i++)
+        if(atlas.ready[i]==1){atlas.entries[i]=render_emoji_entry_create(atlas_pixels[i]);assert(atlas.entries[i]);}
+}
+
 static uint16_t whole[UI_OUTPUT_H][UI_OUTPUT_W],swapped[UI_OUTPUT_H][UI_OUTPUT_W];
 static void prepare(unsigned alpha) {
-    memset(&atlas,0,sizeof atlas);strcpy(atlas.keys[0],"😀");atlas.ready[0]=1;
-    uint8_t *data=atlas.data[0];data[4]=255;data[7]=(uint8_t)alpha;
+    scene_end(&scene);render_emoji_snapshot_release(&atlas);
+    memset(&atlas,0,sizeof atlas);memset(atlas_pixels,0,sizeof atlas_pixels);strcpy(atlas.keys[0],"😀");atlas.ready[0]=1;
+    uint8_t *data=atlas_pixels[0];data[4]=255;data[7]=(uint8_t)alpha;
     data[9]=255;data[11]=(uint8_t)alpha;memset(data+64,0x11,512);
-    scene_begin(&scene,0);scene_emoji_snapshot(&scene,&atlas);
+    publish_atlas();scene_begin(&scene,0);scene_emoji_snapshot(&scene,&atlas);
 }
 static prim_t *label(const char *text,float opacity) {
     return sc_rich_label(&scene,TXT_CARD,text,64,64,-1,0xffffff,opacity);
@@ -32,24 +43,36 @@ static void normal_and_clusters(void) {
     scene_begin(&scene,0);strcpy(scene.emoji.keys[0],"👩");label("👩‍🚀",1);
     assert(scene.n==1 && scene.text_n==1 && scene.text[0]==R_EMOJI_PLACEHOLDER);
     assert(rich_label_width(TXT_CARD,"👩‍🚀")==32);
+    assert(!allocation_calls && !render_emoji_entries_live());
+}
+static void owned_scene_clone(void) {
+    prepare(255);prim_t *p=label("😀",1);int top=p->sub_y-(g_fonts[p->r].cap+32)/2;
+    render_emoji_snapshot_t borrowed=scene.emoji;render_emoji_snapshot_release(&atlas);
+    scene_emoji_snapshot(&scene,&borrowed); // Existing scene is the sole owner of this borrowed view.
+    scene_t held;scene_clone(&held,&scene);scene_end(&scene);render_emoji_snapshot_release(&atlas);
+    assert(render_emoji_entries_live()==1);
+    fill(&whole[0][0],UI_OUTPUT_H*UI_OUTPUT_W,0);
+    render_text_overlay(&held,&whole[0][0],0,0,UI_OUTPUT_W,UI_OUTPUT_H,UI_OUTPUT_W,false);
+    assert(whole[ui_output(top+16)][ui_output(80)]==0xf800);
+    scene_end(&held);assert(!render_emoji_entries_live());
 }
 static void snapshot_and_signatures(void) {
     prepare(255);prim_t *p=label("A😀B",1);assert(p && scene.n==1 && scene.text_n==3);
     assert(scene.text[1]==R_EMOJI_TOKEN);
     render_overlay_item_t before,after;assert(render_overlay_item(&scene,p,&before));
-    uint32_t ready=signature();atlas.ready[0]=0;scene_emoji_snapshot(&scene,&atlas);assert(signature()!=ready);
+    uint32_t ready=signature();atlas.ready[0]=0;publish_atlas();scene_emoji_snapshot(&scene,&atlas);assert(signature()!=ready);
     assert(render_overlay_item(&scene,p,&after));assert(before.signature!=after.signature);
     assert(before.x0==after.x0 && before.y0==after.y0 && before.x1==after.x1 && before.y1==after.y1);
-    uint32_t pending=signature();atlas.ready[0]=2;scene_emoji_snapshot(&scene,&atlas);assert(signature()!=pending);
+    uint32_t pending=signature();atlas.ready[0]=2;publish_atlas();scene_emoji_snapshot(&scene,&atlas);assert(signature()!=pending);
     prepare(255);label("😀",1);uint32_t original=signature();
-    atlas.data[0][4]=0;atlas.data[0][6]=255;
-    assert(scene.emoji.data[0][4]==255 && signature()==original);
-    scene_emoji_snapshot(&scene,&atlas);assert(signature()!=original);
+    atlas_pixels[0][4]=0;atlas_pixels[0][6]=255;
+    assert(render_emoji_entry_pixels(scene.emoji.entries[0])[4]==255 && signature()==original);
+    publish_atlas();scene_emoji_snapshot(&scene,&atlas);assert(signature()!=original);
 }
 static void transparent_colors_do_not_bleed(void) {
-    prepare(255);atlas.data[0][14]=255; // Blue in a fully transparent straight-alpha palette entry.
-    for(unsigned y=0;y<32;y++)for(unsigned x=8;x<16;x++)atlas.data[0][64+y*16+x]=0x33;
-    scene_emoji_snapshot(&scene,&atlas);label("😀",1);
+    prepare(255);atlas_pixels[0][14]=255; // Blue in a fully transparent straight-alpha palette entry.
+    for(unsigned y=0;y<32;y++)for(unsigned x=8;x<16;x++)atlas_pixels[0][64+y*16+x]=0x33;
+    publish_atlas();scene_emoji_snapshot(&scene,&atlas);label("😀",1);
     fill(&whole[0][0],UI_OUTPUT_H*UI_OUTPUT_W,0);
     render_text_overlay(&scene,&whole[0][0],0,0,UI_OUTPUT_W,UI_OUTPUT_H,UI_OUTPUT_W,false);
     int x0=UI_OUTPUT_W,y0=UI_OUTPUT_H,x1=0,y1=0;
@@ -73,13 +96,13 @@ static void color_alpha_and_order(void) {
     assert(whole[y][x]==rgb565_blend(0xf800,0x3277,alpha));
     for(int yy=0;yy<UI_OUTPUT_H;yy++)for(int xx=0;xx<UI_OUTPUT_W;xx++)
         assert(swapped[yy][xx]==rgb565_bswap(whole[yy][xx]));
-    atlas.data[0][7]=0;scene_emoji_snapshot(&scene,&atlas);
+    atlas_pixels[0][7]=0;publish_atlas();scene_emoji_snapshot(&scene,&atlas);
     fill(&whole[0][0],UI_OUTPUT_H*UI_OUTPUT_W,0x3277);
     render_text_overlay(&scene,&whole[0][0],0,0,UI_OUTPUT_W,UI_OUTPUT_H,UI_OUTPUT_W,false);
     assert(whole[y][x]==0x3277);
 }
 static void high_nibble_and_tiles(void) {
-    prepare(255);atlas.data[0][64+16*16]=0x12;scene_emoji_snapshot(&scene,&atlas);
+    prepare(255);atlas_pixels[0][64+16*16]=0x12;publish_atlas();scene_emoji_snapshot(&scene,&atlas);
     prim_t *p=label("😀",1);int top=p->sub_y-(g_fonts[p->r].cap+32)/2;
     fill(&whole[0][0],UI_OUTPUT_H*UI_OUTPUT_W,0);
     render_text_overlay(&scene,&whole[0][0],0,0,UI_OUTPUT_W,UI_OUTPUT_H,UI_OUTPUT_W,false);
@@ -101,6 +124,7 @@ static void high_nibble_and_tiles(void) {
 }
 int main(void) {
     normal_and_clusters();snapshot_and_signatures();color_alpha_and_order();high_nibble_and_tiles();
-    transparent_colors_do_not_bleed();
+    transparent_colors_do_not_bleed();owned_scene_clone();scene_end(&scene);render_emoji_snapshot_release(&atlas);
+    assert(!render_emoji_entries_live() && allocation_calls==free_calls);
     printf("render emoji: native %dx%d colors/alpha/endian/clipping/snapshot/signature/one-primitive passed\n",UI_OUTPUT_W,UI_OUTPUT_H);
 }

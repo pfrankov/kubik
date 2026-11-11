@@ -150,7 +150,7 @@ static void stars_gather_light(void) {
     }
     (void)star_light(SKY_FULL * .5f, COL_TEAL, 6.f);
     scene_begin(&scene, 0); tess_sky_draw(&face, &scene);
-    scene_t unhinted = scene;
+    scene_t unhinted;scene_clone(&unhinted,&scene);
     sky.hint_star = 0;
     sky_world_t before = sky.w;
     scene_begin(&scene, 0); tess_sky_draw(&face, &scene);
@@ -160,6 +160,7 @@ static void stars_gather_light(void) {
         assert(scene.dots[i].x == unhinted.dots[i].x && scene.dots[i].y == unhinted.dots[i].y);
         assert(scene.dots[i].radius == unhinted.dots[i].radius);
     }
+    scene_end(&unhinted);
 }
 
 static void render_sky(void) {

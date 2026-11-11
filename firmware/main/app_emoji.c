@@ -48,7 +48,9 @@ void app_emoji_poll(void) {
         face_lock(); face_emoji_reset(&g_face); face_unlock();
         s_session = session;
     }
-    if (!session || s_setup || s_menu || power_is_dark(s_power)) return;
+    if (!session || s_setup || s_menu || power_is_dark(s_power)) {
+        face_lock();face_emoji_reset(&g_face);face_unlock();return;
+    }
     char keys[4][65];
     uint32_t id;
     unsigned count;

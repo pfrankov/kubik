@@ -43,6 +43,7 @@ void face_emoji_reset(face_t *f) {
     face_emoji_t *e = &f->card_emoji;
     // Keep the monotonic request identity: old connection replies cannot match.
     uint32_t id = e->id;
+    render_emoji_snapshot_release(&e->glyphs);
     memset(e, 0, sizeof *e);
     e->id = id;
 }
@@ -87,8 +88,8 @@ bool face_emoji_receive(face_t *f, uint32_t id, const char *seq, const uint8_t *
     for (unsigned i = 0; i < e->count; i++) {
         if (strcmp(seq, e->glyphs.keys[i])) continue;
         if (e->glyphs.ready[i]) return false;
-        if (bytes) memcpy(e->glyphs.data[i], bytes, R_EMOJI_BYTES);
-        e->glyphs.ready[i] = bytes ? 1 : 2;
+        if (bytes) e->glyphs.entries[i]=render_emoji_entry_create(bytes);
+        e->glyphs.ready[i] = e->glyphs.entries[i] ? 1 : 2;
         return true;
     }
     return false;

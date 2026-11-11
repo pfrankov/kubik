@@ -7,7 +7,7 @@
 static const char *emoji[] = {"😀", "👩🏽‍💻", "🇷🇺", "❤️", "🖨️", "👨‍👩‍👧‍👦"};
 static face_t face;
 static void init(void) {
-    memset(&face, 0, sizeof face);
+    face_emoji_reset(&face);memset(&face, 0, sizeof face);
     face.mode = MODE_IDLE;
 }
 static void limits(void) {
@@ -95,7 +95,7 @@ static void responses_and_timeout(void) {
     assert(!face_emoji_receive(&face, id, emoji[4], glyph));
     assert(face_emoji_receive(&face, id, emoji[0], glyph));
     assert(!face_emoji_receive(&face, id, emoji[0], glyph));
-    assert(!memcmp(face.card_emoji.glyphs.data[0], glyph, sizeof glyph));
+    assert(!memcmp(render_emoji_entry_pixels(face.card_emoji.glyphs.entries[0]), glyph, sizeof glyph));
     assert(face_emoji_receive(&face, id, emoji[1], NULL));
     face_emoji_update(&face, 2.99f);
     assert(face.card_emoji.glyphs.ready[2] == 0);
@@ -138,9 +138,9 @@ static void scene_copy(void) {
     draw_card(&face, &scene);
     assert(scene.text_n == 3 && scene.text[0] == R_EMOJI_TOKEN && scene.text[2] == R_EMOJI_TOKEN + 1);
     assert(scene.emoji.ready[0] == 1);
-    assert(!memcmp(scene.emoji.data[0], glyph, sizeof glyph));
-    memset(face.card_emoji.glyphs.data[0], 0, sizeof glyph);
-    assert(!memcmp(scene.emoji.data[0], glyph, sizeof glyph));
+    assert(!memcmp(render_emoji_entry_pixels(scene.emoji.entries[0]), glyph, sizeof glyph));
+    face_emoji_reset(&face);
+    assert(!memcmp(render_emoji_entry_pixels(scene.emoji.entries[0]), glyph, sizeof glyph));scene_end(&scene);
 }
 static void oversized_cluster(void) {
     init();
@@ -152,10 +152,34 @@ static void oversized_cluster(void) {
     face_emoji_sync(&face); assert(face.card_emoji.count == 0);
     face.card_t = 1;
     static scene_t scene; scene_begin(&scene, 0); draw_card(&face, &scene);
-    assert(scene.text_n == 1 && scene.text[0] == R_EMOJI_PLACEHOLDER);
+    assert(scene.text_n == 1 && scene.text[0] == R_EMOJI_PLACEHOLDER);scene_end(&scene);
+}
+static void held_frame_and_new_page(void) {
+    init();face_card(&face,"😀 👩🏽‍💻 🇷🇺 ❤️");uint32_t id=request(4);
+    uint8_t old[576],next[576];memset(old,0x56,sizeof old);memset(next,0xa5,sizeof next);
+    for(unsigned i=0;i<4;i++)assert(face_emoji_receive(&face,id,emoji[i],old));
+    scene_t held={0};scene_begin(&held,0);face.card_t=1;draw_card(&face,&held);
+    face_card(&face,"🖨️ 👨‍👩‍👧‍👦 👍🏽 🎉");id=request(4);
+    const char *keys[]={"🖨️","👨‍👩‍👧‍👦","👍🏽","🎉"};
+    for(unsigned i=0;i<4;i++)assert(face_emoji_receive(&face,id,keys[i],next));
+    assert(render_emoji_entries_live()==8 && !render_emoji_entry_create(next));
+    assert(!memcmp(render_emoji_entry_pixels(held.emoji.entries[0]),old,sizeof old));
+    scene_end(&held);assert(render_emoji_entries_live()==4);face_emoji_reset(&face);
+    assert(!render_emoji_entries_live());
+}
+static void full_store_is_terminal(void) {
+    init();uint8_t pixels[576]={0};render_emoji_entry_t *held[8];
+    for(unsigned i=0;i<8;i++){held[i]=render_emoji_entry_create(pixels);assert(held[i]);}
+    face_card(&face,"😀");uint32_t id=request(1);assert(face_emoji_receive(&face,id,"😀",pixels));
+    assert(face.card_emoji.glyphs.ready[0]==2 && !face.card_emoji.glyphs.entries[0]);
+    assert(!face_emoji_receive(&face,id,"😀",pixels));
+    uint32_t ignored;unsigned count;char keys[4][65];assert(!face_emoji_poll(&face,&ignored,keys,&count));
+    for(unsigned i=0;i<8;i++)render_emoji_entry_release(held[i]);face_emoji_reset(&face);
+    assert(!render_emoji_entries_live());
 }
 int main(void) {
     unique_pages(); long_repeats(); explicit_short_lines(); responses_and_timeout();
     visibility_and_pages(); scene_copy(); oversized_cluster();
+    held_frame_and_new_page();full_store_is_terminal();face_emoji_reset(&face);assert(!render_emoji_entries_live());
     printf("Card emoji: whole clusters, 1000 bytes, <=4 unique/6 lines, terminal timeout, paging and immutable scene; face cache %zu bytes\n", sizeof(face_emoji_t));
 }

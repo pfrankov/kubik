@@ -87,6 +87,7 @@ void sim_render_scene(scene_t *input) {
     render_expand_2x(&output, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     render_edge_overlay(input, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     render_text_overlay(input, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
+    scene_end(input);
     px_total += rs.pixels_last;
     if (rs.pixels_last > px_max) px_max = rs.pixels_last;
     frames++;

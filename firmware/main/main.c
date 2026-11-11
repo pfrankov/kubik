@@ -413,6 +413,7 @@ static void display_task(void *arg) {
         face_mode_t frame_mode = update_scene(&scene, dt, powered);
         int64_t t_face = esp_timer_get_time();
         bool presented = powered && present_frame(f, &rs, &scene);
+        scene_end(&scene); // Only completed RGB buffers/frame remain in DMA ownership.
         int64_t t1 = esp_timer_get_time();
 #if !CONFIG_IDF_TARGET_ESP32S3
         int fps = frame_rate(frame_mode, &frame_avg_us, t1 - t0);

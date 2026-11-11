@@ -8,9 +8,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='kubik-native-overlay-') as temporary:
     programs = {
-        'native_overlay': ['main/render_text', 'main/render_emoji', 'main/emoji_cluster', 'main/render_overlay_s3', 'main/render_scene', 'main/render_projection', 'main/font', 'main/font_data'],
-        'native_composite': ['main/render_scene', 'main/render_projection', 'main/render_text', 'main/render_emoji', 'main/emoji_cluster', 'main/font', 'main/font_data'],
-        'native_glyph': ['main/render_scene', 'main/render_projection', 'main/render_text', 'main/render_emoji', 'main/emoji_cluster', 'main/font', 'main/font_data'],
+        'native_overlay': ['main/render_text', 'main/render_emoji', 'main/render_emoji_store', 'main/emoji_cluster', 'main/render_overlay_s3', 'main/render_scene', 'main/render_projection', 'main/font', 'main/font_data'],
+        'native_composite': ['main/render_scene', 'main/render_projection', 'main/render_text', 'main/render_emoji', 'main/render_emoji_store', 'main/emoji_cluster', 'main/font', 'main/font_data'],
+        'native_glyph': ['main/render_scene', 'main/render_projection', 'main/render_text', 'main/render_emoji', 'main/render_emoji_store', 'main/emoji_cluster', 'main/font', 'main/font_data'],
     }
     for name, dependencies in programs.items():
         executable = str(Path(temporary) / name)

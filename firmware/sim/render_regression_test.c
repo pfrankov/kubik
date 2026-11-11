@@ -71,7 +71,7 @@ static void expand_reference(const uint16_t *px, uint16_t *out) {
 }
 // Renders a frame the device's way and checks the panel against a fresh full frame, expanded whole.
 static void check_frame(render_state_t *state, const scene_t *scene) {
-    scene_t streamed=*scene, reference=*scene;
+    scene_t streamed,reference;scene_clone(&streamed,scene);scene_clone(&reference,scene);
     uint16_t *bufs[]={bands[0],bands[1]};
     band_y0[0]=band_y0[1]=-R_BAND;
     render_output_begin(&stream,read_band,NULL);
@@ -86,7 +86,7 @@ static void check_frame(render_state_t *state, const scene_t *scene) {
         for(int k=0;k<480*480;k++) if(panel[k]!=expected[k]) { fprintf(stderr,"panel mismatch at %d,%d dots %d prims %d got %x expected %x\n",k%480,k/480,scene->dots_n,scene->n,panel[k],expected[k]); break; }
         abort();
     }
-    presented_frames++;
+    presented_frames++;scene_end(&streamed);scene_end(&reference);
 }
 static face_t face;
 static render_state_t state;

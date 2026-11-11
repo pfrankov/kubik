@@ -11,14 +11,22 @@ int render_token_kern(const font_t *font, uint16_t first, uint16_t second) {
 }
 
 void scene_emoji_snapshot(scene_t *scene, const render_emoji_snapshot_t *snapshot) {
-    if (!snapshot) return;
+    if (!snapshot || snapshot==&scene->emoji) return;
+    // Pin before retiring the old frame, including a borrowed view of its slots.
+    for(unsigned slot=0;slot<R_EMOJI_SLOTS;slot++)render_emoji_entry_retain(snapshot->entries[slot]);
+    render_emoji_snapshot_release(&scene->emoji);
     memcpy(&scene->emoji,snapshot,sizeof *snapshot);
     for(unsigned slot=0;slot<R_EMOJI_SLOTS;slot++) {
         uint32_t hash=(2166136261u^snapshot->ready[slot])*16777619u;
-        if(snapshot->ready[slot]==1)
-            for(unsigned i=0;i<R_EMOJI_BYTES;i++)hash=(hash^snapshot->data[slot][i])*16777619u;
+        if(snapshot->ready[slot]==1)hash=(hash^render_emoji_entry_hash(snapshot->entries[slot]))*16777619u;
         scene->emoji_hash[slot]=hash;
     }
+}
+void scene_end(scene_t *scene) {render_emoji_snapshot_release(&scene->emoji);}
+void scene_clone(scene_t *out,const scene_t *source) {
+    if(out==source)return;
+    memcpy(out,source,sizeof *out);
+    for(unsigned i=0;i<R_EMOJI_SLOTS;i++)render_emoji_entry_retain(out->emoji.entries[i]);
 }
 
 static uint16_t rich_token(const scene_t *scene, const font_t *font, const char *text, size_t bytes, bool emoji) {
@@ -100,7 +108,7 @@ static int design_axis(int native,int origin) {
 void render_emoji_overlay(const scene_t *scene, uint16_t token, uint16_t *out,
     int x0,int y0,int width,int rows,int stride,int left,int top,uint8_t opacity,bool swap) {
     unsigned slot=token-R_EMOJI_TOKEN;
-    const uint8_t *data=slot<R_EMOJI_SLOTS && scene->emoji.ready[slot]==1 ? scene->emoji.data[slot] : NULL;
+    const uint8_t *data=slot<R_EMOJI_SLOTS && scene->emoji.ready[slot]==1 ? render_emoji_entry_pixels(scene->emoji.entries[slot]) : NULL;
     int xa=maximum(maximum(0,x0),floor_div((left-1)*UI_SCALE_NUM,UI_SCALE_DEN));
     int xb=minimum(minimum(UI_OUTPUT_W,x0+width),-floor_div(-(left+R_EMOJI_EDGE+1)*UI_SCALE_NUM,UI_SCALE_DEN));
     int ya=maximum(maximum(0,y0),floor_div((top-1)*UI_SCALE_NUM,UI_SCALE_DEN));

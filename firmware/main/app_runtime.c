@@ -323,8 +323,8 @@ void printer_app_state(printer_app_state_t *state) {
 }
 
 void app_tick(void) {
-    printer_protocol_poll();
     app_emoji_poll();
+    printer_protocol_poll();
     int64_t t = now_ms();
     if (tick_power_off(t)) return;
     tick_ui_timeouts(t);

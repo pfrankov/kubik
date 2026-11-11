@@ -12,7 +12,7 @@ source = (ROOT / 'firmware/main/app_emoji.c').read_text()
 source = '\n'.join(line for line in source.splitlines() if not line.startswith('#include "'))
 fixture = (ROOT / 'firmware/sim/screen_emoji_protocol_test.c').read_text().replace('/* PRODUCTION_APP_EMOJI */', source)
 modules = ['emoji_protocol', 'emoji_cluster', 'face_card', 'face_emoji', 'render_scene',
-           'render_text', 'render_overlay_s3', 'render_projection', 'render_emoji', 'font', 'font_data', 'status_json']
+           'render_text', 'render_overlay_s3', 'render_projection', 'render_emoji', 'render_emoji_store', 'font', 'font_data', 'status_json']
 with tempfile.TemporaryDirectory(prefix='kubik-screen-emoji-') as temporary:
     path = Path(temporary) / 'test.c'
     path.write_text(fixture)

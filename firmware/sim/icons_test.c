@@ -101,7 +101,7 @@ static void verify_swap(void) {
 }
 
 static void verify_prepared_scene(const scene_t *scene) {
-    scene_t prepared = *scene;
+    scene_t prepared;scene_clone(&prepared,scene);
     prepared.raster_ready = true;
     for (int i = 0; i < prepared.n; i++) {
         prim_t *p = &prepared.p[i];
@@ -118,6 +118,7 @@ static void verify_prepared_scene(const scene_t *scene) {
     fill(swapped, background);
     render_text_overlay(&prepared, swapped, 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     assert(memcmp(swapped, full, sizeof full) == 0);
+    scene_end(&prepared);
 }
 
 static void verify_windows(const scene_t *scene) {
