@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from device import ROOT, arguments, copy_private_color
-from device_screen_emoji import MARKER, ONLY_MARKER, ONLY_TEXT, Observations, SEQUENCES, ScreenConnection, TEXT, screen_answer
+from device_screen_emoji import MARKER, ONLY_MARKER, ONLY_TEXT, Observations, SEQUENCES, ScreenConnection, TEXT, pages, screen_answer
 
 
 class ScreenFixtureTests(unittest.IsolatedAsyncioTestCase):
@@ -61,6 +61,24 @@ class ScreenFixtureTests(unittest.IsolatedAsyncioTestCase):
             with patch('sys.argv', argv + [mode]), patch('sys.stderr'):
                 with self.assertRaises(SystemExit):
                     arguments()
+
+    async def test_all_four_actual_pages_and_tenth_glyph_are_required(self):
+        observation = SimpleNamespace(states=[], frames=[{'page': page} for page in range(4)],
+                                      wire=[{'value': {'t': 'text', 'text': TEXT}}], persist_wire=lambda: None)
+        visited = []
+        async def info():
+            index = len(visited)
+            page = (0, 0, 1, 2, 3)[min(index, 4)]
+            visited.append(page)
+            count = 10 if page == 3 else min(9, 3 * (page + 1))
+            observation.wire = observation.wire[:1] + [{'value': {'t': 'emoji', 'seq': sequence, 'data': 'present'}}
+                                                      for sequence in SEQUENCES[:count]]
+            return {'emoji_id': page + 1, 'emoji_count': 1, 'emoji_ready': 1, 'emoji_missing': 0,
+                    'card_page': page, 'card_pages': 4, 'heap_internal': 10000, 'heap_failures': 0,
+                    'live_active': True, 'mic_open': True, 'mic_rx_enabled': True}
+        ready = await pages(SimpleNamespace(info=info), observation)
+        self.assertEqual(ready, {0, 1, 2, 3})
+        self.assertEqual(visited, [0, 0, 1, 2, 3])
 
 
 if __name__ == '__main__':

@@ -96,9 +96,9 @@ class Observations:
 
 
 async def pages(control, observations):
-    ready = set()
+    ready, candidate, stable = set(), None, 0
     async with asyncio.timeout(40):
-        while len(ready) < 3:
+        while True:
             state = await control.info()
             fields = ('emoji_id', 'emoji_count', 'emoji_ready', 'emoji_missing', 'card_page', 'card_pages',
                       'heap_internal', 'heap_failures', 'live_active', 'mic_open', 'mic_rx_enabled')
@@ -112,8 +112,20 @@ async def pages(control, observations):
                 ready.add(row['card_page'])
                 if not any(frame['page'] == row['card_page'] for frame in observations.frames):
                     await frame_snapshot(control, observations, row['card_page'])
+            candidate, stable, complete = page_progress(observations, row, ready, candidate, stable)
+            if complete:
+                return ready
             await asyncio.sleep(.25)
-    return ready
+
+
+def page_progress(observations, row, ready, candidate, stable):
+    visible = any(item['value'].get('t') == 'text' and item['value'].get('text') == TEXT for item in observations.wire)
+    total = row['card_pages'] if visible and row['emoji_count'] else 0
+    stable = stable + 1 if total == candidate else 1
+    covered = {item['value']['seq'] for item in observations.wire
+               if item['value'].get('t') == 'emoji' and item['value'].get('data') is not None}
+    complete = total > 0 and stable >= 2 and set(range(total)) <= ready and set(SEQUENCES) <= covered
+    return total, stable, complete
 
 
 async def frame_snapshot(control, observations, page):
