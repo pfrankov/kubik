@@ -5,9 +5,10 @@ Users install it with `openclaw plugins install openclaw-kubik`.
 Package documentation is English. Firmware versions are independent; the npm
 README states the compatible firmware and OpenClaw versions.
 
-`.github/workflows/publish-npm.yml` runs after successful Acceptance on `main`.
+Run `.github/workflows/publish-npm.yml` manually on `main` only after an explicit
+publication request. It requires successful Acceptance for that same commit; a
+regular push or completed Acceptance does not start publication.
 It publishes the exact tested commit only while that commit remains main HEAD.
-Manual dispatch also requires successful Acceptance for that same commit.
 Acceptance owns the complete checks and their tool dependencies; the publication
 job validates and packs that accepted source without repeating the test suite.
 A superseded commit is skipped. An already published version is accepted only
