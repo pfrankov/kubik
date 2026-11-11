@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-printer-") as temporary:
         "firmware/main/app_runtime.c", "void app_tick(void)", "static void setup_result_face("))
     source = directory / "printer.c"
     source.write_text(fixture)
-    sources = ("printer_protocol", "printer_parse", "printer_emoji", "printer_emoji_parse", "printer_work", "printer_job", "printer_result", "printer_guard",
+    sources = ("printer_protocol", "printer_parse", "emoji_cluster", "printer_emoji", "printer_emoji_parse", "printer_work", "printer_job", "printer_result", "printer_guard",
                "printer_layout", "printer_layout_text", "printer_layout_qr")
     qr = ROOT / "firmware/managed_components/espressif__qrcode"
     for target in ("ESP32C6", "ESP32S3"):
