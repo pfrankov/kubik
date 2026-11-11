@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { SpeechPacer } from '../src/audio.js';
 import { SPEECH_LEAD_MS } from '../src/protocol.js';
 
-const prebufferMs = Number(readFileSync(new URL('../../firmware/main/audio.c', import.meta.url), 'utf8')
+const prebufferMs = Number(readFileSync(new URL('../../firmware/main/audio_ring.c', import.meta.url), 'utf8')
   .match(/^#define PREBUF_BYTES \((\d+) \* RING_BYTES_PER_MS\)/m)?.[1]);
 assert.equal(prebufferMs, 800, 'Model the actual firmware startup cushion');
 
