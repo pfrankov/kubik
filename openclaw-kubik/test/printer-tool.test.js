@@ -30,6 +30,8 @@ test('production tool exposes measured printer capabilities and exact layout wit
   const result = await pending;
   assert.equal(result.isError, undefined);assert.equal(result.details.outcome, 'submitted');
   assert.deepEqual(result.details.printer, printerInfo());assert.equal(result.details.layout.width_dots, 240);
+  assert.equal(result.details.printer.feed_dpi, 152);assert.equal(result.details.printer.charging, null);
+  assert.equal(result.details.layout.height_mm, result.details.layout.height_dots * 25.4 / 152);
   assert.equal(result.details.paperConfirmed, false);assert.deepEqual(JSON.parse(result.content[0].text), result.details);
   assert.equal(JSON.stringify(result).includes('Print this list'), false, 'printed content is not echoed to tool logs/results');
   const status = tool.execute('tool-status', { action: 'status' });
@@ -51,7 +53,9 @@ test('not-found print is explicitly not sent and discovery failure remains visib
 test('tool rejects arguments before sending and uses current config, not its captured allow decision', async (t) => {
   const f = await printerFixture(t);const { tool, state } = toolFixture(f.server, f.identity.device);
   for (const params of [{ action: 'print', text: '\u001b@' }, { action: 'print', text: 'x', deviceId: 'kubik-other' },
-    { action: 'print', text: '\ud800' }, { action: 'status', text: 'ignored?' }]) {
+    { action: 'print', text: '\ud800' }, { action: 'status', text: 'ignored?' },
+    { action: 'print', text: '😀', emoji: [] }, { action: 'print', text: 'x', bitmap: 'arbitrary' },
+    { action: 'print', text: 'x', file: '/private/emoji.bin' }]) {
     assert.equal((await tool.execute('invalid', params)).details.code, 'invalid_input');
   }
   state.cfg = { ...state.cfg, channels: { kubik: { ...state.cfg.channels.kubik, enabled: false } } };

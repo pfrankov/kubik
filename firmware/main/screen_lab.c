@@ -55,6 +55,7 @@ static bool menu_detail_open(screen_lab_t *lab, int row) {
             .mac="02:00:00:12:34:56", .hostname="kubik-demo", .name="Demo Kubik", .firmware="Preview", .route="wifi", .url="wss://agent.example.com/kubik/v1"};
     }
     else if (row == MENU_EVENTS) event_journal_open(&f->journal);
+    else if (row == MENU_PRINTER) f->printer.open = true;
 
     else return false;
     return true;
@@ -65,13 +66,19 @@ static void set_volume(screen_lab_t *lab, int value) {
     lab->face.menu.volume = lab->volume;
     lab->face.menu.ui_volume = lab->ui_volume;
 }
-static void menu_tap(screen_lab_t *lab, int x, int y) {
+static bool menu_subscreen_tap(screen_lab_t *lab, int x, int y) {
     face_t *f = &lab->face;
+    if (face_printer_tap(&f->printer, x, y)) { f->printer.refresh = false; return true; }
     if (device_status_tap(&f->status, x, y)) {
         if (f->status.wifi_setup) { f->status.wifi_setup = false; screen_lab_select(lab, LAB_WIFI_QR); }
-        return;
+        return true;
     }
-    if (f->journal.open) { event_journal_tap(&f->journal, x, y); return; }
+    if (!f->journal.open) return false;
+    event_journal_tap(&f->journal, x, y); return true;
+}
+static void menu_tap(screen_lab_t *lab, int x, int y) {
+    face_t *f = &lab->face;
+    if (menu_subscreen_tap(lab, x, y)) return;
     if (f->agent.open) { agent_tap(lab, x, y); return; }
     if (menu_service_tap(&lab->service, x, y, (int64_t)(f->t * 1000))) {
         f->menu.service = true; return;
@@ -96,7 +103,7 @@ static void catalog_tap(screen_lab_t *lab, int x, int y) {
 }
 static void back(screen_lab_t *lab) {
     face_t *f = &lab->face;
-    if (device_status_back(&f->status) || event_journal_back(&f->journal)) return;
+    if (face_printer_back(&f->printer) || device_status_back(&f->status) || event_journal_back(&f->journal)) return;
     if (f->agent.open && f->agent.view == AGENT_VIEW_GUIDE) {
         if (f->agent.guide_step) agent_menu_guide_move(&f->agent, -1);
         else agent_menu_hide(&f->agent);
@@ -147,10 +154,10 @@ void screen_lab_event(screen_lab_t *lab, lab_event_t event, int x, int y) {
     }
 }
 static bool menu_sliders(const face_t *f) {
-    return f->menu.open && !f->agent.open && !f->journal.open && !f->status.open;
+    return f->menu.open && !f->agent.open && !f->journal.open && !f->status.open && !f->printer.open;
 }
 static bool detail_drag(face_t *f, int x, int y, bool first) {
-    return device_status_drag(&f->status, x, y, first) || event_journal_drag(&f->journal, x, y, first);
+    return f->printer.open || device_status_drag(&f->status, x, y, first) || event_journal_drag(&f->journal, x, y, first);
 }
 static bool agent_pointer(face_t *f, bool down, bool first, int x, int y) {
     bool released = !down && f->agent.open;

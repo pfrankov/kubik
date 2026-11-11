@@ -9,6 +9,8 @@ typedef struct {
     const char *rid;
     bool printing;
     printer_document_t document;
+    const cJSON *emoji;
+    unsigned emoji_count;
 } printer_input_t;
 
 const char *printer_parse_id(const cJSON *request);

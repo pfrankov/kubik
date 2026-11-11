@@ -3,25 +3,26 @@ static void status_and_print(void) {
     fresh();request(RID,"\"action\":\"status\"");assert(!opens);finish_request();
     cJSON *j=reply(0,"ready",NULL,NULL);cJSON *p=cJSON_GetObjectItem(j,"printer");assert(p);
     assert(cJSON_GetObjectItem(p,"width_dots")->valueint==576);assert(cJSON_GetObjectItem(p,"dpi")->valueint==304);
+    assert(cJSON_GetObjectItem(p,"feed_dpi")->valueint==152);assert(cJSON_IsNull(cJSON_GetObjectItem(p,"charging")));
     assert(cJSON_IsNull(cJSON_GetObjectItem(p,"media_height_mm")));cJSON_Delete(j);assert(!packets);
     printf("PIPELINE_WIRE %s\n",sent[0]);assert(reaps==1 && releases==1);
-    request(RID,"\"action\":\"print\",\"text\":\"Привет, Кубик!\\nMilk\\t2\",\"width_mm\":30,\"height_mm\":20,\"font_mm\":3");
+    request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"Привет, Кубик!\\nMilk\\t2\",\"width_mm\":30,\"height_mm\":20,\"font_mm\":3");
     finish_request();j=reply(1,"sent",NULL,"submitted");p=cJSON_GetObjectItem(j,"layout");assert(p);
-    unsigned height=(unsigned)cJSON_GetObjectItem(p,"height_dots")->valueint;assert(height==239);
-    assert(rows==height+48);assert(packets==rows+6);assert(printed_ink);cJSON_Delete(j);
+    unsigned height=(unsigned)cJSON_GetObjectItem(p,"height_dots")->valueint;assert(height==120);
+    assert(rows==height+24);assert(packets==rows+3);assert(printed_ink);cJSON_Delete(j);
     assert(finishes==1 && budget_calls==1 && planned_packets==packets);
     printf("PIPELINE_WIRE %s\n",sent[1]);assert(!printer_work_busy());
 }
 static void job_errors(void) {
     fresh();open_result=PERIPAGE_NOT_FOUND;request(RID,"\"action\":\"status\"");finish_request();
     cJSON_Delete(reply(0,"error","printer_not_found",NULL));assert(!packets && closes==1);
-    fresh();request(RID,"\"action\":\"print\",\"text\":\"safe\",\"width_mm\":1");finish_request();
+    fresh();request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\",\"width_mm\":1");finish_request();
     cJSON_Delete(reply(0,"error","content_does_not_fit","not_sent"));assert(!packets);
-    fresh();request(RID,"\"action\":\"print\",\"text\":\"\xf0\x9f\x98\x80\"");finish_request();
+    fresh();request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"\xf0\x9f\x98\x80\"");finish_request();
     cJSON_Delete(reply(0,"error","unsupported_character","not_sent"));assert(!packets);
-    fresh();fail_packet=4;request(RID,"\"action\":\"print\",\"text\":\"safe\"");finish_request();
+    fresh();fail_packet=4;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");finish_request();
     cJSON_Delete(reply(0,"error","printer_disconnected","unknown"));assert(packets==4 && closes==1);
-    fresh();close_ok=false;request(RID,"\"action\":\"print\",\"text\":\"safe\"");finish_request();
+    fresh();close_ok=false;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");finish_request();
     cJSON_Delete(reply(0,"error","printer_failed","unknown"));assert(!radio_owned);
 }
 static void queued_flood(void) {
@@ -32,12 +33,12 @@ static void queued_flood(void) {
     finish_work();app_tick();assert(attempts==PRINTER_REPLY_SLOTS+1);assert(opens==1);
 }
 static void no_replay_and_sessions(void) {
-    queued_flood();fresh();request(RID,"\"action\":\"print\",\"text\":\"safe\"");app_tick();
-    fail_alloc=true;for(unsigned i=0;i<20;i++)request(RID,"\"action\":\"print\",\"text\":\"safe\"");
-    request(RID,"\"action\":\"print\",\"text\":false,\"unknown\":0");
+    queued_flood();fresh();request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");app_tick();
+    fail_alloc=true;for(unsigned i=0;i<20;i++)request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");
+    request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":false,\"unknown\":0");
     assert(fail_alloc);fail_alloc=false;finish_work();app_tick();assert(attempts==1 && opens==1);
-    fresh();request(RID,"\"action\":\"print\",\"text\":\"safe\"");session++;app_tick();assert(!opens && !attempts);
-    fresh();change_session_packet=4;request(RID,"\"action\":\"print\",\"text\":\"safe\"");finish_request();
+    fresh();request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");session++;app_tick();assert(!opens && !attempts);
+    fresh();change_session_packet=4;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");finish_request();
     assert(!attempts && packets==4);assert(!printer_work_busy());
     fresh();send_ok=false;request(RID,"\"action\":\"status\"");finish_request();
     for(unsigned i=0;i<10;i++)app_tick();assert(attempts==1 && opens==1);
@@ -62,7 +63,7 @@ static void discovery_voice_admission(void) {
     assert(printer_protocol_before_voice() && !lease && !printer_work_busy());
 }
 static void foreground_voice_unchanged(void) {
-    fresh();request(RID,"\"action\":\"print\",\"text\":\"safe\"");app_tick();
+    fresh();request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");app_tick();
     assert(printer_protocol_before_voice() && !cancels && callback && lease);finish_work();app_tick();
 }
 static void diagnostic_snapshot(void) {
@@ -80,25 +81,25 @@ static void diagnostic_snapshot(void) {
     assert(cJSON_GetObjectItem(j,"reset_reason")->valueint==1);cJSON_Delete(j);printer_guard_reset();
 }
 static void resource_and_deadline(void) {
-    fresh();fail_alloc=true;request(RID,"\"action\":\"print\",\"text\":\"safe\"");app_tick();
+    fresh();fail_alloc=true;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");app_tick();
     cJSON_Delete(reply(0,"error","printer_failed","not_sent"));assert(!opens);
     fresh();launch_ok=false;request(RID,"\"action\":\"status\"");app_tick();
     cJSON_Delete(reply(0,"error","printer_failed",NULL));assert(!printer_work_busy());
-    fresh();app_state.can_start=false;request(RID,"\"action\":\"print\",\"text\":\"safe\"");app_tick();
+    fresh();app_state.can_start=false;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");app_tick();
     assert(printer_work_busy() && !opens);assert(!printer_protocol_reset_ready());
     clock_ms+=78000;app_tick();cJSON_Delete(reply(0,"error","printer_busy","not_sent"));assert(!printer_work_busy());
-    fresh();packet_ms=100;request(RID,"\"action\":\"print\",\"text\":\"safe\",\"height_mm\":150");
+    fresh();packet_ms=100;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\",\"height_mm\":150");
     int64_t start=clock_ms;finish_request();cJSON_Delete(reply(0,"error","printer_disconnected","unknown"));
     assert(clock_ms-start<=78000);assert(packets<1000 && !radio_owned);
 }
 static void stream_budget_and_finish(void) {
-    fresh();packet_ms=20;request(RID,"\"action\":\"print\",\"text\":\"budget fits\",\"height_mm\":150");
-    clock_ms+=34660;finish_request();cJSON_Delete(reply(0,"sent",NULL,"submitted"));
-    assert(rows==1843 && packets==1867 && planned_packets==1867 && finishes==1);
-    fresh();packet_ms=20;request(RID,"\"action\":\"print\",\"text\":\"one ms too late\",\"height_mm\":150");
-    clock_ms+=34661;finish_request();cJSON_Delete(reply(0,"error","printer_busy","not_sent"));
-    assert(planned_packets==1867 && !packets && !finishes && closes==1);
-    fresh();finish_ok=false;request(RID,"\"action\":\"print\",\"text\":\"final query fails\"");
+    fresh();packet_ms=20;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"budget fits\",\"height_mm\":150");
+    clock_ms+=53340;finish_request();cJSON_Delete(reply(0,"sent",NULL,"submitted"));
+    assert(rows==921 && packets==933 && planned_packets==933 && finishes==1);
+    fresh();packet_ms=20;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"one ms too late\",\"height_mm\":150");
+    clock_ms+=53341;finish_request();cJSON_Delete(reply(0,"error","printer_busy","not_sent"));
+    assert(planned_packets==933 && !packets && !finishes && closes==1);
+    fresh();finish_ok=false;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"final query fails\"");
     finish_request();cJSON_Delete(reply(0,"error","printer_disconnected","unknown"));
     assert(finishes==1 && packets==planned_packets && closes==1);
 }

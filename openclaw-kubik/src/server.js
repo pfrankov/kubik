@@ -50,9 +50,9 @@ export class KubikServer {
 
   constructor({ account, dispatch, log = () => {}, setStatus = () => {}, engineFactory = createDefaultEngine, engineOptions = {},
     pairing = null, pairingPollMs = PAIRING_POLL_MS, pairingTimeoutMs = PAIRING_TIMEOUT_MS, activity = null, cron = null,
-    notificationPath = null, agentControl = null }) {
+    notificationPath = null, agentControl = null, stateDir = null }) {
     Object.assign(this, { account, dispatch, log, setStatus, engineFactory, engineOptions, pairing, pairingPollMs, pairingTimeoutMs });
-    Object.assign(this, { cron, activity, agentControl });
+    Object.assign(this, { cron, activity, agentControl, stateDir });
     this.#notifications = new NotificationQueue({ path: notificationPath, log });
   }
 

@@ -1,7 +1,9 @@
 """Actual Hermes model/tool dispatch to an authenticated printer-capable device."""
 import asyncio
+import base64
 import importlib
 import json
+from pathlib import Path
 import re
 
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -9,20 +11,25 @@ from voice_contract import Device
 from voice_fixture import eventually
 
 PROFILE = {'name': 'PeriPage+FIXTURE', 'model': 'PeriPage A6+', 'firmware': 'V1.12_304dpi',
-           'hardware': 'v3.38.21_AY', 'dpi': 304, 'width_dots': 576,
-           'printable_width_mm': 576 * 25.4 / 304, 'battery_pct': 100,
+           'hardware': 'v3.38.21_AY', 'dpi': 304, 'feed_dpi': 152, 'width_dots': 576,
+           'printable_width_mm': 576 * 25.4 / 304, 'battery_pct': 100, 'charging': None,
            'formats': ['text', 'qr'], 'max_height_mm': 150, 'media_height_mm': None,
            'size_source': 'model_profile'}
+QUALITY_TEXT = {'action': 'print', 'text': 'Apple 😀 ❤️ 👍🏽 👩‍💻 🇷🇺', 'width_mm': 40, 'font_mm': 3}
+QUALITY_QR = {'action': 'print', 'text': 'KUBIK 304/152', 'format': 'qr', 'width_mm': 20}
 
 
 def printer_response(request):
     value = {'t': 'printer_result', 'rid': request['rid'], 'status': 'ready', 'printer': PROFILE}
     if request['action'] == 'print':
         width = round(request.get('width_mm', PROFILE['printable_width_mm']) * 304 / 25.4)
-        height = round(request.get('height_mm', 10) * 304 / 25.4)
+        extent = request.get('width_mm', PROFILE['printable_width_mm']) if request.get('format') == 'qr' else 10
+        height = round(request.get('height_mm', extent) * 152 / 25.4)
         value.update(status='sent', outcome='submitted', layout={'format': request.get('format', 'text'),
                      'width_dots': width, 'height_dots': height,
-                     'width_mm': width * 25.4 / 304, 'height_mm': height * 25.4 / 304})
+                     'width_mm': width * 25.4 / 304, 'height_mm': height * 25.4 / 152})
+        if 'font_mm' in request:
+            value['layout']['font_mm'] = request['font_mm']
     return value
 
 
@@ -36,6 +43,9 @@ def printer_arguments(user):
     if stream:
         return 'stream-check-' + stream[1], {'action': 'print', 'text': 'BLE 20 ms',
                     'width_mm': 30, 'height_mm': 10, 'font_mm': 3}
+    quality = re.search(r'kubik-printer-quality-(text|qr)-([0-9a-f]{16})', user)
+    if quality:
+        return 'quality-' + quality[1] + '-' + quality[2], dict(QUALITY_TEXT if quality[1] == 'text' else QUALITY_QR)
     elif 'kubik-native-printer-text' in user:
         return 'text', {'action': 'print', 'text': 'Список\nМолоко', 'width_mm': 20}
     elif 'kubik-native-printer-qr' in user:
@@ -55,9 +65,10 @@ def printer_answer(messages):
         value = tools[-1]
         assert 'printer' in value, value
         assert value['printer']['width_dots'] == 576 and value['printer']['dpi'] == 304, value
+        assert value['printer']['feed_dpi'] == 152 and value['printer']['charging'] is None, value
         assert value['paperConfirmed'] is False and value['status'] == ('ready' if status else 'sent'), value
         if not status:
-            assert value['layout']['format'] == ('qr' if marker == 'qr' else 'text'), value
+            assert value['layout']['format'] == arguments.get('format', 'text'), value
             assert value['outcome'] == 'submitted', value
         return {'role': 'assistant', 'content': 'kubik-printer-answer:' + marker}, 'stop'
     call = {'id': 'call-printer-' + marker, 'type': 'function',
@@ -73,6 +84,13 @@ class PrinterDevice(Device):
 
     async def acknowledge(self, value):
         if value['t'] == 'printer':
+            if value['action'] == 'print' and value.get('format') == 'text':
+                expected = ['😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺'] if value['text'] == QUALITY_TEXT['text'] else []
+                glyphs = value.get('emoji')
+                assert isinstance(glyphs, list) and [glyph['sequence'] for glyph in glyphs] == expected, value
+                assert all(len(base64.b64decode(glyph['bitmap'], validate=True)) == 128 for glyph in glyphs), value
+            else:
+                assert 'emoji' not in value, value
             self.requests.append(value)
             if not self.hold_printer:
                 await self.socket.send_json(printer_response(value))
@@ -151,11 +169,36 @@ async def check_printer_tools(adapter, providers, client, port, home, codec, pai
                                          tool_call_id='outside-kubik', enabled_tools=['kubik_printer'])
         assert json.loads(result)['code'] == 'unauthorized', result
         assert len(device.requests) == 3
+        await synthetic_emoji_transport(adapter, device, home)
         await reject_foreign_context(adapter, client, port, home, codec, pair, key)
         print('PASS native Hermes printer tool in Classic/Realtime/Live, actual call IDs, audio lease, continuous mic and outside-channel rejection', flush=True)
     finally:
         providers.transcript = original
         await device.close()
+
+
+async def synthetic_emoji_transport(adapter, device, home):
+    from device_control import save
+    from device_printer import QUALITY_EMOJI, agent_turn
+    path = Path(__file__).resolve().parents[1] / 'fixtures/hermes_emoji_support.py'
+    specification = importlib.util.spec_from_file_location('synthetic_emoji_atlas', path)
+    fixture = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(fixture)
+    state = home / 'kubik/apple-emoji.bin'
+    save(state, fixture.atlas(QUALITY_EMOJI))
+    peer = next(peer for peer in adapter.peers.values() if peer.identity.startswith('kubik-printer:'))
+    old_volume = peer.volume
+    peer.volume = 0
+    try:
+        event = await agent_turn(adapter, peer, 'kubik-printer-quality-text-0123456789abcdef')
+        assert event._gateway_accepted
+        request = device.requests[-1]
+        assert request['text'] == QUALITY_TEXT['text'] and len(request['emoji']) == 5, request
+        assert len(device.requests) == 4
+        print('PASS actual Hermes tool dispatch with private synthetic KEMJ state and only five used glyphs', flush=True)
+    finally:
+        peer.volume = old_volume
+        state.unlink()
 
 
 async def reject_foreign_context(adapter, client, port, home, codec, pair, key):

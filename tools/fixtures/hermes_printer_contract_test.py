@@ -29,11 +29,54 @@ class PrinterContract(unittest.TestCase):
 
     def test_model_dimensions_are_complete_and_mathematically_consistent(self):
         self.assertTrue(contract.valid_printer(PRINTER))
-        for key, value in [('dpi', True), ('width_dots', 0), ('printable_width_mm', 56),
+        for key, value in [('dpi', True), ('feed_dpi', True), ('feed_dpi', 99), ('feed_dpi', 601),
+                           ('charging', True), ('charging', False), ('charging', 0),
+                           ('width_dots', 0), ('printable_width_mm', 56),
                            ('battery_pct', 101), ('formats', ['text']), ('media_height_mm', 30),
                            ('name', 'X' * 65), ('max_height_mm', float('nan'))]:
             with self.subTest(key=key):
                 self.assertFalse(contract.valid_printer({**PRINTER, key: value}))
+        for missing in ('feed_dpi', 'charging'):
+            old = deepcopy(PRINTER); old.pop(missing)
+            self.assertFalse(contract.valid_printer(old))
+
+    def test_feed_rows_use_vertical_calibration_instead_of_head_dpi(self):
+        request = {'action': 'print', 'rid': 'a' * 32, 'text': 'X', 'width_mm': 20, 'height_mm': 10}
+        value = reply(request)
+        self.assertEqual(value['layout']['width_dots'], 239)
+        self.assertEqual(value['layout']['height_dots'], 60)
+        self.assertAlmostEqual(value['layout']['height_mm'], 60 * 25.4 / 152)
+        self.assertTrue(contract.result(value, 'print'))
+        old_math = deepcopy(value)
+        old_math['layout']['height_mm'] = 60 * 25.4 / 304
+        self.assertFalse(contract.result(old_math, 'print'))
+        too_tall = deepcopy(value)
+        too_tall['layout'].update(height_dots=898, height_mm=898 * 25.4 / 152)
+        self.assertFalse(contract.result(too_tall, 'print'))
+
+    def test_requested_height_and_font_tolerances_use_feed_rows(self):
+        request = {'action': 'print', 'rid': 'a' * 32, 'text': 'X',
+                   'width_mm': 20.1, 'height_mm': 10.1, 'font_mm': 3}
+        value = reply(request)
+        value['layout'].update(height_dots=61, height_mm=61 * 25.4 / 152, font_mm=3.12)
+        self.assertTrue(contract.result(value, 'print'))
+        self.assertTrue(contract.requested_layout(value, request))
+        wide = deepcopy(value)
+        wide['layout'].update(width_dots=242, width_mm=242 * 25.4 / 304)
+        self.assertTrue(contract.result(wide, 'print'))
+        self.assertFalse(contract.requested_layout(wide, request))
+        tall = deepcopy(value); tall['layout'].update(height_dots=62, height_mm=62 * 25.4 / 152)
+        self.assertFalse(contract.requested_layout(tall, request))
+        large_font = deepcopy(value); large_font['layout']['font_mm'] = 3.18
+        self.assertFalse(contract.requested_layout(large_font, request))
+
+    def test_physically_square_qr_uses_twice_as_many_head_dots_as_feed_rows(self):
+        value = reply({'action': 'print', 'rid': 'a' * 32, 'text': 'https://example.com',
+                       'format': 'qr', 'width_mm': 240 * 25.4 / 304})
+        self.assertEqual(value['layout']['width_dots'], 240)
+        self.assertEqual(value['layout']['height_dots'], 120)
+        self.assertEqual(value['layout']['width_mm'], value['layout']['height_mm'])
+        self.assertTrue(contract.result(value, 'print'))
 
     def test_result_requires_actual_capabilities_and_layout(self):
         request = {'action': 'print', 'rid': 'a' * 32, 'text': 'X', 'width_mm': 20, 'height_mm': 10}

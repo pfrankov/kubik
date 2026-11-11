@@ -62,18 +62,21 @@ test('printer responses reject missing metadata, false paper claims and malforme
 });
 
 test('printer model metadata must be finite, bounded and geometrically consistent', () => {
-  for (const bad of [{ dpi: 0 }, { dpi: 6000 }, { width_dots: 0 }, { width_dots: 576.5 },
+  for (const bad of [{ dpi: 0 }, { dpi: 6000 }, { feed_dpi: undefined }, { feed_dpi: 0 }, { feed_dpi: 6000 },
+    { feed_dpi: 152.5 }, { charging: undefined }, { charging: true }, { charging: false }, { charging: 'unknown' },
+    { width_dots: 0 }, { width_dots: 576.5 },
     { printable_width_mm: 58 }, { battery_pct: 101 }, { media_height_mm: 30 },
     { max_height_mm: 151 }, { size_source: 'guessed' }, { formats: ['text', 'image'] },
     { name: '\u001b@' }, { firmware: 'x'.repeat(65) }, { secret: 'unexpected' }]) {
     assert.throws(() => parse(printerResult(rid, 'ready', { printer: { ...printerInfo(), ...bad } })), ProtocolError);
   }
   assert.equal(validPrinterResult(printerResult(rid, 'ready', { printer: { ...printerInfo(), dpi: NaN } })), false);
+  assert.equal(validPrinterResult(printerResult(rid, 'ready', { printer: { ...printerInfo(), feed_dpi: NaN } })), false);
   assert.equal(validPrinterResult(printerResult(rid, 'ready', { printer: { ...printerInfo(), printable_width_mm: Infinity } })), false);
 });
 
 test('reported raster layout cannot exceed the identified head or software bounds', () => {
-  for (const bad of [{ width_dots: 577 }, { height_dots: 1796 }, { width_mm: 58 }, { height_mm: 100 },
+  for (const bad of [{ width_dots: 577 }, { height_dots: 898 }, { width_mm: 58 }, { height_mm: 100 },
     { format: 'image' }, { font_mm: 0 }, { secret: 'unexpected' }, { width_dots: NaN },
     { format: 'qr', font_mm: 3 }]) {
     const value = printerResult(rid, 'sent', { layout: { ...printerLayout(), ...bad } });
@@ -81,4 +84,18 @@ test('reported raster layout cannot exceed the identified head or software bound
   }
   const qr = { ...printerLayout(), format: 'qr' };delete qr.font_mm;
   assert.equal(validPrinterResult(printerResult(rid, 'sent', { layout: qr })), true);
+});
+
+test('physical height uses calibrated feed rows while width keeps the head resolution', () => {
+  const layout = { ...printerLayout(), width_dots: 240, height_dots: 120,
+    width_mm: 240 * 25.4 / 304, height_mm: 120 * 25.4 / 152 };
+  assert.equal(layout.width_mm, layout.height_mm, 'a square needs two head dots for each feed row');
+  assert.equal(validPrinterResult(printerResult(rid, 'sent', { layout })), true);
+  assert.equal(validPrinterResult(printerResult(rid, 'sent', {
+    layout: { ...layout, height_mm: layout.height_dots * 25.4 / 304 },
+  })), false, 'the obsolete equal-axis height must be rejected');
+  for (const rows of [897, 898]) {
+    const bounded = { ...layout, height_dots: rows, height_mm: rows * 25.4 / 152 };
+    assert.equal(validPrinterResult(printerResult(rid, 'sent', { layout: bounded })), rows === 897);
+  }
 });

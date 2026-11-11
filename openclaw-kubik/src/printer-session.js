@@ -1,12 +1,13 @@
 import { DeviceSession } from './session.js';
-import { PrinterError, validPrinterResult } from './printer-contract.js';
+import { PrinterError, isPrinterError, validPrinterResult } from './printer-contract.js';
+import { preparePrinterRequest } from './printer-emoji.js';
 
 function matchesLayout(request, message) {
   if (message.status !== 'sent') return true;
   const layout = message.layout;
-  const dot = 25.4 / message.printer.dpi;
   return layout.format === (request.format ?? 'text') &&
-    ['width_mm', 'height_mm', 'font_mm'].every((key) => request[key] === undefined || layout[key] <= request[key] + dot);
+    ['width_mm', 'height_mm', 'font_mm'].every((key) => request[key] === undefined ||
+      layout[key] <= request[key] + 25.4 / (key === 'width_mm' ? message.printer.dpi : message.printer.feed_dpi));
 }
 
 /** One bounded request; uncertain remote cleanup retains output ownership after the caller stops waiting. */
@@ -39,10 +40,11 @@ export class PrinterChannel {
     operation.release = null;
   }
 
-  request(request, { signal, allowed, timeoutMs }) {
+  request(request, { signal, allowed, timeoutMs, prepare = preparePrinterRequest }) {
     if (this.#pending) return Promise.reject(new PrinterError('printer_busy'));
     if (signal?.aborted) return Promise.reject(new PrinterError('cancelled'));
-    const operation = { request, allowed, dispatched: false, timer: null, guard: null, abort: null, finish: null,
+    const operation = { request, allowed, prepare, deadline: Date.now() + timeoutMs,
+      dispatched: false, timer: null, guard: null, abort: null, finish: null,
       settled: false, release: null, leaseAbort: new AbortController() };
     const result = new Promise((resolve, reject) => {
       operation.finish = (error, response) => {
@@ -57,7 +59,7 @@ export class PrinterChannel {
     operation.abort = () => this.#fail(operation, 'cancelled');
     signal?.addEventListener('abort', operation.abort, { once: true });
     operation.timer = setTimeout(() => this.#fail(operation, 'timeout'), timeoutMs);
-    this.#dispatch(operation).catch(() => this.#fail(operation, 'unauthorized'));
+    this.#dispatch(operation).catch(error => this.#fail(operation, isPrinterError(error) ? error.code : 'unauthorized'));
     return result;
   }
 
@@ -69,6 +71,10 @@ export class PrinterChannel {
     if (this.#pending !== operation) return;
     if (!authorized) { this.#fail(operation, 'unauthorized'); return; }
     if (!this.#allowed(operation)) { this.#fail(operation, 'device_replaced'); return; }
+    operation.request = operation.prepare(operation.request);
+    if (this.#pending !== operation) return;
+    if (Buffer.byteLength(JSON.stringify(operation.request), 'utf8') > 4096) { this.#fail(operation, 'invalid_request'); return; }
+    if (Date.now() >= operation.deadline) { this.#fail(operation, 'timeout'); return; }
     // A send that throws may have started an external effect; never retry it.
     operation.dispatched = true;
     // Firmware closes BLE before replying and has a hard 90 s total operation bound.

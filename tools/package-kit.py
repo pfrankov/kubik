@@ -122,7 +122,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         write_member(bundle, "docs/agent-controls.md", controls.encode("utf-8"))
         native = (root / "docs/native-voice.md").read_text().replace("(agent-sdk.md)", "(../agent-sdk.md)").replace("(buyer/", "(../").replace("(KIT.ru.md)", "(../README.md)")
         write_member(bundle, "docs/native-voice.md", native.encode("utf-8"))
-        for document in ("protocol.md", "printer.md", "printer-protocol.md", "acceptance.md", "acceptance-pinned-wifi.md", "muse.md", "hermes.md", "events.md", "pairing.md", "hardware-s3.md"):
+        for document in ("protocol.md", "printer.md", "printer-protocol.md", "printer-emoji.md", "acceptance.md", "acceptance-pinned-wifi.md", "muse.md", "hermes.md", "events.md", "pairing.md", "hardware-s3.md"):
             content = (root / "docs" / document).read_text()
             if document == "acceptance.md":
                 content = rewrite_acceptance_links(content, revision)
@@ -146,6 +146,9 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
                 write_member(bundle, path.relative_to(root).as_posix(), path.read_bytes())
         write_member(bundle, "tools/install-hermes.py", (root / "tools/install-hermes.py").read_bytes())
         write_member(bundle, "tools/hermes_runtime.py", (root / "tools/hermes_runtime.py").read_bytes())
+        for path in sorted((root / "tools/emoji").iterdir()):
+            if path.suffix in (".py", ".swift"):
+                write_member(bundle, "tools/emoji/" + path.name, path.read_bytes())
         echo = "openclaw-kubik/src/vendor/speex-aec.wasm"
         write_member(bundle, echo, (root / echo).read_bytes())
         for notice in (root / "LICENSE", root / "NOTICE", *sorted((root / "licenses").iterdir())):

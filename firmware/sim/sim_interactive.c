@@ -24,7 +24,7 @@ static void frame(int steps) {
         screen_lab_draw(&lab, &scene);
         sim_render_scene(&scene);
     }
-    printf("{\"screen\":%d,\"name\":\"%s\",\"signal\":%s,\"volume\":%d,\"interface\":%d,\"view\":%d,\"journal_open\":%s,\"journal_detail\":%s,\"journal_overlay\":%s,\"journal_offset\":%u,\"journal_count\":%u,\"status_open\":%s,\"status_page\":%u,\"contacts\":%u,\"sky_contacts\":%u}\n", lab.selected, screen_lab_name(lab.selected), lab.signal ? "true" : "false", lab.volume, lab.ui_volume, lab.face.agent.view, lab.face.journal.open ? "true" : "false", lab.face.journal.detail ? "true" : "false", lab.face.journal.overlay ? "true" : "false", lab.face.journal.offset, lab.face.journal.count, lab.face.status.open ? "true" : "false", lab.face.status.page, touch_count(&lab.face.touch_in),
+    printf("{\"screen\":%d,\"name\":\"%s\",\"signal\":%s,\"volume\":%d,\"interface\":%d,\"view\":%d,\"journal_open\":%s,\"journal_detail\":%s,\"journal_overlay\":%s,\"journal_offset\":%u,\"journal_count\":%u,\"status_open\":%s,\"status_page\":%u,\"printer_open\":%s,\"contacts\":%u,\"sky_contacts\":%u}\n", lab.selected, screen_lab_name(lab.selected), lab.signal ? "true" : "false", lab.volume, lab.ui_volume, lab.face.agent.view, lab.face.journal.open ? "true" : "false", lab.face.journal.detail ? "true" : "false", lab.face.journal.overlay ? "true" : "false", lab.face.journal.offset, lab.face.journal.count, lab.face.status.open ? "true" : "false", lab.face.status.page, lab.face.printer.open ? "true" : "false", touch_count(&lab.face.touch_in),
            lab.face.tess_games.sky ? (unsigned)(lab.face.tess_games.sky->touch[0].down + lab.face.tess_games.sky->touch[1].down) : 0);
     sim_emit_frame(); fflush(stdout);
 }

@@ -5,6 +5,7 @@
 #include "muse_backend.h"
 #include "printer_protocol.h"
 #include "printer_platform.h"
+#include "printer_status.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -312,6 +313,7 @@ static uint32_t printer_blockers(bool enabled) {
 }
 
 void printer_app_state(printer_app_state_t *state) {
+    printer_status_set_visible(app_printer_visible());
     state->session = link_session();
     state->online = s_online;
     state->enabled = !muse_backend_selected();
@@ -475,6 +477,7 @@ static void update_sleep_emotion(face_t *f, face_mode_t mode, int64_t t) {
 }
 
 void app_face_inputs(face_t *f) {
+    printer_status_snapshot(&f->printer.status);
     tess_games_set_available(f, app_games_available());
     int64_t t = now_ms();
     if (f->mode == MODE_BOOT) return;

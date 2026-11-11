@@ -11,6 +11,7 @@
 #include "printer_platform.h"
 #include "printer_job.h"
 #include "printer_guard.h"
+#include "printer_status.h"
 #include "peripage_ble.h"
 #include "ble_runtime.h"
 #include "link_hello.h"
@@ -25,6 +26,9 @@ static bool rx_active, send_ok = true, radio_owned, close_ok = true, close_stuck
 static bool work_finished, booted, fail_alloc, lease, defer_work;
 static unsigned packet_ms, finishes, budget_calls, planned_packets;
 static bool finish_ok = true;
+static uint8_t battery_pct = 100;
+static uint8_t finish_battery_pct = 100;
+static printer_status_t status_at_close;
 static int64_t clock_ms;
 static char sent[64][2048];
 static void (*callback)(void *);
@@ -34,10 +38,12 @@ static peripage_result_t open_result = PERIPAGE_OK;
 static jmp_buf restarted;
 static const char RID[] = "0123456789abcdef0123456789abcdef";
 static bool printed_ink;
+static size_t last_job_allocation;
 
 void *printer_test_calloc(size_t count, size_t size) {
     if (fail_alloc) { fail_alloc = false; return NULL; }
     if (size && count > SIZE_MAX / size) return NULL;
+    last_job_allocation=count*size;
     void *p = malloc(count * size);
     if (p) memset(p, 0, count * size);
     return p;
@@ -98,7 +104,7 @@ void printer_platform_wait_tick(void) {
 peripage_result_t peripage_open(peripage_info_t *info, uint32_t timeout) {
     assert(!rx_active && lease && timeout >= 4000 && timeout <= 12000); opens++; radio_owned = true;
     *info = (peripage_info_t){.name="PeriPage+test", .firmware="V1.12_304dpi", .hardware="v3.38.21_AY",
-        .dpi=304, .width_dots=576, .mtu=136, .battery_pct=100};
+        .dpi=304, .feed_dpi=152, .width_dots=576, .mtu=136, .battery_pct=battery_pct, .charging=-1};
     return open_result;
 }
 bool peripage_write_packet(const uint8_t *data, size_t size, uint32_t timeout) {
@@ -111,7 +117,7 @@ bool peripage_write_packet(const uint8_t *data, size_t size, uint32_t timeout) {
     } else if (size == 16) {
         static const uint8_t reset[16] = {0x10,0xff,0xfe,1}; assert(!memcmp(data,reset,16));
     } else if (size == 5) {
-        static const uint8_t density[5] = {0x10,0xff,0x10,0,1}; assert(!memcmp(data,density,5));
+        static const uint8_t density[5] = {0x10,0xff,0x10,0,2}; assert(!memcmp(data,density,5));
     } else {
         assert(size == 8 && !memcmp(data,"\x1d\x76\x30\x00\x48\x00",6));
         assert(data[6] && !data[7]);
@@ -122,11 +128,13 @@ uint32_t peripage_packet_stream_budget_ms(size_t count) {
     budget_calls++; planned_packets = count;
     return count * 20 + 6000;
 }
-bool peripage_finish_packet_stream(uint32_t timeout) {
+bool peripage_finish_packet_stream(uint32_t timeout, peripage_info_t *info) {
     assert(radio_owned && lease && !rx_active && packets && timeout > 0 && timeout <= 3000);
-    finishes++;return finish_ok;
+    finishes++;if(finish_ok){info->battery_pct=finish_battery_pct;info->charging=-1;}return finish_ok;
 }
-bool peripage_close(void) { closes++; if (!close_stuck) radio_owned = false; return close_ok; }
+bool peripage_close(void) {
+    printer_status_snapshot(&status_at_close);closes++;if (!close_stuck) radio_owned = false;return close_ok;
+}
 void peripage_cancel(void) { cancels++; }
 bool ble_runtime_owned(ble_runtime_owner_t owner) {
     return owner == BLE_RUNTIME_PRINTER ? radio_owned : owner == BLE_RUNTIME_NONE && !radio_owned;
@@ -137,6 +145,7 @@ static void fresh(void) {
     attempts = dispatched = opens = closes = packets = rows = launches = reaps = releases = cancels = 0;
     fail_packet = change_session_packet = packet_ms = finishes = budget_calls = planned_packets = 0;
     finish_ok = true;
+    battery_pct=finish_battery_pct=100;printer_status_set_visible(false);
     send_ok = close_ok = launch_ok = true; close_stuck = fail_alloc = printed_ink = false;
     open_result = PERIPAGE_OK; session++; clock_ms += 301000;
     app_state = (printer_app_state_t){.online=true,.enabled=true,.can_start=true};
@@ -170,6 +179,8 @@ static void invalid(const char *fields, bool printing) {
 
 #include "printer_parse_cases.h"
 #include "printer_work_cases.h"
+#include "printer_status_cases.h"
+#include "printer_emoji_protocol_cases.h"
 
 settings_t g_settings;
 char g_device_id[20] = "kubik-782900";
@@ -189,7 +200,12 @@ static void hello_descriptor(void) {
     key_ready=false;assert(!link_make_hello(hello,sizeof hello));key_ready=true;assert(!link_make_hello(hello,16));
 }
 int main(void) {
-    parser_fields(); parser_text(); parser_raw(); status_and_print(); job_errors();
+    status_cache_unchecked();parser_fields();parser_text();parser_raw();
+    status_cache_verified_and_failed();status_visible_polling();status_explicit_refresh_bound();status_print_final_reading();
+    status_refresh_after_fault();
+    emoji_required_and_foreign();emoji_bad_shape_and_sequences();emoji_bad_base64();emoji_owned_until_print();
+    emoji_owned_eight();
+    status_and_print(); job_errors();
     no_replay_and_sessions(); automatic_discovery(); discovery_voice_admission(); foreground_voice_unchanged();
     diagnostic_snapshot(); resource_and_deadline(); stream_budget_and_finish(); crash_guard(); hello_descriptor();
     puts("Printer v2: production RX/tick/parser/job/renderer/worker passed with no physical side-effect mocks in firmware");

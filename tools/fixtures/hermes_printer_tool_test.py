@@ -53,7 +53,7 @@ class PrinterTools(ProtocolFixture):
 
     async def execute(self, *, change=None, call='call-printer', foreign=False):
         self.adapter.printer_loop = asyncio.get_running_loop()
-        async def send(message):
+        async def send(message, **_kwargs):
             self.peer.socket.messages.append(message)
             await self.adapter.command(self.peer, reply(message))
         self.peer.socket.send_json = send

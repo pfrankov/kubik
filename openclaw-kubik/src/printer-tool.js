@@ -48,8 +48,10 @@ export function createPrinterToolFactory({ currentConfig, runtime = getRuntime, 
     return {
       name: PRINTER_TOOL, label: 'Kubik printer', parameters: printerParameters,
       description: 'Inspect or print text and QR codes on the printer automatically found by this conversation\'s Kubik. ' +
-        'Call status first for its printable width, DPI and supported formats; use those dimensions when sizing a job. ' +
+        'Call status first for printable width, head DPI, feed DPI, battery percentage and supported formats; use both axes when sizing a job. ' +
+        'Charging is unknown when charging is null; never infer it from the battery level. ' +
         'Media height is not sensed: do not guess the loaded label size. Width comes from the identified model profile. ' +
+        'Text emoji require an exact glyph in the host private atlas; do not replace an unsupported emoji with another style. ' +
         'Print only when the user explicitly requests it. A sent result means submitted, never proof of paper output. ' +
         'Content must fit the requested dimensions without truncation. If a print outcome is unknown, do not retry automatically.',
       async execute(toolCallId, parameters, signal) {

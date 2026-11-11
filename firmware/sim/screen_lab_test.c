@@ -179,7 +179,8 @@ static void screens(int character) {
 }
 static void events(void) {
     screen_lab_select(&lab, LAB_SETTINGS);
-    tap(272, 36); assert(!lab.face.journal.open);
+    tap(272, 36); assert(lab.face.printer.open && !lab.face.journal.open);
+    boot(); assert(!lab.face.printer.open && lab.face.menu.open);
     for (int i = 0; i < 5; i++) tap(420, 36);
     tap(272, 36); assert(lab.face.journal.open && !lab.face.agent.open);
     tap(240, 92); assert(lab.face.journal.overlay);

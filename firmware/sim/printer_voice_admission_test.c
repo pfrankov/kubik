@@ -52,6 +52,8 @@ static bool app_voice_start_capture(void) { captures++; return true; }
 static bool audio_stream_busy(void) { return busy; }
 static bool muse_backend_selected(void) { return muse; }
 static uint32_t link_session(void) { return 42; }
+static void printer_status_set_visible(bool visible) { (void)visible; }
+static bool app_printer_visible(void) { return s_menu; }
 /* PRODUCTION_PRINTER_STATE */
 static void denied_voice_has_no_allocations(void) {
     s_online = true;

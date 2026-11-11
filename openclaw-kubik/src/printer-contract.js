@@ -8,7 +8,8 @@ export const PRINTER_STATES = ['ready', 'sent', 'error'];
 export const printerRequestId = (value) => typeof value === 'string' && /^[0-9a-f]{32}$/.test(value);
 const ERROR_BRAND = Symbol.for('openclaw.kubik.printer-error');
 const HOST_ERROR_CODES = ['invalid_input', 'printer_busy', 'printer_unsupported', 'cancelled', 'device_offline',
-  'request_conflict', 'unauthorized', 'device_replaced', 'disconnected', 'timeout', 'invalid_response'];
+  'request_conflict', 'unauthorized', 'device_replaced', 'disconnected', 'timeout', 'invalid_response',
+  'invalid_request', 'unsupported_character'];
 
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fields = (value, names) => record(value) && Object.keys(value).every((key) => names.includes(key));
@@ -18,14 +19,17 @@ const measured = (mm, dots, dpi) => number(mm, 0, 216) && Math.abs(mm - dots * 2
 const label = (value) => typeof value === 'string' && value.isWellFormed() && !!value.trim() &&
   Buffer.byteLength(value, 'utf8') <= 64 && !/\p{C}/u.test(value);
 
+function validPrinterGeometry(value) {
+  return integer(value.dpi, 100, 600) && integer(value.feed_dpi, 100, 600) && integer(value.width_dots, 1, 4096) &&
+    measured(value.printable_width_mm, value.width_dots, value.dpi) && number(value.max_height_mm, 1, 150) &&
+    value.media_height_mm === null && value.size_source === 'model_profile';
+}
+
 export function validPrinterInfo(value) {
-  if (!fields(value, ['name', 'model', 'firmware', 'hardware', 'dpi', 'width_dots', 'printable_width_mm',
-    'battery_pct', 'formats', 'max_height_mm', 'media_height_mm', 'size_source'])) return false;
+  if (!fields(value, ['name', 'model', 'firmware', 'hardware', 'dpi', 'feed_dpi', 'width_dots', 'printable_width_mm',
+    'battery_pct', 'charging', 'formats', 'max_height_mm', 'media_height_mm', 'size_source'])) return false;
   return ['name', 'model', 'firmware', 'hardware'].every((key) => label(value[key])) &&
-    integer(value.dpi, 100, 600) && integer(value.width_dots, 1, 4096) &&
-    measured(value.printable_width_mm, value.width_dots, value.dpi) &&
-    integer(value.battery_pct, 0, 100) && number(value.max_height_mm, 1, 150) &&
-    value.media_height_mm === null && value.size_source === 'model_profile' &&
+    validPrinterGeometry(value) && integer(value.battery_pct, 0, 100) && value.charging === null &&
     Array.isArray(value.formats) && value.formats.length === 2 &&
     value.formats.includes('text') && value.formats.includes('qr');
 }
@@ -33,8 +37,8 @@ export function validPrinterInfo(value) {
 export function validPrinterLayout(value, printer) {
   if (!validPrinterInfo(printer) || !fields(value, ['format', 'width_dots', 'height_dots', 'width_mm', 'height_mm', 'font_mm'])) return false;
   return printer.formats.includes(value.format) && integer(value.width_dots, 1, printer.width_dots) &&
-    integer(value.height_dots, 1, Math.floor(printer.max_height_mm * printer.dpi / 25.4)) &&
-    measured(value.width_mm, value.width_dots, printer.dpi) && measured(value.height_mm, value.height_dots, printer.dpi) &&
+    integer(value.height_dots, 1, Math.floor(printer.max_height_mm * printer.feed_dpi / 25.4)) &&
+    measured(value.width_mm, value.width_dots, printer.dpi) && measured(value.height_mm, value.height_dots, printer.feed_dpi) &&
     (value.font_mm === undefined || value.format === 'text' && number(value.font_mm, 1.5, 8));
 }
 

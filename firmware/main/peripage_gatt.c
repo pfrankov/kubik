@@ -204,9 +204,12 @@ static bool query_string(uint8_t high, uint8_t low, char destination[32], int64_
     return true;
 }
 
-bool peripage_gatt_finish(int64_t deadline) {
+bool peripage_gatt_finish(uint8_t *battery_pct, int64_t deadline) {
     uint8_t battery[2]; size_t size = sizeof battery;
-    return query(0x50, 0xf1, battery, &size, deadline) && size == 2 && !battery[0] && battery[1] <= 100;
+    if (!battery_pct || !query(0x50, 0xf1, battery, &size, deadline) ||
+        size != 2 || battery[0] || battery[1] > 100) return false;
+    *battery_pct = battery[1];
+    return true;
 }
 
 peripage_result_t peripage_gatt_setup(peripage_info_t *info, int64_t deadline) {
@@ -221,6 +224,6 @@ peripage_result_t peripage_gatt_setup(peripage_info_t *info, int64_t deadline) {
         !query_string(0x30, 0x11, info->name, deadline)) return PERIPAGE_FAILED;
     uint8_t battery[2]; size_t size = sizeof battery;
     if (!query(0x50, 0xf1, battery, &size, deadline) || size != 2 || battery[0] || battery[1] > 100) return PERIPAGE_FAILED;
-    info->battery_pct = battery[1]; info->mtu = packet_mtu;
+    info->battery_pct = battery[1]; info->charging = -1; info->mtu = packet_mtu;
     return PERIPAGE_OK;
 }

@@ -49,8 +49,8 @@ function discoveredCall(body, messages, active) {
 
 function fixturePrinter() {
   return { name: 'PeriPage+TEST', model: 'PeriPage A6+', firmware: 'V1.12_304dpi',
-    hardware: 'v3.38.21_AY', dpi: 304, width_dots: 576, printable_width_mm: 576 * 25.4 / 304,
-    battery_pct: 100, formats: ['text', 'qr'], max_height_mm: 150, media_height_mm: null, size_source: 'model_profile' };
+    hardware: 'v3.38.21_AY', dpi: 304, feed_dpi: 152, width_dots: 576, printable_width_mm: 576 * 25.4 / 304,
+    battery_pct: 100, charging: null, formats: ['text', 'qr'], max_height_mm: 150, media_height_mm: null, size_source: 'model_profile' };
 }
 
 function nextCall(body, messages, active) {
@@ -89,6 +89,7 @@ export function createPrinterFixture() {
         if (active.phase === 'status') {
           assert.match(text, /"status"\s*:\s*"ready"/);
           assert.match(text, /"width_dots"\s*:\s*576/);assert.match(text, /"dpi"\s*:\s*304/);
+          assert.match(text, /"feed_dpi"\s*:\s*152/);assert.match(text, /"charging"\s*:\s*null/);
           active.phase = 'print';
           return nextCall(body, messages, active);
         }
@@ -103,18 +104,20 @@ export function createPrinterFixture() {
     printerReply(request) {
       assert.ok(active, 'unexpected printer request outside a fixture turn');
       if (request.action === 'status') {
+        assert.equal(Object.hasOwn(request, 'emoji'), false);
         assert.equal(active.statusCalls++, 0);
         active.requests.push(request);
         return { status: 'ready', printer: fixturePrinter() };
       }
       assert.equal(request.action, 'print'); assert.equal(request.text, TEXT);
+      assert.deepEqual(request.emoji, []);
       assert.equal(request.format, 'text');assert.equal(request.width_mm, 30);
       assert.equal(request.height_mm, 20);assert.equal(request.font_mm, 3);
       assert.match(request.rid, /^[0-9a-f]{32}$/);
       active.requests.push(request);
       return active.status === 'sent' ? { status: 'sent', outcome: 'submitted', printer: fixturePrinter(),
-        layout: { format: 'text', width_dots: 359, height_dots: 239,
-          width_mm: 359 * 25.4 / 304, height_mm: 239 * 25.4 / 304, font_mm: 3 } } :
+        layout: { format: 'text', width_dots: 359, height_dots: 119,
+          width_mm: 359 * 25.4 / 304, height_mm: 119 * 25.4 / 152, font_mm: 3 } } :
         { status: 'error', code: 'printer_not_found', outcome: 'not_sent' };
     },
   };

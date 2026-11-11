@@ -125,6 +125,8 @@ static int fake_owner, starts, stops, sends, writes, commits, scans, connects;
 static bool persisted, namespace_present, bad_store, fail_stop, ambiguous, absent, small_mtu, no_write, bad_fw, no_reply, nack, late_reply, oversized_reply, bad_battery;
 static bool nvs_locked, nvs_ready=true, user_settings=true, cancel_scan, cancel_write, spurious_write, spurious_query;
 static bool silent_connect, controller_link, cancel_connect, no_no_rsp, cancel_pace;
+static bool unknown_hardware, unknown_firmware;
+static uint8_t battery_value=100;
 static int64_t last_enqueue_time;
 static uint8_t last_packet[133];
 static size_t last_packet_size;
@@ -218,8 +220,8 @@ static void deliver_query(const uint8_t *bytes,size_t size) {
     peripage_gatt_lost();wait_hook=deferred_notify;
 }
 static const char *query_value(const uint8_t *p) {
-    if(p[2]==0x20)return bad_fw?"V1.12_203dpi":"V1.12_304dpi";
-    if(p[2]==0x30)return p[3]==0x10?"v3.38.21_AY":"PeriPage+2E34";
+    if(p[2]==0x20)return bad_fw?"V1.12_203dpi":(unknown_firmware?"V1.13_304dpi":"V1.12_304dpi");
+    if(p[2]==0x30)return p[3]==0x10?(unknown_hardware?"v3.38.22_AY":"v3.38.21_AY"):"PeriPage+2E34";
     return NULL;
 }
 static bool is_query(const uint8_t *p,uint16_t size) { return size==4&&p[0]==0x10&&p[1]==0xff; }
@@ -230,7 +232,7 @@ static int reply_query(uint16_t c,attr_fn *cb,void *arg,const uint8_t *p) {
     if(oversized_reply){uint8_t excessive[33]={0};notify(excessive,sizeof(excessive));return 0;}
     const char *value=query_value(p);
     if(value)deliver_query((const uint8_t *)value,strlen(value));
-    else{const uint8_t battery[]={0,bad_battery?101:100};assert(p[2]==0x50&&p[3]==0xf1);deliver_query(battery,2);}
+    else{const uint8_t battery[]={0,bad_battery?101:battery_value};assert(p[2]==0x50&&p[3]==0xf1);deliver_query(battery,2);}
     return 0;
 }
 static int ble_gattc_write_flat(uint16_t c,uint16_t h,const void *data,uint16_t n,attr_fn *cb,void *arg) {
@@ -269,6 +271,7 @@ static void cancellation_checks(peripage_info_t *info,uint8_t row[72]) {
 
 static void profile_checks(const peripage_info_t *info) {
     assert(info->dpi==304);assert(info->width_dots==576);
+    assert(info->feed_dpi==152);assert(info->charging==-1);
     assert(info->mtu==136);assert(info->battery_pct==100);
     assert(!strcmp(info->name,"PeriPage+2E34"));
 }
@@ -280,6 +283,15 @@ static void missing_connect_event(peripage_info_t *info) {
     assert_closed();silent_connect=false;
     assert(peripage_open(info,12000)==PERIPAGE_OK);
     assert(peripage_close());assert_closed();
+}
+
+static void refreshed_battery_checks(peripage_info_t *info) {
+    int queries=writes;peripage_info_t expected=*info;
+    expected.battery_pct=73;battery_value=73;
+    assert(peripage_finish_packet_stream(3000,info)&&writes==queries+1);
+    assert(!memcmp(info,&expected,sizeof expected));battery_value=100;
+    assert(!peripage_finish_packet_stream(3001,info)&&!peripage_finish_packet_stream(0,info));
+    queries=writes;assert(!peripage_finish_packet_stream(3000,NULL)&&writes==queries);
 }
 
 static void stream_checks(peripage_info_t *info,uint8_t row[72]) {
@@ -296,32 +308,39 @@ static void stream_checks(peripage_info_t *info,uint8_t row[72]) {
     assert(sends==before+4&&fake_time-start==80000);
     fake_time+=100000;start=fake_time;
     assert(peripage_write_packet(row,72,1000)&&fake_time-start==20000); // A late caller never catches up with a burst.
-    int queries=writes;assert(peripage_finish_packet_stream(3000)&&writes==queries+1);
-    assert(!peripage_finish_packet_stream(3001)&&!peripage_finish_packet_stream(0));
+    refreshed_battery_checks(info);
     assert(peripage_close());assert_closed();
     assert(peripage_open(info,12000)==PERIPAGE_OK);cancel_pace=true;start=fake_time;
     assert(!peripage_write_packet(row,72,1000)&&fake_time-start<=20000);
-    assert(!peripage_finish_packet_stream(3000));cancel_pace=false;
+    assert(!peripage_finish_packet_stream(3000,info));cancel_pace=false;
     assert(peripage_close());assert_closed();
-    assert(peripage_open(info,12000)==PERIPAGE_OK);bad_battery=true;
-    assert(!peripage_finish_packet_stream(3000));bad_battery=false;
+    assert(peripage_open(info,12000)==PERIPAGE_OK);bad_battery=true;peripage_info_t expected=*info;
+    assert(!peripage_finish_packet_stream(3000,info));bad_battery=false;
+    assert(!memcmp(info,&expected,sizeof expected));
     before=sends;assert(!peripage_write_packet(row,72,1000)&&sends==before);
     assert(peripage_close());assert_closed();
 }
 
+static void unverified_profile_checks(peripage_info_t *info) {
+    unknown_hardware=true;assert(peripage_open(info,12000)==PERIPAGE_UNSUPPORTED);
+    assert_closed();unknown_hardware=false;
+    unknown_firmware=true;assert(peripage_open(info,12000)==PERIPAGE_UNSUPPORTED);
+    assert_closed();unknown_firmware=false;
+}
+
 static void finish_failure_checks(peripage_info_t *info,uint8_t row[72]) {
     assert(peripage_open(info,12000)==PERIPAGE_OK);no_reply=true;
-    assert(!peripage_finish_packet_stream(3000));no_reply=false;
-    int previous=writes;assert(!peripage_finish_packet_stream(3000)&&writes==previous);
+    assert(!peripage_finish_packet_stream(3000,info));no_reply=false;
+    int previous=writes;assert(!peripage_finish_packet_stream(3000,info)&&writes==previous);
     assert(!peripage_write_packet(row,72,1000)&&writes==previous);
     assert(peripage_close());assert_closed();
     assert(peripage_open(info,12000)==PERIPAGE_OK);oversized_reply=true;
-    assert(!peripage_finish_packet_stream(3000));oversized_reply=false;
+    assert(!peripage_finish_packet_stream(3000,info));oversized_reply=false;
     assert(peripage_close());assert_closed();
     assert(peripage_open(info,12000)==PERIPAGE_OK);previous=sends;
     assert(!peripage_write_packet(row,72,19)&&sends==previous);
     assert(peripage_write_packet(row,72,20));
-    assert(peripage_finish_packet_stream(3000));assert(peripage_close());assert_closed();
+    assert(peripage_finish_packet_stream(3000,info));assert(peripage_close());assert_closed();
 }
 
 int main(void) {
@@ -336,6 +355,7 @@ int main(void) {
     missing_connect_event(&info);
     stream_checks(&info,row);
     finish_failure_checks(&info,row);
+    unverified_profile_checks(&info);
     int previous_stops=stops;assert(peripage_close()&&stops==previous_stops);
     int prior_scans=scans, prior_connects=connects;
     absent=ambiguous=true;assert(peripage_open(&info,12000)==PERIPAGE_FAILED);assert_closed();absent=false;

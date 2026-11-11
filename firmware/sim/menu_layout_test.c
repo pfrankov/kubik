@@ -40,7 +40,7 @@ static void menu_geometry(void) {
     assert(scene.n < R_MAX_PRIMS && scene.dots_n == 0);
     assert(text(&scene, "Settings") && !text(&scene, "Events"));
     int header_part;
-    assert(face_menu_hit(&face, 272, 36, &header_part) == -1);
+    assert(face_menu_hit(&face, 272, 36, &header_part) == MENU_PRINTER);
     face.menu.service = true; face_draw(&face, &scene);
     assert(text(&scene, "Events") && face_menu_hit(&face, 272, 36, &header_part) == MENU_EVENTS);
     face.menu.service = false; face_draw(&face, &scene);
@@ -86,6 +86,49 @@ static void menu_power_indicator(face_t *face) {
     face_set_power(face, true, 60, false, false);
     face_draw(face, &scene); assert(!icon(&scene, ICON_ZAP) && text(&scene, "60%"));
     face->menu.open = false; face->menu.k = 0;
+}
+static void printer_badge_geometry(face_t *value) {
+    face_t face = *value; scene_t scene; int part;
+    face_draw(&face, &scene);
+    assert(icon(&scene, ICON_PRINTER) && !text(&scene, "0%"));
+    assert(face_menu_hit(&face, 220, 10, &part) == MENU_PRINTER);
+    assert(face_menu_hit(&face, 324, 62, &part) == MENU_PRINTER);
+    face.menu.sound = true; face_draw(&face, &scene);
+    assert(!icon(&scene, ICON_PRINTER) && face_menu_hit(&face, 272, 36, &part) == -1);
+    face.menu.sound = false; face.menu.service = true; face_draw(&face, &scene);
+    assert(!icon(&scene, ICON_PRINTER) && text(&scene, "Events"));
+    value->menu.service = false;
+}
+static void printer_detail_readings(face_t *value) {
+    face_t face = *value; scene_t scene;
+    face.printer.open = true; face_draw(&face, &scene);
+    assert(text(&scene, "Printer") && text(&scene, "Not checked"));
+    assert(text(&scene, "Unknown") && !text(&scene, "Yes") && !icon(&scene, ICON_ZAP));
+    assert(face_printer_tap(&face.printer, 240, UI_FOOTER_Y) && !face.printer.refresh);
+    face.printer.status = (printer_status_t){.state=PRINTER_STATUS_VERIFIED, .name="PeriPage+TEST",
+        .battery_pct=83, .charging=-1, .last_verified_ms=1, .can_refresh=true};
+    face_draw(&face, &scene);
+    assert(text(&scene, "83%") && text(&scene, "Recently checked") && text(&scene, "Charging"));
+    assert(text(&scene, "Unknown") && !text(&scene, "Yes") && !icon(&scene, ICON_ZAP));
+    assert(!text(&scene, "Settings") && !text(&scene, "Agent"));
+    face.printer.status.stale = true; face.printer.status.state = PRINTER_STATUS_UNAVAILABLE;
+    face_draw(&face, &scene);
+    assert(text(&scene, "83%") && text(&scene, "Last known reading") && text(&scene, "Printer unavailable"));
+    *value = face;
+}
+static void printer_refresh_navigation(face_t *value) {
+    face_t face = *value; scene_t scene;
+    face.printer.status.busy = true; face_draw(&face, &scene);
+    assert(text(&scene, "Checking printer") && text(&scene, "Checking..."));
+    face_printer_tap(&face.printer, 240, UI_FOOTER_Y); assert(!face.printer.refresh);
+    face.printer.status.busy = false;
+    face_printer_tap(&face.printer, 240, UI_FOOTER_Y); assert(face.printer.refresh);
+    assert(face_printer_back(&face.printer) && !face.printer.open && !face.printer.refresh);
+    assert(!face_printer_back(&face.printer) && !face_printer_tap(&face.printer, 240, UI_FOOTER_Y));
+}
+static void printer_settings(void) {
+    face_t face; face_init(&face); face.menu.open = true; face.menu.k = 1;
+    printer_badge_geometry(&face); printer_detail_readings(&face); printer_refresh_navigation(&face);
 }
 static void power_indicator(void) {
     for (int character = 0; character < CHARACTER_COUNT; character++) {
@@ -242,6 +285,7 @@ static void charging_hint_fades_and_settings_stay_visible(void) {
     }
 }
 int main(void) {
+    printer_settings();
     charging_hint_fades_and_settings_stay_visible();
     status_navigation(); menu_geometry(); power_indicator(); sound_geometry(); home_status_alignment();
     puts("menu: separated finger targets, icon/label spacing, continuous sliders; charging/full/unplugged/unknown power passed");

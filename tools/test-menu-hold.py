@@ -18,7 +18,7 @@ mock = r'''
 enum {EV_MENU_HOLD, EV_SWIPE_UP, EV_PET, EV_TAP, EV_DRAG, EV_TOUCH_UP};
 typedef struct { bool touching, gesture_done, first_drag; int touch_x0, touch_y0, drag_x, drag_y; float touch_path; int64_t touch_started_ms; } input_touch_t;
 enum { MENU_VOLUME, SFX_PAGE };
-static struct { struct { bool open; } status; struct { bool open; } journal; struct { bool open; } agent; struct { bool sound; } menu; } g_face;
+static struct { struct { bool open; } printer; struct { bool open; } status; struct { bool open; } journal; struct { bool open; } agent; struct { bool sound; } menu; } g_face;
 static bool s_menu = true;
 static struct { bool ready; } s_lab_unlock;
 static bool screen_lab_entry(bool ready, int x, int y) { return ready && x>=20 && x<=260 && y>=12 && y<=56; }
@@ -36,6 +36,8 @@ static void update_menu_drag(input_touch_t *state, int x, int y, bool menu) {(vo
 '''
 test = r'''
 int main(void) {
+ g_face.printer.open=true; s_menu_drag_row=MENU_VOLUME; menu_hold(72,200); assert(!g_face.menu.sound);
+ g_face.printer.open=false;
  g_face.status.open=true; s_menu_drag_row=MENU_VOLUME; menu_hold(72,200); assert(!g_face.menu.sound);
  g_face.status.open=false; s_menu_drag_row=-1;
  menu_hold(72,200); assert(!g_face.menu.sound); // touch began before menu was ready

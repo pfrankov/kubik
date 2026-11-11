@@ -93,6 +93,14 @@ def choose(page, index, name):
     page.wait_for_function("name => document.querySelector('#state').textContent.startsWith(name + ' ·')", arg=name)
 
 
+def printer_in_browser(page):
+    click(page, 272, 36)
+    state = read_state(page)
+    assert state['printer_open'] and not state['journal_open']
+    page.locator('[data-key="1"]').click()
+    assert not read_state(page)['printer_open']
+
+
 def advance_frames(page, count):
     # Read the state rendered by this frame, before image decoding or a slow runner
     # can expire the touch lease. A separate raw /frame bypasses the heartbeat.
@@ -204,9 +212,7 @@ def exercise(page, screens):
     assert read_state(page)["status_page"] == 2
     page.locator('[data-key="1"]').click()
     assert not read_state(page)["status_open"]
-    click(page, 272, 36)
-    state = read_state(page)
-    assert not state["journal_open"]
+    printer_in_browser(page)
     for _ in range(5): click(page, 420, 36)
     click(page, 272, 36)
     state = read_state(page)
@@ -270,6 +276,7 @@ def rectangular_browser(browser):
         assert page.request.get(url + "/config").json() == worker.metadata
         assert page.locator('[data-key="2"]').is_hidden()
         choose(page, worker.screens.index("Settings"), "Settings")
+        printer_in_browser(page)
         output = os.environ.get("KUBIK_EMULATOR_SCREENSHOTS")
         for viewport, name in (({"width":1100,"height":900}, "desktop"), ({"width":390,"height":844}, "mobile")):
             page.set_viewport_size(viewport)

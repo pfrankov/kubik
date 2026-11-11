@@ -52,7 +52,8 @@ static void draw_live_status(const face_t *f, scene_t *s) {
 }
 
 static void draw_menu_screen(face_t *f, scene_t *s) {
-    if (f->status.open) draw_status(&f->status, s);
+    if (f->printer.open) draw_printer(&f->printer, s);
+    else if (f->status.open) draw_status(&f->status, s);
     else if (f->journal.open) event_journal_draw(&f->journal, s);
     else if (f->agent.open) face_agent_draw(s, &f->agent, f->character == CHARACTER_TESS);
     else {
@@ -64,6 +65,7 @@ static void draw_menu_screen(face_t *f, scene_t *s) {
 
 void face_init(face_t *f) {
     memset(f, 0, sizeof(*f));
+    f->printer.status.battery_pct = f->printer.status.charging = -1;
     f->rng = 0x1234567u;
     f->mode = MODE_BOOT;
     f->emotion = EMO_NEUTRAL;

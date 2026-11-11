@@ -25,7 +25,7 @@ def require_python():
 def require_runtime():
     require_python()
     missing = []
-    for name in ('hermes_cli', 'gateway', 'aiohttp', 'cryptography', 'ruamel.yaml', 'wasmtime'):
+    for name in ('hermes_cli', 'gateway', 'aiohttp', 'cryptography', 'ruamel.yaml', 'wasmtime', 'regex'):
         try:
             found = importlib.util.find_spec(name)
         except (ImportError, ValueError):

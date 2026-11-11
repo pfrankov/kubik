@@ -2,6 +2,8 @@
 import asyncio
 import secrets
 
+from .printer_wire import dumps
+
 
 class Peer:
     def __init__(self, socket, identity, hello):
@@ -35,6 +37,7 @@ class Peer:
         self.waiting = False
         self.pending_previous = None
     async def send(self, message_type, **fields):
-        await self.socket.send_json({'t': message_type, **fields})
+        options = {'dumps': dumps} if message_type == 'printer' else {}
+        await self.socket.send_json({'t': message_type, **fields}, **options)
 
 

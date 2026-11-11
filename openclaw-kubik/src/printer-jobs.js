@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { PrinterError, PRINTER_PROTOCOL_VERSION, validPrinterParameters, canonicalPrinterParameters } from './printer-contract.js';
+import { AppleEmojiAtlas, preparePrinterRequest } from './printer-emoji.js';
 
 const BROKER = Symbol.for('openclaw.kubik.printer-jobs');
 const CACHE_MS = 10 * 60_000;
@@ -16,6 +17,7 @@ export class PrinterJobs {
   constructor(server, { timeoutMs, now = Date.now } = {}) {
     if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000)) throw new Error('Invalid printer timeout');
     Object.assign(this, { server, timeoutMs, now });
+    this.emojiAtlas = new AppleEmojiAtlas(server.stateDir);
   }
 
   #prune() {
@@ -72,6 +74,7 @@ export class PrinterJobs {
       this.#admit(device, rid, signal);
     } catch (error) { return Promise.reject(error); }
     return this.#start(session, rid, parameters, payload, { signal, allowed: canSend,
+      prepare: request => preparePrinterRequest(request, this.emojiAtlas),
       timeoutMs: this.timeoutMs ?? TIMEOUT_MS[parameters.action] });
   }
 }

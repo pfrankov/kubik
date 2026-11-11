@@ -5,6 +5,8 @@ import json
 import time
 
 from . import printer_contract as contract
+from .printer_emoji import EmojiAtlas, EmojiError
+from .printer_wire import packet
 
 
 class PrinterFailure(Exception):
@@ -23,6 +25,7 @@ class PrinterJobs:
         self.timeouts = {'status': status_timeout, 'print': print_timeout}
         self.records, self.pending, self.tasks = {}, {}, set()
         self.hard_guard = hard_guard
+        self.atlas = EmojiAtlas(adapter.home / 'kubik/apple-emoji.bin')
 
     def current(self, peer):
         return self.adapter._ready_peer(peer.identity) is peer and bool(self.adapter.config.enabled)
@@ -113,6 +116,19 @@ class PrinterJobs:
         await self.output_fence(row['peer'])
         if not self.current(row['peer']):
             raise PrinterFailure('unauthorized', rid=row['rid'])
+        await self.prepare_wire(row)
+        if not self.current(row['peer']):
+            raise PrinterFailure('unauthorized', rid=row['rid'])
+
+    async def prepare_wire(self, row):
+        values = row['parameters']
+        try:
+            glyphs = await asyncio.to_thread(self.atlas.glyphs, values['text']) if values.get('format') == 'text' else []
+            row['wire'] = packet(row['rid'], values, glyphs)
+        except EmojiError as error:
+            raise PrinterFailure(error.code, rid=row['rid']) from None
+        except ValueError:
+            raise PrinterFailure('invalid_request', rid=row['rid']) from None
 
     async def output_fence(self, peer):
         if not peer.gen:
@@ -127,11 +143,19 @@ class PrinterJobs:
             peer.receipts.pop(key, None)
 
     async def device_work(self, row):
+        if row['future'].done():
+            return
+        if asyncio.get_running_loop().time() >= row['deadline']:
+            self.finish(row, self.failure(row, 'timeout'))
+            return
+        if not self.current(row['peer']):
+            self.finish(row, self.failure(row, 'unauthorized'))
+            return
         row['dispatched'] = True
         try:
             async with asyncio.timeout(self.hard_guard):
                 try:
-                    await row['peer'].send('printer', rid=row['rid'], **row['parameters'])
+                    await row['peer'].send('printer', **{key: value for key, value in row['wire'].items() if key != 't'})
                 except Exception:
                     self.finish(row, self.failure(row, 'disconnected'))
                     if row['peer'].socket.closed:

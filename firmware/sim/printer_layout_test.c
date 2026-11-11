@@ -39,13 +39,19 @@ void printer_test_free(void *data) {
 
 static printer_layout_t *make(printer_document_t doc, unsigned dpi, unsigned width) {
     printer_layout_error_t error = PRINTER_LAYOUT_NO_MEMORY;
-    printer_layout_t *layout = printer_layout_create(&doc, dpi, width, &error);
+    printer_layout_t *layout = printer_layout_create(&doc, dpi, dpi, width, &error);
+    assert(layout && error == PRINTER_LAYOUT_OK);
+    return layout;
+}
+static printer_layout_t *make_axes(printer_document_t doc, unsigned dpi, unsigned feed_dpi) {
+    printer_layout_error_t error = PRINTER_LAYOUT_NO_MEMORY;
+    printer_layout_t *layout = printer_layout_create(&doc, dpi, feed_dpi, 576, &error);
     assert(layout && error == PRINTER_LAYOUT_OK);
     return layout;
 }
 static void rejected(printer_document_t doc, printer_layout_error_t expected) {
     printer_layout_error_t error = PRINTER_LAYOUT_OK;
-    printer_layout_t *layout = printer_layout_create(&doc, 304, 576, &error);
+    printer_layout_t *layout = printer_layout_create(&doc, 304, 152, 576, &error);
     assert(!layout && error == expected && live_bytes == 0);
 }
 static bool dark(const uint8_t *row, unsigned x) { return (row[x / 8] & (0x80u >> (x % 8))) != 0; }
@@ -174,7 +180,7 @@ static void full_height_and_glyphs(void) {
     printer_layout_t *layout = make(doc, 203, 384);
     assert(printer_layout_info(layout)->height_mm <= 150 && printer_layout_info(layout)->font_mm <= 8);
     inspect(layout); printer_layout_destroy(layout);
-    const font_t *font = &g_fonts[FONT_CARD];
+    const font_t *font = &g_fonts[FONT_TITLE];
     for (unsigned i = 0; i < font->n; ++i) {
         uint32_t cp = font->g[i].cp;
         if (!font->g[i].w || !font->g[i].h || cp == ' ' || cp == 0xa0) continue;
@@ -198,14 +204,16 @@ static void qr_geometry(printer_layout_t *layout) {
     unsigned run = 0;
     while (dark(row, ink.left + run)) ++run;
     assert(run % 7 == 0);
-    unsigned scale = run / 7;
-    assert(scale >= 3 && ink.left >= 4 * scale && ink.top >= 4 * scale);
-    assert(info->width_dots - ink.right - 1 >= 4 * scale);
-    assert(info->height_dots - ink.bottom - 1 >= 4 * scale);
-    for (unsigned y = 0; y < 7 * scale; ++y) {
+    unsigned scale_x = run / 7, scale_y = layout->qr_scale_y;
+    assert(scale_x >= 3 && scale_y >= 2);
+    assert(scale_x * info->feed_dpi == scale_y * info->dpi);
+    assert(ink.left >= 4 * scale_x && ink.top >= 4 * scale_y);
+    assert(info->width_dots - ink.right - 1 >= 4 * scale_x);
+    assert(info->height_dots - ink.bottom - 1 >= 4 * scale_y);
+    for (unsigned y = 0; y < 7 * scale_y; ++y) {
         assert(printer_layout_row(layout, ink.top + y, row, sizeof row));
-        for (unsigned x = 0; x < 7 * scale; ++x) {
-            unsigned mx = x / scale, my = y / scale;
+        for (unsigned x = 0; x < 7 * scale_x; ++x) {
+            unsigned mx = x / scale_x, my = y / scale_y;
             bool expected = !mx || mx == 6 || !my || my == 6 || (mx >= 2 && mx <= 4 && my >= 2 && my <= 4);
             assert(dark(row, ink.left + x) == expected);
         }
@@ -217,13 +225,54 @@ static void save_raster(const printer_layout_t *layout, const char *folder, cons
     char path[1024]; snprintf(path, sizeof path, "%s/%s.pbm", folder, name);
     FILE *file = fopen(path, "wb"); assert(file);
     const printer_layout_info_t *info = printer_layout_info(layout);
-    fprintf(file, "P4\n%u %u\n", info->head_width_dots, info->height_dots);
+    fprintf(file, "P4\n# dpi %u %u\n%u %u\n", info->dpi, info->feed_dpi, info->head_width_dots, info->height_dots);
     uint8_t row[72];
     for (unsigned y = 0; y < info->height_dots; ++y) {
         assert(printer_layout_row(layout, y, row, sizeof row));
         assert(fwrite(row, 1, sizeof row, file) == sizeof row);
     }
     assert(!fclose(file));
+}
+
+static void axis_sizes(const char *folder) {
+    printer_document_t doc = {.text = "MMMM\nПривет, Кубик!", .width_mm = 30, .height_mm = 20, .font_mm = 3};
+    printer_layout_t *square = make_axes(doc, 304, 304);
+    printer_layout_info_t a = *printer_layout_info(square);
+    ink_t ink_a = inspect(square);
+    assert(square->font == &g_fonts[FONT_TITLE]);
+    printer_layout_destroy(square);
+    printer_layout_t *calibrated = make_axes(doc, 304, 152);
+    const printer_layout_info_t *b = printer_layout_info(calibrated);
+    assert(a.width_dots == b->width_dots && a.height_dots == 239 && b->height_dots == 120);
+    assert(b->feed_dpi == 152 && b->font_mm == calibrated->cap_y * 25.4 / 152);
+    assert(calibrated->cap_x == 2 * calibrated->cap_y);
+    assert(calibrated->pad_x == 12 && calibrated->pad_y == 6);
+    assert(calibrated->font == &g_fonts[FONT_TITLE]);
+    assert(a.lines == b->lines && b->font_mm >= 3 - 25.4 / 152);
+    ink_t ink_b = inspect(calibrated);
+    assert(ink_a.right - ink_a.left == ink_b.right - ink_b.left);
+    double height_a = (ink_a.bottom - ink_a.top + 1) * 25.4 / a.feed_dpi;
+    double height_b = (ink_b.bottom - ink_b.top + 1) * 25.4 / b->feed_dpi;
+    assert(fabs(height_a - height_b) <= 2 * 25.4 / 152);
+    assert(fabs(b->height_mm - b->height_dots * 25.4 / 152) < 1e-9);
+    complete_text(calibrated); save_raster(calibrated, folder, "text-calibrated");
+    printer_layout_destroy(calibrated);
+    doc.text = "https://kubik.local/printer?size=20mm"; doc.format = PRINTER_FORMAT_QR;
+    doc.width_mm = 20; doc.height_mm = doc.font_mm = 0;
+    calibrated = make_axes(doc, 304, 152);
+    b = printer_layout_info(calibrated);
+    assert(b->width_dots == 239 && b->height_dots == 120);
+    assert(calibrated->qr_scale_x == 2 * calibrated->qr_scale_y);
+    assert((inspect(calibrated).right - inspect(calibrated).left + 1) ==
+           2 * (inspect(calibrated).bottom - inspect(calibrated).top + 1));
+    qr_geometry(calibrated); save_raster(calibrated, folder, "qr-calibrated-20mm");
+    printer_layout_destroy(calibrated);
+    calibrated = make_axes((printer_document_t){.text="A", .height_mm=150, .font_mm=8}, 304, 152);
+    assert(calibrated->info.height_dots == 897 && calibrated->info.height_mm <= 150);
+    inspect(calibrated); printer_layout_destroy(calibrated);
+    printer_layout_error_t error;
+    assert(!printer_layout_create(&doc, 304, 0, 576, &error) && error == PRINTER_LAYOUT_INVALID_REQUEST);
+    assert(!printer_layout_create(&doc, 304, 601, 576, &error) && error == PRINTER_LAYOUT_INVALID_REQUEST);
 }
 
 static void qr_sizes(const char *folder) {
@@ -247,6 +296,8 @@ static void qr_sizes(const char *folder) {
     qr_geometry(layout); printer_layout_destroy(layout);
 }
 
+#include "printer_emoji_cases.h"
+
 static void allocation_failures(void) {
     for (unsigned fail = 1; fail <= 2; ++fail) {
         allocations = 0; fail_at = fail;
@@ -258,7 +309,8 @@ static void allocation_failures(void) {
 
 int main(int argc, char **argv) {
     text_sizes(); wraps_and_height(); input_boundaries(); ownership_and_rows();
-    full_height_and_glyphs(); qr_sizes(argc > 1 ? argv[1] : NULL); allocation_failures();
+    full_height_and_glyphs(); axis_sizes(argc > 1 ? argv[1] : NULL);
+    qr_sizes(argc > 1 ? argv[1] : NULL); emoji_cases(argc > 1 ? argv[1] : NULL); allocation_failures();
     printf("printer layout: text/QR dimensions, Unicode, wrapping, fit, immutable rows and allocation cleanup passed; peak=%zu bytes\n", peak_bytes);
     return 0;
 }

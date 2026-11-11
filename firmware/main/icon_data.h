@@ -24,6 +24,7 @@
 #include "icon_qr_code.inc"
 #include "icon_audio_lines.inc"
 #include "icon_zap.inc"
+#include "icon_printer.inc"
 
 static const uint8_t *const g_icon_masks[ICON_COUNT] = {
     [ICON_CIRCLE_ALERT] = icon_mask_circle_alert,
@@ -50,4 +51,5 @@ static const uint8_t *const g_icon_masks[ICON_COUNT] = {
     [ICON_QR_CODE] = icon_mask_qr_code,
     [ICON_AUDIO_LINES] = icon_mask_audio_lines,
     [ICON_ZAP] = icon_mask_zap,
+    [ICON_PRINTER] = icon_mask_printer,
 };

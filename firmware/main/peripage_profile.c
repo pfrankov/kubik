@@ -103,8 +103,7 @@ peripage_result_t peripage_scan_select(const peripage_scan_t *scan, ble_addr_t *
 }
 
 bool peripage_profile_valid(const peripage_info_t *info) {
-    size_t n = strlen(info->firmware);
-    return !strncmp(info->name, "PeriPage+", 9) && info->firmware[0] == 'V' &&
-        n > 7 && !strcmp(info->firmware + n - 7, "_304dpi") && info->hardware[0] &&
+    return !strncmp(info->name, "PeriPage+", 9) && !strcmp(info->firmware, "V1.12_304dpi") &&
+        !strcmp(info->hardware, "v3.38.21_AY") &&
         info->battery_pct <= 100 && info->mtu >= 75;
 }

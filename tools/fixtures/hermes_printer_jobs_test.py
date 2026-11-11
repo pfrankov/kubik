@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from hermes_test_support import DeviceSocket, KubikAdapter, Peer, ProtocolFixture, atomic_json
 from hermes_printer_support import reply
+from hermes_emoji_support import atlas
 from hermes_kubik.printer_jobs import PrinterJobs
 from hermes_kubik.native_playback import NativePlayback
 
@@ -47,7 +48,32 @@ class PrinterRequests(ProtocolFixture):
         self.assertEqual(printed['outcome'], 'submitted')
         self.assertAlmostEqual(printed['layout']['width_mm'], 20, delta=.084)
         self.assertFalse(printed['paperConfirmed'])
+        self.assertEqual(self.peer.socket.messages[-1]['emoji'], [])
         self.assertEqual(self.jobs.pending, {})
+
+    async def test_only_used_emoji_patterns_are_sent_on_the_authenticated_socket(self):
+        self.jobs.atlas.path.parent.mkdir(parents=True, exist_ok=True)
+        self.jobs.atlas.path.write_bytes(atlas())
+        task = self.start(params={'action': 'print', 'text': 'Список 😀 ❤️ 😀'})
+        result = await self.answer(task)
+        self.assertEqual(result['outcome'], 'submitted')
+        self.assertEqual([glyph['sequence'] for glyph in self.peer.socket.messages[-1]['emoji']], ['😀', '❤️'])
+
+    async def test_missing_or_unsupported_composite_fails_not_sent_without_rpc(self):
+        for index, text in enumerate(('😀', '👩‍💻')):
+            result = await self.start(str(index), {'action': 'print', 'text': text})
+            self.assertEqual((result['code'], result['outcome']), ('unsupported_character', 'not_sent'))
+        self.assertFalse(self.peer.socket.messages)
+
+    async def test_expired_clock_after_wire_preparation_cannot_dispatch(self):
+        original = self.jobs.prepare_wire
+        async def expired(row):
+            await original(row)
+            row['deadline'] = asyncio.get_running_loop().time() - 1
+        self.jobs.prepare_wire = expired
+        result = await self.start(params={'action': 'print', 'text': 'X'})
+        self.assertEqual((result['code'], result['outcome']), ('timeout', 'not_sent'))
+        self.assertFalse(self.peer.socket.messages)
 
     async def test_same_call_is_one_send_and_changed_geometry_is_a_conflict(self):
         args = {'action': 'print', 'text': 'X'}
@@ -71,7 +97,7 @@ class PrinterRequests(ProtocolFixture):
 
     async def test_timeout_bounds_a_stalled_socket_send_as_well_as_its_reply(self):
         entered = asyncio.Event()
-        async def send(_):
+        async def send(_, **_kwargs):
             entered.set()
             await asyncio.Event().wait()
         self.peer.socket.send_json = send
@@ -223,8 +249,8 @@ class PrinterRequests(ProtocolFixture):
     async def test_audio_drains_before_rpc_input_continues_and_queued_barge_does_not_deadlock(self):
         self.jobs.timeouts = {'status': .5, 'print': .5}
         original_send = self.peer.socket.send_json
-        async def send(value):
-            await original_send(value)
+        async def send(value, **kwargs):
+            await original_send(value, **kwargs)
             if value['t'] == 'speak_cancel':
                 await self.adapter.command(self.peer, {'t': 'cancelled', 'gen': value['gen']})
         self.peer.socket.send_json = send

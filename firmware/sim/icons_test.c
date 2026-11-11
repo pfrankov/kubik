@@ -9,6 +9,15 @@
 
 #define PANEL_W (R_W * R_SCALE)
 #define PANEL_H (R_H * R_SCALE)
+#ifndef ICON_TEST_COUNT
+#define ICON_TEST_COUNT ICON_COUNT
+#endif
+#define GRID_COLUMNS 6
+#define GRID_ROWS ((ICON_TEST_COUNT + GRID_COLUMNS - 1) / GRID_COLUMNS)
+#define GRID_HEIGHT (PANEL_H / GRID_ROWS)
+_Static_assert(ICON_TEST_COUNT <= ICON_COUNT && GRID_HEIGHT >= 48, "Icon test grid exceeds the panel");
+static int center_x(int id) { return 40 + id % GRID_COLUMNS * 80; }
+static int center_y(int id) { return GRID_HEIGHT / 2 + id / GRID_COLUMNS * GRID_HEIGHT; }
 
 static uint16_t full[PANEL_W * PANEL_H];
 static uint16_t swapped[PANEL_W * PANEL_H];
@@ -57,16 +66,15 @@ static void build_scene(scene_t *scene) {
     scene_begin(scene, background);
     assert(sc_icon(scene, -1, 10, 10, 24, 0xFFFFFF, 1) == NULL);
     assert(sc_icon(scene, ICON_COUNT, 10, 10, 24, 0xFFFFFF, 1) == NULL);
-    for (int icon = 0; icon < ICON_COUNT; icon++) {
-        int col = icon % 6, row = icon / 6;
-        assert(sc_icon(scene, icon, 40 + col * 80, 60 + row * 120, 36, 0xEEF6F2, 1) != NULL);
+    for (int icon = 0; icon < ICON_TEST_COUNT; icon++) {
+        assert(sc_icon(scene, icon, center_x(icon), center_y(icon), 36, 0xEEF6F2, 1) != NULL);
     }
-    assert(scene->n == ICON_COUNT);
+    assert(scene->n == ICON_TEST_COUNT);
 }
 
 static void verify_cells(void) {
-    for (int icon = 0; icon < ICON_COUNT; icon++) {
-        int cx = 40 + (icon % 6) * 80, cy = 60 + (icon / 6) * 120;
+    for (int icon = 0; icon < ICON_TEST_COUNT; icon++) {
+        int cx = center_x(icon), cy = center_y(icon);
         int colored = 0, antialiased = 0;
         for (int y = cy - 24; y < cy + 24; y++)
             for (int x = cx - 24; x < cx + 24; x++) {
@@ -80,11 +88,10 @@ static void verify_cells(void) {
 }
 
 static void verify_unique_cells(void) {
-    for (int icon = 0; icon < ICON_COUNT; icon++) {
-        int cx = 40 + (icon % 6) * 80, cy = 60 + (icon / 6) * 120;
+    for (int icon = 0; icon < ICON_TEST_COUNT; icon++) {
+        int cx = center_x(icon), cy = center_y(icon);
         for (int previous = 0; previous < icon; previous++) {
-            int pc = previous % 6, pr = previous / 6;
-            assert(hash_cell(full, 40 + pc * 80, 60 + pr * 120) != hash_cell(full, cx, cy));
+            assert(hash_cell(full, center_x(previous), center_y(previous)) != hash_cell(full, cx, cy));
         }
     }
 }
@@ -157,5 +164,5 @@ int main(void) {
     assert(signature != 2166136261u);
     assert(x0 < x1 && y0 < y1 && x0 >= 0 && y0 >= 0 && x1 <= R_W && y1 <= R_H);
     verify_source_pixels();
-    printf("ok: %d unique antialiased icons, clipped windows, RGB565 swap, and dirty signature\n", ICON_COUNT);
+    printf("ok: %d unique antialiased icons, clipped windows, RGB565 swap, and dirty signature\n", ICON_TEST_COUNT);
 }

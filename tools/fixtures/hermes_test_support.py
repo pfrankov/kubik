@@ -83,7 +83,7 @@ class DeviceSocket:
     async def prepare(self, request):
         self.prepared.set()
 
-    async def send_json(self, value):
+    async def send_json(self, value, **_kwargs):
         self.messages.append(value)
 
     async def send_bytes(self, value):

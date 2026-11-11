@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate as yieldIo } from 'node:timers/promises';
 import { PrinterChannel } from '../src/printer-session.js';
-import { printerResult } from './printer-fixture.js';
+import { preparePrinterRequest } from '../src/printer-emoji.js';
+import { printerLayout, printerResult } from './printer-fixture.js';
 
 test('early matching printer replies cannot complete work before authorization and dispatch', async (t) => {
   for (const authorization of [true, false, 'throw']) {
@@ -21,7 +22,7 @@ test('early matching printer replies cannot complete work before authorization a
       if (authorization === 'throw') reject(new Error('private store error'));
       else release(authorization);
       if (authorization === true) {
-        await yieldIo();assert.equal(sent.length, 1);assert.deepEqual(sent[0], request);assert.equal(settled, false);
+        await yieldIo();assert.equal(sent.length, 1);assert.deepEqual(sent[0], { ...request, emoji: [] });assert.equal(settled, false);
         assert.equal(channel.accept(reply), true);
         assert.equal((await result).status, 'sent');
       } else {
@@ -69,4 +70,41 @@ test('status and print errors carry action-appropriate outcomes', async (t) => {
       }
     });
   }
+});
+
+test('layout request tolerances use a head dot for width and a feed row for height and font', async t => {
+  const actual = printerLayout();
+  for (const [key, delta, accepted] of [['width_mm', .1, false], ['height_mm', .1, true],
+    ['height_mm', .18, false], ['font_mm', .1, true], ['font_mm', .18, false]]) {
+    await t.test(`${key}:${delta}`, async t => {
+      const session = { closed: false, ws: { readyState: 1 }, current: () => session,
+        acquireOutputLease: async () => () => {}, authorize: async () => true, send: () => true };
+      const channel = new PrinterChannel(session); t.after(() => channel.close());
+      const request = { t: 'printer', rid: 'e'.repeat(32), action: 'print', text: 'size', [key]: actual[key] - delta };
+      const operation = channel.request(request, { allowed: () => true, timeoutMs: 500 });
+      const failure = accepted ? null : assert.rejects(operation, error => error.code === 'invalid_response');
+      await yieldIo(); assert.equal(channel.accept(printerResult(request.rid, 'sent')), accepted);
+      if (accepted) assert.equal((await operation).status, 'sent'); else await failure;
+    });
+  }
+});
+
+test('cancellation or expiry during internal preparation cannot dispatch late work', async t => {
+  for (const cancelled of [true, false]) await t.test(String(cancelled), async t => {
+    let sent = 0, prepared = 0;
+    const controller = new AbortController();
+    const session = { closed: false, ws: { readyState: 1 }, current: () => session,
+      acquireOutputLease: async () => () => {}, authorize: async () => true, send: () => { sent++; return true; } };
+    const channel = new PrinterChannel(session); t.after(() => channel.close());
+    const request = { t: 'printer', rid: 'f'.repeat(32), action: 'print', text: 'x' };
+    const operation = channel.request(request, { signal: controller.signal, allowed: () => true, timeoutMs: 10,
+      prepare(value) {
+        prepared++;
+        if (cancelled) controller.abort();
+        else { const until = Date.now() + 15; while (Date.now() < until) { /* bounded synchronous file preparation */ } }
+        return preparePrinterRequest(value);
+      } });
+    await assert.rejects(operation, error => error.code === (cancelled ? 'cancelled' : 'timeout') && error.outcome === 'not_sent');
+    assert.equal(prepared, 1); assert.equal(sent, 0);
+  });
 });

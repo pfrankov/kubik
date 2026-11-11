@@ -2,6 +2,7 @@
 #include "printer_result.h"
 #include "printer_guard.h"
 #include "printer_platform.h"
+#include "printer_status_internal.h"
 #include "peripage_ble.h"
 #include "ble_runtime.h"
 #include "link.h"
@@ -34,7 +35,8 @@ static bool packet(printer_job_t *job, const uint8_t *data, size_t bytes) {
 
 static bool chunk_begin(printer_job_t *job, unsigned rows) {
     static const uint8_t reset[16] = {0x10,0xff,0xfe,1};
-    static const uint8_t density[] = {0x10,0xff,0x10,0,1};
+    // Confirmed A6+ concentration 0..2: use 2 for solid black text and QR.
+    static const uint8_t density[] = {0x10,0xff,0x10,0,2};
     uint8_t header[] = {0x1d,0x76,0x30,0,72,0,(uint8_t)rows,0};
     return packet(job, reset, sizeof reset) && packet(job, density, sizeof density) &&
         packet(job, header, sizeof header);
@@ -52,20 +54,20 @@ static bool print_rows(printer_job_t *job, printer_layout_t *layout, unsigned to
     return true;
 }
 
-static bool finish_stream(printer_job_t *job) {
+static bool finish_stream(printer_job_t *job, peripage_info_t *printer) {
     if (!current(job)) return false;
     int64_t remaining = job->deadline_ms - printer_platform_now_ms();
     if (remaining <= 0) return false;
-    return peripage_finish_packet_stream(remaining < 3000 ? (uint32_t)remaining : 3000);
+    return peripage_finish_packet_stream(remaining < 3000 ? (uint32_t)remaining : 3000, printer);
 }
 
-static const char *send_document(printer_job_t *job, printer_layout_t *layout) {
+static const char *send_document(printer_job_t *job, printer_layout_t *layout, peripage_info_t *printer) {
     const printer_layout_info_t *info = printer_layout_info(layout);
-    unsigned total = info->height_dots + (unsigned)(4 * info->dpi / 25.4 + .5);
+    unsigned total = info->height_dots + (unsigned)(4 * info->feed_dpi / 25.4 + .5);
     size_t packets = total + 3 * ((total + 254) / 255);
     int64_t remaining = job->deadline_ms - printer_platform_now_ms();
     if (!current(job) || remaining < peripage_packet_stream_budget_ms(packets)) return "printer_busy";
-    return print_rows(job, layout, total) && finish_stream(job) ? NULL : "printer_disconnected";
+    return print_rows(job, layout, total) && finish_stream(job, printer) ? NULL : "printer_disconnected";
 }
 
 static uint32_t open_timeout(const printer_job_t *job) {
@@ -74,15 +76,22 @@ static uint32_t open_timeout(const printer_job_t *job) {
     return remaining < 12000 ? (uint32_t)remaining : 12000;
 }
 
-static const char *print_document(printer_job_t *job, const peripage_info_t *info,
+static const char *print_document(printer_job_t *job, peripage_info_t *info,
                                  printer_layout_info_t *layout_info, bool *have_layout) {
     printer_layout_error_t problem;
-    printer_layout_t *layout = printer_layout_create(&job->document, info->dpi, info->width_dots, &problem);
+    printer_layout_t *layout = printer_layout_create(&job->document, info->dpi, info->feed_dpi, info->width_dots, &problem);
     if (!layout) return printer_layout_error_code(problem);
     *layout_info = *printer_layout_info(layout); *have_layout = true;
-    const char *error = send_document(job, layout);
+    const char *error = send_document(job, layout, info);
     printer_layout_destroy(layout);
     return error;
+}
+
+static void observe_job(const printer_job_t *job, const peripage_info_t *info, bool identified,
+                        bool closed, const char *error) {
+    if (atomic_load(&job->cancelled) || job->session != link_session()) return;
+    bool verified = identified && closed && (!job->dispatched || !error);
+    printer_status_observe(identified ? info : NULL, verified, verified ? NULL : error);
 }
 
 char *printer_job_run(printer_job_t *job, bool *found) {
@@ -105,6 +114,7 @@ char *printer_job_run(printer_job_t *job, bool *found) {
     if (ble_runtime_owned(BLE_RUNTIME_PRINTER)) { printer_platform_radio_fault(); return NULL; }
     printer_guard_released();
     if (!closed) { error = "printer_failed"; *found = false; }
+    observe_job(job, &info, identified, closed, error);
     if (job->automatic) return NULL;
     return printer_result_make(job, error, identified ? &info : NULL, have_layout ? &layout_info : NULL);
 }

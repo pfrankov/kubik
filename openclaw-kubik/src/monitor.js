@@ -94,6 +94,7 @@ export async function monitorAccount(ctx, deps = {}) {
   try {
     server = new KubikServer({
       account, log, setStatus, pairing, activity, cron, agentControl,
+      stateDir: deps.lan?.stateDir ?? join(core.state.resolveStateDir(process.env), CHANNEL_ID),
       notificationPath: join(deps.lan?.stateDir ?? join(core.state.resolveStateDir(process.env), CHANNEL_ID), "notifications.json"),
       engineFactory: deps.engineFactory ?? createEngine,
       engineOptions: { core, cfg: ctx.cfg },

@@ -12,6 +12,7 @@
 #include "face_agent.h"
 #include "cJSON.h"
 #include "ui_text.h"
+#include "printer_status.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +23,17 @@ static screen_lab_unlock_t s_lab_unlock;
 
 // ------------------------------------------------------------------ settings menu
 static int bright_pct(void) { return (g_settings.brightness - 10) * 100 / 245; }
+
+// Only the real Settings or Printer page may request periodic status work.
+bool app_printer_visible(void) {
+    if (!s_menu || app_lab_active() || power_is_dark(s_power) || s_setup) return false;
+    if (s_pair_code[0] && !s_pair_hidden) return false;
+    face_lock();
+    bool visible = g_face.printer.open || (!g_face.agent.open && !g_face.status.open &&
+        !g_face.journal.open && !g_face.menu.sound);
+    face_unlock();
+    return visible;
+}
 
 // The menu as the face draws it.
 void menu_sync(void) {
@@ -101,7 +113,7 @@ static bool agent_screen_navigation(face_agent_hit_t hit, uint8_t *cursor) {
 void menu_back(void) {
     s_menu_touch_ms = now_ms();
     face_lock();
-    if (device_status_back(&g_face.status) || event_journal_back(&g_face.journal)) {
+    if (face_printer_back(&g_face.printer) || device_status_back(&g_face.status) || event_journal_back(&g_face.journal)) {
         face_unlock(); audio_sfx(SFX_PAGE); disp_wake(); return;
     }
     bool open = g_face.agent.open;
@@ -265,6 +277,7 @@ void menu_close(bool sound) {
     agent_menu_hide(&g_face.agent);
     g_face.menu.sound = false;
     g_face.status.open = false;
+    g_face.printer.open = g_face.printer.refresh = false;
     g_face.journal.open = g_face.journal.detail = false;
     face_unlock();
     s_armed_ms = 0;
@@ -324,6 +337,10 @@ static bool menu_tap_actions(int part) {
 }
 
 static bool menu_tap_agent(int row) {
+    if (row == MENU_PRINTER) {
+        face_lock(); g_face.printer.open = true; face_unlock();
+        s_menu_drag_row = -1; audio_sfx(SFX_PAGE); disp_wake(); return true;
+    }
     if (row == MENU_STATUS) {
         app_status_open(); s_menu_drag_row = -1; audio_sfx(SFX_PAGE); disp_wake(); return true;
     }
@@ -360,6 +377,15 @@ static bool service_tap(int x, int y) {
     audio_sfx(SFX_ARM); menu_sync(); return true;
 }
 static bool menu_detail_tap(int x, int y) {
+    face_lock();
+    bool printer = face_printer_tap(&g_face.printer, x, y);
+    bool refresh = g_face.printer.refresh;
+    g_face.printer.refresh = false;
+    face_unlock();
+    if (printer) {
+        if (refresh && printer_status_refresh()) audio_sfx(SFX_PAGE);
+        disp_wake(); return true;
+    }
     face_lock();
     bool status = device_status_tap(&g_face.status, x, y);
     bool wifi = g_face.status.wifi_setup;
@@ -400,10 +426,14 @@ void menu_tap(int x, int y) {
     menu_sync();
 }
 
+static bool menu_detail_drag(int x, int y, bool first) {
+    return g_face.printer.open || device_status_drag(&g_face.status, x, y, first) ||
+        event_journal_drag(&g_face.journal, x, y, first);
+}
 void menu_drag(int x, int y, bool first, bool last) {
     s_menu_touch_ms = now_ms();
     face_lock();
-    if (device_status_drag(&g_face.status, x, y, first) || event_journal_drag(&g_face.journal, x, y, first)) {
+    if (menu_detail_drag(x, y, first)) {
         face_unlock(); s_menu_drag_row = -1; disp_wake(); return;
     }
     bool agent = agent_menu_drag(&g_face.agent, x, y, first, last);
@@ -423,7 +453,7 @@ void menu_drag(int x, int y, bool first, bool last) {
 }
 
 void menu_hold(int x, int y) {
-    if (g_face.journal.open || g_face.status.open) return;
+    if (g_face.printer.open || g_face.journal.open || g_face.status.open) return;
     if (s_menu && !g_face.agent.open && !g_face.menu.sound && screen_lab_entry(s_lab_unlock.ready, x, y)) {
         app_lab_open(); return;
     }

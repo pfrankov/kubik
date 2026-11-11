@@ -31,10 +31,11 @@ def legacy_installation(home):
 
 def assert_runtime(command, wasm):
     subprocess.run(command + ['-c',
-                   'import sys, tornado, wasmtime, humanize; from importlib.metadata import version; '
+                   'import sys, tornado, wasmtime, humanize, regex; from importlib.metadata import version; '
                    'print("PM Tornado:", tornado.version, "Wasmtime:", version("wasmtime"), flush=True); '
                    'assert (6, 5, 9) <= tornado.version_info[:3] < (7, 0, 0); '
                    'assert version("wasmtime") == "50.0.1"; '
+                   'assert version("regex") == "2026.9.10"; '
                    'assert version("humanize") == "4.13.0"; '
                    'wasmtime.Module.from_file(wasmtime.Engine(), sys.argv[1])', str(wasm)], check=True)
 

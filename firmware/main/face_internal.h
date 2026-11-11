@@ -57,6 +57,7 @@ void draw_setup_card(face_t *face, scene_t *scene);
 void draw_pair_card(face_t *face, scene_t *scene);
 void draw_bubble_icon(scene_t *scene, int icon, float x, float y, float radius, float time, float alpha);
 void draw_status(const device_status_t *status, scene_t *scene);
+void draw_printer(const face_printer_t *printer, scene_t *scene);
 void draw_menu(face_t *face, scene_t *scene);
 void draw_menu_fade(face_t *face, scene_t *scene);
 void draw_cron(face_t *face, scene_t *scene);

@@ -39,7 +39,7 @@ if(IDF_TARGET STREQUAL "esp32s3")
         frame_store.c canvas.c font.c render_text.c
         PROPERTIES COMPILE_OPTIONS "-O3")
 endif()
-set(PRINTER_SRCS printer_protocol.c printer_parse.c printer_work.c printer_platform.c
+set(PRINTER_SRCS printer_protocol.c printer_parse.c printer_emoji_parse.c printer_emoji.c printer_work.c printer_platform.c
     printer_job.c printer_result.c printer_guard.c printer_layout.c printer_layout_text.c
     printer_layout_qr.c ble_runtime.c peripage_ble.c peripage_gatt.c peripage_profile.c)
 target_sources(${COMPONENT_LIB} PRIVATE ${PRINTER_SRCS} muse_store.c muse_ble.c muse_pair.c muse_vm.c

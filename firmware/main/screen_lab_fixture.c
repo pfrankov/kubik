@@ -82,6 +82,8 @@ static void settings(face_t *f, const screen_lab_t *lab) {
     f->menu.k = 1;
     f->menu.volume = lab->volume; f->menu.ui_volume = lab->ui_volume; f->menu.brightness = lab->brightness;
     f->menu.txt[MT_POWER] = str(STR_POWER_OFF); f->menu.txt[MT_RESET] = str(STR_RESET);
+    f->printer.status = (printer_status_t){.state=PRINTER_STATUS_VERIFIED, .name="PeriPage+DEMO",
+        .battery_pct=84, .charging=-1, .last_checked_ms=1, .last_verified_ms=1};
 }
 static void setup(screen_lab_t *lab, int screen) {
     int n = 0, step = screen == LAB_SETUP_QR ? 2 : screen == LAB_CONNECT ? 3 : 1;

@@ -59,6 +59,7 @@ export async function createAgentHost({ stateDir, config, adapter, env = process
       pairing,
       activity,
       cron,
+      stateDir,
       notificationPath: serverOptions.notificationPath ?? join(stateDir, 'notifications.json'),
       engineFactory,
       engineOptions,

@@ -2,6 +2,7 @@
 #include "ui_theme.h"
 #include "sound_levels.h"
 #include "viewport.h"
+#include "ui_kit.h"
 
 // ------------------------------------------------------------------ settings menu
 // Full screen control centre: narrow sliders, three large navigation targets,
@@ -87,9 +88,10 @@ static int bottom_row_hit(const face_menu_t *menu, int x, int y, int *part) {
 
 int face_menu_hit(const face_t *f, int x, int y, int *part) {
     *part = 0;
-    if (!f->menu.open || f->menu.k < 1.f) return -1;
+    if (!f->menu.open || f->menu.k < 1.f || f->printer.open) return -1;
     if (f->menu.sound) return sound_hit(x, y, part);
     if (events_hit(&f->menu, x, y)) return MENU_EVENTS;
+    if (!f->menu.service && tile_hit(&k_events, x, y)) return MENU_PRINTER;
     for (int r = 0; r < MENU_UI_VOLUME; r++) {
         if (r == MENU_ACTIONS || r == MENU_STATUS || !tile_hit(&k_tiles[r], x, y)) continue;
         *part = tile_part(r, y);
@@ -253,6 +255,21 @@ static void draw_navigation(scene_t *s, const face_menu_t *m, float k) {
     }
 }
 
+static bool printer_battery_known(const printer_status_t *status) {
+    return status->last_verified_ms > 0 && status->battery_pct >= 0 && status->battery_pct <= 100;
+}
+
+static void draw_printer_badge(const printer_status_t *status, scene_t *s) {
+    char value[12];
+    if (status->busy) snprintf(value, sizeof value, "...");
+    else if (printer_battery_known(status)) snprintf(value, sizeof value, "%d%%", status->battery_pct);
+    else snprintf(value, sizeof value, "—");
+    uint32_t color = status->stale || !printer_battery_known(status) ? UI_MUTED : COL_MINT;
+    sc_rbox(s, 272, 36, 54, 28, 22, 0, COL_TILE, 1);
+    sc_icon(s, ICON_PRINTER, 238, 36, 24, color, 1);
+    sc_label(s, TXT_ACTION, value, 258, 36, -1, color, 1);
+}
+
 void draw_menu(face_t *f, scene_t *s) {
     const face_menu_t *m = &f->menu;
     float k = clampf((m->k - MENU_SWAP) / (1 - MENU_SWAP), 0, 1);
@@ -269,7 +286,55 @@ void draw_menu(face_t *f, scene_t *s) {
         sc_rbox(s, 272, 36, 54, 28, 22, 0, COL_TILE, 1);
         sc_label(s, TXT_ACTION, "Events", 272, 36, 0, COL_GOLD, 1);
     }
+    else if (!m->sound) draw_printer_badge(&f->printer.status, s);
     draw_battery(f, s, true);
+}
+
+static const char *printer_state_text(const printer_status_t *status) {
+    if (status->busy) return "Checking printer";
+    if (status->state == PRINTER_STATUS_UNCHECKED) return "Not checked";
+    if (status->state == PRINTER_STATUS_UNAVAILABLE) return "Printer unavailable";
+    return status->stale ? "Last check expired" : "Recently checked";
+}
+
+static void printer_row(scene_t *scene, float y, const char *label, const char *value, uint32_t color) {
+    sc_label(scene, TXT_CAPTION, label, 44, y, -1, UI_MUTED, 1);
+    sc_label(scene, TXT_PAGE_BODY, value, 436, y, 1, color, 1);
+}
+
+static void printer_header(const printer_status_t *status, scene_t *scene) {
+    ui_header(scene, "Printer", NULL, COL_MINT);
+    sc_rbox(scene, 240, 135, 220, 55, UI_RADIUS, 0, COL_TILE, 1);
+    sc_icon(scene, ICON_PRINTER, 68, 135, 40, COL_MINT, 1);
+    char name[64];
+    ui_fit(name, sizeof name, status->name[0] ? status->name : "PeriPage printer", TXT_PAGE_BODY, 330);
+    sc_label(scene, TXT_PAGE_BODY, name, 100, 121, -1, COL_PLUSH, 1);
+    sc_label(scene, TXT_CAPTION, printer_state_text(status), 100, 157, -1, UI_MUTED, 1);
+}
+
+static void printer_readings(const printer_status_t *status, scene_t *scene) {
+    float height = UI_FOOTER_Y - 246;
+    sc_rbox(scene, 240, 202 + height * .5f, 220, height * .5f, UI_RADIUS, 0, COL_TILE, 1);
+    char battery[12];
+    if (printer_battery_known(status)) snprintf(battery, sizeof battery, "%d%%", status->battery_pct);
+    else snprintf(battery, sizeof battery, "Unknown");
+    uint32_t color = status->stale || !printer_battery_known(status) ? UI_MUTED : COL_MINT;
+    printer_row(scene, 202 + height * .2f, "Battery", battery, color);
+    const char *charging = status->charging == 0 ? "No" : status->charging == 1 ? "Yes" : "Unknown";
+    printer_row(scene, 202 + height * .52f, "Charging", charging, status->charging == 1 && !status->stale ? COL_MINT : COL_PLUSH);
+    const char *reading = status->stale && printer_battery_known(status) ? "Last known reading" : "Read from the printer";
+    if (!printer_battery_known(status)) reading = "No battery reading yet";
+    sc_label(scene, TXT_CAPTION, reading, 44, 202 + height * .83f, -1, UI_MUTED, 1);
+}
+
+void draw_printer(const face_printer_t *printer, scene_t *scene) {
+    const printer_status_t *status = &printer->status;
+    printer_header(status, scene);
+    printer_readings(status, scene);
+    bool enabled = status->can_refresh && !status->busy;
+    sc_rbox(scene, 240, UI_FOOTER_Y, 220, 32, UI_RADIUS, 0, enabled ? COL_MINT : COL_TILE, 1);
+    sc_label(scene, TXT_CHOICE, status->busy ? "Checking..." : "Refresh", 240, UI_FOOTER_Y, 0,
+        enabled ? COL_INK : UI_MUTED, 1);
 }
 
 // The character dims to black while the menu opens (and back while it closes).

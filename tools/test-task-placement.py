@@ -9,7 +9,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / 'firmware/main'
-# Preserve every argument except the new, explicit core affinity.
+# Preserve the production callbacks, stack sizes, priorities and core policy.
 EXPECTED = {
     ('app.c', 'app'): ('app_task', 'app_stack', 'NULL', '6', '&s_app_task', 'CONFIG_IDF_TARGET_ESP32S3 ? 8192 : 4096', '6'),
     ('app.c', 'power'): ('power_task', '3072', 'NULL', '2', 'NULL', '3072', '2'),
@@ -20,11 +20,20 @@ EXPECTED = {
     ('link_usb.c', 'usb_rx'): ('usb_rx_task', '3584', 'NULL', '8', 'NULL', '3584', '8'),
     ('main.c', 'display'): ('display_task', 'display_stack', 'NULL', '8', '&s_display_task', 'CONFIG_IDF_TARGET_ESP32S3 ? 9216 : 7168', '8'),
     ('muse_backend.c', 'muse'): ('worker', '7168', 'NULL', '4', 'NULL', '7168', '4'),
-    ('muse_ble.c', 'muse_pair'): ('worker', '6144', 'NULL', '4', 'NULL', '6144', '4'),
+    ('muse_ble.c', 'muse_pair'): ('worker', '6144', 'NULL', '4', '&worker_task', '6144', '4'),
     ('setup_dns.c', 'dns'): ('dns_task', '3072', 'NULL', '3', 'NULL', '3072', '3'),
 }
 STATIC = ('mic_delivery.c', 'mic_send')
 SPI = ('display_s3_tx.c', 's3_spi')
+BLE_HOST = ('ble_runtime.c', 'nimble_host')
+BLE_STOP = ('ble_runtime.c', 'ble_stop')
+PRINTER = ('printer_platform.c', 'printer')
+EXTRA_STATIC = {
+    BLE_HOST: ('runtime_host', 'CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE', 'NULL', 'configMAX_PRIORITIES - 4',
+               'host_stack', '&host_storage', 'CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE', 'configMAX_PRIORITIES - 4'),
+    BLE_STOP: ('runtime_stop_worker', 'STOP_STACK', 'NULL', '4', 'stop_stack', '&stop_storage', '3072', '4'),
+    PRINTER: ('run', 'WORK_STACK', 'NULL', '3', 'stack', '&task_storage', '4096', '3'),
+}
 CORE_ZERO = {'spk', 'mic', 'mic_send', 's3_spi'}
 TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*', re.S)
 CREATOR = re.compile(r'\b(xTaskCreate\w*)\s*\(')
@@ -70,18 +79,24 @@ def inventory():
             key = (path.name, ast.literal_eval(args[1]))
             found.append((key, match[1], args))
     keys = [key for key, _, _ in found]
-    assert len(keys) == len(set(keys)) and set(keys) == set(EXPECTED) | {STATIC, SPI}, keys
+    assert len(keys) == len(set(keys)) and set(keys) == set(EXPECTED) | set(EXTRA_STATIC) | {STATIC, SPI}, keys
     return found
 
 
 def validate(found):
     for key, creator, args in found:
         role = 'KUBIK_AUDIO_CORE' if key[1] in CORE_ZERO else 'KUBIK_UI_CORE'
+        if key in (BLE_HOST, BLE_STOP):
+            role = 'CONFIG_BT_NIMBLE_PINNED_TO_CORE'
         if key == SPI:
             prefix = ['sender', '"s3_spi"', 'TX_STACK_BYTES', 'NULL', 'TX_PRIORITY', 's_stack', '&s_task_storage']
             expected_creator = 'xTaskCreateStaticPinnedToCore'
         elif key == STATIC:
             prefix = ['delivery_task', '"mic_send"', 'duplex ? 3072 : STACK_BYTES', 'NULL', 'duplex ? 6 : 7', 's_stack', '&s_task_storage']
+            expected_creator = 'xTaskCreateStaticPinnedToCore'
+        elif key in EXTRA_STATIC:
+            callback, stack, context, priority, memory, storage, _, _ = EXTRA_STATIC[key]
+            prefix = [callback, f'"{key[1]}"', stack, context, priority, memory, storage]
             expected_creator = 'xTaskCreateStaticPinnedToCore'
         else:
             callback, stack, context, priority, handle, _, _ = EXPECTED[key]
@@ -126,13 +141,24 @@ def conditional_spi(code):
     return '#if CONFIG_IDF_TARGET_ESP32S3\n' + code + '\n#endif'
 
 
+def extra_stack_sizes():
+    declarations = []
+    for filename, name, expected in (('ble_runtime.c', 'STOP_STACK', '3072'),
+                                     ('printer_platform.c', 'WORK_STACK', '4096')):
+        source = code_only((MAIN / filename).read_text())
+        definition = re.search(rf'^#define {name}\s+\d+\s*$', source, re.M)
+        assert definition and compact(definition[0]) == f'#define{name}{expected}'
+        declarations.append(definition[0])
+    return '\n'.join(declarations)
+
+
 def harness(found):
     fixture = (ROOT / 'tools/fixtures/task_placement_test.c').read_text()
     delivery = code_only((MAIN / STATIC[0]).read_text())
     stack_bytes = re.search(r'^#define STACK_BYTES\s+\d+\s*$', delivery, re.M)
     assert stack_bytes and compact(stack_bytes[0]) == '#defineSTACK_BYTES4096'
     spi_size, spi_memory = spi_storage()
-    declarations = '\n'.join([stack_bytes[0], spi_size, stack_declaration('app.c', 'app_stack'), stack_declaration('main.c', 'display_stack')])
+    declarations = '\n'.join([stack_bytes[0], spi_size, extra_stack_sizes(), stack_declaration('app.c', 'app_stack'), stack_declaration('main.c', 'display_stack')])
     callbacks = sorted({args[0] for key, _, args in found if key != SPI})
     definitions = '\n'.join(f'static void {name}(void *arg) {{(void)arg;}}' for name in callbacks)
     definitions += '\n' + conditional_spi('static void sender(void *arg) {(void)arg;}')
@@ -140,6 +166,8 @@ def harness(found):
     for key, creator, args in found:
         call = '(void)' + creator + '(' + ','.join(args) + ');'
         role = '0' if key[1] in CORE_ZERO else 'EXPECTED_UI_CORE'
+        if key in (BLE_HOST, BLE_STOP):
+            role = 'EXPECTED_BLE_CORE'
         if key == SPI:
             call = conditional_spi('{\n' + spi_memory + '\nsender_memory=s_stack;sender_storage=&s_task_storage;\n' + call + '\n}')
             # A priority-8 sender starved behind the ready SDK Wi-Fi task (23),
@@ -147,6 +175,9 @@ def harness(found):
             stack, priority, fixed = '4096', '23', 'true'
         elif key == STATIC:
             stack, priority, fixed = 'duplex ? 3072 : 4096', 'duplex ? 6 : 7', 'true'
+        elif key in EXTRA_STATIC:
+            *_, stack, priority = EXTRA_STATIC[key]
+            fixed = 'true'
         else:
             *_, stack, priority = EXPECTED[key]
             fixed = 'false'
@@ -168,18 +199,24 @@ def run():
                  (1, 0, 24, 1, r'S3 sender requires.*time slicing'),
                  (1, 0, 25, 0, r'S3 sender requires.*time slicing'))
         for s3, unicore, priorities, slicing, diagnostic in cases:
-            (directory / 'sdkconfig.h').write_text(f'#define CONFIG_IDF_TARGET_ESP32S3 {s3}\n#define CONFIG_IDF_TARGET_ESP32C6 {1-s3}\n#define CONFIG_FREERTOS_UNICORE {unicore}\n'
+            for ble_core in ((0, 1) if s3 and not diagnostic else (0,)):
+                run_case(directory, source, executable, s3, unicore, priorities, slicing, diagnostic, ble_core)
+    print('task placement: C6 15 creators; S3 16; printer static 4096 bytes on UI core; BLE host/stop follow SDK core; existing UI/audio/Muse/SPI contracts preserved')
+
+
+def run_case(directory, source, executable, s3, unicore, priorities, slicing, diagnostic, ble_core):
+    (directory / 'sdkconfig.h').write_text(f'#define CONFIG_IDF_TARGET_ESP32S3 {s3}\n#define CONFIG_IDF_TARGET_ESP32C6 {1-s3}\n#define CONFIG_FREERTOS_UNICORE {unicore}\n'
+                                                  f'#define CONFIG_BT_NIMBLE_PINNED_TO_CORE {ble_core}\n#define CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE 4096\n'
                                                   f'#define configMAX_PRIORITIES {priorities}\n#define configUSE_TIME_SLICING {slicing}\n')
-            result = subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
-                                     '-fsanitize=address,undefined', '-DESP_PLATFORM=1', f'-DEXPECTED_UI_CORE={s3}',
+    result = subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
+                                     '-fsanitize=address,undefined', '-DESP_PLATFORM=1', f'-DEXPECTED_UI_CORE={s3}', f'-DEXPECTED_BLE_CORE={ble_core}',
                                      '-I', str(directory), '-I', str(MAIN), str(source), '-o', str(executable)],
                                     text=True, capture_output=True)
-            if diagnostic:
-                assert result.returncode and re.search(diagnostic, result.stderr, re.I), result.stderr
-            else:
-                assert not result.returncode, result.stderr
-                subprocess.run([str(executable)], check=True)
-    print('task placement: C6 exactly 12 creators; S3 13 with static 4096-byte priority-23 SPI sender on core zero; SDK 25/time-slicing and unicore guards preserved')
+    if diagnostic:
+        assert result.returncode and re.search(diagnostic, result.stderr, re.I), result.stderr
+    else:
+        assert not result.returncode, result.stderr
+        subprocess.run([str(executable)], check=True)
 
 
 if __name__ == '__main__':

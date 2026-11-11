@@ -66,6 +66,9 @@ class ManagedPreparationTest(unittest.TestCase):
         self.assertFalse((self.home / 'config.before-kubik.yaml').exists())
 
     def test_candidate_includes_canonical_echo_and_every_profile_before_selected_install(self):
+        personal_atlas = self.home / 'kubik/apple-emoji.bin'
+        personal_atlas.parent.mkdir(parents=True, exist_ok=True)
+        personal_atlas.write_bytes(b'user-owned private atlas sentinel')
         def sync(**kwargs):
             self.unchanged()
             self.assertTrue(kwargs['explicit'])
@@ -76,11 +79,13 @@ class ManagedPreparationTest(unittest.TestCase):
             self.assertEqual((candidate / 'speex-aec.wasm').read_bytes(),
                              (ROOT / 'openclaw-kubik/src/vendor/speex-aec.wasm').read_bytes())
             self.assertIn('wasmtime==50.0.1', (candidate / 'requirements.txt').read_text())
+            self.assertIn('regex==2026.9.10', (candidate / 'requirements.txt').read_text())
             self.assertEqual(os.environ['HERMES_HOME'], str(self.home))
         self.sync.side_effect = sync
         with patch.dict(os.environ, {'HERMES_HOME': 'prior-profile'}):
             self.prepare()
             self.assertEqual(os.environ['HERMES_HOME'], 'prior-profile')
+        self.assertEqual(personal_atlas.read_bytes(), b'user-owned private atlas sentinel')
         self.unchanged()
         command = self.child.call_args.args[0]
         self.assertEqual(command[0], str(self.root / 'selected/bin/python'))

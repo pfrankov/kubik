@@ -6,8 +6,9 @@
 
 typedef struct {
     char name[32], firmware[32], hardware[32];
-    uint16_t dpi, width_dots, mtu;
+    uint16_t dpi, feed_dpi, width_dots, mtu;
     uint8_t battery_pct;
+    int8_t charging; // -1: unknown; GET 50f1 does not expose a verified charge flag.
 } peripage_info_t;
 typedef enum {
     PERIPAGE_OK, PERIPAGE_NOT_FOUND, PERIPAGE_AMBIGUOUS,
@@ -22,7 +23,8 @@ bool peripage_write_packet(const uint8_t *data, size_t size, uint32_t timeout_ms
 uint32_t peripage_packet_stream_budget_ms(size_t packet_count);
 // Fresh safe GET checks ordered ATT progress and the current connection only.
 // Write Commands can be discarded: this never acknowledges raster or paper.
-bool peripage_finish_packet_stream(uint32_t timeout_ms);
+// A non-null info record receives battery/charging only after a valid reply.
+bool peripage_finish_packet_stream(uint32_t timeout_ms, peripage_info_t *info);
 // UI may cancel the current operation; only the owning worker touches NimBLE.
 void peripage_cancel(void);
 // False means shutdown or persistent binding failed; never start another stack.

@@ -44,6 +44,13 @@ static void menu(void) {
     }
     assert(face_menu_slider(84) == 100 && face_menu_slider(472) == 0);
     assert(face_menu_hit(&f, 356, 278, &part) == -1); // equal navigation gutter
+    assert(face_menu_hit(&f, 272, 36, &part) == MENU_PRINTER);
+    f.printer.open = true; f.printer.status.battery_pct = 83;
+    f.printer.status.charging = -1; f.printer.status.last_verified_ms = 1;
+    face_draw(&f, &s); bounds(&s);
+    assert(word(&s, "Printer") && word(&s, "83%") && word(&s, "Unknown"));
+    const prim_t *refresh = word(&s, "Refresh"); assert(refresh && refresh->by0 > 500);
+    assert(face_printer_back(&f.printer));
     f.menu.sound = true; face_draw(&f, &s); bounds(&s);
     assert(word(&s, "Speech")->by0 > 500 && word(&s, "Interface")->by0 > 500);
     assert(face_menu_hit(&f, 132, 470, &part) == MENU_VOLUME);

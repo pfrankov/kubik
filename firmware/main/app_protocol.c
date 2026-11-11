@@ -345,11 +345,12 @@ static void add_agent_view(status_json_t *info) {
     unsigned loaded = g_face.agent.count, listed = agent_menu_listed(&g_face.agent);
     int scroll = (int)g_face.agent.scroll;
     unsigned guide_step = g_face.agent.guide_step;
-    bool card_open = g_face.card_n > 0;
+    bool card_open = g_face.card_n > 0, printer_open = g_face.printer.open;
     face_unlock();
     status_json_string(info, "agent_view", view < sizeof views / sizeof views[0] ? views[view] : "overview");
     status_json_integer(info, "guide_step", guide_step);
     status_json_bool(info, "card_open", card_open);
+    status_json_bool(info, "printer_open", printer_open);
     status_json_bool(info, "pair_visible", s_pair_code[0] && !s_pair_hidden && !s_setup);
     status_json_bool(info, "guide_done", g_settings.guide_done);
     app_journal_info(info);

@@ -1,25 +1,47 @@
 """Physical printer acceptance: real agent tools and board replies, never synthetic results."""
 import asyncio
+import base64
 import importlib
 import time
 import uuid
 
 from device_control import fault_window, save
-from printer_contract import printer_arguments
+from printer_contract import QUALITY_QR, QUALITY_TEXT, printer_arguments
 from voice_fixture import VoiceConnection, VoiceFixture, eventually
 
 MARKERS = ('kubik-printer-status', 'kubik-native-printer-text', 'kubik-native-printer-qr')
 PLAN = [printer_arguments(marker)[1] for marker in MARKERS]
 STREAM_PLAN = printer_arguments('kubik-printer-stream-check-' + '0' * 16)[1]
+QUALITY_PLAN = [QUALITY_TEXT, QUALITY_QR]
+QUALITY_EMOJI = ['😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺']
+
+
+def valid_glyphs(value, sequences):
+    if not isinstance(value, list) or len(value) != len(sequences):
+        return False
+    try:
+        for glyph, sequence in zip(value, sequences):
+            if not isinstance(glyph, dict) or glyph.keys() != {'sequence', 'bitmap'} or glyph['sequence'] != sequence:
+                return False
+            bitmap = glyph['bitmap']
+            if not isinstance(bitmap, str) or len(bitmap) != 172:
+                return False
+            decoded = base64.b64decode(bitmap, validate=True)
+            if len(decoded) != 128 or base64.b64encode(decoded).decode() != bitmap:
+                return False
+    except ValueError:
+        return False
+    return True
 
 
 class Observations:
-    def __init__(self, adapter, *, plan=None):
+    def __init__(self, adapter, *, plan=None, emoji_plan=None):
         self.adapter, self.wire, self.calls, self.cache = adapter, [], [], []
         self.command, self.authenticate = adapter.command, adapter.authenticate
         self.request = adapter.printer_jobs.request
         self.senders, self.evidence = [], None
         self.plan = PLAN if plan is None else plan
+        self.emoji_plan = [[] for _ in self.plan] if emoji_plan is None else emoji_plan
 
     def install(self):
         async def authenticate(socket):
@@ -62,8 +84,11 @@ class Observations:
                 expected = dict(self.plan[len(sent)]) if len(sent) < len(self.plan) else None
                 if expected and expected['action'] == 'print':
                     expected.setdefault('format', 'text')
+                glyphs = candidate.pop('emoji', None) if expected and expected.get('format') == 'text' else None
                 if candidate != expected:
                     raise AssertionError('Unexpected or repeated physical printer request; refusing another print')
+                if expected.get('format') == 'text' and not valid_glyphs(glyphs, self.emoji_plan[len(sent)]):
+                    raise AssertionError('Unexpected internal emoji glyph payload')
                 self.record('host', value)  # Persist before dispatch: an interrupted send is never replayed.
             return await original(value, **kwargs)
         socket.send_json = send
@@ -94,14 +119,15 @@ def verify_result(value, expected):
     assert value['paperConfirmed'] is False, value
     printer = value['printer']
     assert printer['dpi'] == 304 and printer['width_dots'] == 576, printer
+    assert printer['feed_dpi'] == 152 and printer['charging'] is None, printer
     assert printer['size_source'] == 'model_profile' and printer['media_height_mm'] is None, printer
     if expected['action'] == 'print':
-        layout, tolerance = value['layout'], 25.4 / printer['dpi']
+        layout = value['layout']
         assert value['outcome'] == 'submitted' and layout['format'] == expected.get('format', 'text'), value
-        assert abs(layout['width_mm'] - expected['width_mm']) <= tolerance, value
+        assert abs(layout['width_mm'] - expected['width_mm']) <= 25.4 / printer['dpi'], value
         for field in ('height_mm', 'font_mm'):
             if field in expected:
-                assert abs(layout[field] - expected[field]) <= tolerance, value
+                assert abs(layout[field] - expected[field]) <= 25.4 / printer['feed_dpi'], value
 
 
 async def agent_turn(adapter, peer, marker):
@@ -314,10 +340,11 @@ class StreamObservations(Observations):
     def __init__(self, adapter):
         super().__init__(adapter, plan=[STREAM_PLAN])
         self.states = []
+        self.state_file = 'printer-stream-states.json'
 
     def persist(self, evidence, providers):
         super().persist(evidence, providers)
-        save(evidence / 'printer-stream-states.json', self.states)
+        save(evidence / self.state_file, self.states)
 
 
 async def stream_state(control, observations, phase):
@@ -326,7 +353,7 @@ async def stream_state(control, observations, phase):
     assert all(field in state for field in fields), 'Physical stream diagnostics incomplete'
     row = {'at': time.monotonic(), 'phase': phase, **{field: state[field] for field in fields}}
     observations.states.append(row)
-    save(control.evidence / 'printer-stream-states.json', observations.states)
+    save(control.evidence / observations.state_file, observations.states)
     return row
 
 
@@ -352,6 +379,42 @@ async def check_stream(adapter, peer, control, providers, observations):
         return {'printer_stream_check': True, 'printer_tool': True, 'test_prints_submitted': 1,
                 'paper_confirmed': False, 'layout': row['result']['layout'],
                 'printer': row['result']['printer'], 'paid_provider_calls': 0}
+    finally:
+        peer.volume, peer.stage = old_volume, old_stage
+        observations.persist(control.evidence, providers)
+
+
+class QualityObservations(StreamObservations):
+    def __init__(self, adapter):
+        Observations.__init__(self, adapter, plan=QUALITY_PLAN, emoji_plan=[QUALITY_EMOJI, []])
+        self.states, self.state_file = [], 'printer-quality-states.json'
+
+
+async def check_quality(adapter, peer, control, providers, observations):
+    observations.evidence = control.evidence
+    assert peer.printer_version == 2, 'Physical Cube requires printer protocol v2'
+    before = await control.request(cmd='bridge-diagnostics')
+    await wait_discovery(control)
+    baseline = await stream_state(control, observations, 'before')
+    old_volume, old_stage = peer.volume, peer.stage
+    peer.volume = 0
+    token = uuid.uuid4().hex[:16]
+    try:
+        for index, kind in enumerate(('text', 'qr')):
+            event = await agent_turn(adapter, peer, 'kubik-printer-quality-' + kind + '-' + token)
+            assert len(observations.calls) == index + 1, observations.calls
+            row = observations.calls[index]
+            assert row['call_id'] == 'call-printer-quality-' + kind + '-' + token and row['event_id'] == event.message_id
+            verify_result(row['result'], QUALITY_PLAN[index])
+            await stream_state(control, observations, kind + '-submitted')
+        assert len(observations.requests()) == 2 and all(row['action'] == 'print' for row in observations.requests())
+        qr = observations.calls[1]['result']['layout']
+        assert abs(qr['width_mm'] - qr['height_mm']) <= 25.4 / 304 + 25.4 / 152, qr
+        assert all(row['heap_failures'] == baseline['heap_failures'] for row in observations.states)
+        fault_window(before, await control.request(cmd='bridge-diagnostics'))
+        return {'printer_quality_check': True, 'test_prints_submitted': 2, 'paper_confirmed': False,
+                'apple_emoji_used': QUALITY_EMOJI, 'layouts': [row['result']['layout'] for row in observations.calls],
+                'printer': observations.calls[0]['result']['printer'], 'paid_provider_calls': 0}
     finally:
         peer.volume, peer.stage = old_volume, old_stage
         observations.persist(control.evidence, providers)

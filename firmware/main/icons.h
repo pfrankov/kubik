@@ -28,6 +28,7 @@ enum {
     ICON_QR_CODE,
     ICON_AUDIO_LINES,
     ICON_ZAP,
+    ICON_PRINTER,
     ICON_COUNT
 };
 

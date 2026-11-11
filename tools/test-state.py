@@ -2,6 +2,7 @@
 """Screen-power and talk-turn tables (app_state.c) and Tess's mood machine (mood.c) on the host: every state x event pair."""
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -35,7 +36,11 @@ with tempfile.TemporaryDirectory(prefix="kubik-state-") as tmp:
     app_face_inputs = runtime[runtime.index("void app_face_inputs("):]
     assert app_face_inputs.index("tess_games_set_available") < app_face_inputs.index("select_face_mode")
     main_source = (ROOT / "firmware/main/main.c").read_text()
-    bootstrap = main_source[main_source.index("static void initialize_home_face("):main_source.index("void app_main(")]
+    pattern = r'^static void initialize_home_face\([^)]*\) \{.*?^\}'
+    bootstrap = re.search(pattern, main_source, re.M | re.S).group() + '\n'
+    # This harness owns one helper, not any Bluetooth startup helpers beside it.
+    neighbour = '\nstatic void unrelated_boot_helper(void) { return; }\n'
+    assert re.search(pattern, neighbour + bootstrap + neighbour, re.M | re.S).group() + '\n' == bootstrap
     app_main = main_source[main_source.index("void app_main("):]
     assert app_main.index("settings_load();") < app_main.index("initialize_home_face();") < app_main.index('xTaskCreatePinnedToCore(display_task,')
     fixture = (ROOT / "firmware/sim/tess_app_runtime_test.c").read_text()

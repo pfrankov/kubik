@@ -10,14 +10,20 @@ static bool printer_identity(cJSON *p, const peripage_info_t *info) {
 
 static bool printer_geometry(cJSON *p, const peripage_info_t *info) {
     return cJSON_AddNumberToObject(p, "dpi", info->dpi) &&
+        cJSON_AddNumberToObject(p, "feed_dpi", info->feed_dpi) &&
         cJSON_AddNumberToObject(p, "width_dots", info->width_dots) &&
         cJSON_AddNumberToObject(p, "printable_width_mm", info->width_dots * 25.4 / info->dpi) &&
         cJSON_AddNumberToObject(p, "battery_pct", info->battery_pct);
 }
 
+static bool printer_charging(cJSON *p, const peripage_info_t *info) {
+    return info->charging < 0 ? cJSON_AddNullToObject(p, "charging") :
+        cJSON_AddBoolToObject(p, "charging", info->charging != 0);
+}
+
 static bool printer_fields(cJSON *root, const peripage_info_t *info) {
     cJSON *p = cJSON_AddObjectToObject(root, "printer");
-    if (!p || !printer_identity(p, info) || !printer_geometry(p, info)) return false;
+    if (!p || !printer_identity(p, info) || !printer_geometry(p, info) || !printer_charging(p, info)) return false;
     cJSON *formats = cJSON_AddArrayToObject(p, "formats");
     if (!formats) return false;
     cJSON *text = cJSON_CreateString("text"), *qr = cJSON_CreateString("qr");

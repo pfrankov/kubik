@@ -81,6 +81,7 @@ def main():
         # Force the lossless store's split path too: an independent capacity boundary.
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=12288", "-DPRESENT_SPLIT=1"]))
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=8"]))
+        runs.append(("icons", TESTS["icons"], ["-DICON_TEST_COUNT=24"]))
         runs.append(("output_flat", TESTS["output_flat"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("rectangle_layout", face_sources(), ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("render_projection", [source for source in RENDER if source != "sprite"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))

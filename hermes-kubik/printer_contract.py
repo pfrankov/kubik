@@ -77,12 +77,12 @@ def print_dimensions(value, kind):
 
 
 def valid_printer(value):
-    fields = {'name', 'model', 'firmware', 'hardware', 'dpi', 'width_dots', 'printable_width_mm',
-              'battery_pct', 'formats', 'max_height_mm', 'media_height_mm', 'size_source'}
+    fields = {'name', 'model', 'firmware', 'hardware', 'dpi', 'feed_dpi', 'width_dots', 'printable_width_mm',
+              'battery_pct', 'charging', 'formats', 'max_height_mm', 'media_height_mm', 'size_source'}
     if not isinstance(value, dict) or value.keys() != fields:
         return False
     strings = all(safe_string(value[key]) for key in ('name', 'model', 'firmware', 'hardware'))
-    dimensions = integer(value['dpi'], 100, 600) and integer(value['width_dots'], 1, 4096)
+    dimensions = integer(value['dpi'], 100, 600) and integer(value['feed_dpi'], 100, 600) and integer(value['width_dots'], 1, 4096)
     if not strings or not dimensions or not number(value['printable_width_mm'], 0, 216):
         return False
     width = value['width_dots'] * 25.4 / value['dpi']
@@ -92,7 +92,7 @@ def valid_printer(value):
 
 def _printer_profile(value):
     formats = isinstance(value['formats'], list) and value['formats'] in (['text', 'qr'], ['qr', 'text'])
-    return integer(value['battery_pct'], 0, 100) and formats and number(value['max_height_mm'], 1, 150) and value['media_height_mm'] is None and value['size_source'] == 'model_profile'
+    return integer(value['battery_pct'], 0, 100) and value['charging'] is None and formats and number(value['max_height_mm'], 1, 150) and value['media_height_mm'] is None and value['size_source'] == 'model_profile'
 
 
 def valid_layout(value, printer):
@@ -101,11 +101,11 @@ def valid_layout(value, printer):
         return False
     if value['format'] not in printer['formats'] or not integer(value['width_dots'], 1, printer['width_dots']):
         return False
-    maximum = math.floor(printer['max_height_mm'] * printer['dpi'] / 25.4)
+    maximum = math.floor(printer['max_height_mm'] * printer['feed_dpi'] / 25.4)
     if not integer(value['height_dots'], 1, maximum):
         return False
-    for key in ('width', 'height'):
-        expected = value[key + '_dots'] * 25.4 / printer['dpi']
+    for key, resolution in (('width', printer['dpi']), ('height', printer['feed_dpi'])):
+        expected = value[key + '_dots'] * 25.4 / resolution
         if not number(value[key + '_mm'], 0, 216) or abs(value[key + '_mm'] - expected) > .01:
             return False
     if 'font_mm' in value:
@@ -160,8 +160,8 @@ def requested_layout(value, request):
         return True
     if layout['format'] != request.get('format', 'text'):
         return False
-    tolerance = 25.4 / printer['dpi']
-    for key in ('width_mm', 'height_mm'):
+    for key, resolution in (('width_mm', printer['dpi']), ('height_mm', printer['feed_dpi'])):
+        tolerance = 25.4 / resolution
         if key in request and layout[key] > request[key] + tolerance:
             return False
-    return 'font_mm' not in request or 'font_mm' in layout and layout['font_mm'] <= request['font_mm'] + tolerance
+    return 'font_mm' not in request or 'font_mm' in layout and layout['font_mm'] <= request['font_mm'] + 25.4 / printer['feed_dpi']

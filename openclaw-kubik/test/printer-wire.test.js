@@ -22,7 +22,7 @@ test('real authenticated socket carries only the requested printer job and repor
     const parameters = { action, ...(action === 'print' ? { text: 'Привет\nХлеб', width_mm: 30, height_mm: 20 } : {}) };
     const { job, request } = await sentRequest(f, `${action}-${status}-${errorCode}`, parameters);
     assert.deepEqual(Object.keys(request).sort(), (action === 'print' ?
-      ['action', 'rid', 't', 'text', 'format', 'width_mm', 'height_mm'] : ['action', 'rid', 't']).sort());
+      ['action', 'rid', 't', 'text', 'format', 'width_mm', 'height_mm', 'emoji'] : ['action', 'rid', 't']).sort());
     assert.equal(request.action, action);assert.equal(request.text, parameters.text);assert.match(request.rid, /^[0-9a-f]{32}$/);
     const response = printerResult(request.rid, status, { code: errorCode, outcome, action });
     f.device.send(response);

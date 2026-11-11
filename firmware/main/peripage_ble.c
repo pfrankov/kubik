@@ -137,7 +137,9 @@ static peripage_result_t connect_printer(uint32_t epoch, peripage_info_t *info, 
     peripage_result_t result = peripage_gatt_setup(info, deadline);
     if (result != PERIPAGE_OK) return result;
     if (!peripage_profile_valid(info)) return PERIPAGE_UNSUPPORTED;
-    info->dpi = 304; info->width_dots = 576; negotiated_mtu = info->mtu;
+    // Effective feed correction for the factor-two stretch in the printed test
+    // on this verified profile, not a manufacturer Y-DPI specification.
+    info->dpi = 304; info->feed_dpi = 152; info->width_dots = 576; negotiated_mtu = info->mtu;
     binding_pending = !scan_state.bound;
     return PERIPAGE_OK;
 }
@@ -160,6 +162,7 @@ peripage_result_t peripage_open(peripage_info_t *info, uint32_t timeout_ms) {
     if (!epoch) epoch = 1;
     atomic_store(&link_epoch, epoch); atomic_store(&operation_state, epoch);
     memset(info, 0, sizeof *info); memset(&scan_state, 0, sizeof scan_state);
+    info->charging = -1;
     if (!peripage_binding_load(&scan_state)) { atomic_store(&operation_state, 0); return PERIPAGE_FAILED; }
     if (atomic_load(&operation_state) & CANCELLED_BIT) { atomic_store(&operation_state, 0); return PERIPAGE_CANCELLED; }
     connection = BLE_HS_CONN_HANDLE_NONE; binding_pending = false; negotiated_mtu = 23;
@@ -214,9 +217,11 @@ bool peripage_write_packet(const uint8_t *data, size_t size, uint32_t timeout_ms
     return ok;
 }
 
-bool peripage_finish_packet_stream(uint32_t timeout_ms) {
-    if (!radio_started || !timeout_ms || timeout_ms > FINISH_MS) return false;
-    bool ok = peripage_gatt_finish(esp_timer_get_time() + (int64_t)timeout_ms * 1000);
+bool peripage_finish_packet_stream(uint32_t timeout_ms, peripage_info_t *info) {
+    if (!radio_started || !info || !timeout_ms || timeout_ms > FINISH_MS) return false;
+    uint8_t battery_pct;
+    bool ok = peripage_gatt_finish(&battery_pct, esp_timer_get_time() + (int64_t)timeout_ms * 1000);
+    if (ok) { info->battery_pct = battery_pct; info->charging = -1; }
     if (!ok) atomic_store(&link_lost, true);
     return ok;
 }

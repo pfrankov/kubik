@@ -3,9 +3,13 @@
 #include "printer_guard.h"
 #include "printer_platform.h"
 #include "printer_result.h"
+#include "printer_status.h"
+#include "printer_status_internal.h"
+#include "printer_emoji_parse.h"
 #include "peripage_ble.h"
 
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -24,6 +28,52 @@ static int64_t automatic_due;
 static int64_t automatic_earliest;
 static atomic_bool automatic_found;
 static printer_diagnostics_t diagnostics;
+static printer_status_t status = {.battery_pct=-1, .charging=-1, .stale=true};
+static atomic_bool status_visible;
+static uint32_t refresh_session;
+static int64_t refresh_due;
+
+static bool refresh_allowed_locked(int64_t now) {
+    return !pending && !active && !refresh_session && diagnostics.state.automatic_allowed &&
+        diagnostics.state.online && diagnostics.state.session == link_session() && now >= refresh_due &&
+        (status.state == PRINTER_STATUS_UNCHECKED || now-status.last_checked_ms >= 60000);
+}
+
+void printer_status_snapshot(printer_status_t *out) {
+    int64_t now = printer_platform_now_ms();
+    portENTER_CRITICAL(&lock);
+    *out = status;
+    out->busy = pending || active;
+    out->can_refresh = refresh_allowed_locked(now);
+    portEXIT_CRITICAL(&lock);
+    out->stale = out->state != PRINTER_STATUS_VERIFIED || now-out->last_verified_ms >= 60000;
+}
+
+void printer_status_set_visible(bool visible) { atomic_store(&status_visible, visible); }
+
+bool printer_status_refresh(void) {
+    int64_t now = printer_platform_now_ms();
+    portENTER_CRITICAL(&lock);
+    bool allowed = refresh_allowed_locked(now);
+    if (allowed) refresh_session = diagnostics.state.session;
+    portEXIT_CRITICAL(&lock);
+    return allowed;
+}
+
+void printer_status_observe(const peripage_info_t *info, bool verified, const char *error) {
+    int64_t now = printer_platform_now_ms();
+    portENTER_CRITICAL(&lock);
+    if (info) {
+        memcpy(status.name, info->name, sizeof status.name);
+        status.battery_pct = info->battery_pct;
+        status.charging = info->charging;
+    }
+    status.state = verified ? PRINTER_STATUS_VERIFIED : PRINTER_STATUS_UNAVAILABLE;
+    status.last_checked_ms = now;
+    if (verified) status.last_verified_ms = now;
+    snprintf(status.error, sizeof status.error, "%s", error ? error : "");
+    portEXIT_CRITICAL(&lock);
+}
 
 void printer_work_diagnostics(printer_diagnostics_t *snapshot) {
     portENTER_CRITICAL(&lock);
@@ -38,6 +88,7 @@ static void remember(const printer_app_state_t *state, int64_t now) {
         .guard_allowed=printer_guard_background_allowed()};
     portENTER_CRITICAL(&lock);
     diagnostics = snapshot;
+    refresh_due = automatic_due;
     portEXIT_CRITICAL(&lock);
 }
 
@@ -50,7 +101,8 @@ static printer_job_t *pending_job(void) {
 
 static printer_job_t *make_job(const printer_input_t *input, uint32_t session, int64_t now) {
     size_t bytes = input && input->printing ? strlen(input->document.text) + 1 : 0;
-    printer_job_t *job = calloc(1, sizeof *job + bytes);
+    size_t glyph_bytes=input ? input->emoji_count*sizeof(printer_emoji_glyph_t) : 0;
+    printer_job_t *job = calloc(1, sizeof *job + bytes + glyph_bytes);
     if (!job) return NULL;
     job->session = session; job->automatic = !input; job->printing = input && input->printing;
     job->deadline_ms = now + (job->printing ? PRINT_WORK_MS : STATUS_WORK_MS);
@@ -59,6 +111,12 @@ static printer_job_t *make_job(const printer_input_t *input, uint32_t session, i
     if (bytes) {
         memcpy(job->text, input->document.text, bytes);
         job->document = input->document; job->document.text = job->text;
+        printer_emoji_glyph_t *glyphs=(printer_emoji_glyph_t *)(job->text+bytes);
+        if (input->emoji_count && !printer_emoji_parse_copy(input->emoji,glyphs,input->emoji_count)) {
+            free(job);return NULL;
+        }
+        job->document.emojis=input->emoji_count ? glyphs : NULL;
+        job->document.emoji_count=input->emoji_count;
     }
     return job;
 }
@@ -111,7 +169,10 @@ static void execute(void *context) {
 
 static void retry_after(const printer_job_t *job, int64_t now) {
     if (job->session != observed_session) return;
-    if (found) { automatic_found = true; return; }
+    if (found) {
+        automatic_found = true; automatic_attempts = 0; automatic_due = now + 60000;
+        return;
+    }
     if (!job->automatic) return;
     unsigned delay = automatic_attempts == 0 ? 30000 : automatic_attempts == 1 ? 60000 : 300000;
     if (automatic_attempts < 3) automatic_attempts++;
@@ -153,11 +214,31 @@ static void observe_session(const printer_app_state_t *state, int64_t now) {
     observed_session = state->session;
     automatic_attempts = 0; automatic_found = false;
     automatic_due = now < automatic_earliest ? automatic_earliest : now;
+    portENTER_CRITICAL(&lock);
+    refresh_session = 0;
+    portEXIT_CRITICAL(&lock);
+}
+
+static bool take_refresh(const printer_app_state_t *state) {
+    portENTER_CRITICAL(&lock);
+    uint32_t requested = refresh_session; refresh_session = 0;
+    portEXIT_CRITICAL(&lock);
+    return requested && requested == state->session;
+}
+
+static bool status_check_wanted(bool requested, int64_t now) {
+    if (requested || !automatic_found) return true;
+    if (!atomic_load(&status_visible)) return false;
+    printer_status_t snapshot; printer_status_snapshot(&snapshot);
+    return snapshot.stale || now-snapshot.last_checked_ms >= 60000;
 }
 
 static void automatic_job(const printer_app_state_t *state, int64_t now) {
-    if (pending_job() || active || automatic_found || !state->automatic_allowed ||
-        !state->online || !state->session || now < automatic_due || !printer_guard_background_allowed()) return;
+    bool requested = take_refresh(state);
+    if (pending_job() || active || !state->automatic_allowed ||
+        !state->online || !state->session || now < automatic_due) return;
+    if (!requested && !printer_guard_background_allowed()) return;
+    if (!status_check_wanted(requested, now)) return;
     printer_job_t *job = make_job(NULL, state->session, now);
     if (!job) { automatic_due = now + 300000; return; }
     portENTER_CRITICAL(&lock);

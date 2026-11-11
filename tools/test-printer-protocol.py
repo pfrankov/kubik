@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="kubik-printer-") as temporary:
         "firmware/main/app_runtime.c", "void app_tick(void)", "static void setup_result_face("))
     source = directory / "printer.c"
     source.write_text(fixture)
-    sources = ("printer_protocol", "printer_parse", "printer_work", "printer_job", "printer_result", "printer_guard",
+    sources = ("printer_protocol", "printer_parse", "printer_emoji", "printer_emoji_parse", "printer_work", "printer_job", "printer_result", "printer_guard",
                "printer_layout", "printer_layout_text", "printer_layout_qr")
     qr = ROOT / "firmware/managed_components/espressif__qrcode"
     for target in ("ESP32C6", "ESP32S3"):
@@ -82,4 +82,13 @@ with tempfile.TemporaryDirectory(prefix="kubik-printer-") as temporary:
         '-fsanitize=address,undefined', '-Ifirmware/main', str(guard_source), 'firmware/main/printer_guard.c',
         '-o', str(guard_binary)], cwd=ROOT, check=True)
     subprocess.run([str(guard_binary)], cwd=ROOT, check=True, timeout=10)
+    visibility = (ROOT / 'firmware/sim/printer_visibility_test.c').read_text().replace('/* PRODUCTION_VISIBILITY */', function(
+        'firmware/main/app_menu.c', 'bool app_printer_visible(', 'void menu_sync('))
+    visibility_source = directory / 'visibility.c'
+    visibility_source.write_text(visibility)
+    visibility_binary = directory / 'visibility'
+    subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror',
+        '-fsanitize=address,undefined', '-Ifirmware/main', str(visibility_source), 'firmware/main/app_state.c',
+        '-o', str(visibility_binary)], cwd=ROOT, check=True)
+    subprocess.run([str(visibility_binary)], cwd=ROOT, check=True, timeout=10)
 print("Printer RPC v2: both targets passed ASan/UBSan using production parser, jobs, renderer, hello and app tick")

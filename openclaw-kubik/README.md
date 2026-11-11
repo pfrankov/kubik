@@ -143,13 +143,23 @@ published firmware 0.6.4 and npm 0.6.14 do not include this physical driver.
 {"action":"print","format":"qr","text":"https://example.com/","width_mm":20,"height_mm":20}
 ```
 
-The status returns the recognized head profile, DPI and nominal printable width;
-it does not sense the loaded roll or label height. Text uses up to 1024 UTF-8
+The status returns the recognized profile, 304 dpi across the head, calibrated
+152 dpi along the paper feed, nominal printable width and battery percentage.
+Charging is unknown (`charging: null`); battery level does not prove charging.
+The printer does not sense the loaded roll or label height. Text uses up to 1024 UTF-8
 bytes, QR up to 256. The device wraps text and fits it to the requested area,
-reporting the actual integer-dot layout; it rejects unsupported glyphs or content
+reporting the actual layout in head dots and feed rows with physical millimetres;
+it rejects unsupported glyphs or content
 that cannot fit before sending raster commands. URL text in a QR is encoded
 locally. File paths, download addresses, raw printer commands and alternate
 devices are not accepted as tool arguments.
+
+Text may include emoji from the host's private Apple emoji atlas. The model still
+passes ordinary UTF-8 text; the host sends only the used glyphs, at most eight
+distinct whole emoji per job. The package contains no Apple artwork. Without a
+valid private atlas, ordinary text and QR remain available; emoji printing returns
+`unsupported_character`. Unsupported composites or presentations are never split
+into different emoji or replaced with another style.
 
 Use print only for an explicit user request. `sent` / `submitted` means BLE
 handoff, never physical paper confirmation; `paperConfirmed` remains false.

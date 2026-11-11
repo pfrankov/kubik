@@ -1,15 +1,17 @@
 """Physical printer harness guards; no USB, BLE, paper or fabricated printer replies."""
 import json
 import asyncio
+import base64
+import importlib.util
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from device_printer import (LiveObservations, MicConnection, Observations, PLAN, STREAM_PLAN, StreamObservations, cached_call,
-                            monitor_live, verify_live_window, wait_discovery)
-from printer_contract import printer_answer, printer_arguments
+from device_printer import (LiveObservations, MicConnection, Observations, PLAN, QUALITY_EMOJI, QUALITY_PLAN, QualityObservations, STREAM_PLAN, StreamObservations, cached_call,
+                            monitor_live, verify_live_window, verify_result, wait_discovery)
+from printer_contract import PROFILE, printer_answer, printer_arguments
 
 
 class PrinterHarnessTests(unittest.IsolatedAsyncioTestCase):
@@ -32,6 +34,8 @@ class PrinterHarnessTests(unittest.IsolatedAsyncioTestCase):
         value = {'t': 'printer', 'rid': str(index) * 32, **PLAN[index]}
         if index:
             value.setdefault('format', 'text')
+        if value.get('format') == 'text':
+            value['emoji'] = []
         await self.socket.send_json(value)
 
     async def test_expected_budget_and_repeat_guard_are_persisted_before_dispatch(self):
@@ -165,7 +169,7 @@ class PrinterHarnessTests(unittest.IsolatedAsyncioTestCase):
         for index in range(3):
             with self.assertRaisesRegex(AssertionError, 'repeated'):
                 await self.send_plan(index)
-        value = {'t': 'printer', 'rid': 'a' * 32, **STREAM_PLAN, 'format': 'text'}
+        value = {'t': 'printer', 'rid': 'a' * 32, **STREAM_PLAN, 'format': 'text', 'emoji': []}
         await self.socket.send_json(value)
         with self.assertRaisesRegex(AssertionError, 'repeated'):
             await self.socket.send_json(value)
@@ -187,6 +191,74 @@ class PrinterHarnessTests(unittest.IsolatedAsyncioTestCase):
             with patch('sys.argv', argv + [other]), patch('sys.stderr'):
                 with self.assertRaises(SystemExit):
                     arguments()
+
+    def test_physical_layout_checks_use_independent_head_and_feed_rounding(self):
+        value = {'status': 'sent', 'outcome': 'submitted', 'paperConfirmed': False,
+                 'printer': dict(PROFILE), 'layout': {'format': 'text', 'width_mm': 30,
+                                                    'height_mm': 10.12, 'font_mm': 3.12}}
+        verify_result(value, STREAM_PLAN)
+        value['layout']['width_mm'] = 30.1
+        with self.assertRaises(AssertionError):
+            verify_result(value, STREAM_PLAN)
+        value['layout'].update(width_mm=30, height_mm=10.18)
+        with self.assertRaises(AssertionError):
+            verify_result(value, STREAM_PLAN)
+        value['layout'].update(height_mm=10, font_mm=3.18)
+        with self.assertRaises(AssertionError):
+            verify_result(value, STREAM_PLAN)
+        value['layout']['font_mm'] = 3
+        value['printer']['charging'] = False
+        with self.assertRaises(AssertionError):
+            verify_result(value, STREAM_PLAN)
+
+    async def test_quality_wire_has_only_exact_used_glyphs_and_two_new_jobs(self):
+        self.observations.restore()
+        self.observations = QualityObservations(self.adapter)
+        self.observations.evidence = self.evidence
+        self.observations.install()
+        self.observations.watch_socket(self.socket)
+        bitmap = base64.b64encode(bytes(128)).decode()
+        value = {'t': 'printer', 'rid': 'a' * 32, **QUALITY_PLAN[0], 'format': 'text',
+                 'emoji': [{'sequence': sequence, 'bitmap': bitmap} for sequence in QUALITY_EMOJI]}
+        bad = {**value, 'emoji': value['emoji'][:-1]}
+        with self.assertRaisesRegex(AssertionError, 'emoji'):
+            await self.socket.send_json(bad)
+        await self.socket.send_json(value)
+        qr = {'t': 'printer', 'rid': 'b' * 32, **QUALITY_PLAN[1]}
+        with self.assertRaisesRegex(AssertionError, 'repeated'):
+            await self.socket.send_json({**qr, 'emoji': []})
+        await self.socket.send_json(qr)
+        with self.assertRaisesRegex(AssertionError, 'repeated'):
+            await self.socket.send_json(value)
+        self.assertEqual(len(self.observations.requests()), 2)
+
+    def test_quality_atlas_is_copied_only_as_private_owning_host_state(self):
+        from device import ROOT, copy_private_emoji
+        specification = importlib.util.spec_from_file_location('synthetic_atlas', ROOT / 'tools/fixtures/hermes_emoji_support.py')
+        fixture = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(fixture)
+        owner, state = self.evidence / 'owner/kubik', self.evidence / 'fixture/kubik'
+        owner.mkdir(parents=True); state.mkdir(parents=True)
+        data = fixture.atlas(QUALITY_EMOJI)
+        (owner / 'apple-emoji.bin').write_bytes(data)
+        args = SimpleNamespace(tls_identity=owner / 'tls.json', evidence=self.evidence)
+        copy_private_emoji(args, state)
+        self.assertEqual((state / 'apple-emoji.bin').read_bytes(), data)
+        self.assertEqual((state / 'apple-emoji.bin').stat().st_mode & 0o777, 0o600)
+        self.assertTrue(json.loads((self.evidence / 'apple-atlas.json').read_text())['private_state'])
+
+    def test_quality_markers_keep_model_arguments_free_of_glyphs_or_paths(self):
+        from device import arguments
+        for index, kind in enumerate(('text', 'qr')):
+            marker = 'kubik-printer-quality-' + kind + '-0123456789abcdef'
+            answer, _ = printer_answer([{'role': 'user', 'content': marker}])
+            call = answer['tool_calls'][0]
+            self.assertEqual(json.loads(call['function']['arguments']), QUALITY_PLAN[index])
+            self.assertNotIn('emoji', call['function']['arguments'])
+        argv = ['device.py', '--source', '/tmp/hermes', '--tls-identity', '/tmp/tls.json',
+                '--control', 'http://127.0.0.1:18792', '--evidence', '/tmp/new-evidence', '--printer-quality-check']
+        with patch('sys.argv', argv):
+            self.assertTrue(arguments().printer_quality_check)
 
 
 if __name__ == '__main__':

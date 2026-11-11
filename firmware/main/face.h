@@ -14,6 +14,7 @@
 #include "tess_games.h"
 #include "event_journal.h"
 #include "device_status.h"
+#include "face_printer.h"
 
 typedef enum {
     EMO_NEUTRAL = 0,
@@ -124,7 +125,7 @@ typedef struct {
 } body_t;
 
 // Settings menu, drawn instead of the character (a long BOOT press opens it).
-typedef enum { MENU_VOLUME = 0, MENU_BRIGHT, MENU_ACTIONS, MENU_AGENT, MENU_GUIDE, MENU_STATUS, MENU_UI_VOLUME, MENU_EVENTS, MENU_ROWS } menu_row_t;
+typedef enum { MENU_VOLUME = 0, MENU_BRIGHT, MENU_ACTIONS, MENU_AGENT, MENU_GUIDE, MENU_STATUS, MENU_UI_VOLUME, MENU_EVENTS, MENU_PRINTER, MENU_ROWS } menu_row_t;
 typedef enum { MT_POWER = 0, MT_RESET, MT_COUNT } menu_text_t;
 typedef struct {
     bool open;
@@ -337,6 +338,7 @@ typedef struct {
     bool card_hold;                  // speech of the reply is playing: the card stays
     event_journal_t journal;
     device_status_t status;
+    face_printer_t printer;
     face_menu_t menu;
     agent_menu_t agent;
     // Cron jobs (top-right corner): how many run now; when the next one-shot job is due (face time t, <0 = none).

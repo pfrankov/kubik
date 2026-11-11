@@ -13,12 +13,16 @@ struct printer_layout {
     printer_layout_info_t info;
     char text[PRINTER_LAYOUT_TEXT_MAX_BYTES + 1];
     const font_t *font;
-    uint16_t cap, pad, ascent, descent, line_step;
+    const printer_emoji_glyph_t *emojis;
+    unsigned emoji_count;
+    uint16_t text_bytes, emoji_w, emoji_h;
+    bool has_emoji;
+    uint16_t cap_x, cap_y, pad_x, pad_y, ascent, descent, line_step;
     union {
         printer_line_t lines[PRINTER_LAYOUT_MAX_LINES];
         uint8_t qr[PRINTER_QR_BUFFER];
     } payload;
-    uint16_t qr_size, qr_scale, qr_x, qr_y;
+    uint16_t qr_size, qr_scale_x, qr_scale_y, qr_x, qr_y;
 };
 
 bool printer_layout_text(printer_layout_t *layout, const printer_document_t *document,

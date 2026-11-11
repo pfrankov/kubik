@@ -24,6 +24,7 @@ def arguments():
     modes.add_argument('--printer', action='store_true', help='Real printer acceptance: status and exactly one small text/QR print each')
     modes.add_argument('--printer-live-status', action='store_true', help='Physical Live microphone plus one printer status RPC; printing is blocked')
     modes.add_argument('--printer-stream-check', action='store_true', help='Exactly one NEW BLE 20 ms text print, 30x10 mm at 3 mm font')
+    modes.add_argument('--printer-quality-check', action='store_true', help='Two NEW jobs: personal Apple emoji text and square 20 mm QR')
     parser.add_argument('--evidence', required=True, type=Path, help='NEW private evidence directory')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -72,6 +73,8 @@ def launch(args):
             command.append('--printer-live-status')
         if args.printer_stream_check:
             command.append('--printer-stream-check')
+        if args.printer_quality_check:
+            command.append('--printer-quality-check')
         subprocess.run(command, cwd=ROOT, env=env, timeout=400 if printer_mode(args) else 240, check=True)
 
 
@@ -94,6 +97,8 @@ async def prepare(args, original, identity):
     save(state / 'tls.json', args.tls_identity.read_bytes())  # Never copied off the owning host.
     save(state / 'approved.json', [identity])
     save(state / 'voice.json', {'version': 1, 'entries': {identity: {'mode': original['voice_mode']}}})
+    if args.printer_quality_check:
+        copy_private_emoji(args, state)
     providers = Providers()
     app = web.Application(client_max_size=5 * 1024 * 1024)
     app.router.add_route('*', '/{tail:.*}', providers.respond)
@@ -115,10 +120,32 @@ async def prepare(args, original, identity):
 
 
 def printer_mode(args):
-    return args.printer or args.printer_live_status or args.printer_stream_check
+    return args.printer or args.printer_live_status or args.printer_stream_check or args.printer_quality_check
+
+
+def copy_private_emoji(args, state):
+    import hashlib
+    import importlib.util
+    from device_control import save
+    module_path = ROOT / 'hermes-kubik/printer_emoji.py'
+    specification = importlib.util.spec_from_file_location('kubik_private_emoji', module_path)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    source = args.tls_identity.parent / 'apple-emoji.bin'
+    data = module.read_regular(source)
+    entries = module.parse(data)
+    from device_printer import QUALITY_EMOJI
+    if not all(sequence in entries for sequence in QUALITY_EMOJI):
+        raise ValueError('Private atlas lacks a required quality-test emoji')
+    save(state / 'apple-emoji.bin', data)
+    save(args.evidence / 'apple-atlas.json', {'bytes': len(data), 'entries': len(entries),
+                                           'sha256': hashlib.sha256(data).hexdigest(), 'private_state': True})
 
 
 def acceptance(args):
+    if args.printer_quality_check:
+        from device_printer import QualityObservations, check_quality
+        return QualityObservations, check_quality, 'two new quality jobs with personal Apple emoji submitted'
     if args.printer_stream_check:
         from device_printer import StreamObservations, check_stream
         return StreamObservations, check_stream, 'one new stream transport print submitted'

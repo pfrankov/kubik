@@ -135,6 +135,7 @@ void app_tick(void);
 int app_tick_ms(void);
 bool app_games_available(void);
 bool app_games_flush_safe(void);
+bool app_printer_visible(void);
 void app_protocol_handlers(link_handlers_t *handlers);
 
 extern const char *const app_activity_names[ACT_COUNT];

@@ -1,4 +1,5 @@
 #include "printer_parse.h"
+#include "printer_emoji_parse.h"
 
 #include <math.h>
 #include <string.h>
@@ -35,13 +36,13 @@ static bool raw_invalid(const char *raw, size_t len, size_t consumed) {
 }
 
 static bool fields(cJSON *request, unsigned *seen) {
-    static const char *const names[] = {"t", "rid", "action", "text", "format", "width_mm", "height_mm", "font_mm"};
+    static const char *const names[] = {"t", "rid", "action", "text", "format", "width_mm", "height_mm", "font_mm", "emoji"};
     *seen = 0;
     const cJSON *item;
     cJSON_ArrayForEach(item, request) {
         unsigned i = 0;
-        while (i < 8 && strcmp(item->string, names[i])) i++;
-        if (i == 8 || (*seen & (1u << i))) return false;
+        while (i < 9 && strcmp(item->string, names[i])) i++;
+        if (i == 9 || (*seen & (1u << i))) return false;
         *seen |= 1u << i;
     }
     return (*seen & 7u) == 7u;
@@ -70,6 +71,13 @@ static bool document(cJSON *request, printer_document_t *doc) {
         number(request, "font_mm", &doc->font_mm) && printer_document_valid(doc);
 }
 
+static bool print_request(cJSON *request, printer_input_t *input, unsigned seen) {
+    if (!(seen & 8u) || !document(request,&input->document)) return false;
+    input->emoji=cJSON_GetObjectItemCaseSensitive(request,"emoji");
+    if (input->document.format==PRINTER_FORMAT_QR) return !input->emoji;
+    return printer_emoji_parse_valid(input->emoji,input->document.text,&input->emoji_count);
+}
+
 bool printer_parse_request(cJSON *request, const char *raw, size_t len,
                            size_t consumed, printer_input_t *input) {
     memset(input, 0, sizeof *input);
@@ -79,6 +87,6 @@ bool printer_parse_request(cJSON *request, const char *raw, size_t len,
     const char *action = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(request, "action"));
     if (!action) return false;
     input->printing = !strcmp(action, "print");
-    if (input->printing) return (seen & 8u) && document(request, &input->document);
+    if (input->printing) return print_request(request,input,seen);
     return !strcmp(action, "status") && seen == 7u;
 }

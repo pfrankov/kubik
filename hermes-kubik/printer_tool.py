@@ -13,6 +13,9 @@ DESCRIPTION = ('Inspect or print text and QR codes on this conversation\'s Kubik
                'Use status to obtain DPI and printable dimensions before selecting a size. '
                'Print only at the user\'s request; dimensions are millimetres and text wraps without truncation. '
                'The reported width comes from the verified printer model, not sensing the loaded paper; '
+               'dpi describes horizontal head dots; feed_dpi describes vertical rows and font height. '
+               'charging=null means unknown; battery_pct is a level, not proof of charging. '
+               'Personal Apple emoji need the local atlas; unsupported sequences must not be split or substituted. '
                'never guess a label height. A submitted result is not proof of paper output. '
                'Never retry a print with an unknown outcome. This tool only works in an authenticated Kubik turn.')
 

@@ -25,6 +25,7 @@
     "volume-x",
     "qr-code",
     "audio-lines",
-    "zap"
+    "zap",
+    "printer"
   ]
 }
