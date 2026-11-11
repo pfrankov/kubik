@@ -2,6 +2,7 @@
 """Run the actual pinned SDK framing through our bounded TLS write coalescer."""
 from pathlib import Path
 import os
+import re
 import subprocess
 import tempfile
 
@@ -64,6 +65,7 @@ static void frame(size_t bytes, int opcode) {
     assert(bytes <= sizeof data);
     for (size_t i = 0; i < bytes; i++) data[i] = i % 251;
     memcpy(original, data, bytes); writes = length = 0;
+    memset(s_record, 0xA5, sizeof s_record); // RTC NOINIT input may start with arbitrary retained bytes.
     assert(__wrap_esp_transport_ws_send_raw((void *)1, opcode, data, (int)bytes, 100) == (int)bytes);
     int header = bytes <= 125 ? 6 : 8;
     assert(wire[0] == opcode && length == header + (int)bytes);
@@ -72,6 +74,7 @@ static void frame(size_t bytes, int opcode) {
     for (size_t i = 0; i < bytes; i++) assert((wire[header + i] ^ "abcd"[i % 4]) == (unsigned char)original[i]);
     assert(!memcmp(data, original, bytes));
     assert(writes == (header + (int)bytes + 1023) / 1024 && !atomic_load(&s_owner));
+    for (unsigned i=0;i<sizeof s_record;i++) assert(s_record[i]==0);
 }
 int main(void) {
     for (int opcode = 0x81; opcode <= 0x82; opcode++) {
@@ -94,5 +97,13 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix='kubik-ws-write-') as temp:
     src, exe = Path(temp) / 'test.c', Path(temp) / 'test'
     src.write_text(mock + source + framing + tests)
-    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined', '-g', '-O1', str(src), '-o', str(exe)], check=True)
-    subprocess.run([str(exe)], check=True, timeout=30)
+    profiles = {'host': [], 'c6': ['-DESP_PLATFORM', '-DCONFIG_IDF_TARGET_ESP32C6=1'],
+                's3': ['-DESP_PLATFORM', '-DCONFIG_IDF_TARGET_ESP32C6=0', '-DCONFIG_IDF_TARGET_ESP32S3=1']}
+    for name, flags in profiles.items():
+        expanded = subprocess.check_output(['cc', '-E', '-P', *flags,
+            '-DRTC_NOINIT_ATTR=LP_STORAGE_SENTINEL', str(src)], text=True)
+        marked = bool(re.search(r'static\s+LP_STORAGE_SENTINEL\s+char\s+s_record\[1024\]', expanded))
+        assert marked == (name == 'c6'), 'Only C6 reserves the coalescer in LP memory'
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
+            '-g', '-O1', *flags, '-DRTC_NOINIT_ATTR=', str(src), '-o', str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)

@@ -21,10 +21,9 @@ static void copy_band(int x0, int y0, int x1, int y1, uint16_t *pixels, void *co
 }
 
 static void rasterize(const scene_t *scene, uint16_t frame[R_W * R_H]) {
-    static uint16_t bands[2][R_W * R_BAND];
-    uint16_t *buffers[] = {bands[0], bands[1]};
+    static render_workspace_t workspace;
     render_state_t state = {0};
-    render_frame(&state, scene, buffers, 2, false, copy_band, frame);
+    render_frame(&state, scene, &workspace, false, copy_band, NULL, frame);
 }
 
 static int unique_vertices(const float v[16][4]) {

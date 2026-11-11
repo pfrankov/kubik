@@ -169,9 +169,9 @@ int main(int argc, char **argv) {
     flags(&menu, argc > 3 ? argv[3] : "");
     scene_t scene; scene_begin(&scene, 0);
     draw_preview_scene(&scene, &menu, argc, argv);
-    uint16_t a[R_W * R_H], b[R_W * R_H], *buffers[] = {a, b};
+    render_workspace_t workspace;
     render_state_t state = {0};
-    render_frame(&state, &scene, buffers, 2, false, push, NULL);
+    render_frame(&state, &scene, &workspace, false, push, NULL, NULL);
     render_output_t output; render_output_begin(&output, read_row, NULL);
     render_expand_2x(&output, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
     render_edge_overlay(&scene, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);

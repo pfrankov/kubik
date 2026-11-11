@@ -277,7 +277,9 @@ prim_t *render_make_text(scene_t *s, const font_t *f, int font, int start, int l
     bool emoji = false;
     for (int i = 0; i < len; i++) {
         unsigned token=s->text[start+i];emoji |= token>=R_EMOJI_TOKEN;
-        w += render_token_advance(f,token) + (i ? render_token_kern(f,s->text[start+i-1],token) : 0);
+        int kern = i ? render_token_kern(f,s->text[start+i-1],token) : 0;
+        s->text_kern[start+i] = (int8_t)kern;
+        w += render_token_advance(f,token) + kern;
     }
     prim_t *p = &s->p[s->n++];
     memset(p, 0, sizeof(*p));

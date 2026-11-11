@@ -6,6 +6,9 @@
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 #include "lwip/tcp.h"
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
 
 int __real_esp_transport_ws_send_raw(esp_transport_handle_t transport, ws_transport_opcodes_t opcode,
                                      const char *buffer, int bytes, int timeout_ms);
@@ -18,7 +21,13 @@ int __real_esp_transport_write(esp_transport_handle_t transport, const char *buf
 static _Atomic(TaskHandle_t) s_owner;
 static esp_transport_handle_t s_parent;
 static int s_payload, s_header;
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32C6
+// CPU-only input: TLS copies the complete record into its internal TX buffer.
+// Every transmitted byte is assigned before use; the wrapper clears it after use.
+static RTC_NOINIT_ATTR char s_record[1024];
+#else
 static char s_record[1024];
+#endif
 
 int __wrap_esp_transport_write(esp_transport_handle_t transport, const char *buffer, int bytes, int timeout_ms) {
     TaskHandle_t owner = atomic_load(&s_owner);

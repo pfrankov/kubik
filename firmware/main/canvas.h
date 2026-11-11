@@ -16,7 +16,6 @@ typedef struct { int x0, y0, x1, y1; } canvas_rect_t; // exclusive end
 #define CANVAS_STRIPES (CANVAS_W / CANVAS_STRIPE)
 
 typedef struct {
-    uint32_t row_hash[CANVAS_H];
     uint32_t stripe_hash[CANVAS_H][CANVAS_STRIPES];
     uint8_t row_start[CANVAS_H], row_end[CANVAS_H];      // lit (nonblack) extent
     uint8_t changed_x0[CANVAS_H], changed_x1[CANVAS_H];  // this frame's changed columns (empty: none)

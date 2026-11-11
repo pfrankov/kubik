@@ -24,6 +24,7 @@ static uint16_t horizontal(int x, int y) {
 void display_begin(int a, int b, int c, int d) {
     window_x = a; window_y = b; window_width = c - a; panel_offset = 0;
 }
+void display_reserve_buffer(void) {}
 void display_write(const uint16_t *p, int n, bool last) {
     if (!capture) return;
     for (int i = 0; i < n; i++, panel_offset++) {
@@ -167,6 +168,7 @@ static void merged_output(void) {
     output_frame(&frame);
     capture = false;
     assert(frame.output.read == read_merged && frame.windows == 2);
+    assert(frame.output.row_lit == frame.canvas.row_lit);
     assert(captured == 128 * 32 + 16 * 16);
 }
 static void read_contrast_case(uint16_t stripes, int xa, int xb, bool merged) {

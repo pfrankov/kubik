@@ -14,6 +14,7 @@ def face_sources(extra=(), omit=()):
     return [source for source in FACE + RENDER if source not in omit] + list(extra)
 
 TESTS = {
+    'render_workspace': RENDER + ['canvas'],
     'render_sqrt': [source for source in RENDER if source != 'render_raster'],
     'face_math': [],
     'tess_scene_capacity': face_sources(),
@@ -21,6 +22,7 @@ TESTS = {
     'tess_sky_transition': face_sources(),
     'palette_blend': [],
     'output_flat': ['render_output'],
+    'overlay_alpha': [source for source in RENDER if source != 'render_text'],
     'present_merge': RENDER + ['frame_store', 'canvas'],
     'window_plan': ['render_output'],
     'dot_alpha': [],
@@ -73,7 +75,28 @@ def compile_object(build, source, flags, objects):
     return objects[key]
 
 
+def blend_attributes():
+    source = (ROOT / 'firmware/main/render_text.c').read_text()
+    start = source.index('#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32C6')
+    policy = source[start:source.index('#endif', start) + len('#endif')]
+    assert 'BLEND_PIXEL_FN void blend_pixel(' in source
+    probe = policy + '\nBLEND_PIXEL_FN int blend_probe(void){return 1;}\n'
+    for platform in (False, True):
+        for chip in ('ESP32C6', 'ESP32S3'):
+            for character in (0, 1):
+                flags = [os.environ.get('CC', 'cc'), '-E', '-P', '-x', 'c', '-',
+                         f'-DCONFIG_IDF_TARGET_{chip}=1', f'-DKUBIK_CHARACTER={character}']
+                if platform:
+                    flags.append('-DESP_PLATFORM=1')
+                result = subprocess.run(flags, input=probe, text=True, capture_output=True, check=True).stdout
+                size_profile = platform and chip == 'ESP32C6' and character == 0
+                assert ('noinline' in result) == size_profile
+                assert ('always_inline' in result) == (not size_profile)
+    print('blend policy: one body; C6/Plush firmware shares it, other firmware/native profiles inline it')
+
+
 def main():
+    blend_attributes()
     subprocess.run(['python3', 'tools/assets/render-sqrt-table.py', '--check'], cwd=ROOT, check=True)
     subprocess.run(['python3', 'tools/assets/scatter-material-table.py', '--check'], cwd=ROOT, check=True)
     with tempfile.TemporaryDirectory(prefix="kubik-render-") as build:
@@ -83,9 +106,13 @@ def main():
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=12288", "-DPRESENT_SPLIT=1"]))
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=8"]))
         runs.append(("icons", TESTS["icons"], ["-DICON_TEST_COUNT=24"]))
+        runs.append(("stroke_fast", TESTS["stroke_fast"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("output_flat", TESTS["output_flat"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
+        runs.append(("overlay_alpha", TESTS["overlay_alpha"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
+        runs.append(("dot_alpha", TESTS["dot_alpha"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("face_card_emoji", TESTS["face_card_emoji"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("rectangle_layout", face_sources(), ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
+        runs.append(("render_workspace", TESTS["render_workspace"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("render_projection", [source for source in RENDER if source != "sprite"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("tess_scene_capacity", TESTS["tess_scene_capacity"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("tess_world_geometry", face_sources(omit=["tess_fall"]), []))

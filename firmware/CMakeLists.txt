@@ -31,7 +31,7 @@ else()
     set(PRINTER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/sdkconfig")
 endif()
 execute_process(COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../tools/configure-printer.py"
-    "${PRINTER_CONFIG}" "${CMAKE_CURRENT_SOURCE_DIR}/sdkconfig.defaults"
+    "${PRINTER_CONFIG}" "${CMAKE_CURRENT_SOURCE_DIR}/sdkconfig.defaults" "${IDF_TARGET}"
     COMMAND_ERROR_IS_FATAL ANY)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 if(IDF_TARGET STREQUAL "esp32s3")

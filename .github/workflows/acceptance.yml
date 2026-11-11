@@ -72,7 +72,7 @@ jobs:
           fi
           python3 tools/accept.py "$STAGE"
       - name: Compiler cache statistics
-        if: always() && matrix.stage == 'build'
+        if: always() && matrix.stage == 'build' && steps.prepare.outcome == 'success'
         run: ccache --show-stats
       - name: Save verified compiler cache
         if: success() && matrix.stage == 'build' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

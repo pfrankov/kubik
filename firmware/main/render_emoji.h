@@ -5,8 +5,11 @@
 #define R_EMOJI_SLOTS 4
 #define R_EMOJI_BYTES 576
 #define R_EMOJI_EDGE 32
-#define R_EMOJI_TOKEN 0x100
+#define R_EMOJI_TOKEN 240  // private byte tokens; font glyphs must stay below this value
 #define R_EMOJI_PLACEHOLDER (R_EMOJI_TOKEN + R_EMOJI_SLOTS)
+#if R_EMOJI_PLACEHOLDER > UINT8_MAX
+#error "Scene text tokens must fit one byte"
+#endif
 typedef struct render_emoji_entry render_emoji_entry_t;
 // Bounded immutable payloads. One face reference, plus any in-flight scene pins.
 render_emoji_entry_t *render_emoji_entry_create(const uint8_t pixels[R_EMOJI_BYTES]);

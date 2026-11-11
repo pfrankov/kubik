@@ -62,6 +62,7 @@ static void clipped_rasters(void) {
         scene.dots[0].radius = radius; scene.dots[0].glow = 1;
         render_dots_prepare(&scene);
         uint64_t outer = (unsigned)(radius * 3 + 16);
+        assert(s_halo_step[0]==(uint32_t)((18ull<<32)/(outer*outer)+1));
         // Coverage never exceeds outer²; the maximum lookup index is at zero distance.
         assert(((outer * outer * s_halo_step[0]) >> 32) <= 18);
     }

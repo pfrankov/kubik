@@ -78,6 +78,14 @@ target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_17)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE KUBIK_CHARACTER=${CHARACTER_ID})
 
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_transport_ws_send_raw,--wrap=esp_transport_write,--undefined=__wrap_esp_transport_ws_send_raw")
+if(IDF_TARGET STREQUAL "esp32c6" AND KUBIK_CHARACTER STREQUAL "PLUSH")
+    # SDK warnings/errors stay; app radio diagnostics retain their normal level.
+    foreach(sdk_component bt espressif__esp_codec_dev espressif__esp-sr
+            esp_lcd esp_driver_i2s esp_driver_i2c esp_driver_spi esp_wifi esp_netif esp_event esp_system esp_app_format esp_hw_support nvs_flash esp_pm spi_flash)
+        idf_component_get_property(sdk_lib ${sdk_component} COMPONENT_LIB)
+        target_compile_definitions(${sdk_lib} PRIVATE LOG_LOCAL_LEVEL=2)
+    endforeach()
+endif()
 if(IDF_TARGET STREQUAL "esp32c6")
     target_sources(${COMPONENT_LIB} PRIVATE ble_controller_guard.c)
     target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_bt_controller_enable,--undefined=__wrap_esp_bt_controller_enable")
@@ -96,13 +104,22 @@ endforeach()
 # qrcodegen.h (portable encoder) sits in the component root, not its include dir.
 target_include_directories(${COMPONENT_LIB} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../managed_components/espressif__qrcode)
 # Keep the measured rendering optimization; compile the SDK for size.
-target_compile_options(${COMPONENT_LIB} PRIVATE -O2 -Wno-format-truncation -Wno-stringop-truncation)
+set(MAIN_OPTIMIZATION -O2)
+if(IDF_TARGET STREQUAL "esp32c6" AND KUBIK_CHARACTER STREQUAL "PLUSH")
+    set(MAIN_OPTIMIZATION -Os)
+endif()
+target_compile_options(${COMPONENT_LIB} PRIVATE ${MAIN_OPTIMIZATION} -Wno-format-truncation -Wno-stringop-truncation)
 # Tess's point loops dominate interactive frames on the software-float C6.
 # Let the compiler inline/unroll them without fast-math or changed arithmetic.
 if(KUBIK_CHARACTER STREQUAL "TESS")
     set_source_files_properties(tess_geometry.c tess_play_shape.c tess_draw.c tess_scatter.c render_dots.c
         tess_sky_stream.c tess_sky_compose.c tess_sky_draw.c
         PROPERTIES COMPILE_OPTIONS "-O3")
+endif()
+# C6 keeps short DMA strips without spending its animation budget on composition.
+if(IDF_TARGET STREQUAL "esp32c6" AND KUBIK_CHARACTER STREQUAL "TESS")
+    set_source_files_properties(present.c render_output.c render_text.c render_raster.c font.c board.c
+        render_pipeline.c canvas.c frame_store.c PROPERTIES COMPILE_OPTIONS "-O3")
 endif()
 # Configuration and diagnostic handlers are cold paths; preserve flash headroom.
 set_source_files_properties(sound_levels.c connection_store.c connection_record.c link_discover.c link_hello.c
@@ -114,12 +131,15 @@ set_source_files_properties(sound_levels.c connection_store.c connection_record.
     PROPERTIES COMPILE_OPTIONS "-Os")
 
 # Plush has a smaller app partition: size-optimize UI and hardware-I/O glue.
-# Pixel composition, sprite decoding, audio samples and Noise crypto keep their flags.
+# S3 preserves its measured pixel/audio flags; C6 Plush uses the size profile above.
 if(KUBIK_CHARACTER STREQUAL "PLUSH")
     set_source_files_properties(board.c assets.c muse_noise.cc app.c app_game_probe.c app_journal.c event_journal.c face_setup.c face_status.c face_agent.c face_menu.c face_card.c ui_kit.c
         screen_lab_draw.c event_journal_draw.c
         PROPERTIES COMPILE_OPTIONS "-Os")
 endif()
+
+# Keep the C6 icon shader stack frame bounded before any hardware flash.
+set_property(SOURCE render_text.c APPEND PROPERTY COMPILE_OPTIONS -Werror=vla)
 
 # The assets image (animation, sounds, voice prompts) is packed from firmware/assets
 # and written by `idf.py flash` into the `assets` partition.

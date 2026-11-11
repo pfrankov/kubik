@@ -4,15 +4,61 @@
 #include "icon_data.h"
 #include "render_overlay_s3.h"
 
+#include <assert.h>
 #include <math.h>
 #include <string.h>
 
 static inline int32_t imax(int32_t a, int32_t b) { return a > b ? a : b; }
 static inline int32_t imin(int32_t a, int32_t b) { return a < b ? a : b; }
 
+// One display owner; callers borrow a palette only for this primitive draw.
+static const uint8_t *coverage_palette(uint8_t opacity) {
+    static struct { uint8_t alpha[8][16]; uint16_t tag[8]; uint8_t next; } cache;
+    uint16_t tag = (uint16_t)opacity + 1;
+    for (unsigned i = 0; i < 8; i++)
+        if (cache.tag[i] == tag) return cache.alpha[i];
+    unsigned slot = cache.next;
+    cache.next = (uint8_t)((slot + 1) % 8);
+    cache.tag[slot] = tag;
+    for (unsigned v = 0; v < 16; v++)
+        cache.alpha[slot][v] = (uint8_t)((v * opacity * 32u + 1912u) / 3825u);
+    return cache.alpha[slot];
+}
+
+// One display owner; the primitive borrows these exact results until its draw ends.
+static const uint16_t *black_palette(uint16_t color, uint8_t opacity, bool swap, const uint8_t alpha[16]) {
+    static struct { uint16_t pixels[16]; uint32_t key; } cache;
+    // Zeroed BSS is already the exact palette for color=0, opacity=0, swap=false.
+    uint32_t key = color | ((uint32_t)opacity << 16) | ((uint32_t)swap << 24);
+    if (cache.key != key) {
+        for (unsigned v = 0; v < 16; v++) {
+            uint16_t value = rgb565_blend(color, 0, alpha[v]);
+            cache.pixels[v] = swap ? rgb565_bswap(value) : value;
+        }
+        cache.key = key;
+    }
+    return cache.pixels;
+}
+
+// Match the existing size/performance profiles without changing the pixel formula.
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32C6 && KUBIK_CHARACTER == 0
+#define BLEND_PIXEL_FN static __attribute__((noinline))
+#else
+#define BLEND_PIXEL_FN static inline __attribute__((always_inline))
+#endif
+BLEND_PIXEL_FN void blend_pixel(uint16_t *dst, uint16_t source_color, uint32_t alpha, bool swap) {
+    uint16_t result = source_color;
+    if (alpha < 32) {
+        uint16_t background = swap ? rgb565_bswap(*dst) : *dst;
+        result = rgb565_blend(source_color, background, alpha);
+    }
+    *dst = swap ? rgb565_bswap(result) : result;
+}
+
+
 static void render_text_glyph(const font_t *f, const font_glyph_t *g, uint16_t *out, int x0, int y0, int xe, int ye,
-                              int stride, int gx, int gy, const uint8_t alpha[16], uint16_t color, uint16_t source_color,
-                              bool swap) {
+                              int stride, int gx, int gy, const uint8_t alpha[16], const uint16_t black[16],
+                              uint16_t source_color, bool swap) {
     if (!g->w || gx > xe || gx + g->w <= x0) return;
     int glyph_stride = (g->w + 1) / 2;
     for (int y = imax(gy, y0); y <= imin(gy + g->h - 1, ye); y++) {
@@ -23,9 +69,8 @@ static void render_text_glyph(const font_t *f, const font_glyph_t *g, uint16_t *
             if (!v) continue;
             uint32_t a = alpha[v];
             uint16_t *d = &row[x];
-            if (a >= 32) *d = color;
-            else if (!swap) *d = rgb565_blend(color, *d, a);
-            else *d = rgb565_bswap(rgb565_blend(source_color, rgb565_bswap(*d), a));
+            if (!*d) *d = black[v];
+            else blend_pixel(d, source_color, a, swap);
         }
     }
 }
@@ -54,17 +99,17 @@ static uint32_t icon_mask_coverage(const uint8_t *mask, int xq, int yq) {
     return (uint32_t)((top * (256 - fy) + bottom * fy + 32768) >> 16);
 }
 
-static inline void icon_blend(uint16_t *dst, uint16_t color, uint16_t source_color, uint32_t alpha, bool swap) {
-    if (alpha >= 32) *dst = color;
-    else if (!swap) *dst = rgb565_blend(color, *dst, alpha);
-    else *dst = rgb565_bswap(rgb565_blend(source_color, rgb565_bswap(*dst), alpha));
-}
 
-static void icon_composite_pixel(uint16_t *dst, uint16_t color, uint16_t source_color, uint8_t opacity,
+static void icon_composite_pixel(uint16_t *dst, uint16_t source_color, const uint8_t *palette,
                                  uint32_t coverage, bool swap) {
     if (!coverage) return;
-    uint32_t alpha = (coverage * opacity * 32u + 1912u) / (15u * 255u);
-    if (alpha) icon_blend(dst, color, source_color, alpha, swap);
+    uint32_t alpha = palette[coverage];
+    if (alpha) blend_pixel(dst, source_color, alpha, swap);
+}
+
+static bool icon_window_outside(int left, int top, int size, int x0, int y0, int width, int rows) {
+    return (y0 + rows) * 16 <= top || y0 * 16 >= top + size ||
+           (x0 + width) * 16 <= left || x0 * 16 >= left + size;
 }
 
 static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap) {
@@ -72,19 +117,23 @@ static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0
     const uint8_t *mask = g_icon_masks[p->b];
     int size = p->a, half = size / 2;
     int left = p->sub_x - half, top = p->sub_y - half;
+    // Equivalent to disjoint floor(left)/ceil(right) pixel bounds, including fractional edges.
+    if (icon_window_outside(left, top, size, x0, y0, width, rows)) return;
     int xs = imax(x0, icon_floor_q4(left)), xe = imin(x0 + width - 1, icon_ceil_q4(p->sub_x + size - half) - 1);
     int ys = imax(y0, icon_floor_q4(top)), ye = imin(y0 + rows - 1, icon_ceil_q4(p->sub_y + size - half) - 1);
     if (xs > xe || ys > ye) return;
+    assert(xe - xs < UI_W);
     // Each column samples the same source coordinate on every row of this window.
-    uint16_t xq[xe - xs + 1];
+    uint16_t xq[UI_W];  // fixed frame: no dynamic-SP save/restore across inlined overlay branches
     for (int x = xs; x <= xe; x++) xq[x - xs] = (uint16_t)icon_axis_q8(x, left, size);
-    uint16_t source_color = p->color, color = swap ? rgb565_bswap(source_color) : source_color;
+    const uint8_t *palette = coverage_palette(p->alpha);
+    uint16_t source_color = p->color;
     for (int y = ys; y <= ye; y++) {
         int syq = icon_axis_q8(y, top, size);
         uint16_t *row = out + (y - y0) * stride - x0;
         for (int x = xs; x <= xe; x++) {
             uint32_t coverage = icon_mask_coverage(mask, xq[x - xs], syq);
-            icon_composite_pixel(&row[x], color, source_color, p->alpha, coverage, swap);
+            icon_composite_pixel(&row[x], source_color, palette, coverage, swap);
         }
     }
 }
@@ -97,22 +146,26 @@ static void render_text_primitive(const scene_t *s, const prim_t *p, uint16_t *o
     int top=s->raster_ready ? p->by0*R_SCALE : p->by0;
     int bottom=s->raster_ready ? (p->by1+1)*R_SCALE : p->by1+1;
     if (bottom<y0 || top>ye)return;
+    int left=s->raster_ready ? p->bx0*R_SCALE : p->bx0;
+    int right=s->raster_ready ? (p->bx1+1)*R_SCALE : p->bx1+1;
+    if (right<=x0 || left>=x0+width)return;
     int pen = p->sub_x * 16;
-    uint8_t alpha[16];
-    for (unsigned v = 0; v < 16; v++)
-        alpha[v] = (uint8_t)((v * p->alpha * 32 + 15 * 255 / 2) / (15 * 255));
-    uint16_t c = swap ? rgb565_bswap(p->color) : p->color;
+    const uint8_t *alpha = coverage_palette(p->alpha);
+    const uint16_t *black = black_palette(p->color, p->alpha, swap, alpha);
     for (int i = 0; i < p->b; i++) {
+        pen += s->text_kern[p->a+i];
         uint16_t token=s->text[p->a+i];
-        if(token>=R_EMOJI_TOKEN)
+        int advance;
+        if(token>=R_EMOJI_TOKEN) {
             render_emoji_overlay(s,token,out,x0,y0,width,rows,stride,(pen+8)>>4,
                 base-(f->cap+R_EMOJI_EDGE)/2,p->alpha,swap);
-        else {
+            advance=R_EMOJI_EDGE*16;
+        } else {
             const font_glyph_t *g=&f->g[token];
-            render_text_glyph(f,g,out,x0,y0,xe,ye,stride,((pen+8)>>4)+g->x,base-g->top,alpha,c,p->color,swap);
+            advance=g->adv;
+            render_text_glyph(f,g,out,x0,y0,xe,ye,stride,((pen+8)>>4)+g->x,base-g->top,alpha,black,p->color,swap);
         }
-        pen+=render_token_advance(f,token)+p->sub_r+
-            (i+1<p->b ? render_token_kern(f,token,s->text[p->a+i+1]) : 0);
+        pen+=advance+p->sub_r;
     }
 }
 

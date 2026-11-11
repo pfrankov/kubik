@@ -14,7 +14,7 @@ static void push(int x0, int y0, int x1, int y1, uint16_t *px, void *ctx) {
 int main(void) {
     face_t f; face_init(&f);
     render_state_t st = {0};
-    uint16_t band[R_W * R_BAND], *bufs[] = {band};
+    render_workspace_t workspace;
     const float times[] = {.1f, .033f, .066f, .02f};
     float elapsed = 0;
     for (int i = 0; elapsed < 30; i++) {
@@ -31,7 +31,7 @@ int main(void) {
         assert(isfinite(f.hop) && fabsf(f.hop) < 100);
         assert(isfinite(f.hop_v) && fabsf(f.hop_v) < 1000);
         scene_t s; face_draw(&f, &s);
-        render_frame(&st, &s, bufs, 1, false, push, NULL);
+        render_frame(&st, &s, &workspace, false, push, NULL, NULL);
     }
     assert(pushes > 100);
     puts("variable frame time: 30s finite/bounded springs, hop, elapsed time and rendering passed");

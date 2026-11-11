@@ -40,8 +40,6 @@ static inline int32_t len2(int32_t x, int32_t y) { return (int32_t)isqrt((uint32
 // ------------------------------------------------------------------ SDF
 
 static int32_t sdf(const scene_t *s, const prim_t *p, int32_t wx, int32_t wy);
-static bool s_noclip[R_MAX_PRIMS];  // clip shape covers the whole bbox: skip it per pixel
-static bool s_plain[R_MAX_PRIMS];   // upright rounded box, no modifiers, nothing to clip: the distance is closed form
 
 static inline int32_t sdf_modifiers(const prim_t *p, int32_t x, int32_t y, int32_t d) {
     for (int i = 0; i < p->ncut; i++) {
@@ -120,11 +118,11 @@ static inline void to_local(const prim_t *p, int32_t wx, int32_t wy, int32_t *x,
 // (and then steps by the distance) passes it: past it the clip cannot bring the point any closer, so the clip is
 // not measured and the value returned is only a lower bound of the full distance.
 static R_HOT int32_t sdf_upto(const scene_t *s, const prim_t *p, int32_t wx, int32_t wy, int32_t bound) {
-    if (s_plain[p - s->p]) return sdf_rbox(p, wx - p->cx, wy - p->cy);
+    if (p->raster_flags & RASTER_PLAIN) return sdf_rbox(p, wx - p->cx, wy - p->cy);
     int32_t x, y;
     to_local(p, wx, wy, &x, &y);
     int32_t d = sdf_local(p, x, y);
-    if (d < bound && p->clip >= 0 && !s_noclip[p - s->p]) d = imax(d, sdf(s, &s->p[p->clip], wx, wy));
+    if (d < bound && p->clip >= 0 && !(p->raster_flags & RASTER_NOCLIP)) d = imax(d, sdf(s, &s->p[p->clip], wx, wy));
     return d;
 }
 static R_HOT int32_t sdf(const scene_t *s, const prim_t *p, int32_t wx, int32_t wy) {
@@ -294,8 +292,8 @@ static R_HOT void raster_frame(const scene_t *s, const prim_t *p, uint16_t *buf,
         raster_frame_row(s, p, buf, bx0, bw, xs, xe, y, band_y0, half, inv, solid_a, col);
 }
 
-static bool clip_is_full(const scene_t *s, const prim_t *p) {
-    return p->clip < 0 || s_noclip[p - s->p];
+static bool clip_is_full(const prim_t *p) {
+    return p->clip < 0 || (p->raster_flags & RASTER_NOCLIP);
 }
 
 static bool upright_rbox(const prim_t *p) {
@@ -313,11 +311,11 @@ static bool outlined_rbox(const prim_t *p) {
 static bool raster_special_rows(const scene_t *s, const prim_t *p, uint16_t *buf, int bx0, int bw, int xs, int xe,
                                 int ya, int yb, int band_y0, bool upright) {
     if (!upright) return false;
-    if (plain_rbox(p) && clip_is_full(s, p)) {
+    if (plain_rbox(p) && clip_is_full(p)) {
         raster_rect(p, buf, bx0, bw, xs, xe, ya, yb, band_y0);
         return true;
     }
-    if (outlined_rbox(p) && clip_is_full(s, p)) {
+    if (outlined_rbox(p) && clip_is_full(p)) {
         raster_frame(s, p, buf, bx0, bw, xs, xe, ya, yb, band_y0);
         return true;
     }
@@ -423,17 +421,18 @@ bool render_raster_primitive(const scene_t *s, const prim_t *p, uint16_t *buf, i
 }
 
 static void prepare_clip_cache(scene_t *s) {
-    for (int i = 0; i < s->n; i++) s_noclip[i] = false;
-    for (int i = 0; i < s->n; i++)
-        s_noclip[i] = s->p[i].clip >= 0 && s->p[i].kind < PK_SPRITE && s->p[i].bx0 <= s->p[i].bx1 &&
-                      clip_covers(s, &s->p[i]);
+    for (int i = 0; i < s->n; i++) {
+        prim_t *p = &s->p[i];
+        if (p->clip >= 0 && p->kind < PK_SPRITE && p->bx0 <= p->bx1 && clip_covers(s, p))
+            p->raster_flags |= RASTER_NOCLIP;
+    }
 }
 
 static void prepare_plain_cache(scene_t *s) {
     for (int i = 0; i < s->n; i++) {
-        const prim_t *p = &s->p[i];
-        s_plain[i] = p->kind == PK_RBOX && p->sn == 0 && p->cs == 16384 && !p->ncut && !p->has_sub && !p->stroke &&
-                     (p->clip < 0 || s_noclip[i]);
+        prim_t *p = &s->p[i];
+        if (p->kind == PK_RBOX && p->sn == 0 && p->cs == 16384 && !p->ncut && !p->has_sub && !p->stroke &&
+            (p->clip < 0 || (p->raster_flags & RASTER_NOCLIP))) p->raster_flags |= RASTER_PLAIN;
     }
 }
 
@@ -441,7 +440,7 @@ static void prepare_convex_cache(scene_t *s) {
     for (int i = 0; i < s->n; i++) {
         const prim_t *p = &s->p[i];
         s_convex[i] = p->kind == PK_RBOX && !p->has_sub && !p->stroke &&
-                      (p->clip < 0 || s_noclip[i] || s_convex[p->clip]);
+                      (p->clip < 0 || (p->raster_flags & RASTER_NOCLIP) || s_convex[p->clip]);
     }
 }
 
@@ -452,7 +451,7 @@ uint32_t render_raster_prepare(scene_t *s, bool swap) {
     g_render_swap = swap;
     for (int i = 0; i < s->n; i++) compute_bbox(s, &s->p[i]);
     render_dots_prepare(s);
-    memset(s_plain, 0, sizeof s_plain);  // the clip cache measures with the general distance
+    for (int i = 0; i < s->n; i++) s->p[i].raster_flags = 0; // clip tests use the general distance
     prepare_clip_cache(s);
     prepare_plain_cache(s);
     prepare_convex_cache(s);

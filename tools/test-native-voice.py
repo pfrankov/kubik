@@ -16,6 +16,7 @@ fixture = r'''
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
 #include "auto_voice.h"
@@ -56,6 +57,23 @@ typedef int portMUX_TYPE;
 typedef void *vad_handle_t;
 static bool alloc_ok=true, voiced;
 static unsigned allocations, frees;
+static bool scratch_ok=true, gate_drained=true;
+static unsigned scratch_attempts, scratch_allocations, scratch_frees;
+static void *scratch;
+#define MALLOC_CAP_INTERNAL 1
+#define MALLOC_CAP_8BIT 2
+static void *heap_caps_malloc(size_t bytes,unsigned caps) {
+    assert(bytes==1280 && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT) && !scratch);
+    scratch_attempts++;
+    if(!scratch_ok)return NULL;
+    scratch=malloc(bytes);assert(scratch);memset(scratch,0xa5,bytes);scratch_allocations++;
+    return scratch;
+}
+static void heap_caps_free(void *pointer) {
+    assert(pointer==scratch && gate_drained);
+    for(unsigned i=0;i<1280;i++)assert(((uint8_t *)pointer)[i]==0);
+    free(pointer);scratch=NULL;scratch_frees++;
+}
 static vad_handle_t vad_create_with_param(int mode,int rate,int ms,int a,int b) {
     assert(mode==3&&rate==16000&&ms==20&&a==20&&b==20);allocations++;return alloc_ok?(void*)1:NULL;
 }
@@ -80,6 +98,7 @@ static bool close_ok=true;
 static unsigned input_acks;
 static bool audio_mic_gate(bool enabled,void (*cb)(const int16_t*,int,const uint8_t*)) {
     open=enabled&&gate_ok;callback=cb;epoch++;
+    gate_drained=!enabled;
     if(enabled&&early_stop) {early_stop=false;request_end(s_turn,session);}
     return enabled ? gate_ok : close_ok;
 }
@@ -145,6 +164,37 @@ static void face_emo(int kind,float seconds) {(void)kind;(void)seconds;}
 '''
 cases = r'''
 static bool start_capture(void) {app_voice_prepare_capture(s_turn);return app_voice_start_capture();}
+static void pcm_lifetime_cases(void) {
+    assert(!scratch && !s_pcm && !s_vad);
+    app_voice_capabilities(1,(VOICE_REALTIME<<1)|1);
+    unsigned attempts=scratch_attempts, created=allocations, destroyed=frees;
+    scratch_ok=false;s_talk=TALK_HOLD;
+    assert(!start_capture() && !open && !s_vad && !s_pcm && !scratch);
+    assert(scratch_attempts==attempts+1 && allocations==created+1 && frees==destroyed+1);
+    scratch_ok=true;alloc_ok=false;attempts=scratch_attempts;
+    assert(!start_capture() && !open && !s_vad && !s_pcm && scratch_attempts==attempts);
+    alloc_ok=true;unsigned released=scratch_frees;
+    assert(start_capture() && s_pcm==scratch && s_vad && open);
+    memset(s_pcm,0x7f,1280); // Teardown must scrub every one of the full 640 samples.
+    assert(start_capture() && s_pcm && s_vad && open && scratch_frees==released+1);
+    gate_ok=false;
+    assert(!start_capture() && !open && !s_pcm && !s_vad && !scratch);
+    assert(scratch_frees==released+3);gate_ok=true;
+    for(int n=0;n<4;n++) {
+        app_voice_capabilities(1,(VOICE_REALTIME<<1)|1);s_talk=TALK_HOLD;
+        assert(start_capture() && s_pcm && s_vad);
+        app_voice_capabilities(1,1);assert(!open && !s_pcm && !s_vad && !scratch);
+        attempts=scratch_attempts;
+        assert(start_capture() && open && !s_pcm && !s_vad);
+        audio_mic_gate(false,NULL);app_voice_recording_stop();app_voice_recording_stop();
+        app_voice_capabilities(1,(VOICE_LIVE<<1)|1);s_talk=TALK_HOLD;
+        assert(start_capture() && open && !s_pcm && !s_vad);
+        live_input(s_turn,false,session);live_input(s_turn,true,session);
+        assert(open && scratch_attempts==attempts && !s_pcm && !s_vad);
+        app_voice_live_stop(false);assert(!scratch && !s_pcm && !s_vad);
+    }
+    assert(scratch_allocations==scratch_frees);
+}
 int main(void) {
     assert(app_voice_mode()==VOICE_CLASSIC);
     assert(start_capture()&&open&&callback==classic_frame&&!allocations);
@@ -232,6 +282,7 @@ int main(void) {
     assert(!open && !app_voice_live_active());
     assert(!strcmp(last_card,"Could not resume the microphone. Try " KUBIK_VOICE_BUTTON " again."));
     gate_ok=true;
+    pcm_lifetime_cases();
     puts("native voice: Realtime VAD/epochs, persistent Live pause/resume/end, classic contrast, allocation failures and board-specific retry button passed");
 }
 '''

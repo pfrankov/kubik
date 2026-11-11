@@ -28,7 +28,7 @@ static inline void render_glass_prepare(const scene_t *s) { (void)s; }
 static inline bool render_glass_intersects(int x0, int x1, int y0, int y1) {
     (void)x0; (void)x1; (void)y0; (void)y1; return false;
 }
-static inline void render_glass_snapshot(uint16_t *buf, int width) { (void)buf; (void)width; }
+static inline void render_glass_snapshot(uint16_t *buf, int width, int rows) { (void)buf; (void)width; (void)rows; }
 static inline void render_glass_restore(uint16_t *buf, int x0, int width, int y0, int y1) {
     (void)buf; (void)x0; (void)width; (void)y0; (void)y1;
 }
@@ -36,6 +36,6 @@ static inline void render_glass_restore(uint16_t *buf, int x0, int width, int y0
 #define RENDER_GLASS_ENABLED 1
 void render_glass_prepare(const scene_t *s);
 bool render_glass_intersects(int x0, int x1, int y0, int y1);
-void render_glass_snapshot(uint16_t *buf, int width);
+void render_glass_snapshot(uint16_t *buf, int width, int rows);
 void render_glass_restore(uint16_t *buf, int x0, int width, int y0, int y1);
 #endif

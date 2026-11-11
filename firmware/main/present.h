@@ -13,7 +13,7 @@
 #if CONFIG_IDF_TARGET_ESP32S3
 #define OUTPUT_ROWS 8
 #else
-#define OUTPUT_ROWS 4  // three 480x4 DMA strips use 11.25 KiB, retaining Wi-Fi/Live/BLE headroom
+#define OUTPUT_ROWS 4  // two 480x4 DMA strips; reserve before composition to preserve FIFO ownership
 #endif
 #define PLAN_WINDOWS (RENDER_BAND_WINDOWS + 4)  // the windows of a band: its changed stripes, the edge band's ring
 
@@ -24,7 +24,7 @@ typedef struct {
     unsigned flushes;
     int bands_kept;         // the bands of this frame decided for the store so far (all of them before the burst)
     const scene_t *scene;
-    uint16_t *bands[2];     // render bands (native rows), alternating
+    render_workspace_t *workspace;  // one native band and the next first row
     uint16_t *bufs[LCD_PIPE];  // panel rows for DMA
     int next;
 #if !CONFIG_IDF_TARGET_ESP32S3

@@ -24,12 +24,15 @@ int64_t esp_timer_get_time(void) { return g_now; }
 static uint16_t panel[LCD_H][LCD_W];
 static int win_x0, win_y0, win_x1, win_y1, win_at;
 static int64_t written_px;
+static bool buffer_reserved;
+void display_reserve_buffer(void) { assert(!buffer_reserved); buffer_reserved=true; }
 void display_begin(int x0, int y0, int x1, int y1) {
     if (running->bands_kept < R_BANDS) writes_before_composed++;
     win_x0 = x0; win_y0 = y0; win_x1 = x1; win_y1 = y1; win_at = 0;
 }
 void display_write(const uint16_t *pixels, int count, bool last) {
     (void)last;
+    assert(buffer_reserved);buffer_reserved=false;
     int width = win_x1 - win_x0;
     for (int i = 0; i < count; i++, win_at++)
         panel[win_y0 + win_at / width][win_x0 + win_at % width] = rgb565_bswap(pixels[i]);  // the panel byte order
@@ -47,9 +50,8 @@ static void keep(int x0, int y0, int x1, int y1, uint16_t *px, void *ctx) {
 static void read_ref(void *ctx, int y, uint16_t *row, int xa, int xb) { (void)ctx; memcpy(row, ref_native[y], R_W * 2); }
 static void reference(const scene_t *scene) {
     static render_state_t rs;
-    static uint16_t b0[R_W * R_BAND], b1[R_W * R_BAND];
-    uint16_t *bufs[2] = {b0, b1};
-    render_frame(&rs, scene, bufs, 2, false, keep, NULL);
+    static render_workspace_t workspace;
+    render_frame(&rs, scene, &workspace, false, keep, NULL, NULL);
     static render_output_t out;
     render_output_begin(&out, read_ref, NULL);
     render_expand_2x(&out, &ref_panel[0][0], 0, 0, LCD_W, LCD_H, LCD_W, false);
@@ -69,11 +71,10 @@ static void turn_view(face_t *f, float t) {
     f->view_q[0] = cosf(angle / 2); f->view_q[1] = ax * s; f->view_q[2] = ay * s; f->view_q[3] = az * s;
 }
 
-static frame_out_t *make_output(scene_t *scene, uint16_t *bands[2]) {
+static frame_out_t *make_output(scene_t *scene, render_workspace_t *workspace) {
     frame_out_t *o = calloc(1, sizeof *o);
     o->scene = scene;
-    o->bands[0] = bands[0];
-    o->bands[1] = bands[1];
+    o->workspace = workspace;
     for (int i = 0; i < LCD_PIPE; i++) o->bufs[i] = malloc(LCD_W * OUTPUT_ROWS * 2);
     return o;
 }
@@ -82,9 +83,8 @@ static frame_out_t *make_output(scene_t *scene, uint16_t *bands[2]) {
 static void run(double cost, int64_t *burst_mean) {
     static scene_t scene;
     static render_state_t rs;
-    static uint16_t b0[R_W * R_BAND] __attribute__((aligned(4))), b1[R_W * R_BAND] __attribute__((aligned(4)));
-    uint16_t *bands[2] = {b0, b1};
-    frame_out_t *o = make_output(&scene, bands);
+    static render_workspace_t workspace;
+    frame_out_t *o = make_output(&scene, &workspace);
     running = o;
     memset(panel, 0, sizeof panel);
     face_t f;
@@ -119,10 +119,9 @@ static void run(double cost, int64_t *burst_mean) {
 static void run_modes(int character, double cost) {
     static scene_t scene;
     static render_state_t rs;
-    static uint16_t b0[R_W * R_BAND] __attribute__((aligned(4))), b1[R_W * R_BAND] __attribute__((aligned(4)));
+    static render_workspace_t workspace;
     static const face_mode_t modes[] = {MODE_IDLE, MODE_LISTENING, MODE_THINKING, MODE_SPEAKING, MODE_IDLE, MODE_SLEEP, MODE_OFFLINE, MODE_IDLE};
-    uint16_t *bands[2] = {b0, b1};
-    frame_out_t *o = make_output(&scene, bands);
+    frame_out_t *o = make_output(&scene, &workspace);
     running = o;
     memset(panel, 0, sizeof panel);
     face_t f;
@@ -173,9 +172,8 @@ static void update_menu_fixture(face_t *face, int i) {
 static void run_overlays(void) {
     static scene_t scene;
     static render_state_t rs;
-    static uint16_t b0[R_W * R_BAND], b1[R_W * R_BAND];
-    uint16_t *bands[2] = {b0, b1};
-    frame_out_t *o = make_output(&scene, bands);
+    static render_workspace_t workspace;
+    frame_out_t *o = make_output(&scene, &workspace);
     running = o; memset(panel, 0, sizeof panel);
     g_us_per_px = 0;
     for (int i = 0; i < 12; i++) {
@@ -226,9 +224,8 @@ static void run_partial_reads(void) {
 static void run_rejected(void) {
     static scene_t scene;
     static render_state_t state;
-    static uint16_t band0[R_W * R_BAND], band1[R_W * R_BAND];
-    uint16_t *bands[] = {band0, band1};
-    frame_out_t *frame = make_output(&scene, bands);
+    static render_workspace_t workspace;
+    frame_out_t *frame = make_output(&scene, &workspace);
     running = frame;
     scene_begin(&scene, 0xFFFF);
     int64_t before = written_px;

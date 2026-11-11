@@ -17,10 +17,10 @@ static void read_row(void *ctx,int y,uint16_t *row,int xa,int xb) {
     (void)ctx;memcpy(row+xa,&canvas[y][xa],(size_t)(xb-xa)*2);
 }
 static void render(void) {
-    static uint16_t bands[2][R_W*R_BAND];uint16_t *buffers[]={bands[0],bands[1]};
+    static render_workspace_t workspace;
     render_state_t state={0};render_output_t output;
     memset(canvas,0,sizeof canvas);memset(panel,0,sizeof panel);
-    render_frame(&state,&scene,buffers,2,false,push,NULL);
+    render_frame(&state,&scene, &workspace, false, push, NULL, NULL);
     render_output_begin(&output,read_row,NULL);
     render_expand_2x(&output,&panel[0][0],0,0,UI_RENDER_W,UI_OUTPUT_H,UI_RENDER_W,false);
     render_edge_overlay(&scene,&panel[0][0],0,0,UI_RENDER_W,UI_OUTPUT_H,UI_RENDER_W,false);

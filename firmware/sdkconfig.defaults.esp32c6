@@ -1,1 +1,3 @@
 CONFIG_IDF_TARGET="esp32c6"
+# Allocate shared BLE mbufs on demand; retain both complete 12-block pools.
+CONFIG_BT_NIMBLE_MSYS_BUF_FROM_HEAP=n

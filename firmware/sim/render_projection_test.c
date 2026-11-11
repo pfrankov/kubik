@@ -9,7 +9,8 @@
 
 static scene_t scene;
 static render_state_t state;
-static uint16_t canvas[R_H][R_W], bands[2][R_W * R_BAND];
+static uint16_t canvas[R_H][R_W];
+static render_workspace_t workspace;
 static uint8_t pack[8192];
 static const uint8_t *fetch(uint32_t off, uint32_t len, uint32_t hint, uint32_t hint_len) {
     (void)hint; (void)hint_len; assert(off + len <= sizeof pack); return pack + off;
@@ -20,8 +21,7 @@ static void capture(int x0, int y0, int x1, int y1, uint16_t *pixels, void *cont
         memcpy(&canvas[y][x0], pixels + (y - y0) * (x1 - x0), (size_t)(x1 - x0) * 2);
 }
 static void render(void) {
-    uint16_t *buffers[] = {bands[0], bands[1]};
-    render_frame(&state, &scene, buffers, 2, false, capture, NULL);
+    render_frame(&state, &scene, &workspace, false, capture, NULL, NULL);
 }
 static void equal_axes(int *width, int *height) {
     int left=R_W, right=-1, top=R_H, bottom=-1;

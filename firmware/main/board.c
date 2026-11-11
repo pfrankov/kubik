@@ -19,7 +19,6 @@
 #include "freertos/task.h"
 
 static const char *TAG = "board";
-
 i2c_master_bus_handle_t g_i2c_bus;
 static i2c_master_dev_handle_t s_pmic;
 static spi_device_handle_t s_lcd;
@@ -35,6 +34,9 @@ static spi_transaction_ext_t s_lcd_trans[LCD_TRANS];
 #define LCD_TRANS_COMMAND ((void *)2)
 static bool s_lcd_stream, s_lcd_first, s_lcd_held;  // held: an ended window may still be in flight
 static unsigned s_lcd_next;
+#if !CONFIG_IDF_TARGET_ESP32S3
+static bool s_lcd_reserved;
+#endif
 #if CONFIG_IDF_TARGET_ESP32S3
 static portMUX_TYPE s_lcd_start_lock = portMUX_INITIALIZER_UNLOCKED;
 static void (*s_lcd_started)(void *);
@@ -55,7 +57,6 @@ static void IRAM_ATTR lcd_trans_start(spi_transaction_t *t) {
     if (started) started(context);
 }
 #endif
-
 #if CONFIG_IDF_TARGET_ESP32S3
 static i2c_master_dev_handle_t s_expander;
 static void expander_output(uint8_t value) {
@@ -81,28 +82,22 @@ bool board_key_down(void) {
     return !gpio_get_level(PIN_KEY);
 #endif
 }
-
 // ---------------------------------------------------------------- AXP2101
-
 #define AXP_ADDR 0x34
-
 static esp_err_t axp_write(uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
     return i2c_master_transmit(s_pmic, buf, 2, 100);
 }
-
 static int axp_read(uint8_t reg) {
     uint8_t val = 0;
     if (i2c_master_transmit_receive(s_pmic, &reg, 1, &val, 1, 100) != ESP_OK) return -1;
     return val;
 }
-
 static void axp_set_bits(uint8_t reg, uint8_t mask, bool on) {
     int v = axp_read(reg);
     if (v < 0) return;
     axp_write(reg, on ? (v | mask) : (v & ~mask));
 }
-
 static void pmic_init(void) {
     i2c_device_config_t cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -110,7 +105,6 @@ static void pmic_init(void) {
         .scl_speed_hz = 400000,
     };
     ESP_ERROR_CHECK(i2c_master_bus_add_device(g_i2c_bus, &cfg, &s_pmic));
-
     // PWR key, AXP2101 REG 0x27 = 0x23: IRQLEVEL 2 s, OFFLEVEL 4 s, ONLEVEL 2 s.
     // While running, a 2 s hold raises the long-press IRQ (goodbye, then software power-off).
     // A 4 s hold still cuts the rails in hardware if the firmware hangs (REG 0x22 bit 1, power-off).
@@ -152,7 +146,6 @@ static void pmic_init(void) {
     axp_write(0x49, 0xFF);
     axp_write(0x4A, 0xFF);
 }
-
 void pmic_read(power_status_t *out) {
     memset(out, 0, sizeof(*out));
     int s1 = axp_read(0x00), s2 = axp_read(0x01);
@@ -172,20 +165,17 @@ void pmic_read(power_status_t *out) {
         out->battery_pct = -1;
     }
 }
-
 int pmic_pwr_keys(void) {
     int st = axp_read(0x49);
     if (st <= 0) return 0;
     axp_write(0x49, st);
     return st & (PMIC_KEY_SHORT | PMIC_KEY_LONG);
 }
-
 void pmic_power_off(void) { axp_set_bits(0x10, 0x01, true); }
 
 #if !CONFIG_IDF_TARGET_ESP32S3
 static void aldo3(bool on) { axp_set_bits(0x90, 0x04, on); }
 #endif
-
 // ---------------------------------------------------------------- Display
 
 static const struct {
@@ -238,9 +228,8 @@ static void lcd_param(uint8_t cmd, const void *data, size_t n) {
                            .length = n * 8, .tx_buffer = n ? data : NULL};
     ESP_ERROR_CHECK(spi_device_polling_transmit(s_lcd, &t));
 }
-
 static void display_init(void) {
-    s_lcd_slots = xSemaphoreCreateCounting(LCD_PIPE - 1, LCD_PIPE - 1);
+    s_lcd_slots = xSemaphoreCreateCounting(LCD_DMA_CREDITS, LCD_DMA_CREDITS);
     s_lcd_free = xSemaphoreCreateCounting(LCD_TRANS, LCD_TRANS);
     assert(s_lcd_slots && s_lcd_free);
     spi_bus_config_t bus = {
@@ -303,17 +292,23 @@ void display_panel_init(void) {
     uint16_t *black = heap_caps_calloc(PANEL_W * 8, sizeof(*black), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     ESP_ERROR_CHECK(black ? ESP_OK : ESP_ERR_NO_MEM);
     board_display_begin(0, 0, PANEL_W, PANEL_H);
-    for (int y = 0; y < PANEL_H; y += 8) board_display_write(black, PANEL_W * 8, y + 8 == PANEL_H);
+    for (int y = 0; y < PANEL_H; y += 8) {
+#if !CONFIG_IDF_TARGET_ESP32S3
+        display_reserve_buffer();
+#endif
+        board_display_write(black, PANEL_W * 8, y + 8 == PANEL_H);
+    }
     board_display_end();
     board_display_wait_idle(); // every DMA transaction is done before its source is freed
     free(black);
 #if CONFIG_IDF_TARGET_ESP32S3
     ESP_ERROR_CHECK(display_s3_init() ? ESP_OK : ESP_ERR_NO_MEM);
 #endif
-
 }
-
 void board_display_wait_idle(void) {
+#if !CONFIG_IDF_TARGET_ESP32S3
+    assert(!s_lcd_reserved);
+#endif
     for (int i = 0; i < LCD_TRANS; i++) xSemaphoreTake(s_lcd_free, portMAX_DELAY);
     for (int i = 0; i < LCD_TRANS; i++) xSemaphoreGive(s_lcd_free);
     if (s_lcd_held) {
@@ -324,14 +319,12 @@ void board_display_wait_idle(void) {
         spi_device_release_bus(s_lcd);
     }
 }
-
 static spi_transaction_ext_t *lcd_trans_next(void) {
     xSemaphoreTake(s_lcd_free, portMAX_DELAY);
     spi_transaction_ext_t *t = &s_lcd_trans[s_lcd_next];
     s_lcd_next = (s_lcd_next + 1) % LCD_TRANS;
     return t;
 }
-
 static void lcd_queue_param(uint8_t cmd, int a, int b) {
     spi_transaction_ext_t *t = lcd_trans_next();
     *t = (spi_transaction_ext_t){.base = {.cmd = 0x02, .addr = (uint32_t)cmd << 8, .length = 32,
@@ -339,7 +332,6 @@ static void lcd_queue_param(uint8_t cmd, int a, int b) {
                                           .tx_data = {a >> 8, a, b >> 8, b}}};
     ESP_ERROR_CHECK(spi_device_queue_trans(s_lcd, &t->base, portMAX_DELAY));
 }
-
 void board_display_begin(int x0, int y0, int x1, int y1) {
     assert(!s_lcd_stream && x0 >= 0 && x1 <= PANEL_W && y0 >= 0 && y1 <= PANEL_H && x1 > x0 && y1 > y0);
     // The previous window may still be sending: this one queues behind it.
@@ -352,9 +344,21 @@ void board_display_begin(int x0, int y0, int x1, int y1) {
     lcd_queue_param(0x2B, y0, y1 - 1);
 }
 
+#if !CONFIG_IDF_TARGET_ESP32S3
+void display_reserve_buffer(void) {
+    assert(s_lcd_stream && !s_lcd_reserved);
+    xSemaphoreTake(s_lcd_slots, portMAX_DELAY);
+    s_lcd_reserved = true;
+}
+#endif
 void board_display_write(const uint16_t *pixels, int count, bool last) {
     assert(s_lcd_stream && count > 0 && count <= PANEL_W * LCD_STRIPE_MAX_ROWS);
+#if CONFIG_IDF_TARGET_ESP32S3
     xSemaphoreTake(s_lcd_slots, portMAX_DELAY);
+#else
+    assert(s_lcd_reserved);
+    s_lcd_reserved = false; // ownership transfers to the queued PIXELS transaction
+#endif
     spi_transaction_ext_t *t = lcd_trans_next();
     *t = (spi_transaction_ext_t){
         .base = {.cmd = 0x32, .addr = 0x2C00, .length = count * 16, .tx_buffer = pixels,
@@ -364,16 +368,16 @@ void board_display_write(const uint16_t *pixels, int count, bool last) {
     s_lcd_first = false;
     ESP_ERROR_CHECK(spi_device_queue_trans(s_lcd, &t->base, portMAX_DELAY));
 }
-
 void board_display_end(void) {
     assert(s_lcd_stream);
+#if !CONFIG_IDF_TARGET_ESP32S3
+    assert(!s_lcd_reserved);
+#endif
     // The tail keeps going while the next window or frame is prepared; board_display_wait_idle() waits for it.
     s_lcd_stream = false;
 }
-
 void display_set_brightness(uint8_t level) { lcd_param(0x51, &level, 1); }
 void display_power(bool on) { lcd_param(on ? 0x29 : 0x28, NULL, 0); }
-
 
 // ---------------------------------------------------------------- Touch
 
@@ -408,7 +412,6 @@ static void touch_init(void) {
     }
 #endif
 }
-
 bool touch_read(touch_frame_t *frame) {
     static touch_tracker_t tracker;
     *frame = (touch_frame_t){0};
@@ -453,7 +456,6 @@ void board_init(void) {
 #if CONFIG_IDF_TARGET_ESP32S3
     ESP_ERROR_CHECK(display_te_init());
 #endif
-
     gpio_config_t keys = {
 #if CONFIG_IDF_TARGET_ESP32S3
         .pin_bit_mask = 1ULL << PIN_BOOT,
@@ -470,7 +472,6 @@ void board_init(void) {
 #endif
     ESP_LOGI(TAG, "board ready");
 }
-
 void display_begin(int x0, int y0, int x1, int y1) {
 #if CONFIG_IDF_TARGET_ESP32S3
     display_s3_begin(x0, y0, x1, y1);

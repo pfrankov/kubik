@@ -107,8 +107,8 @@ bool render_glass_intersects(int x0, int x1, int y0, int y1) {
     return s_gx0 <= s_gx1 && s_gy0 <= y1 && s_gy1 >= y0 && s_gx0 <= x1 && s_gx1 >= x0;
 }
 
-void render_glass_snapshot(uint16_t *buf, int width) {
-    memcpy(s_glass_snap, buf, (size_t)width * R_BAND * sizeof(*buf));
+void render_glass_snapshot(uint16_t *buf, int width, int rows) {
+    memcpy(s_glass_snap, buf, (size_t)width * rows * sizeof(*buf));
 }
 
 // Puts the video back wherever the face drew off the glass outline.

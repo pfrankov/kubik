@@ -148,3 +148,8 @@ def check_sdk_bootstrap():
 
 check_sdk_bootstrap()
 print('CI: Ubuntu uses image CMake/Ninja; missing tools or APT failure stop SDK preparation')
+
+# A failed package/SDK setup must not add a misleading missing-ccache error.
+acceptance = yaml.load((ROOT / '.github/workflows/acceptance.yml').read_text(), Loader=yaml.BaseLoader)
+statistics = next(step for step in acceptance['jobs']['checks']['steps'] if step.get('name') == 'Compiler cache statistics')
+assert statistics['if'] == "always() && matrix.stage == 'build' && steps.prepare.outcome == 'success'"

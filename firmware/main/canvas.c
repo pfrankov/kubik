@@ -12,7 +12,7 @@
 
 _Static_assert(CANVAS_STRIPE == 16, "stripe_hash reads a stripe as eight words");
 
-typedef struct { uint32_t hash, lit, mask; int changed0, changed1; } canvas_scan_t;
+typedef struct { uint32_t hash, previous_hash, lit, mask; int changed0, changed1; } canvas_scan_t;
 typedef struct { int first, last; } canvas_extent_t;
 
 void canvas_reset(canvas_t *c) {
@@ -40,6 +40,12 @@ static inline uint32_t CANVAS_HOT stripe_hash(const uint16_t *p, bool aligned, u
     return h;
 }
 
+static uint32_t CANVAS_HOT row_hash(const uint32_t *stripes) {
+    uint32_t hash = 0x811C9DC5u;
+    for (int k = 0; k < CANVAS_STRIPES; k++) hash = (hash ^ stripes[k]) * HASH_MUL;
+    return hash;
+}
+
 static inline canvas_scan_t CANVAS_HOT scan_row(canvas_t *c, int y, const uint16_t *src, bool aligned) {
     canvas_scan_t scan = {.hash = 0x811C9DC5u, .lit = 0, .mask = 0, .changed0 = CANVAS_W, .changed1 = 0};
     uint32_t *stripes = c->stripe_hash[y];
@@ -47,15 +53,18 @@ static inline canvas_scan_t CANVAS_HOT scan_row(canvas_t *c, int y, const uint16
         uint32_t any, hash = stripe_hash(src + k * CANVAS_STRIPE, aligned, &any);
         if (any) scan.lit |= 1u << k;
         if (hash != stripes[k]) {
-            if (scan.changed0 == CANVAS_W) scan.changed0 = k * CANVAS_STRIPE;
+            if (scan.changed0 == CANVAS_W) {
+                if (c->previous_valid) scan.previous_hash = row_hash(stripes);
+                scan.changed0 = k * CANVAS_STRIPE;
+            }
             scan.changed1 = (k + 1) * CANVAS_STRIPE;
             stripes[k] = hash;
             scan.mask |= 1u << k;
         }
     }
-    // Unchanged stripe hashes imply the identical ordered row hash, including collisions.
-    if (c->previous_valid && !scan.mask) scan.hash = c->row_hash[y];
-    else for (int k = 0; k < CANVAS_STRIPES; k++) scan.hash = (scan.hash ^ stripes[k]) * HASH_MUL;
+    // Derive both folds only for a changed valid row, preserving the old collision gate.
+    if (c->previous_valid && scan.mask) scan.hash = row_hash(stripes);
+    else scan.hash = scan.previous_hash;
     return scan;
 }
 
@@ -76,7 +85,7 @@ static CANVAS_HOT void save_row(canvas_t *c, int y, canvas_scan_t scan, canvas_e
     if (!c->previous_valid) {
         c->changed_x1[y] = CANVAS_W;
         c->changed_mask[y] = (1u << CANVAS_STRIPES) - 1;
-    } else if (scan.hash != c->row_hash[y]) {
+    } else if (scan.hash != scan.previous_hash) {
         c->changed_mask[y] = (uint16_t)scan.mask;
         // Include old and new pixels, narrowed to changed stripes when available.
         int left = extent.first < c->row_start[y] ? extent.first : c->row_start[y];
@@ -90,7 +99,6 @@ static CANVAS_HOT void save_row(canvas_t *c, int y, canvas_scan_t scan, canvas_e
             c->changed_x1[y] = (uint8_t)right;
         }
     }
-    c->row_hash[y] = scan.hash;
     c->row_start[y] = (uint8_t)extent.first;
     c->row_end[y] = (uint8_t)extent.last;
 }

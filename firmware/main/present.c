@@ -85,6 +85,7 @@ static void send_window(frame_out_t *f, const render_win_t *w) {
     int chunk = (LCD_W * OUTPUT_ROWS / width) & ~1;
     for (int y = w->y0; y < w->y1; y += chunk) {
         int rows = w->y1 - y < chunk ? w->y1 - y : chunk;
+        display_reserve_buffer(); // FIFO credit proves this rotating buffer is no longer read by DMA.
         uint16_t *out = f->bufs[f->next];
         f->next = (f->next + 1) % LCD_PIPE;
         compose_window_rows(f, out, w->x0, y, width, rows, width);
@@ -257,6 +258,7 @@ static void band_needs(const frame_out_t *f, int y0, uint16_t need[R_BAND + 1]) 
 static void flush_store(frame_out_t *f, int y0, const uint16_t *rows) {
     frame_store_row(&f->store, y0, f->border_need, rows);
     render_output_begin(output_for(f), frame_store_read, &f->store);
+    render_output_black_rows(output_for(f), f->canvas.row_lit);
     for (int y = f->sent * R_BAND; y < y0; y += R_BAND) send_band(f, y);
     f->sent = y0 / R_BAND;
     f->border_need = 0;
@@ -266,11 +268,10 @@ static void flush_store(frame_out_t *f, int y0, const uint16_t *rows) {
     f->flushes++;
 }
 
-// Plans the burst for a finished band and keeps in the store what it reads (the band's buffer is still alive: the next
-// band renders into the other one): a band nothing changed in costs nothing. The first row of a band is also its
-// predecessor's interpolation border.
-static void keep_band(frame_out_t *f, int y0) {
-    const uint16_t *rows = f->bands[(y0 / R_BAND) & 1];
+// The next first row is already hashed, while the complete current band is
+// still intact. Keep its interpolation border before the workspace is reused.
+static void keep_band(int y0, const uint16_t *rows, void *ctx) {
+    frame_out_t *f = ctx;
     uint16_t need[R_BAND + 1];
     if (f->store.used > FLUSH_BYTES && y0 > 0) flush_store(f, y0, rows);
     int64_t t = esp_timer_get_time();  // after the flush: what a band costs to keep, not the burst it may have sent
@@ -284,7 +285,7 @@ static void keep_band(frame_out_t *f, int y0) {
     f->pack_us += esp_timer_get_time() - t;
 }
 
-// Render callback: keep the band and find what changed in it, without touching the panel.
+// Ordered row callback: hash each pixel once, without touching the panel.
 static void push(int x0, int y0, int x1, int y1, uint16_t *px, void *ctx) {
     (void)x0; (void)x1;
     frame_out_t *f = ctx;
@@ -294,7 +295,6 @@ static void push(int x0, int y0, int x1, int y1, uint16_t *px, void *ctx) {
     mask_union(f->mask, &(canvas_rect_t){0, f->heal_y, CANVAS_W, f->heal_y + f->heal_h}, y0, y1);
     for (int y = y0; y < y1; y++) f->mask[y] |= f->overlay_mask[y];
     f->hash_us += esp_timer_get_time() - t;
-    if (y0 > 0) keep_band(f, y0 - R_BAND);
 }
 
 static void overlay_mark(frame_out_t *f, const render_overlay_item_t *item) {
@@ -415,6 +415,7 @@ static void output_frame(frame_out_t *frame) {
     // One reader for this immutable store preserves cached rows across windows.
     // Original windows already own their stripes; admitted boxes prove all gaps black.
     render_output_begin(output_for(frame), merged ? read_merged : frame_store_read, &frame->store);
+    render_output_black_rows(output_for(frame), frame->canvas.row_lit);
     for (int y = frame->sent * R_BAND; y < R_H; y += R_BAND) send_band(frame, y);
 }
 
@@ -463,8 +464,7 @@ bool present_frame(frame_out_t *frame, render_state_t *state, scene_t *scene) {
     frame->open_n = 0;
     frame->bands_kept = 0;
     frame->sent = 0;
-    render_frame(state, scene, frame->bands, 2, false, push, frame);
-    keep_band(frame, R_H - R_BAND);
+    render_frame(state, scene, frame->workspace, false, push, keep_band, frame);
     if (!frame->store.valid) {  // it does not fit the store: nothing is sent, the next frame repaints the whole screen
         frame->overflows++;
         canvas_reset(&frame->canvas);

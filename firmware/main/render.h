@@ -47,6 +47,7 @@ typedef struct {
     uint16_t color;      // RGB565, native byte order
     int16_t soft;        // edge width, Q4 (16 = 1 px antialias)
     int16_t cs, sn;      // rotation, Q14 (local = R^T * (p - c))
+    uint8_t raster_flags; // frame-derived flags in existing alignment padding
     int32_t cx, cy;      // centre, Q4
     int32_t a, b, r;     // RBOX: half size a,b + corner r; RING: radius a, half width r;
                          // ARC: radius a, half width r; HEART: size a
@@ -60,6 +61,10 @@ typedef struct {
     int8_t clip;         // intersect with the SDF of another primitive (index) or -1
     int16_t bx0, by0, bx1, by1;  // bounding box in pixels (inclusive)
 } prim_t;
+_Static_assert(sizeof(prim_t) == 88, "Primitive storage stays unchanged");
+_Static_assert(offsetof(prim_t, raster_flags) == 10 && offsetof(prim_t, cx) == 12,
+               "Raster flags use the existing two-byte alignment gap");
+enum { RASTER_NOCLIP = 1u, RASTER_PLAIN = 2u };
 
 #define R_MAX_DOTS 192  // tesseract + recording orbit + touch wave; Skies: stars, relays, the melody's lines
 typedef struct { int16_t x, y, radius; uint16_t color; uint8_t glow, blur; } render_dot_t; // blur: radial light only, no opaque disc
@@ -86,7 +91,8 @@ typedef struct {
     int8_t glass_n;  // outline vertices (0 = no outline, no clipping)
     float glass_cx, glass_cy, glass_r[24];  // the glass as radii around a centre, panel px
     const uint8_t *qr;  // PK_QR modules, n*n bytes (nonzero = dark); one code per scene
-    uint16_t text[R_TEXT_POOL]; // Glyph indices, or R_EMOJI_TOKEN + immutable scene slot.
+    uint8_t text[R_TEXT_POOL]; // Glyph indices, or R_EMOJI_TOKEN + immutable scene slot.
+    int8_t text_kern[R_TEXT_POOL]; // Kerning before each token, computed with the line width.
     int text_n;
     render_emoji_snapshot_t emoji;
     uint32_t emoji_hash[R_EMOJI_SLOTS];
@@ -225,15 +231,25 @@ static inline uint32_t pair_of(uint16_t v) { return v | ((uint32_t)v << 16); }
 
 typedef void (*render_push_fn)(int x0, int y0, int x1, int y1, uint16_t *px, void *ctx);
 
+// The next first row is hashed before the completed band is released. Both arrays
+// are pair-aligned; no frame pixel is rendered or hashed twice.
+typedef struct {
+    _Alignas(4) uint16_t band[R_W * R_BAND];
+    _Alignas(4) uint16_t lookahead[R_W];
+} render_workspace_t;
+typedef void (*render_ready_fn)(int y0, const uint16_t *band, void *ctx);
+
 typedef struct {
     uint32_t image_us, shapes_us, prep_us, glass_us;
     uint32_t pixels_last;
 } render_state_t;
 
-// Compose the entire 240px canvas. Dirty output is determined from the completed
-// pixels by canvas.c, so primitive metadata never races a visible panel update.
-void render_frame(render_state_t *st, const scene_t *s, uint16_t **bufs, int nbufs, bool swap, render_push_fn push,
-                  void *ctx);
+// Compose the native canvas. Push receives each row exactly once, in order.
+// Ready sees a complete band after the next first row was pushed, before reuse;
+// the final ready has no lookahead beyond R_H. Ready may be NULL for frame copies.
+// Dirty output is determined from completed pixels by canvas.c.
+void render_frame(render_state_t *st, const scene_t *s, render_workspace_t *workspace, bool swap,
+                  render_push_fn push, render_ready_fn ready, void *ctx);
 
 // Cached bilinear 2x expansion of a completed native canvas. The row reader
 // allows the device to keep its frame losslessly packed instead of allocating
@@ -242,13 +258,15 @@ typedef void (*render_row_fn)(void *ctx, int y, uint16_t *row, int xa, int xb);
 typedef struct {
     render_row_fn read;
     void *ctx;
-    int key[2], source_key[2], xa, xb;
-    bool swap[2], flat[2];
-    uint32_t row[2][R_W];   // native pixel | midpoint with the next one << 16
-    uint32_t even[2][R_W];  // the same pairs in the output byte order: an even panel row as is
-    uint16_t source[2][R_W + 2];  // [R_W] repeats the last pixel
+    const uint16_t *row_lit; // exact whole-row OR metadata; borrowed until next begin
+    int key[2], xa, xb;
+    bool flat[2];
+    uint32_t row[2][R_W];   // native RGB565 pixel pairs; byte order changes only on output
 } render_output_t;
 void render_output_begin(render_output_t *st, render_row_fn read, void *ctx);
+// Optional exact metadata for this frame; zero proves every native pixel black.
+// Begin always clears it. Changing metadata invalidates cached rows.
+void render_output_black_rows(render_output_t *st, const uint16_t *row_lit);
 // A window of the panel (px, end exclusive, even).
 typedef struct { int16_t x0, y0, x1, y1; } render_win_t;
 // The windows of a band of native pairs p0..p1-1 from the changed stripes of their rows (canvas.h): a run of stripes

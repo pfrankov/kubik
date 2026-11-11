@@ -185,11 +185,10 @@ static void test_ui_and_taps(void) {
     bool model_icon = false;
     for (int i = 0; i < scene.n; i++) model_icon |= scene.p[i].kind == PK_ICON && scene.p[i].b == ICON_BLOCKS;
     assert(model_icon);
-    uint16_t canvas[R_W * R_H] = {0}, spare[R_W * R_H] = {0};
-    uint16_t *buffers[] = {canvas, spare};
+    render_workspace_t workspace;
     render_state_t state = {0};
     pushed_pixels = 0;
-    render_frame(&state, &scene, buffers, 2, false, count_push, NULL);
+    render_frame(&state, &scene, &workspace, false, count_push, NULL, NULL);
     assert(pushed_pixels > 1000);
     uint16_t overlay[R_W * R_H * 4] = {0};
     render_text_overlay(&scene, overlay, 0, 0, R_W * 2, R_H * 2, R_W * 2, false);

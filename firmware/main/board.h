@@ -88,11 +88,19 @@ void board_display_frame_start(void (*started)(void *), void *context);
 #endif
 
 // RGB565 QSPI windows, with CS held between DMA chunks inside each window.
-// At most LCD_PIPE-1 pixel buffers are in flight. end() only closes the window;
-// display_wait_idle() drains every transaction before panel commands.
+// C6 reserves one credit before writing a rotating DMA buffer; completion returns it.
+// S3 takes credits when queueing. end() keeps tails owned; wait_idle() drains them.
+#if CONFIG_IDF_TARGET_ESP32S3
 #define LCD_PIPE 3
+#define LCD_DMA_CREDITS (LCD_PIPE - 1)
+#else
+#define LCD_PIPE 2
+#define LCD_DMA_CREDITS LCD_PIPE
+#endif
 void display_begin(int x0, int y0, int x1, int y1);
 #if !CONFIG_IDF_TARGET_ESP32S3
+// Exactly one reservation must be consumed by one write before end()/wait_idle().
+void display_reserve_buffer(void);
 void display_write(const uint16_t *pixels, int count, bool last);
 #endif
 void display_end(void);

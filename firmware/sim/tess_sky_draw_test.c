@@ -81,9 +81,9 @@ static void push(int x0, int y0, int x1, int y1, uint16_t *p, void *context) {
 }
 
 static void raster(void) {
-    uint16_t b0[R_W * R_BAND], b1[R_W * R_BAND], *buffers[2] = {b0, b1};
+    render_workspace_t workspace;
     render_state_t state = {0};
-    render_frame(&state, &scene, buffers, 2, false, push, NULL);
+    render_frame(&state, &scene, &workspace, false, push, NULL, NULL);
 }
 
 typedef struct { unsigned core; float spread, split; } star_light_t;

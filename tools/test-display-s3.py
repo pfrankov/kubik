@@ -2,6 +2,7 @@
 """Verify the actual S3 sender with host threads, delayed DMA and bounded read credits."""
 from pathlib import Path
 import signal
+import re
 import subprocess
 import tempfile
 
@@ -26,6 +27,10 @@ presentation = (ROOT / 'firmware/main/present.c').read_text()
 helper_start = presentation.index('static render_output_t *output_for(')
 helper_end = presentation.index('\n}\n', helper_start) + 3
 send_window = presentation[helper_start:helper_end] + presentation[presentation.index('static void compose_window_rows('):presentation.index('static int larger(')]
+board = (ROOT / 'firmware/main/board.h').read_text()
+present = (ROOT / 'firmware/main/present.h').read_text()
+pool_macros = re.search(r'#if CONFIG_IDF_TARGET_ESP32S3\n#define LCD_PIPE 3\n#define LCD_DMA_CREDITS \(LCD_PIPE - 1\)\n#else\n#define LCD_PIPE 2\n#define LCD_DMA_CREDITS LCD_PIPE\n#endif', board)[0]
+row_macros = re.search(r'#if CONFIG_IDF_TARGET_ESP32S3\n#define OUTPUT_ROWS 8\n#else\n#define OUTPUT_ROWS 4[^\n]*\n#endif', present)[0]
 order_fixture = r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -37,8 +42,7 @@ order_fixture = r'''
 #define LCD_W 480
 #endif
 #define UI_RENDER_W LCD_W
-#define OUTPUT_ROWS 8
-#define LCD_PIPE 3
+/* ACTUAL_POOL_ROWS */
 #ifndef X0
 #define X0 16
 #endif
@@ -50,6 +54,7 @@ order_fixture = r'''
 #define Y1 40
 #endif
 #define WIDTH (X1-X0)
+#define C6_ROWS ((LCD_W*OUTPUT_ROWS/WIDTH)&~1)
 typedef struct {int x0,y0,x1,y1;} render_win_t;
 typedef struct {int marker;} render_output_t;
 typedef struct {
@@ -84,16 +89,17 @@ static void display_end(void) {assert(row_at==Y1);ends++;}
 static void display_begin(int x0,int y0,int x1,int y1) {
     assert(x0==X0 && y0==Y0 && x1==X1 && y1==Y1);begins++;
 }
+static void display_reserve_buffer(void) {}
 static void display_write(const uint16_t *pixels,int count,bool last) {
-    int remaining=Y1-Y0-writes*8,rows=remaining<8 ? remaining : 8;
-    assert(count==WIDTH*rows && last==(remaining<=8));
+    int remaining=Y1-Y0-writes*C6_ROWS,rows=remaining<C6_ROWS ? remaining : C6_ROWS;
+    assert(count==WIDTH*rows && last==(remaining<=C6_ROWS));
     for(int row=0;row<rows;row++)for(int col=0;col<WIDTH;col++) {
-        int y=Y0+writes*8+row;
+        int y=Y0+writes*C6_ROWS+row;
         assert(pixels[row*WIDTH+col]==(col ? expanded_pixel(X0+col,y) : text_pixel(y)));
     }
     writes++;
 }
-static void display_end(void) {assert(writes==(Y1-Y0+7)/8);ends++;}
+static void display_end(void) {assert(writes==(Y1-Y0+C6_ROWS-1)/C6_ROWS);ends++;}
 #endif
 static void destination(uint16_t *pixels,int x,int y,int w,int h,int stride) {
     assert(x==X0 && w==WIDTH && w%2==0 && h%2==0);
@@ -106,7 +112,7 @@ static void destination(uint16_t *pixels,int x,int y,int w,int h,int stride) {
     assert(pixels==seen_stage);
 #else
     int remaining=Y1-y;
-    (void)pixels;assert(y>=Y0 && y<Y1 && (y-Y0)%8==0 && h==(remaining<8 ? remaining : 8) && stride==WIDTH);
+    (void)pixels;assert(y>=Y0 && y<Y1 && (y-Y0)%C6_ROWS==0 && h==(remaining<C6_ROWS ? remaining : C6_ROWS) && stride==WIDTH);
 #endif
 }
 static void render_expand_2x(render_output_t *out,uint16_t *pixels,int x,int y,int w,int h,int stride,bool swap) {
@@ -125,6 +131,7 @@ static void render_text_overlay(const void *scene,uint16_t *pixels,int x,int y,i
     }
 }
 '''
+order_fixture = order_fixture.replace('/* ACTUAL_POOL_ROWS */', pool_macros + '\n' + row_macros)
 order_test = r'''
 int main(void) {
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -132,8 +139,9 @@ int main(void) {
     frame_out_t frame={.overlay_count=1,.next=2,.bufs={NULL,NULL,NULL}};
     for(int y=0;y<64;y++)for(int x=0;x<384;x++)native[y][x]=0x6dab;
 #else
-    uint16_t buffers[3][LCD_W*8];
-    frame_out_t frame={.overlay_count=1,.bufs={buffers[0],buffers[1],buffers[2]}};
+    uint16_t buffers[LCD_PIPE][LCD_W*OUTPUT_ROWS];
+    frame_out_t frame={.overlay_count=1};
+    for(int i=0;i<LCD_PIPE;i++)frame.bufs[i]=buffers[i];
 #endif
     const render_win_t window={X0,Y0,X1,Y1};
     send_window(&frame,&window);
@@ -153,7 +161,8 @@ int main(void) {
         assert(native[y][x]==expected);
     }
 #else
-    assert(expands==(Y1-Y0+7)/8 && edges==expands && texts==expands && writes==expands);
+    int chunk=(LCD_W*OUTPUT_ROWS/WIDTH)&~1;
+    assert(expands==(Y1-Y0+chunk-1)/chunk && edges==expands && texts==expands && writes==expands);
 #endif
 }
 '''

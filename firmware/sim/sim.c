@@ -44,8 +44,7 @@ void sim_load_assets(void) {
 
 static uint16_t fb[R_H][R_W];
 uint16_t panel[PANEL_H][PANEL_W];
-static uint16_t b0[R_W * R_BAND], b1[R_W * R_BAND];
-static uint16_t *bufs[2] = {b0, b1};
+static render_workspace_t workspace;
 static render_state_t rs;
 static unsigned long long px_total, frames;
 static unsigned px_max;
@@ -81,7 +80,7 @@ void sim_render(face_t *f) {
     sim_render_scene(&scene);
 }
 void sim_render_scene(scene_t *input) {
-    render_frame(&rs, input, bufs, 2, s_swap, push, NULL);
+    render_frame(&rs, input, &workspace, s_swap, push, NULL, NULL);
     static render_output_t output;
     render_output_begin(&output, read_row, NULL);
     render_expand_2x(&output, &panel[0][0], 0, 0, PANEL_W, PANEL_H, PANEL_W, false);
@@ -249,7 +248,7 @@ static void bench(void) {
             face_update(&f, dt);
             double t0 = now_us();
             face_draw(&f, &scene);
-            render_frame(&rs, &scene, bufs, 2, s_swap, push, NULL);
+            render_frame(&rs, &scene, &workspace, s_swap, push, NULL, NULL);
             double us = now_us() - t0;
             tot += us; if (us > mx) mx = us;
             px += rs.pixels_last;

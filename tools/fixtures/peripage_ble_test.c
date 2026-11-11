@@ -63,6 +63,9 @@ struct ble_gatt_dsc { uint16_t handle; ble_uuid_any_t uuid; };
 struct ble_gatt_attr { uint16_t handle; };
 struct ble_gap_disc_desc { ble_addr_t addr; const uint8_t *data; uint8_t length_data; };
 struct ble_gap_disc_params { uint16_t itvl, window; uint8_t filter_duplicates, passive; };
+struct ble_gap_conn_params {
+    uint16_t scan_itvl, scan_window, itvl_min, itvl_max, latency, supervision_timeout, min_ce_len, max_ce_len;
+};
 struct ble_gap_event {
     int type;
     struct ble_gap_disc_desc disc;
@@ -111,7 +114,7 @@ static int ble_att_set_preferred_mtu(int n) { assert(n==185);return 0; }
 static int ble_hs_util_ensure_addr(int n) { assert(!n);return 0; }
 static int ble_hs_id_infer_auto(int n,uint8_t *p) { assert(!n);*p=0;return 0; }
 static int ble_gap_disc(uint8_t,int,const struct ble_gap_disc_params *,gap_fn *,void *);
-static int ble_gap_connect(uint8_t,const ble_addr_t *,int,const void *,gap_fn *,void *);
+static int ble_gap_connect(uint8_t,const ble_addr_t *,int,const struct ble_gap_conn_params *,gap_fn *,void *);
 static int ble_gattc_exchange_mtu(uint16_t,mtu_fn *,void *);
 static int ble_gattc_disc_svc_by_uuid(uint16_t,const ble_uuid_t *,svc_fn *,void *);
 static int ble_gattc_disc_all_chrs(uint16_t,uint16_t,uint16_t,chr_fn *,void *);
@@ -138,6 +141,12 @@ static attr_fn *last_writer;
 static void *last_write_token;
 static uint8_t deferred_response[33];
 static size_t deferred_size;
+static int64_t expected_deadline;
+static int startup_delay_ms, discovery_delay_ms, last_connect_ms;
+static peripage_result_t open_for_test(peripage_info_t *info, uint32_t timeout_ms) {
+    expected_deadline=fake_time+(int64_t)timeout_ms*1000;
+    return peripage_open(info,timeout_ms);
+}
 static int app_nvs_lock(void) { assert(!nvs_locked);nvs_locked=true;return ESP_OK; }
 static void app_nvs_unlock(void) { assert(nvs_locked);nvs_locked=false; }
 static bool app_nvs_ready_locked(void) { assert(nvs_locked);return nvs_ready; }
@@ -145,7 +154,8 @@ static int app_nvs_recover_locked(void) { assert(nvs_locked);return ESP_OK; }
 static void app_nvs_mark_unhealthy_locked(void) { assert(nvs_locked);nvs_ready=false; }
 bool ble_runtime_owned(ble_runtime_owner_t owner) { return fake_owner==(int)owner; }
 esp_err_t ble_runtime_start(ble_runtime_owner_t owner,ble_runtime_prepare_t prepare,void (*sync)(void)) {
-    assert(!fake_owner);fake_owner=owner;last_enqueue_time=-1;starts++;assert(prepare()==ESP_OK);sync();return ESP_OK;
+    assert(!fake_owner);fake_owner=owner;last_enqueue_time=-1;starts++;assert(prepare()==ESP_OK);
+    fake_time+=(int64_t)startup_delay_ms*1000;sync();return ESP_OK;
 }
 esp_err_t ble_runtime_stop(ble_runtime_owner_t owner) {
     assert(fake_owner==(int)owner);stops++;if(fail_stop)return ESP_ERR_TIMEOUT;
@@ -173,15 +183,20 @@ static void advertisement(gap_fn *cb,void *arg,const ble_addr_t *address,bool se
     cb(&event,arg);
 }
 static int ble_gap_disc(uint8_t type,int ms,const struct ble_gap_disc_params *p,gap_fn *cb,void *arg) {
-    assert(type==0&&ms==3000&&!p->passive&&p->filter_duplicates&&p->itvl==p->window);
+    assert(type==0&&ms==3000&&!p->passive&&p->filter_duplicates==1&&p->itvl==48&&p->window==24);
+    fake_time+=(int64_t)discovery_delay_ms*1000;
     scans++;last_gap=cb;last_epoch=arg;
     if(cancel_scan)peripage_cancel();
     if(!absent){advertisement(cb,arg,&first_peer,true,false);advertisement(cb,arg,&first_peer,false,true);}
     if(ambiguous){advertisement(cb,arg,&second_peer,true,true);}
     struct ble_gap_event event={.type=BLE_GAP_EVENT_DISC_COMPLETE};cb(&event,arg);return 0;
 }
-static int ble_gap_connect(uint8_t type,const ble_addr_t *address,int ms,const void *params,gap_fn *cb,void *arg) {
-    assert(!type&&!params&&ms>0&&!memcmp(address,&first_peer,sizeof(*address)));
+static int ble_gap_connect(uint8_t type,const ble_addr_t *address,int ms,const struct ble_gap_conn_params *params,gap_fn *cb,void *arg) {
+    assert(!type&&params&&ms>0&&!memcmp(address,&first_peer,sizeof(*address)));
+    assert(params->scan_itvl==32&&params->scan_window==16);
+    assert(params->itvl_min==24&&params->itvl_max==40&&params->latency==0);
+    assert(params->supervision_timeout==256&&params->min_ce_len==0&&params->max_ce_len==0);
+    assert(ms==(expected_deadline-fake_time)/1000);last_connect_ms=ms;
     connects++;last_gap=cb;last_epoch=arg;
     if(cancel_connect){peripage_cancel();return 0;}
     if(absent)return BLE_HS_ETIMEOUT;
@@ -256,15 +271,15 @@ static int ble_gattc_write_no_rsp_flat(uint16_t c,uint16_t h,const void *data,ui
 static void assert_closed(void) { assert(!fake_owner&&!radio_started&&!controller_link&&connection==BLE_HS_CONN_HANDLE_NONE); }
 
 static void cancellation_checks(peripage_info_t *info,uint8_t row[72]) {
-    cancel_connect=true;assert(peripage_open(info,12000)==PERIPAGE_CANCELLED);assert_closed();cancel_connect=false;
+    cancel_connect=true;assert(open_for_test(info,12000)==PERIPAGE_CANCELLED);assert_closed();cancel_connect=false;
     assert(peripage_forget_binding());
-    cancel_scan=true;assert(peripage_open(info,12000)==PERIPAGE_CANCELLED);assert_closed();cancel_scan=false;
-    assert(peripage_open(info,12000)==PERIPAGE_OK);cancel_write=true;
+    cancel_scan=true;assert(open_for_test(info,12000)==PERIPAGE_CANCELLED);assert_closed();cancel_scan=false;
+    assert(open_for_test(info,12000)==PERIPAGE_OK);cancel_write=true;
     assert(!peripage_write_packet(row,72,1000));int previous=writes;
     assert(!peripage_write_packet(row,72,1000)&&writes==previous);
     assert(peripage_close());assert_closed();cancel_write=false;
     peripage_cancel();assert_closed();
-    spurious_query=true;assert(peripage_open(info,12000)==PERIPAGE_OK);spurious_query=false;
+    spurious_query=true;assert(open_for_test(info,12000)==PERIPAGE_OK);spurious_query=false;
     spurious_write=true;assert(peripage_write_packet(row,72,1000));spurious_write=false;
     assert(peripage_close());assert_closed();
 }
@@ -279,9 +294,9 @@ static void profile_checks(const peripage_info_t *info) {
 static void missing_connect_event(peripage_info_t *info) {
     // IDF can create the controller link before remote-feature/version events
     // finish. Host stop must still own its disconnect when CONNECT never arrives.
-    silent_connect=true;assert(peripage_open(info,12000)==PERIPAGE_FAILED);
+    silent_connect=true;assert(open_for_test(info,12000)==PERIPAGE_FAILED);
     assert_closed();silent_connect=false;
-    assert(peripage_open(info,12000)==PERIPAGE_OK);
+    assert(open_for_test(info,12000)==PERIPAGE_OK);
     assert(peripage_close());assert_closed();
 }
 
@@ -298,7 +313,7 @@ static void stream_checks(peripage_info_t *info,uint8_t row[72]) {
     assert(peripage_packet_stream_budget_ms(0)==6000);
     assert(peripage_packet_stream_budget_ms(1867)==43340);
     assert(peripage_packet_stream_budget_ms(SIZE_MAX)==UINT32_MAX);
-    assert(peripage_open(info,12000)==PERIPAGE_OK);
+    assert(open_for_test(info,12000)==PERIPAGE_OK);
     int64_t start=fake_time;int before=sends;
     const uint8_t reset[16]={0x10,0xff,0xfe,1},density[5]={0x10,0xff,0x10,0,1},header[8]={0x1d,0x76,0x30,0,72,0,1,0};
     assert(peripage_write_packet(reset,sizeof reset,1000)&&last_packet_size==sizeof reset&&!memcmp(last_packet,reset,sizeof reset));
@@ -310,11 +325,11 @@ static void stream_checks(peripage_info_t *info,uint8_t row[72]) {
     assert(peripage_write_packet(row,72,1000)&&fake_time-start==20000); // A late caller never catches up with a burst.
     refreshed_battery_checks(info);
     assert(peripage_close());assert_closed();
-    assert(peripage_open(info,12000)==PERIPAGE_OK);cancel_pace=true;start=fake_time;
+    assert(open_for_test(info,12000)==PERIPAGE_OK);cancel_pace=true;start=fake_time;
     assert(!peripage_write_packet(row,72,1000)&&fake_time-start<=20000);
     assert(!peripage_finish_packet_stream(3000,info));cancel_pace=false;
     assert(peripage_close());assert_closed();
-    assert(peripage_open(info,12000)==PERIPAGE_OK);bad_battery=true;peripage_info_t expected=*info;
+    assert(open_for_test(info,12000)==PERIPAGE_OK);bad_battery=true;peripage_info_t expected=*info;
     assert(!peripage_finish_packet_stream(3000,info));bad_battery=false;
     assert(!memcmp(info,&expected,sizeof expected));
     before=sends;assert(!peripage_write_packet(row,72,1000)&&sends==before);
@@ -322,22 +337,22 @@ static void stream_checks(peripage_info_t *info,uint8_t row[72]) {
 }
 
 static void unverified_profile_checks(peripage_info_t *info) {
-    unknown_hardware=true;assert(peripage_open(info,12000)==PERIPAGE_UNSUPPORTED);
+    unknown_hardware=true;assert(open_for_test(info,12000)==PERIPAGE_UNSUPPORTED);
     assert_closed();unknown_hardware=false;
-    unknown_firmware=true;assert(peripage_open(info,12000)==PERIPAGE_UNSUPPORTED);
+    unknown_firmware=true;assert(open_for_test(info,12000)==PERIPAGE_UNSUPPORTED);
     assert_closed();unknown_firmware=false;
 }
 
 static void finish_failure_checks(peripage_info_t *info,uint8_t row[72]) {
-    assert(peripage_open(info,12000)==PERIPAGE_OK);no_reply=true;
+    assert(open_for_test(info,12000)==PERIPAGE_OK);no_reply=true;
     assert(!peripage_finish_packet_stream(3000,info));no_reply=false;
     int previous=writes;assert(!peripage_finish_packet_stream(3000,info)&&writes==previous);
     assert(!peripage_write_packet(row,72,1000)&&writes==previous);
     assert(peripage_close());assert_closed();
-    assert(peripage_open(info,12000)==PERIPAGE_OK);oversized_reply=true;
+    assert(open_for_test(info,12000)==PERIPAGE_OK);oversized_reply=true;
     assert(!peripage_finish_packet_stream(3000,info));oversized_reply=false;
     assert(peripage_close());assert_closed();
-    assert(peripage_open(info,12000)==PERIPAGE_OK);previous=sends;
+    assert(open_for_test(info,12000)==PERIPAGE_OK);previous=sends;
     assert(!peripage_write_packet(row,72,19)&&sends==previous);
     assert(peripage_write_packet(row,72,20));
     assert(peripage_finish_packet_stream(3000,info));assert(peripage_close());assert_closed();
@@ -345,7 +360,10 @@ static void finish_failure_checks(peripage_info_t *info,uint8_t row[72]) {
 
 int main(void) {
     peripage_info_t info;
-    assert(peripage_open(&info,12000)==PERIPAGE_OK);
+    startup_delay_ms=250;discovery_delay_ms=3000;
+    assert(open_for_test(&info,12000)==PERIPAGE_OK);
+    assert(last_connect_ms==8750); // Startup and discovery consume the original deadline, never extend it.
+    startup_delay_ms=discovery_delay_ms=0;
     profile_checks(&info);assert(!persisted);
     assert(!peripage_forget_binding()); // No flash writes while the controller owns memory.
     uint8_t row[72]={0x80};assert(peripage_write_packet(row,sizeof(row),1000)&&sends==1);
@@ -358,42 +376,42 @@ int main(void) {
     unverified_profile_checks(&info);
     int previous_stops=stops;assert(peripage_close()&&stops==previous_stops);
     int prior_scans=scans, prior_connects=connects;
-    absent=ambiguous=true;assert(peripage_open(&info,12000)==PERIPAGE_FAILED);assert_closed();absent=false;
+    absent=ambiguous=true;assert(open_for_test(&info,12000)==PERIPAGE_FAILED);assert_closed();absent=false;
     assert(scans==prior_scans&&connects==prior_connects+1); // Never scan/select a neighbour for a saved peer.
-    ambiguous=true;assert(peripage_open(&info,12000)==PERIPAGE_OK); // Bound peer wins; a neighbour is never selected.
+    ambiguous=true;assert(open_for_test(&info,12000)==PERIPAGE_OK); // Bound peer wins; a neighbour is never selected.
     assert(scans==prior_scans&&connects==prior_connects+2);
     assert(peripage_close());bad_fw=true;
-    assert(peripage_open(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();bad_fw=false;
+    assert(open_for_test(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();bad_fw=false;
     assert(scans==prior_scans); // Binding skips advertisements, never fresh GATT/profile verification.
     assert(peripage_forget_binding());
-    assert(peripage_open(&info,12000)==PERIPAGE_AMBIGUOUS);assert_closed();ambiguous=false;
-    absent=true;assert(peripage_open(&info,12000)==PERIPAGE_NOT_FOUND);assert_closed();absent=false;
-    small_mtu=true;assert(peripage_open(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();small_mtu=false;
-    no_write=true;assert(peripage_open(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();no_write=false;
-    no_no_rsp=true;assert(peripage_open(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();no_no_rsp=false;
-    bad_fw=true;assert(peripage_open(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();bad_fw=false;
-    no_reply=true;assert(peripage_open(&info,12000)==PERIPAGE_FAILED);assert_closed();no_reply=false;
-    oversized_reply=true;assert(peripage_open(&info,12000)==PERIPAGE_FAILED);assert_closed();oversized_reply=false;
-    bad_battery=true;assert(peripage_open(&info,12000)==PERIPAGE_FAILED);assert_closed();bad_battery=false;
-    assert(peripage_open(&info,12000)==PERIPAGE_OK);late_reply=true;
+    assert(open_for_test(&info,12000)==PERIPAGE_AMBIGUOUS);assert_closed();ambiguous=false;
+    absent=true;assert(open_for_test(&info,12000)==PERIPAGE_NOT_FOUND);assert_closed();absent=false;
+    small_mtu=true;assert(open_for_test(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();small_mtu=false;
+    no_write=true;assert(open_for_test(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();no_write=false;
+    no_no_rsp=true;assert(open_for_test(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();no_no_rsp=false;
+    bad_fw=true;assert(open_for_test(&info,12000)==PERIPAGE_UNSUPPORTED);assert_closed();bad_fw=false;
+    no_reply=true;assert(open_for_test(&info,12000)==PERIPAGE_FAILED);assert_closed();no_reply=false;
+    oversized_reply=true;assert(open_for_test(&info,12000)==PERIPAGE_FAILED);assert_closed();oversized_reply=false;
+    bad_battery=true;assert(open_for_test(&info,12000)==PERIPAGE_FAILED);assert_closed();bad_battery=false;
+    assert(open_for_test(&info,12000)==PERIPAGE_OK);late_reply=true;
     assert(!peripage_write_packet(row,72,1000));int previous_writes=writes;
     assert(!peripage_write_packet(row,72,1000)&&writes==previous_writes);
     attr_fn *old_callback=last_writer;void *old_token=last_write_token;gap_fn *old_gap=last_gap;void *old_epoch=last_epoch;
     assert(peripage_close());assert_closed();late_reply=false;
-    assert(peripage_open(&info,12000)==PERIPAGE_OK);
+    assert(open_for_test(&info,12000)==PERIPAGE_OK);
     struct ble_gatt_error good={0};old_callback(MOCK_HANDLE,&good,NULL,old_token);
     struct ble_gap_event disconnected={.type=BLE_GAP_EVENT_DISCONNECT};old_gap(&disconnected,old_epoch);
     assert(peripage_write_packet(row,72,1000));assert(peripage_close());assert_closed();
     assert(peripage_forget_binding());bad_store=true;
-    assert(peripage_open(&info,12000)==PERIPAGE_OK);assert(!peripage_close());assert_closed();bad_store=false;
+    assert(open_for_test(&info,12000)==PERIPAGE_OK);assert(!peripage_close());assert_closed();bad_store=false;
     nvs_ready=false;int before_nvs_failure=starts;
-    assert(peripage_open(&info,12000)==PERIPAGE_FAILED);assert(starts==before_nvs_failure);
+    assert(open_for_test(&info,12000)==PERIPAGE_FAILED);assert(starts==before_nvs_failure);
     assert_closed();assert(!nvs_locked);nvs_ready=true;
     fake_owner=BLE_RUNTIME_MUSE;int previous_starts=starts;
-    assert(peripage_open(&info,12000)==PERIPAGE_BUSY&&starts==previous_starts);
+    assert(open_for_test(&info,12000)==PERIPAGE_BUSY&&starts==previous_starts);
     assert(peripage_forget_binding());fake_owner=0;
-    assert(peripage_open(&info,12000)==PERIPAGE_OK);fail_stop=true;
+    assert(open_for_test(&info,12000)==PERIPAGE_OK);fail_stop=true;
     assert(!peripage_close()&&radio_started&&fake_owner==BLE_RUNTIME_PRINTER);
-    assert(peripage_open(&info,12000)==PERIPAGE_BUSY);fail_stop=false;assert(peripage_close());
+    assert(open_for_test(&info,12000)==PERIPAGE_BUSY);fail_stop=false;assert(peripage_close());
     puts("PeriPage actual transport: discovery, dimensions, binding, exact packets, stale callbacks and cleanup passed");
 }

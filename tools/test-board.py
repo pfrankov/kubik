@@ -108,7 +108,14 @@ static void *heap_caps_calloc(size_t count, size_t size, int caps) {
 static void board_display_begin(int x, int y, int x1, int y1) {
     assert(x == 0 && y == 0 && x1 == PANEL_W && y1 == PANEL_H);
 }
+#if !CONFIG_IDF_TARGET_ESP32S3
+static bool black_reserved;
+static void display_reserve_buffer(void) { assert(!black_reserved); black_reserved=true; }
+#endif
 static void board_display_write(const uint16_t *pixels, int count, bool last) {
+#if !CONFIG_IDF_TARGET_ESP32S3
+    assert(black_reserved);black_reserved=false;
+#endif
     assert(count == PANEL_W * 8 && last == (clears == PANEL_H / 8 - 1));
     for (int i = 0; i < count; i++) assert(pixels[i] == 0);
     clears++;
@@ -371,7 +378,7 @@ typedef struct {
     int command_bits,address_bits,mode,clock_speed_hz,spics_io_num,queue_size,flags;
     void (*pre_cb)(spi_transaction_t *),(*post_cb)(spi_transaction_t *);
 } spi_device_interface_config_t;
-static bool s_lcd_stream,s_lcd_held,worker_pending,worker_context,isr;
+static bool s_lcd_stream,s_lcd_held,worker_pending,worker_context,isr,s_lcd_reserved;
 static int s_lcd=1,s_lcd_slots=2,s_lcd_free=3;
 static int critical_depth,starts,context_value,slot_gives,free_gives;
 static int raw_takes,fences,acquires,releases,worker_releases;

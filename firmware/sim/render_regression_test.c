@@ -11,6 +11,7 @@
 #include "../main/sprite.h"
 #include "../main/canvas.h"
 #include "render_band_probe.h"
+#include "../main/render_internal.h"
 static unsigned char *pack;
 static size_t pack_size;
 static const uint8_t *fetch(uint32_t o, uint32_t n, uint32_t ho, uint32_t hl) {
@@ -20,16 +21,19 @@ static const uint8_t *fetch(uint32_t o, uint32_t n, uint32_t ho, uint32_t hl) {
 typedef struct { uint16_t px[R_H*R_W]; int x0,y0,x1,y1; } test_frame_t;
 static test_frame_t full;
 static uint16_t panel[480*480], expected[480*480], output[480*4];
-static uint16_t bands[2][R_W*R_BAND];
-// The device sends a native band once the next one is composed: it expands from the two render bands alone.
-static int band_y0[2];
+static render_workspace_t workspace;
+// The completed native band and its already-hashed lookahead row are immutable until ready returns.
+static int ready_y;
 static canvas_t diff;
 static render_output_t stream;
 static unsigned stream_px, stream_windows, stream_reads, presented_frames;
 static void read_band(void *ctx, int y, uint16_t *row, int xa, int xb) {
     (void)ctx; stream_reads++;
-    for(int i=0;i<2;i++) if(y>=band_y0[i] && y<band_y0[i]+R_BAND) { memcpy(row,bands[i]+(y-band_y0[i])*R_W,R_W*2); return; }
-    abort(); // a row that is no longer (or not yet) held
+    if(y>=ready_y && y<ready_y+R_BAND) {
+        memcpy(row,workspace.band+(y-ready_y)*R_W,R_W*2); return;
+    }
+    if(y==ready_y+R_BAND && y<R_H) { memcpy(row,workspace.lookahead,R_W*2); return; }
+    abort(); // no other native row is live
 }
 static void expand_band_window(const render_win_t *w) {
     for(int y=w->y0;y<w->y1;y+=4) {
@@ -49,10 +53,11 @@ static void send_band(int y0) {
     stream_px+=(unsigned)((w.x1-w.x0)*(w.y1-w.y0)); stream_windows++;
 }
 static void push_stream(int x0,int y0,int x1,int y1,uint16_t *px,void *ctx) {
-    (void)ctx; assert(x0==0 && x1==R_W && y1-y0==R_BAND && px==bands[(y0/R_BAND)&1]);
-    band_y0[(y0/R_BAND)&1]=y0;
+    (void)ctx; assert(x0==0 && x1==R_W);
     assert(canvas_rows(&diff,y0,y1,px));
-    if(y0>0) send_band(y0-R_BAND);
+}
+static void ready_stream(int y0,const uint16_t *px,void *ctx) {
+    (void)ctx; assert(px==workspace.band); ready_y=y0; send_band(y0);
 }
 static void push(int x0,int y0,int x1,int y1,uint16_t *px,void *ctx) {
     test_frame_t *c=ctx;
@@ -72,14 +77,17 @@ static void expand_reference(const uint16_t *px, uint16_t *out) {
 // Renders a frame the device's way and checks the panel against a fresh full frame, expanded whole.
 static void check_frame(render_state_t *state, const scene_t *scene) {
     scene_t streamed,reference;scene_clone(&streamed,scene);scene_clone(&reference,scene);
-    uint16_t *bufs[]={bands[0],bands[1]};
-    band_y0[0]=band_y0[1]=-R_BAND;
+    ready_y=-R_BAND;
     render_output_begin(&stream,read_band,NULL);
-    render_frame(state,&streamed,bufs,2,false,push_stream,NULL);
-    send_band(R_H-R_BAND);
+    render_frame(state,&streamed,&workspace,false,push_stream,ready_stream,NULL);
 
-    static uint16_t band[R_W*R_BAND]; uint16_t *one[]={band};
-    render_state_t reset={0}; render_frame(&reset,&reference,one,1,false,push,&full);
+    // Independent old-sized full-band raster oracle, not the streaming scheduler.
+    static uint16_t band[R_W*R_BAND];
+    render_raster_prepare(&reference,false);
+    for(int y=0;y<R_H;y+=R_BAND) {
+        render_raster_window(&reference,band,0,R_W-1,y,y+R_BAND-1);
+        push(0,y,R_W,y+R_BAND,band,&full);
+    }
     expand_reference(full.px,expected);
     if(memcmp(panel,expected,sizeof(panel))) {
         static int unused; (void)unused;
@@ -98,7 +106,6 @@ static void load_assets(void) {
     pack=malloc(pack_size); assert(pack); assert(fread(pack,1,pack_size,fp)==pack_size); fclose(fp);
     assert(sprite_init(fetch));
 }
-
 static double mean_radius(const face_t *t) {
     double radius=0;
     for(int i=0;i<TESS_N;i++) radius+=sqrt(t->tess_position[i][0]*t->tess_position[i][0]+t->tess_position[i][1]*t->tess_position[i][1]+t->tess_position[i][2]*t->tess_position[i][2]);
@@ -107,7 +114,6 @@ static double mean_radius(const face_t *t) {
 static bool quarter_turn(float angle) {
     float remainder=fmodf(angle,PI/2); return remainder<2e-3f || PI/2-remainder<2e-3f;
 }
-
 static void check_jolt_settles(face_t *a) {
     float rest[TESS_N][3]; memcpy(rest,a->tess_position,sizeof rest);
     a->jolt_dvx=.05f; face_update(a,1.f/R_FPS);
@@ -127,7 +133,6 @@ static void check_jolt_settles(face_t *a) {
     }
     assert(a->tess_agitation<.05f);
 }
-
 static void check_dark_resume(face_t *a) {  // a dark panel holds the cloud still; it resumes without a jump
     float held[TESS_N][3]; memcpy(held,a->tess_position,sizeof held);
     a->dark=true; for(int i=0;i<600;i++) face_update(a,.1f);
@@ -145,7 +150,6 @@ static void check_server_emotions(face_t *a) {
         scene_t sc; face_draw(a,&sc); check_frame(&state,&sc);
     }
 }
-
 static void check_tap_reactions(face_t *t) {
     for(int i=0;i<3*R_FPS;i++) face_update(t,1.f/R_FPS);
     int last=-2, repeats=0;
@@ -163,7 +167,6 @@ static void check_tap_reactions(face_t *t) {
     assert(t->tess_hold[TR_SCATTER]>0 || t->tess_reaction[TR_SCATTER]>.1f);
     for(int i=0;i<4*R_FPS;i++) face_update(t,1.f/R_FPS);
 }
-
 static void check_sleep_scatter(face_t *t) {
     double awake_r=mean_radius(t);
     face_set_mode(t, MODE_SLEEP);
@@ -187,7 +190,6 @@ static void check_sleep_scatter(face_t *t) {
     assert(woke_r<awake_r*1.2);
     for(int i=0;i<TESS_N;i++) for(int k=0;k<3;k++) assert(isfinite(t->tess_position[i][k]));
 }
-
 static void check_globe_matching(face_t *t) {
     face_set_mode(t, MODE_LISTENING); face_update(t,1.f/R_FPS);
     double way=0;
@@ -201,7 +203,6 @@ static void check_globe_matching(face_t *t) {
     bool seen[TESS_N]={0};
     for(int i=0;i<TESS_N;i++) { assert(!seen[t->tess_shape_of[i]]); seen[t->tess_shape_of[i]]=1; }
 }
-
 static void check_thinking_turn(face_t *t) {
     face_set_mode(t, MODE_THINKING);
     float xw0=t->tess_xw;
@@ -211,7 +212,6 @@ static void check_thinking_turn(face_t *t) {
     for(int i=0;i<4*R_FPS;i++) face_update(t,1.f/R_FPS);
     assert(quarter_turn(t->tess_xw) && quarter_turn(t->tess_zw));
 }
-
 static void check_offline_fall(face_t *t) {
     face_set_mode(t, MODE_OFFLINE);
     t->grav_x=0; t->grav_y=1;

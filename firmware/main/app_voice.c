@@ -10,6 +10,7 @@
 #include "wake_resample.h"
 #include "ui_text.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -24,7 +25,8 @@ static vad_handle_t s_vad;
 static volatile bool s_ending;
 static auto_voice_t s_pause;
 static wake_resample_t s_resample;
-static int16_t s_pcm[640];
+enum { REALTIME_PCM_SAMPLES = 640 };
+static int16_t *s_pcm;
 static uint32_t s_input_frames, s_send_ms, s_send_max_ms, s_send_slow;
 static int64_t s_input_started_ms;
 static uint32_t s_input_dropped_ms;
@@ -157,6 +159,15 @@ static void native_frame(const int16_t *pcm, int samples, const uint8_t *ima) {
     check_pause(pcm, samples, turn, session, epoch);
 }
 
+static bool start_realtime_vad(void) {
+    s_vad = vad_create_with_param(VAD_MODE_3, 16000, 20, 20, 20);
+    if (!s_vad) return false;
+    s_pcm = heap_caps_malloc(REALTIME_PCM_SAMPLES * sizeof *s_pcm, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (s_pcm) return true;
+    vad_destroy(s_vad); s_vad = NULL;
+    return false;
+}
+
 bool app_voice_start_capture(void) {
     if (app_voice_mode() == VOICE_CLASSIC) {
         if (!audio_mic_gate(true, classic_frame)) { audio_mic_gate(false, NULL); return false; }
@@ -169,10 +180,7 @@ bool app_voice_start_capture(void) {
     bool ended = s_queued_end;
     portEXIT_CRITICAL(&s_input_mux);
     if (ended) { app_voice_capture_started(s_turn); return true; }
-    if (app_voice_mode() == VOICE_REALTIME) {
-        s_vad = vad_create_with_param(VAD_MODE_3, 16000, 20, 20, 20);
-        if (!s_vad) return false;
-    }
+    if (app_voice_mode() == VOICE_REALTIME && !start_realtime_vad()) return false;
     audio_mic_set_duplex(app_voice_mode() == VOICE_LIVE);
     s_pause = (auto_voice_t){0}; s_resample = (wake_resample_t){0}; s_ending = false;
     s_input_dropped_ms = audio_mic_dropped_ms();
@@ -191,6 +199,10 @@ void app_voice_recording_stop(void) {
         (unsigned)(audio_mic_dropped_ms() - s_input_dropped_ms));
     s_input_frames = s_send_ms = s_send_max_ms = s_send_slow = 0;
     if (s_vad) { vad_destroy(s_vad); s_vad = NULL; }
+    if (s_pcm) {
+        memset(s_pcm, 0, REALTIME_PCM_SAMPLES * sizeof *s_pcm);
+        heap_caps_free(s_pcm); s_pcm = NULL;
+    }
     s_ending = false;
     audio_mic_set_duplex(false);
 }

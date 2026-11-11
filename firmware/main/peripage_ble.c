@@ -106,7 +106,7 @@ static esp_err_t printer_prepare(void) {
 }
 
 static peripage_result_t find_printer(uint32_t epoch, int64_t deadline) {
-    struct ble_gap_disc_params parameters = {.itvl = 0x30, .window = 0x30, .filter_duplicates = 1, .passive = 0};
+    struct ble_gap_disc_params parameters = {.itvl = 0x30, .window = 0x18, .filter_duplicates = 1, .passive = 0};
     clear_event();
     int64_t remaining = (deadline - esp_timer_get_time()) / 1000;
     if (remaining <= SCAN_MS) return PERIPAGE_FAILED;
@@ -126,8 +126,12 @@ static peripage_result_t select_printer(uint32_t epoch, int64_t deadline) {
 static peripage_result_t connect_printer(uint32_t epoch, peripage_info_t *info, int64_t deadline) {
     int64_t remaining = (deadline - esp_timer_get_time()) / 1000;
     if (remaining <= 0) return PERIPAGE_FAILED;
+    // Half-duty scan leaves RF opportunities for the existing Wi-Fi Live stream.
+    // Connection interval/latency/supervision/CE limits match IDF 5.5.1 defaults.
+    const struct ble_gap_conn_params parameters = {.scan_itvl=32, .scan_window=16,
+        .itvl_min=24, .itvl_max=40, .latency=0, .supervision_timeout=256, .min_ce_len=0, .max_ce_len=0};
     clear_event();
-    if (ble_gap_connect(own_address_type, &selected_address, remaining, NULL, printer_gap, (void *)(uintptr_t)epoch)) return PERIPAGE_FAILED;
+    if (ble_gap_connect(own_address_type, &selected_address, remaining, &parameters, printer_gap, (void *)(uintptr_t)epoch)) return PERIPAGE_FAILED;
     if (!wait_event(deadline) || connection == BLE_HS_CONN_HANDLE_NONE) {
         ESP_LOGW("printer_ble", "connect wait failed result=%d completed=%d handle=%u", event_result,
             atomic_load(&event_completed), atomic_load(&connection));

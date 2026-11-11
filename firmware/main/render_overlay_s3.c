@@ -160,6 +160,7 @@ static R_HOT void text_overlay(const scene_t *scene, const prim_t *p, uint16_t *
     const font_t *font = &g_fonts[p->r];
     int pen = p->sub_x * 16;
     for (int i = 0; i < p->b; i++) {
+        pen += scene->text_kern[p->a+i];
         unsigned index = scene->text[p->a + i];
         if(index>=R_EMOJI_TOKEN)
             render_emoji_overlay(scene,(uint16_t)index,out,x0,y0,width,rows,stride,(pen+8)>>4,
@@ -169,8 +170,7 @@ static R_HOT void text_overlay(const scene_t *scene, const prim_t *p, uint16_t *
             int gx=((pen+8)>>4)+glyph->x,gy=p->sub_y-glyph->top;
             glyph_overlay(font,glyph,out,x0,y0,width,rows,stride,gx,gy,p->color,p->alpha,swap);
         }
-        pen+=render_token_advance(font,(uint16_t)index)+p->sub_r+
-            (i+1<p->b ? render_token_kern(font,(uint16_t)index,scene->text[p->a+i+1]) : 0);
+        pen+=render_token_advance(font,(uint16_t)index)+p->sub_r;
     }
 }
 

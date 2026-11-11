@@ -249,8 +249,7 @@ static void push_band(int x0, int y0, int x1, int y1, uint16_t *px, void *ctx) {
 static void only_twinkling_dots_repaint(void) {
     static canvas_t diff;
     static render_state_t state;
-    static uint16_t band[R_W * R_BAND];
-    uint16_t *bufs[] = {band};
+    static render_workspace_t workspace;
     face_t f = offline();
     for (int i = 0; i < 40 * 30; i++) face_update(&f, DT);  // the last of the heap creeps into place for a good half minute
     long stripes = 0, worst = 0;
@@ -258,7 +257,7 @@ static void only_twinkling_dots_repaint(void) {
         face_update(&f, DT);
         scene_t scene;
         face_draw(&f, &scene);
-        render_frame(&state, &scene, bufs, 1, false, push_band, &diff);
+        render_frame(&state, &scene, &workspace, false, push_band, NULL, &diff);
         if (i < 2) continue;  // the first frames are painted whole
         long changed = 0;
         for (int y = 0; y < CANVAS_H; y++) {

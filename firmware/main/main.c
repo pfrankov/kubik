@@ -376,12 +376,11 @@ static void allocate_output_buffers(frame_out_t *f) {
 static void display_task(void *arg) {
     static scene_t scene;
     static render_state_t rs;
-    static uint16_t bands[2][R_W * R_BAND] __attribute__((aligned(4)));  // the canvas hashes pixel pairs
+    static render_workspace_t workspace;  // aligned native band plus one lookahead row
     frame_out_t *f = allocate_display_frame();
     assert(f);
     f->scene = &scene;
-    f->bands[0] = bands[0];
-    f->bands[1] = bands[1];
+    f->workspace = &workspace;
     allocate_output_buffers(f);
 #if !CONFIG_IDF_TARGET_ESP32S3
     int tick_remainder = 0;  // fractional tick periods keep the requested frame cadence

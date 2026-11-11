@@ -102,6 +102,85 @@ def check_compile_flags():
             assert subprocess.check_output([exe]) == expected
 
 
+def check_firmware_profiles():
+    cmake = (ROOT / 'firmware/main/CMakeLists.txt').read_text()
+    start = cmake.index('if(IDF_TARGET STREQUAL "esp32c6" AND KUBIK_CHARACTER STREQUAL "PLUSH")')
+    logs = cmake[start:cmake.index('endif()', start) + len('endif()')]
+    start = cmake.index('set(MAIN_OPTIMIZATION')
+    end = cmake.index('# Tess', start)
+    flags = cmake[start:end]
+    start = cmake.index('# C6 keeps short DMA strips')
+    hot = cmake[start:cmake.index('endif()', start) + len('endif()')]
+    bound = 'set_property(SOURCE render_text.c APPEND PROPERTY COMPILE_OPTIONS -Werror=vla)'
+    assert bound in cmake
+    with tempfile.TemporaryDirectory(prefix='kubik-firmware-profiles-') as temporary:
+        root = Path(temporary)
+        script = root / 'profile.cmake'
+        script.write_text("""set(COMPONENT_LIB main)
+function(idf_component_get_property output component property)
+    set(${output} ${component} PARENT_SCOPE)
+endfunction()
+function(target_compile_definitions target)
+    file(APPEND "${RESULT}" "sdk:${target}:${ARGN}\\n")
+endfunction()
+function(set_source_files_properties)
+    file(APPEND "${RESULT}" "hot:${ARGN}\\n")
+endfunction()
+function(set_property)
+    file(APPEND "${RESULT}" "bound:${ARGN}\\n")
+endfunction()
+function(target_compile_options target)
+    file(APPEND "${RESULT}" "app:${target}:${ARGN}\\n")
+endfunction()
+""" + logs + '\n' + hot + '\n' + bound + '\n' + flags)
+        for target in ('esp32c6', 'esp32s3'):
+            for character in ('TESS', 'PLUSH'):
+                result = root / (target + character)
+                subprocess.run(['cmake', f'-DIDF_TARGET={target}', f'-DKUBIK_CHARACTER={character}',
+                                f'-DRESULT={result}', '-P', str(script)], check=True)
+                lines = result.read_text().splitlines()
+                verify_firmware_profile(lines, target, character)
+
+
+def verify_firmware_profile(lines, target, character):
+    small = target == 'esp32c6' and character == 'PLUSH'
+    assert lines[-1].startswith('app:main:PRIVATE;' + ('-Os' if small else '-O2') + ';')
+    verify_sdk_profile(lines, small)
+    verify_fast_profile(lines, target == 'esp32c6' and character == 'TESS')
+    assert 'bound:SOURCE;render_text.c;APPEND;PROPERTY;COMPILE_OPTIONS;-Werror=vla' in lines
+
+
+def verify_sdk_profile(lines, small):
+    sdk = [line for line in lines if line.startswith('sdk:')]
+    assert bool(sdk) is small
+    assert all(line.endswith(':PRIVATE;LOG_LOCAL_LEVEL=2') for line in sdk)
+    assert not any(line.startswith(('sdk:main:', 'sdk:esp-tls:')) for line in sdk)
+    if small:
+        assert any(line.startswith('sdk:bt:') for line in sdk)
+
+
+def verify_fast_profile(lines, expected):
+    fast = [line for line in lines if line.startswith('hot:')]
+    assert bool(fast) is expected
+    assert all(line.endswith('PROPERTIES;COMPILE_OPTIONS;-O3') for line in fast)
+
+
+def check_shader_stack_guard():
+    with tempfile.TemporaryDirectory(prefix='kubik-shader-stack-') as temporary:
+        root = Path(temporary)
+        for extent, valid in (('480', True), ('width', False)):
+            source = root / 'shader.c'
+            source.write_text('#include <stdint.h>\nvoid icon(int width, uint16_t *out) {\n'
+                              f'uint16_t xq[{extent}];\n'
+                              'for (int i=0;i<width;i++) xq[i]=(uint16_t)i;\n'
+                              'for (int i=0;i<width;i++) out[i]=xq[i]; }\n')
+            result = subprocess.run(['cc', '-std=c11', '-O3', '-Werror=vla', '-c', str(source),
+                                     '-o', str(root / 'shader.o')], text=True, capture_output=True)
+            assert (result.returncode == 0) is valid, result.stderr
+            if not valid:
+                assert 'variable length array' in result.stderr.lower()
+
+
 def check_node_runtime():
     supported = accept['node_supported']
     specification = json.loads((ROOT / 'openclaw-kubik/package.json').read_text())['engines']['node']
@@ -122,5 +201,7 @@ check_stages()
 check_preflight()
 check_build_targets()
 check_compile_flags()
+check_firmware_profiles()
+check_shader_stack_guard()
 check_node_runtime()
 print('acceptance: four target/character builds, split/full coverage, missing SDK, failure and compiler flag isolation passed')
