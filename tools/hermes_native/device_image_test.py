@@ -83,3 +83,68 @@ class LiveImageFixtureSafety(unittest.IsolatedAsyncioTestCase):
         with patch('sys.argv', argv + ['--printer-live-image-check', '--printer-image-check']):
             with self.assertRaises(SystemExit):
                 arguments()
+
+class VerifiedImageFixtureSafety(unittest.IsolatedAsyncioTestCase):
+    def test_verified_uses_profile_dimensions_and_synthetic_remains_bounded(self):
+        from device_image import print_arguments
+        ref = 'a' * 32
+        self.assertEqual(print_arguments(ref, False, True), {'action': 'print', 'format': 'image', 'image_ref': ref})
+        self.assertEqual(print_arguments(ref, False, False)['width_mm'], 20)
+        self.assertEqual(print_arguments(ref, False, False)['height_mm'], 20)
+        self.assertEqual(print_arguments(ref, True, False)['format'], 'document')
+
+    def test_verified_source_requires_matching_owner_digest_and_regular_file(self):
+        import hashlib, tempfile
+        from pathlib import Path
+        from PIL import Image
+        from device_image import prepare_fixture_image
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, target = root / 'source.png', root / 'target.png'
+            Image.new('RGB', (12, 18), 'red').save(source)
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            peer = SimpleNamespace(identity='kubik:owner')
+            control = SimpleNamespace(printer_image_source=(source, digest, peer.identity))
+            result = prepare_fixture_image(target, peer, control, True)
+            self.assertEqual(result['source_sha256'], digest)
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            for bad in ((source, digest, 'kubik:other'), (source, '0' * 64, peer.identity)):
+                control.printer_image_source = bad
+                with self.assertRaises(ValueError):
+                    prepare_fixture_image(target, peer, control, True)
+            alias = root / 'link.png'
+            alias.symlink_to(source)
+            control.printer_image_source = (alias, digest, peer.identity)
+            with self.assertRaises(OSError):
+                prepare_fixture_image(target, peer, control, True)
+
+    async def test_reconnect_does_not_reset_one_print_budget(self):
+        from device_image import VerifiedObservations
+        peer = SimpleNamespace()
+        adapter = SimpleNamespace(command=AsyncMock(), authenticate=AsyncMock(return_value=peer))
+        observation = VerifiedObservations(adapter)
+        observation.install()
+        first = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
+        await adapter.authenticate(first)
+        await first.send_json({'t': 'printer_image', 'action': 'start'})
+        second = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
+        await adapter.authenticate(second)
+        with self.assertRaisesRegex(AssertionError, 'second physical image'):
+            await second.send_json({'t': 'printer_image', 'action': 'start'})
+        observation.restore()
+
+    def test_verified_mode_requires_all_provenance_and_is_exclusive(self):
+        from device import acceptance, arguments, printer_mode
+        from unittest.mock import patch
+        base = ['device.py', '--source', '/tmp/hermes', '--tls-identity', '/tmp/tls.json',
+                '--control', 'http://127.0.0.1:18792', '--evidence', '/tmp/new-evidence']
+        flags = ['--printer-verified-image-check', '--printer-image-source', '/tmp/user.png',
+                 '--printer-image-source-sha256', 'a' * 64, '--printer-image-source-owner', 'kubik:owner']
+        with patch('sys.argv', base + flags):
+            options = arguments()
+        self.assertTrue(printer_mode(options))
+        self.assertEqual(acceptance(options)[0].__name__, 'VerifiedObservations')
+        for partial in (flags[:1], flags[:-1], flags + ['--printer-image-check']):
+            with patch('sys.argv', base + partial):
+                with self.assertRaises(SystemExit):
+                    arguments()

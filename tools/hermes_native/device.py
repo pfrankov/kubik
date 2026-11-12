@@ -12,6 +12,17 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def validate_image_source(parser, args, name, mode, required=False):
+    source, digest, owner = (getattr(args, name), getattr(args, name + '_sha256'), getattr(args, name + '_owner'))
+    values = (source, digest, owner)
+    if (any(values) or (required and mode)) and (not mode or not all(values)):
+        parser.error(name + ' requires its mode, verified SHA-256 and verified owner')
+    if digest and not __import__('re').fullmatch('[0-9a-f]{64}', digest):
+        parser.error(name + ' SHA-256 must be 64 lowercase hexadecimal characters')
+    if source:
+        setattr(args, name, source.expanduser().absolute())
+
+
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True, type=Path, help='Existing Hermes v0.22.2 source (read-only)')
@@ -25,25 +36,24 @@ def arguments():
     modes.add_argument('--printer-live-status', action='store_true', help='Physical Live microphone plus one printer status RPC; printing is blocked')
     modes.add_argument('--printer-stream-check', action='store_true', help='Exactly one NEW BLE 20 ms text print, 30x10 mm at 3 mm font')
     modes.add_argument('--printer-image-check', action='store_true', help='Exactly one synthetic image through the physical printer')
+    modes.add_argument('--printer-verified-image-check', action='store_true', help='Exactly one verified existing PNG at the printer profile size')
     modes.add_argument('--printer-live-image-check', action='store_true', help='One synthetic image print while GPT Live microphone remains active')
     modes.add_argument('--printer-document-check', action='store_true', help='Exactly one mixed document through the physical printer')
     modes.add_argument('--printer-quality-check', action='store_true', help='Two NEW jobs: personal Apple emoji text and square 20 mm QR')
     modes.add_argument('--screen-emoji-check', action='store_true', help='Real agent Apple emoji cards across pages with Live microphone; zero prints')
     modes.add_argument('--screen-image-check', action='store_true', help='One image attachment shown by C6; no printer commands')
     modes.add_argument('--screen-image-live-check', action='store_true', help='One image attachment while GPT Live microphone continues; no printing')
+    parser.add_argument('--printer-image-source', type=Path, help='Previously verified local PNG for one physical print')
+    parser.add_argument('--printer-image-source-sha256', help='Verified SHA-256 of the physical print source')
+    parser.add_argument('--printer-image-source-owner', help='Verified complete current peer identity')
     parser.add_argument('--screen-image-source', type=Path, help='Previously verified local PNG for the screen image fixture')
     parser.add_argument('--screen-image-source-sha256', help='Verified SHA-256 of that exact local PNG')
     parser.add_argument('--screen-image-source-owner', help='Verified complete current peer identity')
     parser.add_argument('--evidence', required=True, type=Path, help='NEW private evidence directory')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
-    source_options = (args.screen_image_source, args.screen_image_source_sha256, args.screen_image_source_owner)
-    if any(source_options) and (not args.screen_image_check or not all(source_options)):
-        parser.error('screen image source requires the screen-image mode, verified SHA-256 and verified owner')
-    if args.screen_image_source_sha256 and not __import__('re').fullmatch('[0-9a-f]{64}', args.screen_image_source_sha256):
-        parser.error('screen image source SHA-256 must be 64 lowercase hexadecimal characters')
-    if args.screen_image_source:
-        args.screen_image_source = args.screen_image_source.expanduser().absolute()
+    validate_image_source(parser, args, 'printer_image_source', args.printer_verified_image_check, required=True)
+    validate_image_source(parser, args, 'screen_image_source', args.screen_image_check)
     if not 1024 <= args.port <= 65535:
         parser.error('--port must be 1024..65535')
     from device_transport import validate_options
@@ -83,12 +93,16 @@ def launch(args):
                    '--port', str(args.port), '--evidence', str(args.evidence)]
         if args.wifi:
             command += ['--wifi', '--endpoint', args.endpoint]
+        if args.printer_image_source:
+            command += ['--printer-image-source', str(args.printer_image_source),
+                        '--printer-image-source-sha256', args.printer_image_source_sha256,
+                        '--printer-image-source-owner', args.printer_image_source_owner]
         if args.screen_image_source:
             command += ['--screen-image-source', str(args.screen_image_source),
                         '--screen-image-source-sha256', args.screen_image_source_sha256,
                         '--screen-image-source-owner', args.screen_image_source_owner]
         for mode in ('printer', 'printer_live_status', 'printer_stream_check', 'printer_quality_check',
-                     'printer_image_check', 'printer_live_image_check', 'printer_document_check', 'screen_emoji_check', 'screen_image_check', 'screen_image_live_check'):
+                     'printer_image_check', 'printer_verified_image_check', 'printer_live_image_check', 'printer_document_check', 'screen_emoji_check', 'screen_image_check', 'screen_image_live_check'):
             if getattr(args, mode, False):
                 command.append('--' + mode.replace('_', '-'))
         subprocess.run(command, cwd=ROOT, env=env, timeout=720 if long_mode(args) else 600, check=True)
@@ -138,7 +152,7 @@ async def prepare(args, original, identity):
 
 
 def printer_mode(args):
-    return args.printer or args.printer_live_status or args.printer_stream_check or args.printer_quality_check or getattr(args, 'printer_image_check', False) or getattr(args, 'printer_live_image_check', False) or getattr(args, 'printer_document_check', False)
+    return args.printer or args.printer_live_status or args.printer_stream_check or args.printer_quality_check or getattr(args, 'printer_image_check', False) or getattr(args, 'printer_verified_image_check', False) or getattr(args, 'printer_live_image_check', False) or getattr(args, 'printer_document_check', False)
 
 
 def long_mode(args):
@@ -184,6 +198,9 @@ def copy_private_emoji(args, state):
 
 
 def acceptance(args):
+    if getattr(args, 'printer_verified_image_check', False):
+        from device_image import VerifiedObservations, check_verified
+        return VerifiedObservations, check_verified, 'one verified existing image submitted at printer profile size'
     if getattr(args, 'screen_image_live_check', False):
         from device_screen_image import LiveObservations, check_live
         return LiveObservations, check_live, 'one image attachment with continuous Live microphone and no printing'
@@ -230,6 +247,7 @@ async def worker(args):
     sys.addaudithook(network_guard)
     control = Control(args.control, args.evidence)
     control.screen_image_source = (args.screen_image_source, args.screen_image_source_sha256, args.screen_image_source_owner) if args.screen_image_source else None
+    control.printer_image_source = (args.printer_image_source, args.printer_image_source_sha256, args.printer_image_source_owner) if args.printer_image_source else None
     gateway = backend = adapter = peer = observations = providers = None
     original = primary = None
     try:
@@ -247,7 +265,7 @@ async def worker(args):
         await eventually(lambda: identity in adapter.peers and adapter.peers[identity].ready)
         peer = adapter.peers[identity]
         observations.watch_socket(peer.socket)  # Wi-Fi may authenticate before Gateway.start returns.
-        if not (getattr(args, 'printer_image_check', False) or getattr(args, 'printer_document_check', False)):
+        if not (getattr(args, 'printer_image_check', False) or getattr(args, 'printer_verified_image_check', False) or getattr(args, 'printer_document_check', False)):
             await control.prepare_screen()
         result = await check(adapter, peer, control, providers, observations)
         result.update(device=original['device'], transport='wifi' if args.wifi else 'usb',

@@ -181,7 +181,7 @@ static void draw_preview(scene_t *scene) {
             bool live_image = g_face.live_active && printer_preview_is_screen(preview);
             if (!live_image) { scene_end(scene); scene_begin(scene, 0); }
             scene->printer_preview = preview;
-            int side = live_image ? 112 : 336;
+            int side = live_image ? 112 : (UI_H == 480 ? 256 : 336);
             int x = live_image ? UI_W - 170 : (UI_W - side) / 2;
             int y = live_image ? 90 : (UI_H - side) / 2;
             prim_t *p = sc_image(scene, UINT32_MAX, x, y, x, y, x + side - 1, y + side - 1, 1.f);

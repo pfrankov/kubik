@@ -62,6 +62,25 @@ class Observations:
             socket.send_json, socket.send_bytes = send_json, send_bytes
 
 
+class VerifiedObservations(Observations):
+    """Keep the one-print guard when an authenticated socket reconnects."""
+    def __init__(self, adapter):
+        super().__init__(adapter)
+        self.authenticate = adapter.authenticate
+
+    def install(self):
+        super().install()
+        async def authenticate(socket):
+            peer = await self.authenticate(socket)
+            self.watch_socket(socket)
+            return peer
+        self.adapter.authenticate = authenticate
+
+    def restore(self):
+        super().restore()
+        self.adapter.authenticate = self.authenticate
+
+
 async def observe_preview(control, stopped, evidence):
     while not stopped.is_set():
         state = await control.info()
@@ -70,12 +89,45 @@ async def observe_preview(control, stopped, evidence):
         await asyncio.sleep(.15)
 
 
-async def check(adapter, peer, control, providers, observations, *, document=False, external_preview=None):
+def print_arguments(ref, document, verified):
+    if document:
+        return {'action': 'print', 'format': 'document', 'width_mm': 30, 'blocks': [
+            {'type': 'text', 'text': 'Текст перед рисунком'}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
+            {'type': 'text', 'text': 'Текст после рисунка'}]}
+    args = {'action': 'print', 'format': 'image', 'image_ref': ref}
+    if not verified:
+        args.update(width_mm=20, height_mm=20)
+    return args
+
+
+def prepare_fixture_image(path, peer, control, verified):
+    if verified:
+        from device_screen_image import fixture_png
+        source = getattr(control, 'printer_image_source', None)
+        if not source:
+            raise ValueError('Verified image source is required')
+        info = fixture_png(path, source, peer)
+        return {'source': info['image'], 'source_sha256': info['source_sha256'], 'source_size': info['source_size']}
+    from PIL import Image, ImageDraw
+    image = Image.new('RGB', (160, 160), 'white')
+    drawing = ImageDraw.Draw(image)
+    drawing.rectangle((8, 8, 151, 151), outline='black', width=4)
+    drawing.ellipse((40, 40, 120, 120), outline='black', width=4)
+    image.save(path)
+    return {'source': 'synthetic local image'}
+
+
+def preview_evidence(external, verified):
+    if verified:
+        return {}
+    return external if external is not None else {'preview_active': False, 'preview_presented': False}
+
+
+async def check(adapter, peer, control, providers, observations, *, document=False, external_preview=None, verified=False):
     from gateway.session_context import set_session_vars, clear_session_vars
     from hermes_constants import set_hermes_home_override, reset_hermes_home_override
     from model_tools import handle_function_call
     from image_contract import transform
-    from PIL import Image, ImageDraw
     observations.persist(control.evidence, providers)
     await control.until(lambda state: not state['printer_busy'], 'printer background work finished', timeout=40)
     assert peer.printer_image_version == 1
@@ -84,11 +136,7 @@ async def check(adapter, peer, control, providers, observations, *, document=Fal
     home = Path(adapter.home)
     path = home / 'cache/generated/images/physical-fixture.png'
     path.parent.mkdir(parents=True, exist_ok=True)
-    image = Image.new('RGB', (160, 160), 'white')
-    drawing = ImageDraw.Draw(image)
-    drawing.rectangle((8, 8, 151, 151), outline='black', width=4)
-    drawing.ellipse((40, 40, 120, 120), outline='black', width=4)
-    image.save(path)
+    image_evidence = prepare_fixture_image(path, peer, control, verified)
     raw = json.dumps({'success': True, 'provider': 'openai', 'image': str(path)})
     tokens = set_session_vars(platform='kubik', chat_id=peer.identity, message_id=event.message_id,
                               session_key=adapter._event_session_key(event))
@@ -104,13 +152,10 @@ async def check(adapter, peer, control, providers, observations, *, document=Fal
                                   session_key=adapter._event_session_key(event))
         with module.printer_origin(adapter, peer, event):
             ref = result['kubik_image_ref']
-            args = ({'action': 'print', 'format': 'document', 'width_mm': 30, 'blocks': [
-                {'type': 'text', 'text': 'Текст перед рисунком'}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
-                {'type': 'text', 'text': 'Текст после рисунка'}]} if document else
-                {'action': 'print', 'format': 'image', 'image_ref': ref, 'width_mm': 20, 'height_mm': 20})
-            evidence = external_preview if external_preview is not None else {'preview_active': False, 'preview_presented': False}
+            args = print_arguments(ref, document, verified)
+            evidence = preview_evidence(external_preview, verified)
             stopped = asyncio.Event()
-            monitor = None if external_preview is not None else asyncio.create_task(observe_preview(control, stopped, evidence))
+            monitor = None if verified or external_preview is not None else asyncio.create_task(observe_preview(control, stopped, evidence))
             try:
                 printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
                                                    tool_call_id='physical-image-once', enabled_tools=['kubik_printer'])
@@ -119,19 +164,23 @@ async def check(adapter, peer, control, providers, observations, *, document=Fal
                 if monitor:
                     await monitor
             printed = json.loads(printed)
-            if not document:
+            if not (document or verified):
                 assert peer.printer_preview_version == 1
                 assert evidence['preview_active'] and evidence['preview_presented'], evidence
             assert printed.get('status') == 'sent', printed
             assert printed['layout']['format'] == ('document' if document else 'image') and printed['paperConfirmed'] is False
             assert observations.starts == 1 and observations.bands > 1
             return {'image_submitted': True, 'paper_confirmed': False, 'bands': observations.bands,
-                    'layout': printed['layout'], 'source': 'synthetic local image', 'separate_turns': True, **evidence}
+                    'layout': printed['layout'], 'separate_turns': True, **image_evidence, **evidence}
     finally:
         await adapter.on_processing_complete(event, 'success')
         reset_hermes_home_override(profile)
         clear_session_vars(tokens)
         path.unlink(missing_ok=True)
+
+
+async def check_verified(adapter, peer, control, providers, observations):
+    return await check(adapter, peer, control, providers, observations, verified=True)
 
 
 async def check_document(adapter, peer, control, providers, observations):
