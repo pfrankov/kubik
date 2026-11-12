@@ -97,7 +97,8 @@ class PrinterTool:
 
 
 async def on_gateway(adapter, peer, call_id, arguments, event_id, raster=None):
-    operation = adapter.printer_jobs.request(peer, call_id, arguments, event_id, raster)
+    operation = (adapter.printer_jobs.request(peer, call_id, arguments, event_id, raster) if raster is not None
+                 else adapter.printer_jobs.request(peer, call_id, arguments, event_id))
     if asyncio.get_running_loop() is adapter.printer_loop:
         return await operation
     try:
