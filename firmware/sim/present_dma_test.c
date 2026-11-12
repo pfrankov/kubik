@@ -72,7 +72,8 @@ int main(void) {
         const render_win_t *w=&windows[i];expected+=(w->x1-w->x0)*(w->y1-w->y0);send_window(&frame,w);
         assert(pending_n); // end() must preserve the tail's ownership across windows.
     }
-    while(pending_n)complete_dma();assert(submitted==expected && completed==expected && frame.px==expected);
+    while(pending_n) { complete_dma(); }
+    assert(submitted==expected && completed==expected && frame.px==expected);
     assert(max_inflight==LCD_DMA_CREDITS && chunks==compositions && frame.windows==7 && band_chunks==3);
     assert(sizeof buffers==11520);
     puts("C6 DMA: delayed ownership/full/clipped/odd windows and exact 6+6+4 band tail passed; 2x6 uses 11520 bytes");
