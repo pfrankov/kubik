@@ -72,6 +72,9 @@ class ImageJobsTest(ProtocolFixture):
         self.jobs = self.adapter.printer_jobs = PrinterJobs(self.adapter, print_timeout=.1, hard_guard=.2)
         self.raster = Raster(bytes(range(72)) * 20, 576, 100, 20)
         self.args = {'action': 'print', 'format': 'image', 'image_ref': 'a' * 32}
+        self.blocked = []
+        self.peer.printer_images = SimpleNamespace(mark_uncertain=self.blocked.append,
+                                                   is_uncertain=lambda ref: ref in self.blocked, get=lambda ref: b'png')
 
     async def asyncTearDown(self):
         await self.jobs.shutdown()
@@ -105,11 +108,30 @@ class ImageJobsTest(ProtocolFixture):
         self.assertEqual(await self.jobs.request(self.peer, 'call', self.args, 'event', self.raster), value)
         self.assertEqual(len(self.peer.socket.messages), 3)
 
+    async def test_prepared_image_cannot_dispatch_after_other_call_becomes_unknown(self):
+        # Simulates a concurrent caller that already passed status and prepared raster.
+        self.blocked.append(self.args['image_ref'])
+        value = await self.jobs.request(self.peer, 'new-call', self.args, 'event', self.raster)
+        self.assertEqual((value['code'], value['outcome']), ('outcome_unknown', 'unknown'))
+        self.assertFalse(self.peer.socket.messages)
+
+    async def test_cancel_before_dispatch_does_not_block_image(self):
+        await self.peer.output_lock.acquire()
+        task = asyncio.create_task(self.jobs.request(self.peer, 'cancel-early', self.args, 'event', self.raster))
+        await self.wait_for(lambda: self.peer.identity in self.jobs.pending)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(self.blocked, [])
+        self.assertFalse(self.peer.socket.messages)
+        self.peer.output_lock.release()
+
     async def test_timeout_aborts_without_replay_and_keeps_output_lease(self):
         task = asyncio.create_task(self.jobs.request(self.peer, 'call', self.args, 'event', self.raster))
         value = await task
         self.assertEqual((value['code'], value['outcome']), ('timeout', 'unknown'))
         self.assertEqual(self.peer.socket.messages[-1]['action'], 'abort')
         self.assertTrue(self.peer.output_lock.locked())
+        self.assertEqual(self.blocked, [self.args['image_ref']])
         self.assertEqual(await self.jobs.request(self.peer, 'call', self.args, 'event', self.raster), value)
         self.assertEqual(len(self.peer.socket.messages), 2)

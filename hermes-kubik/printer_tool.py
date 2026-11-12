@@ -96,8 +96,6 @@ class PrinterTool:
         while True:
             if is_interrupted():
                 printing = isinstance(arguments, dict) and arguments.get('action') == 'print'
-                if printing and arguments.get('format') == 'image':
-                    mark_uncertain(adapter, arguments)
                 pending.cancel()
                 return json.dumps(PrinterFailure('cancelled', outcome='unknown' if printing else 'not_sent').value())
             try:
@@ -113,11 +111,6 @@ class PrinterTool:
             peer, call_id, event_id, images = call_origin(adapter)
             raster = await image_for_print(adapter, peer, call_id, arguments, event_id, images)
             value = await on_gateway(adapter, peer, call_id, arguments, event_id, raster)
-            if value.get('outcome') == 'unknown' and isinstance(arguments, dict) and arguments.get('format') == 'image':
-                images.mark_uncertain(arguments.get('image_ref'))
-        except asyncio.CancelledError:
-            mark_uncertain(self.adapter, arguments)
-            raise
         except PrinterFailure as error:
             value = error.value()
         except (ImportError, AttributeError, RuntimeError):
@@ -126,15 +119,6 @@ class PrinterTool:
             value = {**value, 'error': value['code']}
         return json.dumps(value, ensure_ascii=False, allow_nan=False)
 
-
-def mark_uncertain(adapter, arguments):
-    if not isinstance(arguments, dict) or arguments.get('format') != 'image':
-        return
-    try:
-        _, _, images = verified_origin(adapter)
-        images.mark_uncertain(arguments.get('image_ref'))
-    except (PrinterFailure, ImportError, AttributeError, RuntimeError):
-        pass
 
 
 async def on_gateway(adapter, peer, call_id, arguments, event_id, raster=None):

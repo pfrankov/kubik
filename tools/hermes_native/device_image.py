@@ -87,6 +87,13 @@ async def check(adapter, peer, control, providers, observations):
     try:
         with module.printer_origin(adapter, peer, event):
             result = json.loads(await asyncio.to_thread(transform, raw))
+            assert observations.starts == 0
+        await adapter.on_processing_complete(event, 'success')
+        clear_session_vars(tokens)
+        event = adapter._authorized_voice_event(peer, 'physical-image-follow-up')
+        tokens = set_session_vars(platform='kubik', chat_id=peer.identity, message_id=event.message_id,
+                                  session_key=adapter._event_session_key(event))
+        with module.printer_origin(adapter, peer, event):
             args = {'action': 'print', 'format': 'image', 'image_ref': result['kubik_image_ref'],
                     'width_mm': 20, 'height_mm': 20}
             printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
@@ -96,7 +103,7 @@ async def check(adapter, peer, control, providers, observations):
             assert printed['layout']['format'] == 'image' and printed['paperConfirmed'] is False
             assert observations.starts == 1 and observations.bands > 1
             return {'image_submitted': True, 'paper_confirmed': False, 'bands': observations.bands,
-                    'layout': printed['layout'], 'source': 'synthetic local image'}
+                    'layout': printed['layout'], 'source': 'synthetic local image', 'separate_turns': True}
     finally:
         await adapter.on_processing_complete(event, 'success')
         reset_hermes_home_override(profile)

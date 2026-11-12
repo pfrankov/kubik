@@ -53,6 +53,9 @@ class PrinterJobs:
         previous = self.records.get(rid)
         if previous:
             return await asyncio.shield(previous['future'])
+        image_error = self.image_admission(peer, values, rid)
+        if image_error:
+            return image_error
         loop = asyncio.get_running_loop()
         row = {'peer': peer, 'rid': rid, 'payload': payload, 'parameters': values, 'action': values['action'], 'dispatched': False,
                'future': loop.create_future(), 'quiescent': loop.create_future(), 'finished': None, 'uncertain': False,
@@ -70,6 +73,16 @@ class PrinterJobs:
         except asyncio.CancelledError:
             await self.abandon(row, 'cancelled')
             raise
+
+    def image_admission(self, peer, values, rid):
+        images = getattr(peer, 'printer_images', None)
+        if values.get('format') != 'image' or images is None:
+            return None
+        if images.is_uncertain(values['image_ref']):
+            return PrinterFailure('outcome_unknown', outcome='unknown', rid=rid).value()
+        if images.get(values['image_ref']) is None:
+            return PrinterFailure('invalid_image_ref', rid=rid).value()
+        return None
 
     def admit(self, peer, rid, payload):
         if not self.current(peer):
@@ -204,6 +217,9 @@ class PrinterJobs:
             return
         row['finished'] = self.now()
         row['uncertain'] = value.get('outcome') == 'unknown'
+        images = getattr(row['peer'], 'printer_images', None)
+        if row['uncertain'] and row['raster'] is not None and images is not None:
+            images.mark_uncertain(row['parameters']['image_ref'])
         row['future'].set_result(value)
 
     def accept(self, peer, value):
