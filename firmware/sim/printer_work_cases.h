@@ -28,8 +28,10 @@ static void job_errors(void) {
 static void queued_flood(void) {
     fresh();request(RID,"\"action\":\"status\"");
     for(unsigned i=0;i<1000;i++){char rid[33];snprintf(rid,sizeof rid,"%032x",i);request(rid,"\"action\":\"status\"");}
-    for(unsigned i=0;i<PRINTER_REPLY_SLOTS;i++)app_tick();assert(attempts==PRINTER_REPLY_SLOTS);
-    for(unsigned i=0;i<10;i++)app_tick();assert(attempts==PRINTER_REPLY_SLOTS);
+    for(unsigned i=0;i<PRINTER_REPLY_SLOTS;i++) { app_tick(); }
+    assert(attempts==PRINTER_REPLY_SLOTS);
+    for(unsigned i=0;i<10;i++) { app_tick(); }
+    assert(attempts==PRINTER_REPLY_SLOTS);
     finish_work();app_tick();assert(attempts==PRINTER_REPLY_SLOTS+1);assert(opens==1);
 }
 static void no_replay_and_sessions(void) {
@@ -41,7 +43,8 @@ static void no_replay_and_sessions(void) {
     fresh();change_session_packet=4;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"safe\"");finish_request();
     assert(!attempts && packets==4);assert(!printer_work_busy());
     fresh();send_ok=false;request(RID,"\"action\":\"status\"");finish_request();
-    for(unsigned i=0;i<10;i++)app_tick();assert(attempts==1 && opens==1);
+    for(unsigned i=0;i<10;i++) { app_tick(); }
+    assert(attempts==1 && opens==1);
 }
 static void automatic_discovery(void) {
     fresh();app_state.automatic_allowed=true;app_tick();assert(callback && !opens);finish_work();app_tick();
