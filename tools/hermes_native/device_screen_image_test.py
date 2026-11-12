@@ -1,4 +1,5 @@
 """Safety invariants of the physical image attachment fixture."""
+import asyncio
 import hashlib
 from pathlib import Path
 import tempfile
@@ -19,6 +20,63 @@ class AttachmentFixtureSafety(unittest.IsolatedAsyncioTestCase):
         socket = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
         observation.watch_socket(socket)
         return observation, socket
+
+    async def test_baseline_waits_for_background_printer_and_checks_live_state(self):
+        from device_screen_image import baseline_when_printer_idle
+        states = [{'printer_busy': True}, {'printer_busy': False, 'live_active': True,
+                  'mic_open': True, 'mic_rx_enabled': True}]
+
+        async def until(predicate, label, timeout):
+            self.assertEqual((label, timeout), ('printer background work finished', 40))
+            self.assertFalse(predicate({}))
+            self.assertFalse(predicate(states[0]))
+            self.assertTrue(predicate(states[1]))
+            return states[1]
+
+        control = SimpleNamespace(until=until)
+        self.assertIs(await baseline_when_printer_idle(control, True), states[1])
+        states[1]['mic_open'] = False
+        with self.assertRaises(AssertionError):
+            await baseline_when_printer_idle(control, True)
+
+    async def test_busy_timeout_is_not_hidden(self):
+        from device_screen_image import baseline_when_printer_idle
+        control = SimpleNamespace(until=AsyncMock(side_effect=RuntimeError('Timed out waiting for printer')))
+        with self.assertRaisesRegex(RuntimeError, 'Timed out waiting for printer'):
+            await baseline_when_printer_idle(control, False)
+
+    async def test_live_monitor_starts_only_after_printer_is_idle(self):
+        from device_screen_image import check_live
+        events = []
+        state = {'printer_busy': False, 'live_active': True, 'mic_open': True, 'mic_rx_enabled': True}
+
+        async def until(predicate, label, timeout):
+            events.append('idle')
+            self.assertTrue(predicate(state))
+            return state
+
+        async def monitor(control, observations, stopped):
+            events.append('monitor')
+            await stopped.wait()
+
+        async def check(*args, **kwargs):
+            self.assertIs(kwargs['baseline'], state)
+            await asyncio.sleep(0)
+            events.append('check')
+            return {}
+
+        control = SimpleNamespace(request=AsyncMock(return_value={}), info=AsyncMock(return_value={}),
+                                  sim=AsyncMock(), until=until, evidence=Path('/tmp'))
+        peer = SimpleNamespace(volume=20, native=SimpleNamespace(current=lambda: True))
+        observations = SimpleNamespace(persist=lambda *args: None, errors=[], connection=None)
+        providers = SimpleNamespace(voice=None)
+        with patch('device_voice.begin', AsyncMock(return_value=object())), \
+             patch('device_screen_image.sample_live', monitor), patch('device_screen_image.check', check), \
+             patch('voice_fixture.eventually', AsyncMock()), patch('device_screen_image.verify_live', return_value={}), \
+             patch('device_screen_image.fault_window'):
+            await check_live(None, peer, control, providers, observations)
+        self.assertEqual(events, ['idle', 'monitor', 'check'])
+        self.assertEqual(peer.volume, 20)
 
     async def test_every_printer_route_is_blocked_before_dispatch(self):
         observation, socket = self.make()

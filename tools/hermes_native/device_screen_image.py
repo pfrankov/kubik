@@ -138,15 +138,24 @@ def verify_baseline(baseline, live):
         assert not baseline['live_active'] and not baseline['mic_open']
 
 
-async def check(adapter, peer, control, providers, observations, *, live=False):
+async def baseline_when_printer_idle(control, live):
+    state = await control.until(lambda item: item.get('printer_busy') is False,
+                                'printer background work finished', timeout=40)
+    verify_baseline(state, live)
+    return state
+
+
+async def check(adapter, peer, control, providers, observations, *, live=False, baseline=None):
     from gateway.session_context import set_session_vars, clear_session_vars
     from hermes_constants import set_hermes_home_override, reset_hermes_home_override
     from image_contract import transform
     observations.persist(control.evidence, providers)
     assert peer.screen_image_version == 1, 'Firmware lacks screen image capability'
     before_faults = await control.request(cmd='bridge-diagnostics')
-    baseline = await control.info()
-    verify_baseline(baseline, live)
+    if baseline is None:
+        baseline = await baseline_when_printer_idle(control, live)
+    else:
+        verify_baseline(baseline, live)
     module = importlib.import_module(type(adapter).__module__.rsplit('.', 1)[0] + '.printer_tool')
     event = adapter._authorized_voice_event(peer, 'screen-image-check')
     assert event is not None
@@ -250,8 +259,9 @@ async def check_live(adapter, peer, control, providers, observations):
     try:
         observations.connection = await begin('live', adapter, peer, control, providers.voice)
         await control.sim('ptt_up')
+        live_baseline = await baseline_when_printer_idle(control, True)
         monitor = asyncio.create_task(sample_live(control, observations, stopped))
-        result = await check(adapter, peer, control, providers, observations, live=True)
+        result = await check(adapter, peer, control, providers, observations, live=True, baseline=live_baseline)
         await eventually(lambda: bool(overlap(observations)) or bool(observations.errors), timeout=8)
         stopped.set()
         await monitor
