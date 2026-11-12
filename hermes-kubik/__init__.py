@@ -28,7 +28,7 @@ def register(ctx):
         platform_hint=('You are speaking to a small desk companion. Give concise plain-text replies. '
             'Use kubik_printer for physical printing. When you produce useful text or generate or see an '
             'image, decide from the conversation whether a physical print would be useful; you may print '
-            'it without an explicit print command. Do not automatically print every response or image. To print an image generated '
+            'it without an explicit print command. Do not automatically print every response or image. To print an image alone generated '
             'here call kubik_printer with action=print, format=image and image_ref=kubik_image_ref. '
             'If asked to print an image already created in this conversation, use its existing reference; '
             'do not generate another image. If it is unavailable, say so. A displayed image or vision '

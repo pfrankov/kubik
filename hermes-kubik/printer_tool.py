@@ -195,7 +195,9 @@ def image_hook(tool, **kwargs):
         value = json.loads(result) if isinstance(result, str) else dict(result)
         value['kubik_image_ref'] = ref
         value['kubik_print_instruction'] = ('Decide from the conversation whether a physical copy is useful. '
-            'If it is, call kubik_printer with action=print, format=image and image_ref=kubik_image_ref. '
+            'For the image alone, call kubik_printer with action=print, format=image and image_ref=kubik_image_ref. '
+            'For an article combining text and images, use format=document with ordered text and image blocks; '
+            'put kubik_image_ref in the image block. '
             'The print is a separate tool call; generation alone did not print anything.')
         return json.dumps(value, ensure_ascii=False)
     except (PrinterFailure, ImportError, AttributeError, RuntimeError, TypeError, ValueError):

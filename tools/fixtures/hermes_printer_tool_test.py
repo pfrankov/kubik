@@ -99,6 +99,8 @@ class PrinterTools(ProtocolFixture):
             generated = json.loads(value)
             ref = generated['kubik_image_ref']
             self.assertIn('Decide from the conversation', generated['kubik_print_instruction'])
+            self.assertIn('format=document', generated['kubik_print_instruction'])
+            self.assertIn('format=image', generated['kubik_print_instruction'])
             self.assertFalse(self.peer.socket.messages)
             self.assertEqual(len(ref), 32)
             self.assertIsNone(image_hook(self.tool, tool_name='other', tool_call_id='image-call', result=result))
