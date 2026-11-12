@@ -25,6 +25,9 @@
 #include "icons.h"
 #include "viewport.h"
 #include "render_emoji.h"
+#ifdef ESP_PLATFORM
+#include "printer_preview.h"
+#endif
 
 #define R_FPS 30
 #define R_W (UI_RENDER_W / 2)
@@ -97,6 +100,9 @@ typedef struct {
     int text_n;
     render_emoji_snapshot_t emoji;
     uint32_t emoji_hash[R_EMOJI_SLOTS];
+#ifdef ESP_PLATFORM
+    printer_preview_t *printer_preview;
+#endif
     // A band along the panel's rounded edge (sc_edge), drawn like text on the upscaled rows: a static
     // band never enters the canvas diff and costs no rasterising. 0 = none.
     uint8_t edge_w, edge_r;  // band width and corner radius, panel px

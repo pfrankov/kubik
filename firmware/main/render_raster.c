@@ -1,4 +1,7 @@
 #include "render_internal.h"
+#ifdef ESP_PLATFORM
+#include "render_printer_preview.h"
+#endif
 #include "render_projection.h"
 #include "render_pixels.h"
 #include "render_sqrt_table.h"
@@ -426,6 +429,12 @@ bool render_raster_primitive(const scene_t *s, const prim_t *p, uint16_t *buf, i
     if (!primitive_visible(p, x0, x1, y0, y1)) return drawn;
     uint32_t t0 = R_NOW();
     if (p->kind == PK_SPRITE) {
+#ifdef ESP_PLATFORM
+        if (p->a == -1 && s->printer_preview) {
+            render_printer_preview(s, p, buf, x0, width, imax(p->by0, y0), imin(p->by1, y1), y0);
+            return true;
+        }
+#endif
         g_render_img_opaque_ok = !drawn && s->bg == 0;
         if (s_image_fn) s_image_fn(p, buf, x0, width, imax(p->by0, y0), imin(p->by1, y1), y0);
     } else if (p->kind == PK_QR) {

@@ -203,6 +203,9 @@ static bool handle_link_event(const app_ev_t *e) {
         handle_link_down();
         app_journal_event(e);
         return true;
+    case EV_SRV_PREVIEW:
+        if (e->session && e->session == link_session()) wake_for_reply();
+        return true;
     case EV_PAIR:
         handle_pair_event();
         return true;

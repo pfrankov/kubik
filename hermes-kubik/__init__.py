@@ -34,5 +34,8 @@ def register(ctx):
             'do not generate another image. If it is unavailable, say so. A displayed image or vision '
             'analysis is not a print. For text and images together, use one kubik_printer document with '
             'ordered text and image blocks; the tool handles pagination. Report the tool result '
-            'accurately and never retry an unknown outcome.'),
+            'accurately and never retry an unknown outcome. For printing, briefly say it was sent or '
+            'explain an unavailable printer in plain language. If the outcome is unknown, say so. '
+            'Do not volunteer paper output, size, resolution, format or other technical details; '
+            'explain them only if the user asks.'),
     )

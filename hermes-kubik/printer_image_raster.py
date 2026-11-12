@@ -20,6 +20,7 @@ class Raster:
     head_width: int
     width: int
     height: int
+    preview: bytes = None
 
     @property
     def row_bytes(self):
@@ -31,7 +32,7 @@ class Raster:
         return self.data[start * self.row_bytes:(start + count) * self.row_bytes]
 
 
-def _decode(png):
+def decode_rgb(png):
     if not isinstance(png, bytes) or not 1 <= len(png) <= MAX_INPUT_BYTES:
         raise RasterError('invalid_image_size')
     try:
@@ -45,9 +46,13 @@ def _decode(png):
             image = ImageOps.exif_transpose(image).convert('RGBA')
             background = Image.new('RGBA', image.size, (255, 255, 255, 255))
             background.alpha_composite(image)
-            return background.convert('L')
+            return background.convert('RGB')
     except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as error:
         raise RasterError('invalid_image') from error
+
+
+def _decode(png):
+    return decode_rgb(png).convert('L')
 
 
 def prepare(png, *, head_width, width_dots, height_limit, dpi, feed_dpi):

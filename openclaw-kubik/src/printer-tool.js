@@ -53,7 +53,10 @@ export function createPrinterToolFactory({ currentConfig, runtime = getRuntime, 
         'Media height is not sensed: do not guess the loaded label size. Width comes from the identified model profile. ' +
         'Text emoji require an exact glyph in the host private atlas; do not replace an unsupported emoji with another style. ' +
         'Print only when the user explicitly requests it. A sent result means submitted, never proof of paper output. ' +
-        'Content must fit the requested dimensions without truncation. If a print outcome is unknown, do not retry automatically.',
+        'Content must fit the requested dimensions without truncation. If a print outcome is unknown, do not retry automatically. ' +
+        'In replies, briefly say the job was sent or give a plain reason why printing is unavailable. ' +
+        'If the outcome is unknown, say so; do not claim success. Do not volunteer paper output, dimensions, resolution, ' +
+        'format or other technical details; discuss them only if asked.',
       async execute(toolCallId, parameters, signal) {
         if (!binding.server || !binding.session) return toolResult({ status: 'error', code: 'device_offline', outcome: 'not_sent', paperConfirmed: false }, true);
         try {

@@ -7,6 +7,8 @@
 #include <string.h>
 
 #include "app.h"
+#include "face_internal.h"
+#include "link.h"
 #include "assets.h"
 #include "audio.h"
 #include "board.h"
@@ -191,7 +193,20 @@ static face_mode_t update_scene(scene_t *scene, float elapsed, bool powered) {
     bool lab = app_lab_frame(scene, elapsed, powered);
     if (!lab) face_update(&g_face, elapsed);
     int64_t updated = esp_timer_get_time();
-    if (!lab && powered) face_draw(&g_face, scene);
+    if (!lab && powered) {
+        face_draw(&g_face, scene);
+        if (g_face.mode != MODE_SETUP && g_face.menu.k < MENU_SWAP) {
+            printer_preview_t *preview = printer_preview_snapshot(link_session());
+            if (preview) {
+                scene_end(scene);
+                scene_begin(scene, 0);
+                scene->printer_preview = preview;
+                int x = (UI_W - 336) / 2, y = (UI_H - 336) / 2;
+                prim_t *p = sc_image(scene, UINT32_MAX, x, y, x, y, x + 335, y + 335, 1.f);
+                if (p) p->b = (int32_t)printer_preview_hash(preview);
+            }
+        }
+    }
     int64_t drawn = esp_timer_get_time();
     static tess_sounds_t sounds;  // (the display task's own: kept off its stack)
     take_sounds(&sounds, lab);
@@ -412,6 +427,7 @@ static void display_task(void *arg) {
         face_mode_t frame_mode = update_scene(&scene, dt, powered);
         int64_t t_face = esp_timer_get_time();
         bool presented = powered && present_frame(f, &rs, &scene);
+        if (presented && scene.printer_preview) printer_preview_presented(scene.printer_preview);
         scene_end(&scene); // Only completed RGB buffers/frame remain in DMA ownership.
         int64_t t1 = esp_timer_get_time();
 #if !CONFIG_IDF_TARGET_ESP32S3

@@ -8,6 +8,7 @@
 #include "app_internal.h"
 #include "setup_request.h"
 #include "printer_protocol.h"
+#include "printer_preview.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,9 +62,8 @@ static void handle_welcome_json(cJSON *j) {
 }
 static void handle_state_json(cJSON *j) {
     const char *state = cJSON_GetStringValue(cJSON_GetObjectItem(j, "s"));
-    for (int i = 0; state && i < 5; i++) {
+    for (int i = 0; state && i < 5; i++)
         if (!strcmp(state, k_states[i])) post_remote(EV_SRV_STATE, i, 0);
-    }
 }
 static void handle_activity_json(cJSON *j) {
     post_remote(EV_SRV_ACTIVITY, act_index(j, "own"), act_index(j, "other"));
@@ -91,9 +91,8 @@ static void handle_speak_end_json(cJSON *j) {
 static void handle_error_json(cJSON *j) {
     const char *error = cJSON_GetStringValue(cJSON_GetObjectItem(j, "code"));
     int code = ERR_OTHER;
-    for (int i = 0; error && i < 6; i++) {
+    for (int i = 0; error && i < 6; i++)
         if (!strcmp(error, k_errors[i])) code = i;
-    }
     post_remote(EV_SRV_ERROR, code, 0);
 }
 static void handle_text_json(cJSON *j) {
@@ -146,6 +145,7 @@ static void on_json(const char *json, size_t len) {
 static void on_audio(uint8_t kind, uint8_t tag, const uint8_t *pcm, size_t len) {
     if (kind == 0x03) app_speech_write(tag, link_session(), pcm, len);
     else if (kind == PRINTER_IMAGE_BINARY_KIND) printer_protocol_image_receive(tag, pcm, len, link_session());
+    else if (kind == PRINTER_PREVIEW_KIND) printer_preview_receive(tag, pcm, len, link_session());
 }
 static void on_pair(const char *code, bool telegram) {
     portENTER_CRITICAL(&s_pair_mux);
@@ -154,7 +154,7 @@ static void on_pair(const char *code, bool telegram) {
     portEXIT_CRITICAL(&s_pair_mux);
     app_post(EV_PAIR, 0, 0);
 }
-static void on_link(bool up) { hp_mark(up ? "link up" : "link down"); app_post(up ? EV_LINK_UP : EV_LINK_DOWN, 0, 0); }
+static void on_link(bool up) { if (!up) printer_preview_clear(0); hp_mark(up ? "link up" : "link down"); app_post(up ? EV_LINK_UP : EV_LINK_DOWN, 0, 0); }
 static bool config_connection_is_valid(cJSON *url, cJSON *ssid, cJSON *pass) {
     return (!url || cJSON_IsString(url)) && (!ssid || cJSON_IsString(ssid)) && (!pass || cJSON_IsString(pass));
 }

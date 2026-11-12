@@ -80,6 +80,7 @@ static void face_lock(void) { assert(!face_locked); face_locked = true; }
 static void face_unlock(void) { assert(face_locked); face_locked = false; }
 static bool app_games_flush_safe(void) { return progress_flush_safe; }
 static void wake(bool sound) { (void)sound; wake_calls++; }
+static void wake_for_reply(void) { wake_calls++; }
 static bool app_lab_active(void) { return false; }
 static void audio_tess_gesture(int x, int y) { (void)x; (void)y; gesture_calls++; }
 static bool app_games_available(void) {

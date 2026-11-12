@@ -2,6 +2,8 @@
 #include "printer_parse.h"
 #include "printer_image_parse.h"
 #include "printer_work.h"
+#include "printer_preview.h"
+#include "app.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,10 +38,20 @@ static void receive_image(cJSON *request, const char *raw, size_t len, size_t co
                           uint32_t session, const char *rid) {
     printer_input_t image;
     printer_image_action_t action = printer_image_parse(request, raw, len, consumed, &image);
-    if (action == PRINTER_IMAGE_ABORT) { printer_work_image_abort(session, rid); return; }
-    if (action == PRINTER_IMAGE_INVALID) { enqueue(rid, session, true, "invalid_request"); return; }
-    if (printer_work_has_id(rid)) return;
+    if (action == PRINTER_IMAGE_ABORT) {
+        printer_preview_discard(session, rid);
+        printer_work_image_abort(session, rid); return;
+    }
+    if (action == PRINTER_IMAGE_INVALID) {
+        printer_preview_discard(session, rid);
+        enqueue(rid, session, true, "invalid_request"); return;
+    }
+    if (printer_work_has_id(rid)) { printer_preview_discard(session, rid); return; }
     printer_admission_t admitted = printer_work_submit(&image, session);
+    if (admitted == PRINTER_ADMITTED && printer_preview_activate(session, rid))
+        app_post_in_session(EV_SRV_PREVIEW, 0, 0, session);
+    if (admitted == PRINTER_WORK_BUSY || admitted == PRINTER_WORK_FAILED)
+        printer_preview_discard(session, rid);
     if (admitted == PRINTER_WORK_BUSY) enqueue(rid, session, true, "printer_busy");
     if (admitted == PRINTER_WORK_FAILED) enqueue(rid, session, true, "printer_failed");
 }
@@ -81,8 +93,11 @@ static void send_error(void) {
 }
 
 void printer_protocol_poll(void) {
+    printer_preview_t *preview = printer_preview_snapshot(link_session());
+    printer_preview_release(preview);
     char *json; uint32_t session;
     if (printer_work_poll(&json, &session)) {
+        printer_preview_clear(session);
         if (json && session == link_session()) link_send_json_in_session(json, session);
         free(json);
         return;
@@ -109,6 +124,10 @@ bool printer_protocol_reset_ready(void) {
 void printer_protocol_info(status_json_t *info) {
     printer_diagnostics_t snapshot;
     printer_work_diagnostics(&snapshot);
+    printer_preview_t *preview = printer_preview_snapshot(link_session());
+    status_json_bool(info, "printer_preview_active", preview != NULL);
+    status_json_bool(info, "printer_preview_presented", printer_preview_was_presented(preview));
+    printer_preview_release(preview);
     status_json_bool(info, "printer_busy", printer_work_busy());
     status_json_bool(info, "printer_discovered", printer_work_discovered());
     status_json_integer(info, "printer_session", snapshot.state.session);

@@ -61,7 +61,7 @@ int main(void) {
     down.a = 1; app_handle(&down); app_handle(&tap); assert(calls > 0);  // a new contact acts normally
     s_power = PWR_DARK;
     const app_ev_type_t allowed[] = {EV_PWR_SHORT, EV_PWR_LONG, EV_LINK_UP, EV_LINK_DOWN,
-        EV_SRV_TEXT, EV_SRV_SPEAK, EV_SRV_WELCOME, EV_SRV_CRON, EV_SRV_ACTIVITY, EV_SRV_STATE,
+        EV_SRV_PREVIEW, EV_SRV_TEXT, EV_SRV_SPEAK, EV_SRV_WELCOME, EV_SRV_CRON, EV_SRV_ACTIVITY, EV_SRV_STATE,
         EV_INPUT_END, EV_VOICE_END, EV_AGENT_CAPS};
     for (unsigned i = 0; i < sizeof allowed / sizeof *allowed; i++) {
         calls = 0; app_ev_t e = {.type = allowed[i]}; app_handle(&e); assert(calls);

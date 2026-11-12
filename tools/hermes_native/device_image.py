@@ -62,6 +62,14 @@ class Observations:
             socket.send_json, socket.send_bytes = send_json, send_bytes
 
 
+async def observe_preview(control, stopped, evidence):
+    while not stopped.is_set():
+        state = await control.info()
+        evidence['preview_active'] |= state.get('printer_preview_active') is True
+        evidence['preview_presented'] |= state.get('printer_preview_presented') is True
+        await asyncio.sleep(.15)
+
+
 async def check(adapter, peer, control, providers, observations, *, document=False):
     from gateway.session_context import set_session_vars, clear_session_vars
     from hermes_constants import set_hermes_home_override, reset_hermes_home_override
@@ -100,14 +108,24 @@ async def check(adapter, peer, control, providers, observations, *, document=Fal
                 {'type': 'text', 'text': 'Текст перед рисунком'}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
                 {'type': 'text', 'text': 'Текст после рисунка'}]} if document else
                 {'action': 'print', 'format': 'image', 'image_ref': ref, 'width_mm': 20, 'height_mm': 20})
-            printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
-                                               tool_call_id='physical-image-once', enabled_tools=['kubik_printer'])
+            evidence = {'preview_active': False, 'preview_presented': False}
+            stopped = asyncio.Event()
+            monitor = asyncio.create_task(observe_preview(control, stopped, evidence))
+            try:
+                printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
+                                                   tool_call_id='physical-image-once', enabled_tools=['kubik_printer'])
+            finally:
+                stopped.set()
+                await monitor
             printed = json.loads(printed)
+            if not document:
+                assert peer.printer_preview_version == 1
+                assert evidence['preview_active'] and evidence['preview_presented'], evidence
             assert printed.get('status') == 'sent', printed
             assert printed['layout']['format'] == ('document' if document else 'image') and printed['paperConfirmed'] is False
             assert observations.starts == 1 and observations.bands > 1
             return {'image_submitted': True, 'paper_confirmed': False, 'bands': observations.bands,
-                    'layout': printed['layout'], 'source': 'synthetic local image', 'separate_turns': True}
+                    'layout': printed['layout'], 'source': 'synthetic local image', 'separate_turns': True, **evidence}
     finally:
         await adapter.on_processing_complete(event, 'success')
         reset_hermes_home_override(profile)

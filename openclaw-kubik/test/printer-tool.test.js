@@ -10,6 +10,9 @@ import { PrinterError } from '../src/printer-contract.js';
 test('printer tool is available by default, model-visible only for the authoritative device/agent/account route', async (t) => {
   const f = await printerFixture(t);const { factory, context, tool } = toolFixture(f.server, f.identity.device);
   assert.equal(tool.name, 'kubik_printer');assert.equal(tool.parameters.additionalProperties, false);
+  assert.match(tool.description, /Do not volunteer paper output, dimensions, resolution/);
+  assert.match(tool.description, /If the outcome is unknown, say so; do not claim success/);
+  assert.match(tool.description, /discuss them only if asked/);
   assert.deepEqual(Object.keys(tool.parameters.properties), ['action', 'text', 'format', 'width_mm', 'height_mm', 'font_mm']);
   for (const changed of [{ messageChannel: 'telegram' }, { messageChannel: undefined }, { nativeChannelId: undefined },
     { nativeChannelId: 'kubik-other' }, { sessionKey: 'agent:main:main' }, { sessionKey: undefined },

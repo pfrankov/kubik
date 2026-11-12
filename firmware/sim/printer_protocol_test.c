@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "printer_protocol.h"
+#include "printer_preview.h"
+#include "app.h"
 #include "printer_work.h"
 #include "printer_platform.h"
 #include "printer_job.h"
@@ -52,6 +54,15 @@ void *printer_test_calloc(size_t count, size_t size) {
     return p;
 }
 uint32_t link_session(void) { return session; }
+bool printer_preview_activate(uint32_t expected, const char *rid) { (void)expected; (void)rid; return false; }
+void printer_preview_discard(uint32_t expected, const char *rid) { (void)expected; (void)rid; }
+void printer_preview_clear(uint32_t expected) { (void)expected; }
+printer_preview_t *printer_preview_snapshot(uint32_t expected) { (void)expected; return NULL; }
+void printer_preview_release(printer_preview_t *preview) { (void)preview; }
+bool printer_preview_was_presented(const printer_preview_t *preview) { (void)preview; return false; }
+void app_post_in_session(app_ev_type_t type, int a, int b, uint32_t expected) {
+    (void)type; (void)a; (void)b; (void)expected;
+}
 bool link_send_json_in_session(const char *json, uint32_t expected) {
     assert(!rx_active && expected == session);
     if (strstr(json,"\"status\":\"ready\"") || strstr(json,"\"status\":\"sent\"")) assert(!lease);

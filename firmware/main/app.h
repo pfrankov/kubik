@@ -31,6 +31,7 @@ typedef enum {
     EV_SRV_SET,      // a = volume or -1, b = brightness or -1
     EV_SETUP_START,  // a = setup_reason_t
     EV_PAIR,         // OpenClaw sent a pairing code (app_pair_code())
+    EV_SRV_PREVIEW,  // a printed image is ready for display
     EV_SRV_TEXT,     // text card arrived (s_text_rx); b = 1 if notify
     EV_SRV_ACTIVITY, // what OpenClaw is busy with: a = own, b = other (activity_t)
     EV_SRV_CRON,     // cron jobs: a = running, b = seconds to the next one-shot job (-1 = none)
@@ -59,6 +60,7 @@ void app_start(void);
 // Minimum unused app-task stack in bytes since boot; -1 before task creation.
 int app_stack_free(void);
 void app_post(app_ev_type_t type, int a, int b);
+void app_post_in_session(app_ev_type_t type, int a, int b, uint32_t session);
 // Display requests, applied by the display task (the panel IO is not shared).
 void disp_brightness_fade(int level, int ms);  // glides there over ms
 void disp_power(bool on);

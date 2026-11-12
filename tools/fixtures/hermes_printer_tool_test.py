@@ -12,7 +12,7 @@ from unittest.mock import patch
 from hermes_test_support import (DeviceSocket, KubikAdapter, Peer, ProtocolFixture, ROOT,
                                  atomic_json)
 from hermes_printer_support import reply
-from hermes_kubik.printer_tool import CURRENT_PRINTER, PrinterTool, printer_origin, image_hook
+from hermes_kubik.printer_tool import CURRENT_PRINTER, DESCRIPTION, PrinterTool, printer_origin, image_hook
 from hermes_kubik.runtime import profile_scope
 
 SESSION = ContextVar('printer_test_session', default={})
@@ -169,3 +169,9 @@ class PrinterTools(ProtocolFixture):
         self.assertNotIn('device', first.tool['schema']['parameters']['properties'])
         self.assertIn('decide from', first.platform['platform_hint'])
         self.assertIn('Do not automatically print every response or image', first.platform['platform_hint'])
+        self.assertIn('Do not volunteer paper output, size, resolution, format', first.platform['platform_hint'])
+        self.assertIn('If the outcome is unknown, say so', first.platform['platform_hint'])
+        self.assertIn('explain them only if the user asks', first.platform['platform_hint'])
+        self.assertIn('Do not volunteer paper output, dimensions, resolution, format', DESCRIPTION)
+        self.assertIn('If the outcome is unknown, say so', DESCRIPTION)
+        self.assertIn('discuss them only if asked', DESCRIPTION)

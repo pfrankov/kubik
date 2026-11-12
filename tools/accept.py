@@ -17,7 +17,7 @@ IDF_TOOLS = {level: ("idf.py", "clang") for level in ("host", "host-portable", "
 IDF_TOOLS["build"] = ("idf.py",)
 HOST_TESTS = (
     "board", "task-placement", "motion-target", "display-s3", "display-te", "frame-pacing-s3", "present-bursts", "present-dma", "native-overlay", "render-emoji", "screen-emoji", "emoji-cluster", "qr-layout", "flash-reset", "target-memory", "diagnostics", "network-memory", "agent-menu", "tls-memory", "audio-capture", "audio-dma", "mic-task", "mic-delivery", "audio-stream", "audio-levels", "menu-hold", "audio-wake", "wake-word", "native-voice", "guide", "ima", "link", "navigation", "pin", "power-network",
-    "event-journal", "printer-config", "peripage-ble", "ble-controller-guard", "printer-emoji", "printer-layout", "printer-protocol", "emulator-target", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "tls-duplex", "tls-header", "settings", "nvs", "setup", "setup-dns", "muse", "devkey", "hermes", "speech", "state", "status-json", "tess", "tess-games", "wifi", "radio-relay",
+    "event-journal", "printer-config", "peripage-ble", "ble-controller-guard", "printer-emoji", "printer-layout", "printer-protocol", "printer-preview", "emulator-target", "render", "frames", "screen-lab", "lab-isolation", "ws-write", "tls-duplex", "tls-header", "settings", "nvs", "setup", "setup-dns", "muse", "devkey", "hermes", "speech", "state", "status-json", "tess", "tess-games", "wifi", "radio-relay",
 )
 
 

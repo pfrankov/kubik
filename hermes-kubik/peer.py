@@ -5,6 +5,13 @@ import secrets
 from .printer_wire import dumps
 
 
+def version(hello, name):
+    value = hello.get(name)
+    if value is not None and (type(value) is not int or not 1 <= value <= 255):
+        raise ValueError('Invalid ' + name + ' version')
+    return value
+
+
 class Peer:
     def __init__(self, socket, identity, hello):
         self.socket, self.identity = socket, identity
@@ -12,15 +19,10 @@ class Peer:
         self.transport = None
         self.native = None
         self.session_id = secrets.token_hex(8)
-        self.screen_emoji_version = hello.get('screen_emoji')
-        if self.screen_emoji_version is not None and (type(self.screen_emoji_version) is not int or not 1 <= self.screen_emoji_version <= 255):
-            raise ValueError('Invalid screen emoji version')
-        self.printer_version = hello.get('printer')
-        if self.printer_version is not None and (type(self.printer_version) is not int or not 1 <= self.printer_version <= 255):
-            raise ValueError('Invalid printer version')
-        self.printer_image_version = hello.get('printer_image')
-        if self.printer_image_version is not None and (type(self.printer_image_version) is not int or not 1 <= self.printer_image_version <= 255):
-            raise ValueError('Invalid printer image version')
+        self.screen_emoji_version = version(hello, 'screen_emoji')
+        self.printer_version = version(hello, 'printer')
+        self.printer_image_version = version(hello, 'printer_image')
+        self.printer_preview_version = version(hello, 'printer_preview')
         self.volume = hello.get('volume', 0)
         if type(self.volume) is not int or not 0 <= self.volume <= 100:
             raise ValueError('Invalid volume')

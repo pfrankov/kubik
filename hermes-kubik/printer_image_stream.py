@@ -4,8 +4,12 @@ import asyncio
 
 async def transmit(row):
     peer, raster = row['peer'], row['raster']
-    await peer.send('printer_image', rid=row.get('wire_rid', row['rid']), action='start', head_width=raster.head_width,
-                    width=raster.width, height=raster.height)
+    await preview(row)
+    async with row.setdefault('dispatch_lock', asyncio.Lock()):
+        if row.get('aborting') or row['quiescent'].done():
+            return
+        await peer.send('printer_image', rid=row.get('wire_rid', row['rid']), action='start', head_width=raster.head_width,
+                        width=raster.width, height=raster.height)
     offset = 0
     while offset < raster.height and not row.get('aborting'):
         credit_task = asyncio.create_task(row['credits'].get())
@@ -28,10 +32,29 @@ async def transmit(row):
         offset += count
 
 
+async def preview(row):
+    peer, raster = row['peer'], row['raster']
+    data = getattr(raster, 'preview', None)
+    if (row['parameters'].get('format') != 'image' or getattr(peer, 'printer_preview_version', None) != 1
+            or not isinstance(data, bytes) or len(data) != 8224):
+        return
+    rid = row.get('wire_rid', row['rid']).encode('ascii')
+    try:
+        async with asyncio.timeout(2):
+            for offset in range(0, len(data), 896):
+                if row.get('aborting') or (row.get('quiescent') and row['quiescent'].done()):
+                    return
+                frame = b'\x07\x00' + rid + offset.to_bytes(2, 'big') + data[offset:offset + 896]
+                await peer.socket.send_bytes(frame)
+    except (TimeoutError, ConnectionError, RuntimeError):
+        return
+
+
 async def abort(row):
     try:
         async with asyncio.timeout(3):
-            await row['peer'].send('printer_image', rid=row.get('wire_rid', row['rid']), action='abort')
+            async with row.setdefault('dispatch_lock', asyncio.Lock()):
+                await row['peer'].send('printer_image', rid=row.get('wire_rid', row['rid']), action='abort')
     except Exception:
         pass
 

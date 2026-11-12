@@ -11,7 +11,8 @@ from pathlib import Path
 from .printer_contract import PARAMETERS
 from .printer_jobs import PrinterFailure
 from .printer_image_origin import ImageOrigin
-from .printer_image_raster import RasterError, prepare
+from .printer_image_raster import RasterError
+from .printer_preview import prepare_with_preview
 from .printer_document import compose
 
 CURRENT_PRINTER = ContextVar('kubik_printer_origin', default=None)
@@ -28,7 +29,10 @@ DESCRIPTION = ('Inspect or print text, QR codes, images, and mixed documents on 
                'charging=null means unknown; battery_pct is a level, not proof of charging. '
                'Personal Apple emoji need the local atlas; unsupported sequences must not be split or substituted. '
                'never guess a label height. A submitted result is not proof of paper output. '
-               'Never retry a print with an unknown outcome. This tool only works in an authenticated Kubik turn.')
+               'Never retry a print with an unknown outcome. In replies, briefly say the job was sent or '
+               'give a plain reason why printing is unavailable. If the outcome is unknown, say so; '
+               'do not claim success. Do not volunteer paper output, dimensions, resolution, format or '
+               'other technical details; discuss them only if asked. This tool only works in an authenticated Kubik turn.')
 
 
 @contextmanager
@@ -174,7 +178,7 @@ async def raster_for_print(adapter, peer, call_id, arguments, event_id, images):
         if arguments['format'] == 'document':
             return await asyncio.to_thread(compose, arguments['blocks'], sources, adapter.printer_jobs.atlas,
                                            **geometry, default_font_mm=arguments.get('font_mm', 2.5))
-        return await asyncio.to_thread(prepare, sources[arguments['image_ref']], **geometry)
+        return await asyncio.to_thread(prepare_with_preview, sources[arguments['image_ref']], **geometry)
     except RasterError as error:
         raise PrinterFailure(str(error)) from None
 

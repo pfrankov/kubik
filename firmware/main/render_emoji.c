@@ -22,10 +22,19 @@ void scene_emoji_snapshot(scene_t *scene, const render_emoji_snapshot_t *snapsho
         scene->emoji_hash[slot]=hash;
     }
 }
-void scene_end(scene_t *scene) {render_emoji_snapshot_release(&scene->emoji);}
+void scene_end(scene_t *scene) {
+    render_emoji_snapshot_release(&scene->emoji);
+#ifdef ESP_PLATFORM
+    printer_preview_release(scene->printer_preview);
+    scene->printer_preview = NULL;
+#endif
+}
 void scene_clone(scene_t *out,const scene_t *source) {
     if(out==source)return;
     memcpy(out,source,sizeof *out);
+#ifdef ESP_PLATFORM
+    printer_preview_retain(out->printer_preview);
+#endif
     for(unsigned i=0;i<R_EMOJI_SLOTS;i++)render_emoji_entry_retain(out->emoji.entries[i]);
 }
 

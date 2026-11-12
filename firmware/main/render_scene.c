@@ -29,6 +29,9 @@ void sc_glow_dot(scene_t *s, float x, float y, float radius, uint32_t rgb, uint8
 }
 
 void scene_begin(scene_t *s, uint16_t bg) {
+#ifdef ESP_PLATFORM
+    s->printer_preview = NULL;
+#endif
     s->dots_n = 0;
     s->n = 0;
     s->raster_ready = false;
