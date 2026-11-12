@@ -409,7 +409,8 @@ async def check_quality(adapter, peer, control, providers, observations):
             await stream_state(control, observations, kind + '-submitted')
         assert len(observations.requests()) == 2 and all(row['action'] == 'print' for row in observations.requests())
         qr = observations.calls[1]['result']['layout']
-        assert abs(qr['width_mm'] - qr['height_mm']) <= 25.4 / 304 + 25.4 / 152, qr
+        printer = observations.calls[1]['result']['printer']
+        assert abs(qr['width_mm'] - qr['height_mm']) <= 25.4 / printer['dpi'] + 25.4 / printer['feed_dpi'], qr
         assert all(row['heap_failures'] == baseline['heap_failures'] for row in observations.states)
         fault_window(before, await control.request(cmd='bridge-diagnostics'))
         return {'printer_quality_check': True, 'test_prints_submitted': 2, 'paper_confirmed': False,
