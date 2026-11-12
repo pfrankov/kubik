@@ -8,6 +8,8 @@
 typedef struct {
     const char *rid;
     bool printing;
+    bool image;
+    uint16_t image_width, image_height;
     printer_document_t document;
     const cJSON *emoji;
     unsigned emoji_count;

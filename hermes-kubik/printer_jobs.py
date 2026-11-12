@@ -7,6 +7,7 @@ import time
 from . import printer_contract as contract
 from .printer_emoji import EmojiAtlas, EmojiError
 from .printer_wire import packet
+from . import printer_image_stream as image_stream
 
 
 class PrinterFailure(Exception):
@@ -36,10 +37,12 @@ class PrinterJobs:
         for rid in expired:
             del self.records[rid]
 
-    async def request(self, peer, call_id, arguments, event_id):
+    async def request(self, peer, call_id, arguments, event_id, raster=None):
         values = contract.parameters(arguments)
         if values is None or not contract.safe_string(call_id, 256) or not contract.safe_string(event_id, 256):
             return PrinterFailure('invalid_input').value()
+        if values.get('format') == 'image' and (raster is None or getattr(peer, 'printer_image_version', None) != 1):
+            return PrinterFailure('printer_unsupported').value()
         self.prune()
         rid = hashlib.sha256(f'{peer.identity}\n{event_id}\n{call_id}'.encode()).hexdigest()[:32]
         payload = json.dumps(values, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
@@ -53,7 +56,7 @@ class PrinterJobs:
         loop = asyncio.get_running_loop()
         row = {'peer': peer, 'rid': rid, 'payload': payload, 'parameters': values, 'action': values['action'], 'dispatched': False,
                'future': loop.create_future(), 'quiescent': loop.create_future(), 'finished': None, 'uncertain': False,
-               'deadline': loop.time() + self.timeouts[values['action']]}
+               'deadline': loop.time() + self.timeouts[values['action']], 'raster': raster, 'credits': asyncio.Queue(maxsize=1)}
         self.records[rid] = self.pending[peer.identity] = row
         row['task'] = asyncio.create_task(self.operate(row))
         self.tasks.add(row['task'])
@@ -122,6 +125,8 @@ class PrinterJobs:
 
     async def prepare_wire(self, row):
         values = row['parameters']
+        if row['raster'] is not None:
+            return
         try:
             glyphs = await asyncio.to_thread(self.atlas.glyphs, values['text']) if values.get('format') == 'text' else []
             row['wire'] = packet(row['rid'], values, glyphs)
@@ -155,7 +160,10 @@ class PrinterJobs:
         try:
             async with asyncio.timeout(self.hard_guard):
                 try:
-                    await row['peer'].send('printer', **{key: value for key, value in row['wire'].items() if key != 't'})
+                    if row['raster'] is not None:
+                        await image_stream.transmit(row)
+                    else:
+                        await row['peer'].send('printer', **{key: value for key, value in row['wire'].items() if key != 't'})
                 except Exception:
                     self.finish(row, self.failure(row, 'disconnected'))
                     if row['peer'].socket.closed:
@@ -178,7 +186,11 @@ class PrinterJobs:
             self.close(peer)
 
     async def abandon(self, row, code):
+        if row['dispatched'] and row['raster'] is not None:
+            row['aborting'] = True
         self.finish(row, self.failure(row, code))
+        if row['dispatched'] and row['raster'] is not None:
+            await image_stream.abort(row)
         if not row['dispatched']:
             row['task'].cancel()
             await asyncio.gather(row['task'], return_exceptions=True)
@@ -200,12 +212,29 @@ class PrinterJobs:
             return False
         if not self.current(peer):
             self.finish(row, self.failure(row, 'device_replaced'))
-        elif not contract.result(value, row['action']) or not contract.requested_layout(value, row['parameters']):
+        elif not self.valid_response(row, value):
             self.finish(row, self.failure(row, 'invalid_response'))
         else:
             result = {key: item for key, item in value.items() if key != 't'} | {'paperConfirmed': False}
             if not row['quiescent'].done():
                 row['quiescent'].set_result(result)
+        return True
+
+    def valid_response(self, row, value):
+        raster = row['raster']
+        if not contract.result(value, row['action'], image=raster is not None):
+            return False
+        if not contract.requested_layout(value, row['parameters']):
+            return False
+        layout = value.get('layout')
+        return not (raster and layout) or (layout['width_dots'], layout['height_dots']) == (raster.width, raster.height)
+
+    def accept_credit(self, peer, value):
+        row = self.pending.get(peer.identity)
+        if not self.current(peer) or not image_stream.accept_credit(row, peer, value):
+            if row and row['peer'] is peer and row.get('raster') and row['dispatched']:
+                row['task'].cancel()
+            return False
         return True
 
     def close(self, peer):

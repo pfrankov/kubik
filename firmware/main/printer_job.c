@@ -12,6 +12,7 @@
 
 static bool current(const printer_job_t *job) {
     return !atomic_load(&job->cancelled) && job->session == link_session() &&
+        (!job->image || !printer_stream_failed(job->stream)) &&
         printer_platform_now_ms() < job->deadline_ms;
 }
 
@@ -44,14 +45,26 @@ static bool chunk_begin(printer_job_t *job, unsigned rows) {
         packet(job, header, sizeof header);
 }
 
-static bool print_rows(printer_job_t *job, printer_layout_t *layout, unsigned total) {
-    const printer_layout_info_t *info = printer_layout_info(layout);
+static bool image_row(printer_job_t *job, uint8_t row[PRINTER_STREAM_ROW_BYTES]) {
+    while (current(job)) {
+        printer_stream_read_t state = printer_stream_row(job->stream, row);
+        if (state == PRINTER_STREAM_ROW) return true;
+        if (state == PRINTER_STREAM_FAILED) return false;
+        printer_platform_wait_tick();
+    }
+    return false;
+}
+
+static bool print_rows(printer_job_t *job, printer_layout_t *layout,
+                       const printer_layout_info_t *info, unsigned total) {
     uint8_t row[72];
     for (unsigned y = 0; y < total; y++) {
-        if (y % 255 == 0 && !chunk_begin(job, total - y > 255 ? 255 : total - y)) return false;
         memset(row, 0, sizeof row);
-        if (y < info->height_dots && !printer_layout_row(layout, y, row, sizeof row)) return false;
+        if (y < info->height_dots && !(job->image ? image_row(job, row) :
+            printer_layout_row(layout, y, row, sizeof row))) return false;
+        if (y % 255 == 0 && !chunk_begin(job, total - y > 255 ? 255 : total - y)) return false;
         if (!packet(job, row, sizeof row)) return false;
+        if (job->image && y < info->height_dots) printer_stream_consumed(job->stream);
     }
     return true;
 }
@@ -63,14 +76,15 @@ static bool finish_stream(printer_job_t *job, peripage_info_t *printer) {
     return peripage_finish_packet_stream(remaining < 3000 ? (uint32_t)remaining : 3000, printer);
 }
 
-static const char *send_document(printer_job_t *job, printer_layout_t *layout, peripage_info_t *printer) {
-    const printer_layout_info_t *info = printer_layout_info(layout);
+static const char *send_document(printer_job_t *job, printer_layout_t *layout,
+                                 const printer_layout_info_t *info, peripage_info_t *printer) {
     unsigned trailing_rows = (TEAR_OFF_MM * 10u * info->feed_dpi + 253u) / 254u;
     unsigned total = info->height_dots + trailing_rows;
     size_t packets = total + 3 * ((total + 254) / 255);
     int64_t remaining = job->deadline_ms - printer_platform_now_ms();
     if (!current(job) || remaining < peripage_packet_stream_budget_ms(packets)) return "printer_busy";
-    return print_rows(job, layout, total) && finish_stream(job, printer) ? NULL : "printer_disconnected";
+    if (job->image) printer_stream_ready(job->stream);
+    return print_rows(job, layout, info, total) && finish_stream(job, printer) ? NULL : "printer_disconnected";
 }
 
 static uint32_t open_timeout(const printer_job_t *job) {
@@ -85,9 +99,23 @@ static const char *print_document(printer_job_t *job, peripage_info_t *info,
     printer_layout_t *layout = printer_layout_create(&job->document, info->dpi, info->feed_dpi, info->width_dots, &problem);
     if (!layout) return printer_layout_error_code(problem);
     *layout_info = *printer_layout_info(layout); *have_layout = true;
-    const char *error = send_document(job, layout, info);
+    const char *error = send_document(job, layout, layout_info, info);
     printer_layout_destroy(layout);
     return error;
+}
+
+static const char *print_image(printer_job_t *job, peripage_info_t *info,
+                               printer_layout_info_t *layout, bool *have_layout) {
+    unsigned maximum = (unsigned)(PRINTER_LAYOUT_MAX_HEIGHT_MM * info->feed_dpi / 25.4);
+    if (info->width_dots != PRINTER_STREAM_ROW_BYTES * 8 || !job->image_width ||
+        job->image_width > info->width_dots || !job->image_height || job->image_height > maximum)
+        return "content_does_not_fit";
+    *layout = (printer_layout_info_t){.format=PRINTER_FORMAT_IMAGE, .width_dots=job->image_width,
+        .height_dots=job->image_height, .head_width_dots=info->width_dots, .dpi=info->dpi,
+        .feed_dpi=info->feed_dpi, .width_mm=job->image_width * 25.4 / info->dpi,
+        .height_mm=job->image_height * 25.4 / info->feed_dpi};
+    *have_layout = true;
+    return send_document(job, NULL, layout, info);
 }
 
 static void observe_job(const printer_job_t *job, const peripage_info_t *info, bool identified,
@@ -110,9 +138,8 @@ char *printer_job_run(printer_job_t *job, bool *found) {
     bool identified = opened == PERIPAGE_OK;
     *found = identified;
     error = opened == PERIPAGE_OK ? NULL : open_error(opened);
-    if (*found && job->printing) {
-        error = print_document(job, &info, &layout_info, &have_layout);
-    }
+    if (*found && job->printing) error = job->image ? print_image(job, &info, &layout_info, &have_layout) :
+        print_document(job, &info, &layout_info, &have_layout);
     bool closed = peripage_close();
     if (ble_runtime_owned(BLE_RUNTIME_PRINTER)) { printer_platform_radio_fault(); return NULL; }
     printer_guard_released();

@@ -10,6 +10,7 @@ python_dependencies:
   - tornado>=6.5.9,<7
   - wasmtime==50.0.1
   - regex==2026.9.10
+  - Pillow==12.3.0
 requires_env: []
 optional_env:
   - name: KUBIK_PORT

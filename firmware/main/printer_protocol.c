@@ -1,5 +1,6 @@
 #include "printer_protocol.h"
 #include "printer_parse.h"
+#include "printer_image_parse.h"
 #include "printer_work.h"
 
 #include <stdio.h>
@@ -31,11 +32,24 @@ static void enqueue(const char *rid, uint32_t session, bool printing, const char
     portEXIT_CRITICAL(&lock);
 }
 
+static void receive_image(cJSON *request, const char *raw, size_t len, size_t consumed,
+                          uint32_t session, const char *rid) {
+    printer_input_t image;
+    printer_image_action_t action = printer_image_parse(request, raw, len, consumed, &image);
+    if (action == PRINTER_IMAGE_ABORT) { printer_work_image_abort(session, rid); return; }
+    if (action == PRINTER_IMAGE_INVALID) { enqueue(rid, session, true, "invalid_request"); return; }
+    if (printer_work_has_id(rid)) return;
+    printer_admission_t admitted = printer_work_submit(&image, session);
+    if (admitted == PRINTER_WORK_BUSY) enqueue(rid, session, true, "printer_busy");
+    if (admitted == PRINTER_WORK_FAILED) enqueue(rid, session, true, "printer_failed");
+}
+
 bool printer_protocol_receive(cJSON *request, const char *raw, size_t len, size_t consumed, uint32_t session) {
     const char *type = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(request, "t"));
-    if (!type || strcmp(type, "printer")) return false;
+    if (!type || (strcmp(type, "printer") && strcmp(type, "printer_image"))) return false;
     const char *rid = printer_parse_id(request);
     if (!session || !rid) return true;
+    if (!strcmp(type, "printer_image")) { receive_image(request, raw, len, consumed, session, rid); return true; }
     if (printer_work_has_id(rid)) return true;
     printer_input_t input;
     if (!printer_parse_request(request, raw, len, consumed, &input)) {
@@ -47,6 +61,10 @@ bool printer_protocol_receive(cJSON *request, const char *raw, size_t len, size_
     if (admitted == PRINTER_WORK_BUSY) enqueue(rid, session, input.printing, "printer_busy");
     if (admitted == PRINTER_WORK_FAILED) enqueue(rid, session, input.printing, "printer_failed");
     return true;
+}
+
+void printer_protocol_image_receive(uint8_t tag, const uint8_t *data, size_t len, uint32_t session) {
+    if (!tag && session) printer_work_image_receive(session, data, len);
 }
 
 static void send_error(void) {
@@ -67,6 +85,14 @@ void printer_protocol_poll(void) {
     if (printer_work_poll(&json, &session)) {
         if (json && session == link_session()) link_send_json_in_session(json, session);
         free(json);
+        return;
+    }
+    printer_stream_credit_t credit;
+    if (printer_work_image_credit(&credit)) {
+        char json[160];
+        snprintf(json, sizeof json, "{\"t\":\"printer_image_ready\",\"rid\":\"%s\",\"offset\":%u}",
+                 credit.rid, credit.offset);
+        if (!link_send_json_in_session(json, credit.session)) printer_work_image_abort(credit.session, credit.rid);
         return;
     }
     send_error();

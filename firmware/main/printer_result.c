@@ -36,7 +36,9 @@ static bool printer_fields(cJSON *root, const peripage_info_t *info) {
 static bool layout_fields(cJSON *root, const printer_layout_info_t *info) {
     cJSON *p = cJSON_AddObjectToObject(root, "layout");
     if (!p) return false;
-    bool ok = cJSON_AddStringToObject(p, "format", info->format == PRINTER_FORMAT_QR ? "qr" : "text") &&
+    const char *format = info->format == PRINTER_FORMAT_QR ? "qr" :
+        info->format == PRINTER_FORMAT_IMAGE ? "image" : "text";
+    bool ok = cJSON_AddStringToObject(p, "format", format) &&
         cJSON_AddNumberToObject(p, "width_dots", info->width_dots) &&
         cJSON_AddNumberToObject(p, "height_dots", info->height_dots) &&
         cJSON_AddNumberToObject(p, "width_mm", info->width_mm) &&

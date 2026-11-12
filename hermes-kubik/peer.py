@@ -18,6 +18,9 @@ class Peer:
         self.printer_version = hello.get('printer')
         if self.printer_version is not None and (type(self.printer_version) is not int or not 1 <= self.printer_version <= 255):
             raise ValueError('Invalid printer version')
+        self.printer_image_version = hello.get('printer_image')
+        if self.printer_image_version is not None and (type(self.printer_image_version) is not int or not 1 <= self.printer_image_version <= 255):
+            raise ValueError('Invalid printer image version')
         self.volume = hello.get('volume', 0)
         if type(self.volume) is not int or not 0 <= self.volume <= 100:
             raise ValueError('Invalid volume')

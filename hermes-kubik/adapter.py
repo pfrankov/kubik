@@ -9,24 +9,21 @@ import secrets
 import tempfile
 import time
 import wave
-
 from aiohttp import WSMsgType, web
 from gateway.config import Platform
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
-
 from .codec import decode
 from .pairing_wait import wait_pairing
 from .peer import Peer
 from .printer_jobs import PrinterJobs
-from .printer_tool import printer_origin
+from .printer_tool import printer_origin, process_bound
 from .voice_controls import VoiceControls
 from .native_jobs import NativeJobs, active_job
 from .native_voice import NativeVoice
 from .security import Security
 from .screen_emoji import ScreenEmoji, display_text
 from .runtime import listener_options, profile_scope, speech_available
-
 
 class KubikAdapter(BasePlatformAdapter):
     def __init__(self, config):
@@ -189,6 +186,8 @@ class KubikAdapter(BasePlatformAdapter):
             await self.voice_controls.handle(peer, value)
         elif kind == 'printer_result':
             self.printer_jobs.accept(peer, value)
+        elif kind == 'printer_image_ready':
+            self.printer_jobs.accept_credit(peer, value)
         elif kind == 'emoji_get':
             await self.screen_emoji.handle(peer, value)
         elif kind == 'live_input_ack' and peer.native:
@@ -401,14 +400,22 @@ class KubikAdapter(BasePlatformAdapter):
             await peer.complete.wait()
     async def _handle_bound_message(self, peer, event):
         self.printer_loop = asyncio.get_running_loop()
+        event._kubik_peer = peer
         with printer_origin(self, peer, event):
             await self.handle_message(event)
+            if not event._gateway_accepted:
+                event._kubik_images.close()
+    async def _process_message_background(self, event, session_key):
+        return await process_bound(self, event, session_key, super()._process_message_background)
     def finish_transcription(self, task, path):
         self.transcriptions.discard(task)
         Path(path).unlink(missing_ok=True)
         if not task.cancelled():
             task.exception()  # consume a late provider failure after timeout/cancellation
     async def on_processing_complete(self, event, outcome):
+        images = getattr(event, '_kubik_images', None)
+        if images:
+            images.close()
         self.native_jobs.complete(event)
         peer = self.peers.get(event.source.chat_id)
         if peer and peer.message_id == event.message_id:

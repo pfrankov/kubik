@@ -24,7 +24,6 @@
 #include "esp_timer.h"
 #include "esp_private/esp_clk.h"
 #include "esp_pm.h"
-#include "setup.h"
 #include "version.h"
 #include "wifi.h"
 static const char *TAG = "app";
@@ -146,6 +145,7 @@ static void on_json(const char *json, size_t len) {
 }
 static void on_audio(uint8_t kind, uint8_t tag, const uint8_t *pcm, size_t len) {
     if (kind == 0x03) app_speech_write(tag, link_session(), pcm, len);
+    else if (kind == PRINTER_IMAGE_BINARY_KIND) printer_protocol_image_receive(tag, pcm, len, link_session());
 }
 static void on_pair(const char *code, bool telegram) {
     portENTER_CRITICAL(&s_pair_mux);

@@ -4,11 +4,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "printer_layout.h"
+#include "printer_stream.h"
 
 typedef struct {
     char rid[33];
     uint32_t session;
     bool automatic, printing, dispatched;
+    bool image;
+    uint16_t image_width, image_height;
+    printer_stream_t *stream;
     atomic_bool cancelled;
     int64_t deadline_ms;
     printer_document_t document;

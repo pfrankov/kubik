@@ -99,26 +99,43 @@ static printer_job_t *pending_job(void) {
     return job;
 }
 
+static bool copy_job_input(printer_job_t *job, const printer_input_t *input, size_t bytes) {
+    if (!input) return true;
+    memcpy(job->rid, input->rid, sizeof job->rid);
+    if (input->image) {
+        job->image = true; job->image_width = input->image_width; job->image_height = input->image_height;
+        job->stream = printer_stream_create(job->rid, job->session, input->image_height);
+        return job->stream != NULL;
+    }
+    if (bytes) {
+        memcpy(job->text, input->document.text, bytes);
+        job->document = input->document; job->document.text = job->text;
+        printer_emoji_glyph_t *glyphs=(printer_emoji_glyph_t *)(job->text+bytes);
+        if (input->emoji_count && !printer_emoji_parse_copy(input->emoji,glyphs,input->emoji_count)) {
+            return false;
+        }
+        job->document.emojis=input->emoji_count ? glyphs : NULL;
+        job->document.emoji_count=input->emoji_count;
+    }
+    return true;
+}
+
 static printer_job_t *make_job(const printer_input_t *input, uint32_t session, int64_t now) {
-    size_t bytes = input && input->printing ? strlen(input->document.text) + 1 : 0;
+    size_t bytes = input && input->printing && !input->image ? strlen(input->document.text) + 1 : 0;
     size_t glyph_bytes=input ? input->emoji_count*sizeof(printer_emoji_glyph_t) : 0;
     printer_job_t *job = calloc(1, sizeof *job + bytes + glyph_bytes);
     if (!job) return NULL;
     job->session = session; job->automatic = !input; job->printing = input && input->printing;
     job->deadline_ms = now + (job->printing ? PRINT_WORK_MS : STATUS_WORK_MS);
     atomic_init(&job->cancelled, false);
-    if (input) memcpy(job->rid, input->rid, sizeof job->rid);
-    if (bytes) {
-        memcpy(job->text, input->document.text, bytes);
-        job->document = input->document; job->document.text = job->text;
-        printer_emoji_glyph_t *glyphs=(printer_emoji_glyph_t *)(job->text+bytes);
-        if (input->emoji_count && !printer_emoji_parse_copy(input->emoji,glyphs,input->emoji_count)) {
-            free(job);return NULL;
-        }
-        job->document.emojis=input->emoji_count ? glyphs : NULL;
-        job->document.emoji_count=input->emoji_count;
-    }
+    if (!copy_job_input(job, input, bytes)) { free(job); return NULL; }
     return job;
+}
+
+static void free_job(printer_job_t *job) {
+    if (!job) return;
+    printer_stream_destroy(job->stream);
+    free(job);
 }
 
 static printer_admission_t admission(const char *rid) {
@@ -139,8 +156,31 @@ printer_admission_t printer_work_submit(const printer_input_t *input, uint32_t s
     result = admission(input->rid);
     if (result == PRINTER_ADMITTED) { pending = candidate; candidate = NULL; }
     portEXIT_CRITICAL(&lock);
-    free(candidate);
+    free_job(candidate);
     return result;
+}
+
+bool printer_work_image_credit(printer_stream_credit_t *credit) {
+    portENTER_CRITICAL(&lock);
+    bool ready = active && active->image && printer_stream_credit(active->stream, credit);
+    portEXIT_CRITICAL(&lock);
+    return ready;
+}
+void printer_work_image_receive(uint32_t session, const uint8_t *data, size_t length) {
+    portENTER_CRITICAL(&lock);
+    printer_job_t *job = active ? active : pending;
+    if (job && job->image) printer_stream_receive(job->stream, session, data, length);
+    portEXIT_CRITICAL(&lock);
+}
+void printer_work_image_abort(uint32_t session, const char *rid) {
+    if (!rid) return;
+    portENTER_CRITICAL(&lock);
+    printer_job_t *job = active ? active : pending;
+    if (job && job->image && job->session == session && !strcmp(job->rid, rid)) {
+        atomic_store(&job->cancelled, true);
+        printer_stream_abort(job->stream);
+    }
+    portEXIT_CRITICAL(&lock);
 }
 
 bool printer_work_busy(void) {
@@ -188,7 +228,7 @@ static bool collect(char **reply, uint32_t *session, int64_t now) {
     portENTER_CRITICAL(&lock);
     printer_job_t *done = active; active = NULL;
     portEXIT_CRITICAL(&lock);
-    free(done);
+    free_job(done);
     printer_platform_release();
     return response;
 }
@@ -205,7 +245,7 @@ static bool expire_pending(char **reply, uint32_t *session, const printer_app_st
     bool response = !job->automatic && state->session == job->session;
     if (response) *reply = printer_result_make(job, "printer_busy", NULL, NULL);
     if (job->automatic) automatic_due = now + 30000;
-    free(job);
+    free_job(job);
     return response;
 }
 
@@ -244,7 +284,7 @@ static void automatic_job(const printer_app_state_t *state, int64_t now) {
     portENTER_CRITICAL(&lock);
     if (!pending && !active) { pending = job; job = NULL; }
     portEXIT_CRITICAL(&lock);
-    free(job);
+    free_job(job);
 }
 
 static bool launch(const printer_app_state_t *state, char **reply, uint32_t *session) {
@@ -262,7 +302,7 @@ static bool launch(const printer_app_state_t *state, char **reply, uint32_t *ses
     portENTER_CRITICAL(&lock);
     printer_job_t *failed = active; active = NULL;
     portEXIT_CRITICAL(&lock);
-    free(failed);
+    free_job(failed);
     return response;
 }
 

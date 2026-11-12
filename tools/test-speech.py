@@ -50,6 +50,11 @@ static bool active;
 static bool output_refused;
 static unsigned tls_changes;
 static uint32_t current = 1;
+#define PRINTER_IMAGE_BINARY_KIND 0x06
+static unsigned image_frames;
+static void printer_protocol_image_receive(uint8_t tag, const uint8_t *data, size_t size, uint32_t session) {
+    assert(tag == 0 && data && size == 24 && session == current); image_frames++;
+}
 static char last[128];
 static app_mailbox_t inbox;
 enum { EV_SRV_SPEAK, EV_SRV_SPEAK_END, EV_LINK_UP, EV_LINK_DOWN, EV_PAIR };
@@ -119,6 +124,9 @@ static void end_payload(const char *json) {
 static void validate_generations(void) {
     static const char *const invalid[] = {"0", "-1", "256", "1.5", "\"1\"", "null"};
     uint8_t pcm[24] = {0};
+    on_audio(PRINTER_IMAGE_BINARY_KIND, 0, pcm, sizeof pcm);
+    on_audio(0x07, 0, pcm, sizeof pcm);
+    assert(image_frames == 1 && bytes == 0);
     speak_payload("{\"t\":\"speak\",\"gen\":1}");
     app_ev_t event; assert(app_mailbox_take(&inbox, &event) && event.a == 1 && s_gen == 1);
     on_audio(3, 1, pcm, sizeof pcm); unsigned before_bytes = bytes, before_begins = begins;

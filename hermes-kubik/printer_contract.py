@@ -14,7 +14,8 @@ PARAMETERS = {
     'properties': {
         'action': {'type': 'string', 'enum': ['status', 'print']},
         'text': {'type': 'string', 'minLength': 1, 'maxLength': TEXT_BYTES},
-        'format': {'type': 'string', 'enum': ['text', 'qr']},
+        'format': {'type': 'string', 'enum': ['text', 'qr', 'image']},
+        'image_ref': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'},
         'width_mm': {'type': 'number', 'minimum': 1, 'maximum': 216},
         'height_mm': {'type': 'number', 'minimum': 1, 'maximum': 150},
         'font_mm': {'type': 'number', 'minimum': 1.5, 'maximum': 8},
@@ -60,13 +61,19 @@ def parameters(value):
     if value.get('action') == 'status':
         return {'action': 'status'} if value.keys() == {'action'} else None
     kind = value.get('format', 'text')
-    if value.get('action') != 'print' or kind not in ('text', 'qr'):
+    if value.get('action') != 'print' or kind not in ('text', 'qr', 'image'):
         return None
-    if not valid_text(value.get('text'), QR_BYTES if kind == 'qr' else TEXT_BYTES):
+    if not valid_content(value, kind):
         return None
     if not print_dimensions(value, kind):
         return None
     return {**value, 'format': kind}
+
+
+def valid_content(value, kind):
+    if kind == 'image':
+        return request_id(value.get('image_ref')) and 'text' not in value and 'font_mm' not in value
+    return 'image_ref' not in value and valid_text(value.get('text'), QR_BYTES if kind == 'qr' else TEXT_BYTES)
 
 
 def print_dimensions(value, kind):
@@ -95,11 +102,11 @@ def _printer_profile(value):
     return integer(value['battery_pct'], 0, 100) and value['charging'] is None and formats and number(value['max_height_mm'], 1, 150) and value['media_height_mm'] is None and value['size_source'] == 'model_profile'
 
 
-def valid_layout(value, printer):
+def valid_layout(value, printer, image=False):
     required = {'format', 'width_dots', 'height_dots', 'width_mm', 'height_mm'}
     if not isinstance(value, dict) or not required <= value.keys() or value.keys() - required - {'font_mm'}:
         return False
-    if value['format'] not in printer['formats'] or not integer(value['width_dots'], 1, printer['width_dots']):
+    if value['format'] not in (['image'] if image else printer['formats']) or not integer(value['width_dots'], 1, printer['width_dots']):
         return False
     maximum = math.floor(printer['max_height_mm'] * printer['feed_dpi'] / 25.4)
     if not integer(value['height_dots'], 1, maximum):
@@ -113,8 +120,8 @@ def valid_layout(value, printer):
     return True
 
 
-def result(value, action):
-    return _result_header(value, action) and _outcome(value, action) and _result_payload(value)
+def result(value, action, image=False):
+    return _result_header(value, action) and _outcome(value, action) and _result_payload(value, image)
 
 
 def _result_header(value, action):
@@ -127,7 +134,7 @@ def _result_header(value, action):
     return True
 
 
-def _result_payload(value):
+def _result_payload(value, image=False):
     state = value['status']
     printer = value.get('printer')
     if state != 'error' and printer is None:
@@ -139,7 +146,7 @@ def _result_payload(value):
         return False
     if state == 'sent' and layout is None:
         return False
-    return layout is None or printer is not None and valid_layout(layout, printer)
+    return layout is None or printer is not None and valid_layout(layout, printer, image)
 
 
 def _outcome(value, action):

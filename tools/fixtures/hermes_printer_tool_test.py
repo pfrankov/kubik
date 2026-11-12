@@ -12,7 +12,7 @@ from unittest.mock import patch
 from hermes_test_support import (DeviceSocket, KubikAdapter, Peer, ProtocolFixture, ROOT,
                                  atomic_json)
 from hermes_printer_support import reply
-from hermes_kubik.printer_tool import CURRENT_PRINTER, PrinterTool, printer_origin
+from hermes_kubik.printer_tool import CURRENT_PRINTER, PrinterTool, printer_origin, image_hook
 from hermes_kubik.runtime import profile_scope
 
 SESSION = ContextVar('printer_test_session', default={})
@@ -88,6 +88,22 @@ class PrinterTools(ProtocolFixture):
             self.assertEqual((await self.execute())['code'], 'unauthorized')
         self.assertFalse(self.peer.socket.messages)
 
+    async def test_generated_image_handle_is_bound_to_authenticated_turn(self):
+        directory = self.adapter.home / 'cache/generated/images'
+        directory.mkdir(parents=True)
+        path = directory / 'generated.png'
+        path.write_bytes(b'image')
+        result = json.dumps({'success': True, 'provider': 'openai', 'image': str(path)})
+        with printer_origin(self.adapter, self.peer, self.event), source_context(self.adapter, self.peer, self.event):
+            value = image_hook(self.tool, tool_name='image_generate', tool_call_id='image-call', result=result)
+            ref = json.loads(value)['kubik_image_ref']
+            self.assertEqual(len(ref), 32)
+            self.assertIsNone(image_hook(self.tool, tool_name='other', tool_call_id='image-call', result=result))
+        with source_context(self.adapter, self.peer, self.event):
+            self.assertIsNone(image_hook(self.tool, tool_name='image_generate', tool_call_id='other', result=result))
+        await self.adapter.on_processing_complete(self.event, 'success')
+        self.assertIsNone(self.event._kubik_images.get(ref))
+
     async def test_old_turn_cannot_redirect_to_a_reconnected_socket(self):
         replacement = Peer(DeviceSocket(), self.peer.identity, {**self.hello, 'printer': 2})
         replacement.ready = True
@@ -119,6 +135,8 @@ class PrinterTools(ProtocolFixture):
         entry = importlib.util.module_from_spec(spec); entry.__package__ = 'hermes_kubik'
         spec.loader.exec_module(entry)
         class Context:
+            def register_hook(self, name, callback):
+                pass
             def register_telegram_handler(self, handler):
                 pass
             def register_platform(self, **values):

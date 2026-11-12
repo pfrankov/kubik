@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "printer_parse.h"
 #include "printer_platform.h"
+#include "printer_stream.h"
 
 typedef struct {
     printer_app_state_t state;
@@ -24,6 +25,9 @@ bool printer_work_poll(char **reply, uint32_t *session);
 bool printer_work_busy(void);
 bool printer_work_discovered(void);
 bool printer_work_has_id(const char *rid);
+bool printer_work_image_credit(printer_stream_credit_t *credit);
+void printer_work_image_receive(uint32_t session, const uint8_t *data, size_t length);
+void printer_work_image_abort(uint32_t session, const char *rid);
 // Cancel background discovery; false while its resources still prevent voice.
 // Accepted foreground jobs leave continuous Live input unchanged.
 bool printer_work_before_voice(void);

@@ -40,6 +40,8 @@ static jmp_buf restarted;
 static const char RID[] = "0123456789abcdef0123456789abcdef";
 static bool printed_ink;
 static size_t last_job_allocation;
+static bool image_host;
+static unsigned image_credits;
 
 void *printer_test_calloc(size_t count, size_t size) {
     if (fail_alloc) { fail_alloc = false; return NULL; }
@@ -102,6 +104,24 @@ static void finish_work(void) {
 }
 void printer_platform_wait_tick(void) {
     clock_ms++;
+    if (image_host) {
+        unsigned before = attempts;
+        printer_protocol_poll();
+        if (attempts != before && send_ok) {
+            cJSON *credit = cJSON_Parse(sent[before]); assert(credit);
+            assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(credit,"t")),"printer_image_ready"));
+            unsigned offset = (unsigned)cJSON_GetObjectItem(credit,"offset")->valueint;
+            unsigned count = 20 - offset > 16 ? 16 : 20 - offset;
+            uint8_t frame[35 + 16 * 72] = {0}; memcpy(frame,RID,32);
+            frame[32] = offset >> 8; frame[33] = offset; frame[34] = count;
+            memset(frame + 35,0x55,count * 72); image_credits++;
+            assert(!pthread_mutex_lock(&route_lock)); rx_active = true;
+            printer_protocol_image_receive(0,frame,35 + count * 72,session);
+            rx_active = false; pthread_mutex_unlock(&route_lock);
+            cJSON_Delete(credit);
+        }
+        return;
+    }
     if (callback && !work_finished && !defer_work) finish_work();
 }
 peripage_result_t peripage_open(peripage_info_t *info, uint32_t timeout) {
@@ -193,6 +213,7 @@ static void invalid(const char *fields, bool printing) {
 #include "printer_work_cases.h"
 #include "printer_status_cases.h"
 #include "printer_emoji_protocol_cases.h"
+#include "printer_image_cases.h"
 
 settings_t g_settings;
 char g_device_id[20] = "kubik-782900";
@@ -208,6 +229,7 @@ static void hello_descriptor(void) {
     g_settings.volume=42;g_settings.ui_volume=57;g_settings.brightness=150;g_settings.guide_done=true;
     settings_t before=g_settings;char hello[512];assert(link_make_hello(hello,sizeof hello));
     cJSON *j=cJSON_Parse(hello);assert(j);assert(cJSON_GetObjectItem(j,"printer")->valueint==2);
+    assert(cJSON_GetObjectItem(j,"printer_image")->valueint==1);
     assert(cJSON_GetObjectItem(j,"v")->valueint==5);assert(!memcmp(&before,&g_settings,sizeof before));cJSON_Delete(j);
     key_ready=false;assert(!link_make_hello(hello,sizeof hello));key_ready=true;assert(!link_make_hello(hello,16));
 }
@@ -220,5 +242,6 @@ int main(void) {
     status_and_print(); job_errors();
     no_replay_and_sessions(); automatic_discovery(); discovery_voice_admission(); foreground_voice_unchanged();
     diagnostic_snapshot(); resource_and_deadline(); stream_budget_and_finish(); tear_off_tail(); tail_failure_no_replay(); crash_guard(); hello_descriptor();
+    image_print_round_trip(); image_invalid_and_cancel();
     puts("Printer v2: production RX/tick/parser/job/renderer/worker passed with no physical side-effect mocks in firmware");
 }
