@@ -81,6 +81,8 @@ class PrinterDevice(Device):
         self.requests = []
         self.hold_printer = False
         self.image = None
+        self.image_done = False
+        self.all_image_jobs = []
         self.image_bands = []
         self.hold_image_after = None
         self.image_aborts = 0
@@ -101,6 +103,7 @@ class PrinterDevice(Device):
         else:
             layout = {'format': 'image', 'width_dots': image['width'], 'height_dots': image['height'],
                       'width_mm': image['width'] * 25.4 / 304, 'height_mm': image['height'] * 25.4 / 225}
+            self.image_done = True
             await self.send(t='printer_result', rid=image['rid'], status='sent', outcome='submitted',
                             printer=PROFILE, layout=layout)
 
@@ -112,8 +115,11 @@ class PrinterDevice(Device):
                     await self.send(t='printer_result', rid=value['rid'], status='error',
                                     code='printer_disconnected', outcome='unknown')
             else:
-                assert value['action'] == 'start' and self.image is None
+                assert value['action'] == 'start' and (self.image is None or self.image_done)
                 self.image = value
+                self.image_done = False
+                self.image_bands = []
+                self.all_image_jobs.append(value['rid'])
                 await self.send(t='printer_image_ready', rid=value['rid'], offset=0)
         elif value['t'] == 'printer':
             if value['action'] == 'print' and value.get('format') == 'text':

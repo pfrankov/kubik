@@ -129,14 +129,16 @@ async def check_document(adapter, device, peer, ref):
                               session_key=adapter._event_session_key(event))
     try:
         with module.printer_origin(adapter, peer, event):
+            before = len(device.all_image_jobs)
             args = {'action': 'print', 'format': 'document', 'width_mm': 30, 'blocks': [
-                {'type': 'text', 'text': 'Заголовок и текст'}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
+                {'type': 'text', 'text': 'Заголовок и текст. ' * 40}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
                 {'type': 'text', 'text': 'Текст после рисунка'}]}
             result = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
                                              tool_call_id='mixed-document', enabled_tools=['kubik_printer'])
             result = json.loads(result)
             assert result['status'] == 'sent' and result['layout']['format'] == 'document', result
+            assert result['pagesSubmitted'] >= 2 and result['pagesSubmitted'] == len(device.all_image_jobs) - before
             assert device.image_bands and result['paperConfirmed'] is False
     finally:
         clear_session_vars(tokens)
-    print('PASS one mixed text/image document through Hermes and the printer stream', flush=True)
+    print('PASS multipage mixed text/image document through Hermes and the printer stream', flush=True)
