@@ -96,13 +96,26 @@ class PrinterTools(ProtocolFixture):
         result = json.dumps({'success': True, 'provider': 'openai', 'image': str(path)})
         with printer_origin(self.adapter, self.peer, self.event), source_context(self.adapter, self.peer, self.event):
             value = image_hook(self.tool, tool_name='image_generate', tool_call_id='image-call', result=result)
-            ref = json.loads(value)['kubik_image_ref']
+            generated = json.loads(value)
+            ref = generated['kubik_image_ref']
+            self.assertIn('Decide from the conversation', generated['kubik_print_instruction'])
+            self.assertFalse(self.peer.socket.messages)
             self.assertEqual(len(ref), 32)
             self.assertIsNone(image_hook(self.tool, tool_name='other', tool_call_id='image-call', result=result))
         with source_context(self.adapter, self.peer, self.event):
             self.assertIsNone(image_hook(self.tool, tool_name='image_generate', tool_call_id='other', result=result))
         await self.adapter.on_processing_complete(self.event, 'success')
-        self.assertIsNone(self.event._kubik_images.get(ref))
+        self.assertEqual(self.event._kubik_images.get(ref), b'image')
+        next_event = self.adapter._authorized_voice_event(self.peer, 'print the picture')
+        with printer_origin(self.adapter, self.peer, next_event), source_context(self.adapter, self.peer, next_event):
+            self.assertEqual(next_event._kubik_images.get(ref), b'image')
+        replacement = Peer(DeviceSocket(), self.peer.identity, {**self.hello, 'printer': 2})
+        replacement.ready = True
+        replacement_event = self.adapter._authorized_voice_event(replacement, 'print the picture')
+        with printer_origin(self.adapter, replacement, replacement_event):
+            self.assertIsNone(replacement_event._kubik_images.get(ref))
+        await self.adapter._remove_peer(self.peer.socket, self.peer)
+        self.assertIsNone(next_event._kubik_images.get(ref))
 
     async def test_old_turn_cannot_redirect_to_a_reconnected_socket(self):
         replacement = Peer(DeviceSocket(), self.peer.identity, {**self.hello, 'printer': 2})
@@ -152,3 +165,5 @@ class PrinterTools(ProtocolFixture):
         self.assertIs(first.tool['handler'].__self__.adapter, one)
         self.assertIs(second.tool['handler'].__self__.adapter, two)
         self.assertNotIn('device', first.tool['schema']['parameters']['properties'])
+        self.assertIn('decide from', first.platform['platform_hint'])
+        self.assertIn('Do not automatically print every image', first.platform['platform_hint'])

@@ -141,6 +141,9 @@ class KubikAdapter(BasePlatformAdapter):
         peer.ready = False
         await self.screen_emoji.close(peer)
         self.printer_jobs.close(peer)
+        images = getattr(peer, 'printer_images', None)
+        if images:
+            images.close()
         if self.peers.get(peer.identity) is peer:
             del self.peers[peer.identity]
         await self.cancel(peer)
@@ -403,8 +406,6 @@ class KubikAdapter(BasePlatformAdapter):
         event._kubik_peer = peer
         with printer_origin(self, peer, event):
             await self.handle_message(event)
-            if not event._gateway_accepted:
-                event._kubik_images.close()
     async def _process_message_background(self, event, session_key):
         return await process_bound(self, event, session_key, super()._process_message_background)
     def finish_transcription(self, task, path):
@@ -413,9 +414,6 @@ class KubikAdapter(BasePlatformAdapter):
         if not task.cancelled():
             task.exception()  # consume a late provider failure after timeout/cancellation
     async def on_processing_complete(self, event, outcome):
-        images = getattr(event, '_kubik_images', None)
-        if images:
-            images.close()
         self.native_jobs.complete(event)
         peer = self.peers.get(event.source.chat_id)
         if peer and peer.message_id == event.message_id:

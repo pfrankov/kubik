@@ -1,17 +1,21 @@
-"""Turn-scoped snapshots of images returned by the trusted generation tool."""
+"""Bounded connection-scoped snapshots returned by the trusted generation tool."""
 import json
 import os
 from pathlib import Path
 import secrets
 import stat
 import threading
+import time
 
 from .printer_image_raster import MAX_INPUT_BYTES
 
 
 class ImageOrigin:
-    def __init__(self):
+    def __init__(self, *, now=time.monotonic, loop=None, ttl=600):
         self.lock = threading.Lock()
+        self.now, self.loop, self.ttl = now, loop, ttl
+        self.timer = None
+        self.uncertain = set()
         self.images = {}
         self.calls = {}
         self.closed = False
@@ -21,10 +25,56 @@ class ImageOrigin:
             self.closed = True
             self.images.clear()
             self.calls.clear()
+            self.uncertain.clear()
+        self.schedule()
+
+    def prune(self):
+        expired = [ref for ref, (stamp, _) in self.images.items() if self.now() - stamp >= self.ttl]
+        for ref in expired:
+            self.remove(ref)
+
+    def remove(self, ref):
+        self.images.pop(ref, None)
+        self.uncertain.discard(ref)
+        self.calls = {call: saved for call, saved in self.calls.items() if saved != ref}
+
+    def schedule(self):
+        if self.loop is not None:
+            try:
+                self.loop.call_soon_threadsafe(self.arm)
+            except RuntimeError:
+                pass
+
+    def arm(self):
+        with self.lock:
+            if self.timer:
+                self.timer.cancel()
+                self.timer = None
+            if self.closed or not self.images:
+                return
+            deadline = min(stamp for stamp, _ in self.images.values()) + self.ttl
+            self.timer = self.loop.call_later(max(0, deadline - self.now()), self.expire)
+
+    def expire(self):
+        with self.lock:
+            self.prune()
+        self.arm()
+
+    def mark_uncertain(self, ref):
+        with self.lock:
+            if ref in self.images:
+                self.uncertain.add(ref)
+
+    def is_uncertain(self, ref):
+        with self.lock:
+            self.prune()
+            return ref in self.uncertain
 
     def get(self, ref):
         with self.lock:
-            return None if self.closed else self.images.get(ref)
+            self.prune()
+            item = None if self.closed else self.images.get(ref)
+            return item[1] if item else None
 
     def capture(self, home, call_id, result):
         if not isinstance(call_id, str) or not call_id or len(call_id) > 256:
@@ -38,14 +88,16 @@ class ImageOrigin:
         with self.lock:
             if self.closed:
                 return None
+            self.prune()
             if call_id in self.calls:
                 ref = self.calls[call_id]
-                return ref if self.images[ref] == data else None
-            if len(self.images) >= 4 or sum(map(len, self.images.values())) + len(data) > MAX_INPUT_BYTES:
-                return None
+                return ref if self.images[ref][1] == data else None
+            while self.images and (len(self.images) >= 4 or sum(len(item[1]) for item in self.images.values()) + len(data) > MAX_INPUT_BYTES):
+                self.remove(next(iter(self.images)))
             ref = secrets.token_hex(16)
-            self.images[ref], self.calls[call_id] = data, ref
-            return ref
+            self.images[ref], self.calls[call_id] = (self.now(), data), ref
+        self.schedule()
+        return ref
 
 
 def generated_image(home, result):

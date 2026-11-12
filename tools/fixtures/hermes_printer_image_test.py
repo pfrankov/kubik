@@ -12,7 +12,7 @@ from hermes_kubik.printer_jobs import PrinterJobs
 
 
 class ImageOriginTest(ProtocolFixture):
-    async def test_only_generated_local_png_is_snapshotted_and_turn_scoped(self):
+    async def test_only_generated_local_png_is_snapshotted_and_connection_scoped(self):
         directory = Path(self.temp.name) / 'cache/generated/images'
         directory.mkdir(parents=True)
         path = directory / 'ok.png'; path.write_bytes(b'original')
@@ -30,6 +30,33 @@ class ImageOriginTest(ProtocolFixture):
         origin.close()
         self.assertIsNone(origin.get(ref))
         self.assertIsNone(origin.capture(self.temp.name, 'new', value))
+
+    async def test_bounded_retention_expiry_and_oldest_eviction(self):
+        directory = Path(self.temp.name) / 'cache/generated/images'
+        directory.mkdir(parents=True)
+        path = directory / 'ok.png'; path.write_bytes(b'png')
+        value = {'success': True, 'provider': 'openai', 'image': str(path)}
+        clock = [0]
+        origin = ImageOrigin(now=lambda: clock[0])
+        refs = [origin.capture(self.temp.name, str(i), value) for i in range(5)]
+        self.assertIsNone(origin.get(refs[0]))
+        self.assertEqual(origin.get(refs[1]), b'png')
+        clock[0] = 600
+        self.assertTrue(all(origin.get(ref) is None for ref in refs))
+        self.assertEqual(len(origin.calls), 0)
+
+    async def test_expired_image_is_cleared_without_further_access(self):
+        directory = Path(self.temp.name) / 'cache/generated/images'
+        directory.mkdir(parents=True)
+        path = directory / 'ok.png'; path.write_bytes(b'png')
+        origin = ImageOrigin(loop=asyncio.get_running_loop(), ttl=.03)
+        ref = origin.capture(self.temp.name, 'call', {'success': True, 'provider': 'openai', 'image': str(path)})
+        origin.mark_uncertain(ref)
+        self.assertTrue(origin.is_uncertain(ref))
+        await asyncio.sleep(.08)
+        self.assertEqual(origin.images, {})
+        self.assertEqual(origin.calls, {})
+        self.assertFalse(origin.is_uncertain(ref))
 
 
 class ImageJobsTest(ProtocolFixture):

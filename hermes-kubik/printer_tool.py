@@ -3,6 +3,7 @@ import asyncio
 from contextlib import contextmanager
 from contextvars import ContextVar
 from concurrent.futures import TimeoutError as FutureTimeout
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -16,7 +17,9 @@ CURRENT_PRINTER = ContextVar('kubik_printer_origin', default=None)
 DESCRIPTION = ('Inspect or print text, QR codes, and images on this conversation\'s Kubik printer. '
                'To print an image, first generate it with image_generate and pass its returned kubik_image_ref as image_ref. '
                'Use status to obtain DPI and printable dimensions before selecting a size. '
-               'Print only at the user\'s request; dimensions are millimetres and text wraps without truncation. '
+               'For images, decide from the conversation whether a physical print is useful, even without '
+               'an explicit print command. Print text and QR at the user\'s request. '
+               'Dimensions are millimetres and text wraps without truncation. '
                'The reported width comes from the verified printer model, not sensing the loaded paper; '
                'dpi describes horizontal head dots; feed_dpi describes vertical rows and font height. '
                'charging=null means unknown; battery_pct is a level, not proof of charging. '
@@ -27,10 +30,11 @@ DESCRIPTION = ('Inspect or print text, QR codes, and images on this conversation
 
 @contextmanager
 def printer_origin(adapter, peer, event):
-    origin = getattr(event, '_kubik_images', None)
+    origin = getattr(peer, 'printer_images', None)
     if origin is None:
-        origin = ImageOrigin()
-        event._kubik_images = origin
+        origin = ImageOrigin(loop=adapter.printer_loop)
+        peer.printer_images = origin
+    event._kubik_images = origin
     binding = (adapter, peer, event.message_id, adapter._event_session_key(event), origin)
     token = CURRENT_PRINTER.set(binding)
     try:
@@ -91,8 +95,10 @@ class PrinterTool:
         pending = asyncio.run_coroutine_threadsafe(self.execute(arguments), adapter.printer_loop)
         while True:
             if is_interrupted():
-                pending.cancel()
                 printing = isinstance(arguments, dict) and arguments.get('action') == 'print'
+                if printing and arguments.get('format') == 'image':
+                    mark_uncertain(adapter, arguments)
+                pending.cancel()
                 return json.dumps(PrinterFailure('cancelled', outcome='unknown' if printing else 'not_sent').value())
             try:
                 return pending.result(timeout=.1)
@@ -107,6 +113,11 @@ class PrinterTool:
             peer, call_id, event_id, images = call_origin(adapter)
             raster = await image_for_print(adapter, peer, call_id, arguments, event_id, images)
             value = await on_gateway(adapter, peer, call_id, arguments, event_id, raster)
+            if value.get('outcome') == 'unknown' and isinstance(arguments, dict) and arguments.get('format') == 'image':
+                images.mark_uncertain(arguments.get('image_ref'))
+        except asyncio.CancelledError:
+            mark_uncertain(self.adapter, arguments)
+            raise
         except PrinterFailure as error:
             value = error.value()
         except (ImportError, AttributeError, RuntimeError):
@@ -114,6 +125,16 @@ class PrinterTool:
         if value.get('status') == 'error':
             value = {**value, 'error': value['code']}
         return json.dumps(value, ensure_ascii=False, allow_nan=False)
+
+
+def mark_uncertain(adapter, arguments):
+    if not isinstance(arguments, dict) or arguments.get('format') != 'image':
+        return
+    try:
+        _, _, images = verified_origin(adapter)
+        images.mark_uncertain(arguments.get('image_ref'))
+    except (PrinterFailure, ImportError, AttributeError, RuntimeError):
+        pass
 
 
 async def on_gateway(adapter, peer, call_id, arguments, event_id, raster=None):
@@ -140,6 +161,8 @@ async def image_for_print(adapter, peer, call_id, arguments, event_id, images):
     from . import printer_contract as contract
     if contract.parameters(arguments) is None:
         raise PrinterFailure('invalid_input')
+    if images.is_uncertain(arguments['image_ref']):
+        raise PrinterFailure('outcome_unknown', outcome='unknown')
     data = images.get(arguments['image_ref'])
     if data is None:
         raise PrinterFailure('invalid_image_ref')
@@ -166,13 +189,20 @@ def image_hook(tool, **kwargs):
     if kwargs.get('tool_name') != 'image_generate' or tool.adapter is None:
         return None
     try:
-        _, _, images = verified_origin(tool.adapter)
-        ref = images.capture(tool.adapter.home, kwargs.get('tool_call_id'), kwargs.get('result'))
+        _, event_id, images = verified_origin(tool.adapter)
+        call_id = kwargs.get('tool_call_id')
+        if not isinstance(call_id, str) or not call_id:
+            return None
+        scoped_call = hashlib.sha256((event_id + '\n' + call_id).encode()).hexdigest()
+        ref = images.capture(tool.adapter.home, scoped_call, kwargs.get('result'))
         if not ref:
             return None
         result = kwargs['result']
         value = json.loads(result) if isinstance(result, str) else dict(result)
         value['kubik_image_ref'] = ref
+        value['kubik_print_instruction'] = ('Decide from the conversation whether a physical copy is useful. '
+            'If it is, call kubik_printer with action=print, format=image and image_ref=kubik_image_ref. '
+            'The print is a separate tool call; generation alone did not print anything.')
         return json.dumps(value, ensure_ascii=False)
     except (PrinterFailure, ImportError, AttributeError, RuntimeError, TypeError, ValueError):
         return None

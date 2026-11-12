@@ -16,6 +16,9 @@ async def check_image_hook(adapter, device, home):
     from gateway.session_context import set_session_vars, clear_session_vars
     from hermes_constants import set_hermes_home_override, reset_hermes_home_override
     from PIL import Image
+    from agent.system_prompt import _default_platform_hint
+    hint = _default_platform_hint('kubik')
+    assert 'decide from' in hint and 'Do not automatically print every image' in hint
     module = importlib.import_module(type(adapter).__module__.rsplit('.', 1)[0] + '.printer_tool')
     peer = next(peer for peer in adapter.peers.values() if peer.identity.startswith('kubik-printer:'))
     event = adapter._authorized_voice_event(peer, 'image-hook-test')
@@ -44,8 +47,10 @@ async def check_image_hook(adapter, device, home):
                                                tool_call_id='image-too-wide', enabled_tools=['kubik_printer'])
             assert json.loads(rejected)['code'] == 'content_does_not_fit'
             assert len(device.image_bands) == before
-            await check_interrupt(adapter, device, ref)
         await adapter.on_processing_complete(event, 'success')
+        assert event._kubik_images.get(ref) == path.read_bytes()
+        await check_next_turn(adapter, device, peer, ref)
+        event._kubik_images.close()
         assert event._kubik_images.get(ref) is None
         assert 'kubik_image_ref' not in json.loads(await asyncio.to_thread(transform, result))
     finally:
@@ -84,3 +89,30 @@ async def check_interrupt(adapter, device, ref):
     await eventually(lambda: not adapter.printer_jobs.pending)
     assert not peer.output_lock.locked() and len(device.image_bands) == 1
     print('PASS real Hermes thread interrupt aborts image stream without replay', flush=True)
+
+
+async def check_next_turn(adapter, device, peer, ref):
+    from gateway.session_context import set_session_vars, clear_session_vars
+    from model_tools import handle_function_call
+    module = importlib.import_module(type(adapter).__module__.rsplit('.', 1)[0] + '.printer_tool')
+    event = adapter._authorized_voice_event(peer, 'print the previous image')
+    device.image, device.image_bands = None, []
+    device.hold_image_after, device.hold_abort_reply = None, False
+    tokens = set_session_vars(platform='kubik', chat_id=peer.identity, message_id=event.message_id,
+                              session_key=adapter._event_session_key(event))
+    try:
+        with module.printer_origin(adapter, peer, event):
+            args = {'action': 'print', 'format': 'image', 'image_ref': ref, 'width_mm': 10}
+            printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
+                                               tool_call_id='next-turn-print', enabled_tools=['kubik_printer'])
+            assert json.loads(printed)['status'] == 'sent'
+            assert device.image_bands
+            await check_interrupt(adapter, device, ref)
+            before = len(device.image_bands)
+            blocked = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
+                                               tool_call_id='unknown-outcome-retry', enabled_tools=['kubik_printer'])
+            assert json.loads(blocked)['code'] == 'outcome_unknown'
+            assert len(device.image_bands) == before
+    finally:
+        clear_session_vars(tokens)
+    print('PASS previously generated image prints in the next authenticated turn', flush=True)
