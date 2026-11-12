@@ -34,7 +34,7 @@
     "kubik-agent-host": "./src/agent-sdk/cli.js"
   },
   "scripts": {
-    "test": "node --test --test-timeout=30000 test/*.test.js",
+    "test": "node --test --test-concurrency=1 --test-timeout=30000 test/*.test.js",
     "check": "npm test && npm run check:manifest",
     "check:manifest": "node scripts/sync-manifest.mjs --check",
     "check:host": "node scripts/host-smoke.mjs",
