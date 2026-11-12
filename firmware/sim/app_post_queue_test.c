@@ -33,7 +33,6 @@
 #define EMO_HAPPY 2
 #define FEV_TAP 0
 enum { TESS_GAME_NONE, TESS_GAME_SPARKS, TESS_GAME_GATHER };
-
 typedef struct {
     unsigned count;
     app_ev_t events[32];
