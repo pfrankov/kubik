@@ -38,6 +38,12 @@ async def check_image_hook(adapter, device, home):
             printed = json.loads(printed)
             assert printed['status'] == 'sent' and printed['layout']['format'] == 'image', printed
             assert printed['paperConfirmed'] is False and device.image_bands
+            before = len(device.image_bands)
+            too_wide = {**arguments, 'width_mm': 100}
+            rejected = await asyncio.to_thread(handle_function_call, 'kubik_printer', too_wide,
+                                               tool_call_id='image-too-wide', enabled_tools=['kubik_printer'])
+            assert json.loads(rejected)['code'] == 'content_does_not_fit'
+            assert len(device.image_bands) == before
             await check_interrupt(adapter, device, ref)
         await adapter.on_processing_complete(event, 'success')
         assert event._kubik_images.get(ref) is None

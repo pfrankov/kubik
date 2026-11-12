@@ -149,6 +149,8 @@ async def image_for_print(adapter, peer, call_id, arguments, event_id, images):
     if status.get('status') != 'ready':
         raise PrinterFailure(status.get('code', 'printer_failed'))
     profile = status['printer']
+    if arguments.get('width_mm', 0) > profile['printable_width_mm'] + .01:
+        raise PrinterFailure('content_does_not_fit')
     width_mm = min(arguments.get('width_mm', profile['printable_width_mm']), profile['printable_width_mm'])
     height_mm = min(arguments.get('height_mm', profile['max_height_mm']), profile['max_height_mm'])
     try:
