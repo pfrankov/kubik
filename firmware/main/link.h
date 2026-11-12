@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "status_json.h"
 
 // PCM bounds before IMA encoding: speech 100 ms, microphone 40 ms at 24 kHz mono.
 // Microphone wire frame is 485 bytes. Audio has kind/tag bytes; USB adds an epoch.
@@ -24,8 +25,11 @@ typedef struct {
     void (*on_audio)(uint8_t kind, uint8_t tag, const uint8_t *pcm, size_t len);
     void (*on_link)(bool up);
     // USB config command (frame 0x21); write a JSON reply into `reply`.
-    // json and reply may alias: parse/copy input before writing a complete reply.
-    void (*on_config)(const char *json, size_t len, char *reply, size_t cap);
+    // Parse the request once; release its raw bytes before allocating any reply.
+    void *(*on_config_parse)(const char *json, size_t len);
+    bool (*on_config_info)(void *parsed, status_json_sink_t sink, void *context, bool *ok);
+    void (*on_config_reply)(void *parsed, char *reply, size_t capacity);
+    void (*on_config_free)(void *parsed);
     // OpenClaw does not know this Kubik yet: show `code` for the owner to approve.
     // Called again while waiting; the same connection then gets its welcome.
     void (*on_pair)(const char *code, bool telegram);

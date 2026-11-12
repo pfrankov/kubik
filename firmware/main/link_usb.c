@@ -15,7 +15,7 @@
 #include "freertos/task.h"
 #include "link.h"
 
-_Static_assert(LINK_USB_CONFIG_REPLY_CAP > LINK_USB_PAYLOAD_MAX, "shared RX/reply includes input sentinel");
+_Static_assert(LINK_USB_CONFIG_REPLY_CAP > LINK_USB_PAYLOAD_MAX, "reply includes input sentinel");
 static SemaphoreHandle_t s_usb_mtx;
 static link_usb_handlers_t s_handlers;
 typedef struct {
@@ -106,18 +106,98 @@ int link_usb_log_vprintf(const char *fmt, va_list ap) {
     return n;
 }
 
-static void dispatch_frame(uint8_t type, uint8_t *frame, size_t len) {
+static void wipe_bytes(void *data, size_t length) {
+    volatile uint8_t *p = data;
+    while (length--) *p++ = 0;
+}
+
+#define STATUS_CHUNK_BYTES 384
+typedef struct status_chunk {
+    struct status_chunk *next;
+    size_t used;
+    uint8_t bytes[STATUS_CHUNK_BYTES];
+} status_chunk_t;
+typedef struct { status_chunk_t *head, *tail; size_t length; } status_chunks_t;
+static bool status_chunk_write(void *context, char value) {
+    status_chunks_t *chunks = context;
+    if (!chunks->tail || chunks->tail->used == STATUS_CHUNK_BYTES) {
+        status_chunk_t *chunk = heap_caps_calloc(1, sizeof *chunk, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!chunk) return false;
+        if (chunks->tail) chunks->tail->next = chunk;
+        else chunks->head = chunk;
+        chunks->tail = chunk;
+    }
+    chunks->tail->bytes[chunks->tail->used++] = (uint8_t)value;
+    chunks->length++;
+    return true;
+}
+static void status_chunks_free(status_chunks_t *chunks) {
+    while (chunks->head) {
+        status_chunk_t *chunk = chunks->head;
+        chunks->head = chunk->next;
+        wipe_bytes(chunk, sizeof *chunk);
+        heap_caps_free(chunk);
+    }
+}
+static bool status_chunks_send(const status_chunks_t *chunks) {
+    uint8_t header[5] = {0xa5, 0x5a, F_CONFIG_REPLY, (uint8_t)chunks->length, (uint8_t)(chunks->length >> 8)};
+    uint8_t crc = 0;
+    for (status_chunk_t *chunk = chunks->head; chunk; chunk = chunk->next)
+        crc = link_usb_crc8(crc, chunk->bytes, chunk->used);
+    if (xSemaphoreTake(s_usb_mtx, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+    TickType_t timeout = pdMS_TO_TICKS(30);
+    bool ok = usb_write_all(header, sizeof header, timeout);
+    for (status_chunk_t *chunk = chunks->head; ok && chunk; chunk = chunk->next)
+        ok = usb_write_all(chunk->bytes, chunk->used, timeout);
+    if (ok) ok = usb_write_all(&crc, 1, timeout);
+    xSemaphoreGive(s_usb_mtx);
+    return ok;
+}
+static void parser_release(usb_parser_t *parser);
+static bool dispatch_info(void *parsed) {
+    if (!s_handlers.on_config_info) return false;
+    status_chunks_t chunks = {0};
+    bool ok = false;
+    bool handled = s_handlers.on_config_info(parsed, status_chunk_write, &chunks, &ok);
+    if (handled) {
+        if (ok) status_chunks_send(&chunks);
+        else {
+            const char error[] = "{\"ok\":false,\"error\":\"status unavailable\"}";
+            link_usb_frame(F_CONFIG_REPLY, error, sizeof error - 1, NULL, 0);
+        }
+    }
+    status_chunks_free(&chunks);
+    return handled;
+}
+static void dispatch_config(usb_parser_t *parser) {
+    if (!s_handlers.on_config_parse || !s_handlers.on_config_reply || !s_handlers.on_config_free) return;
+    void *parsed = s_handlers.on_config_parse((char *)parser->frame, parser->len);
+    // cJSON owns copies of the request strings; raw credentials no longer occupy the RX buffer.
+    parser_release(parser);
+    if (!dispatch_info(parsed)) {
+        char *reply = heap_caps_malloc(LINK_USB_CONFIG_REPLY_CAP,
+                                       MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+        if (reply) {
+            s_handlers.on_config_reply(parsed, reply, LINK_USB_CONFIG_REPLY_CAP);
+            reply[LINK_USB_CONFIG_REPLY_CAP - 1] = 0;
+            if (reply[0]) link_usb_frame(F_CONFIG_REPLY, reply, strlen(reply), NULL, 0);
+            wipe_bytes(reply, LINK_USB_CONFIG_REPLY_CAP);
+            heap_caps_free(reply);
+        } else {
+            const char error[] = "{\"ok\":false,\"error\":\"USB buffer unavailable\"}";
+            link_usb_frame(F_CONFIG_REPLY, error, sizeof error - 1, NULL, 0);
+        }
+    }
+    s_handlers.on_config_free(parsed);
+}
+static void dispatch_frame(usb_parser_t *parser) {
+    uint8_t type = parser->type, *frame = parser->frame;
+    size_t len = parser->len;
     frame[len] = 0;
     if (type == F_HOST_HELLO) {
         if (s_handlers.on_host_hello) s_handlers.on_host_hello((char *)frame, len);
     } else if (type == F_CONFIG) {
-        if (!s_handlers.on_config) return;
-        // The handler parses/owns the JSON tree before writing; RX and reply
-        // never overlap in time, so one buffer preserves the full 6 KB reply.
-        char *reply = (char *)frame;
-        s_handlers.on_config(reply, len, reply, LINK_USB_CONFIG_REPLY_CAP);
-        reply[LINK_USB_CONFIG_REPLY_CAP - 1] = 0;
-        if (reply[0]) link_usb_frame(F_CONFIG_REPLY, reply, strlen(reply), NULL, 0);
+        dispatch_config(parser);
     } else if (type == F_JSON || type == F_AUDIO || type == F_BIND) {
         if (s_handlers.on_routed) s_handlers.on_routed(type, frame, len);
     }
@@ -125,7 +205,7 @@ static void dispatch_frame(uint8_t type, uint8_t *frame, size_t len) {
 
 static void parser_release(usb_parser_t *parser) {
     if (parser->frame) {
-        memset(parser->frame, 0, parser->capacity);
+        wipe_bytes(parser->frame, parser->capacity);
         heap_caps_free(parser->frame);
     }
     parser->frame = NULL; parser->capacity = 0; parser->deadline = 0;
@@ -162,7 +242,7 @@ static void parser_begin(usb_parser_t *parser) {
     parser->received = 0; parser->crc = 0;
     parser->state = parser->len ? 5 : 6;
     if ((!config && !json && !routed) || parser->len > limit) return;
-    parser->capacity = config ? LINK_USB_CONFIG_REPLY_CAP : parser->len + 1;
+    parser->capacity = parser->len + 1;
     parser->frame = heap_caps_malloc(parser->capacity, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     parser->no_memory = !parser->frame;
     if (parser->frame) parser->deadline = esp_timer_get_time() + USB_FRAME_TIMEOUT_US;
@@ -210,7 +290,7 @@ static void usb_rx_task(void *arg) {
         parser_expire(&parser);
         for (int i = 0; i < count; i++) {
             if (!parser_feed_byte(&parser, chunk[i])) continue;
-            dispatch_frame(parser.type, parser.frame, parser.len);
+            dispatch_frame(&parser);
             parser_reset(&parser);
         }
     }

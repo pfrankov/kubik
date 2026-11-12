@@ -117,10 +117,32 @@ static void *heap_caps_malloc(size_t bytes,unsigned caps) {
     memset(usb_frame_allocation,0xa5,bytes);usb_frame_bytes=bytes;usb_frame_allocations++;
     return usb_frame_allocation;
 }
+static void *heap_caps_realloc(void *pointer,size_t bytes,unsigned caps) {
+    assert(pointer==usb_frame_allocation && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA|MALLOC_CAP_8BIT));
+    if(usb_frame_failures){usb_frame_failures--;return NULL;}
+    void *next=realloc(pointer,bytes);assert(next);usb_frame_allocation=next;usb_frame_bytes=bytes;
+    return next;
+}
+static void *usb_chunks[32]; static size_t usb_chunk_sizes[32];
+static unsigned usb_chunk_live, usb_chunk_max, usb_chunk_failures;
+static void *heap_caps_calloc(size_t count,size_t size,unsigned caps) {
+    assert(count==1 && caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+    if(usb_chunk_failures){usb_chunk_failures--;return NULL;}
+    assert(usb_chunk_live<32);void *p=calloc(count,size);assert(p);
+    for(unsigned i=0;i<32;i++) if(!usb_chunks[i]) {usb_chunks[i]=p;usb_chunk_sizes[i]=size;break;}
+    usb_chunk_live++;if(size>usb_chunk_max)usb_chunk_max=(unsigned)size;return p;
+}
 static void heap_caps_free(void *pointer) {
-    assert(pointer && pointer==usb_frame_allocation);
-    for(size_t i=0;i<usb_frame_bytes;i++)assert(((const uint8_t *)pointer)[i]==0);
-    free(pointer);usb_frame_allocation=NULL;usb_frame_bytes=0;usb_frame_frees++;
+    assert(pointer);
+    if(pointer==usb_frame_allocation) {
+        for(size_t i=0;i<usb_frame_bytes;i++)assert(((const uint8_t *)pointer)[i]==0);
+        free(pointer);usb_frame_allocation=NULL;usb_frame_bytes=0;usb_frame_frees++;return;
+    }
+    for(unsigned i=0;i<32;i++) if(pointer==usb_chunks[i]) {
+        for(size_t j=0;j<usb_chunk_sizes[i];j++)assert(((const uint8_t *)pointer)[j]==0);
+        free(pointer);usb_chunks[i]=NULL;usb_chunk_live--;return;
+    }
+    assert(!"unexpected allocation");
 }
 static bool stop_usb_rx; static jmp_buf usb_rx_jmp;
 static int usb_serial_jtag_write_bytes(const void *p,size_t n,unsigned timeout) { (void)timeout; if(n>2048)return 0; assert(usb_size+n<=sizeof usb_bytes); memcpy(usb_bytes+usb_size,p,n); usb_size+=n; return n; }

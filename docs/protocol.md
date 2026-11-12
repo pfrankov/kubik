@@ -455,12 +455,13 @@ The USB Serial/JTAG port carries a framed byte stream. Anything outside frames
 the payload only. A frame with a bad CRC is dropped and the parser resyncs on
 the next `A5 5A`.
 
-The parser allocates one temporary internal DMA-capable buffer only after a
-complete accepted header: 6144 bytes for configuration, otherwise `len + 1`.
-The configuration request and reply share that allocation: handlers parse the
-request into owned data before overwriting it. All callbacks and reply writes
-finish synchronously before the buffer is scrubbed and freed; bad CRC also
-scrubs and frees it. There is no allocated frame buffer between requests.
+The parser allocates `len + 1` temporary internal DMA-capable bytes after a
+complete accepted header. A configuration request is parsed once into owned
+data, then its input buffer is scrubbed and freed before the command is run.
+The `info` response is built once in bounded small chunks and sent as one frame;
+other configuration replies retain the 6144-byte buffer limit. All temporary
+buffers are scrubbed and freed, including on bad CRC; no frame buffer remains
+between requests.
 Replies are streamed under one
 frame lock in writes of at most 1024 bytes; the driver TX ring is 2048 bytes.
 This preserves complete framed replies without requiring an atomic driver write

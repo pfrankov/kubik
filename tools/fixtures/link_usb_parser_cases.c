@@ -2,11 +2,18 @@
 static unsigned parser_configs, parser_routes, parser_hellos;
 static size_t parser_expected_len;
 static uint8_t parser_expected_type;
-static void parser_config(const char *text,size_t len,char *reply,size_t cap) {
-    assert(text==reply && text==usb_frame_allocation && len==parser_expected_len);
-    assert(text[len]==0 && cap==6144 && usb_frame_bytes==6144);
+static uint8_t parsed_request[LINK_JSON_MAX+1];
+static unsigned parser_frees;
+static void *parser_parse(const char *text,size_t len) {
+    assert(text==usb_frame_allocation && len==parser_expected_len && text[len]==0);
+    memcpy(parsed_request,text,len+1);return parsed_request;
+}
+static void parser_config(void *parsed,char *reply,size_t cap) {
+    assert(parsed==parsed_request && reply==usb_frame_allocation);
+    assert(cap==6144 && usb_frame_bytes==6144);
     memset(reply,'r',6000);reply[6000]=0;parser_configs++;
 }
+static void parser_free(void *parsed) { assert(parsed==parsed_request);memset(parsed_request,0,sizeof parsed_request);parser_frees++; }
 static void parser_routed(uint8_t type,uint8_t *data,size_t len) {
     assert(type==parser_expected_type && len==parser_expected_len);
     assert(data==usb_frame_allocation && data[len]==0 && usb_frame_bytes==len+1);
@@ -20,7 +27,7 @@ static void parser_bytes(usb_parser_t *parser,const uint8_t *data,size_t len) {
     parser_expire(parser);
     for(size_t i=0;i<len;i++) {
         if(!parser_feed_byte(parser,data[i]))continue;
-        dispatch_frame(parser->type,parser->frame,parser->len);
+        dispatch_frame(parser);
         parser_reset(parser);
     }
 }
@@ -34,6 +41,25 @@ static void parser_error_reply(const char *expected) {
     assert(n<sizeof text && usb_size==n+6);memcpy(text,usb_bytes+5,n);text[n]=0;
     assert(strstr(text,expected) && link_usb_crc8(0,usb_bytes+5,n)==usb_bytes[n+5]);
 }
+static bool parser_info(void *parsed,status_json_sink_t sink,void *context,bool *ok) {
+    const char request[]="{\"cmd\":\"info\"}";
+    if(parsed!=parsed_request || memcmp(parsed,request,sizeof request))return false;
+    *ok=true;
+    for(unsigned i=0;i<6000;i++) if(!sink(context,'s')) {*ok=false;break;}
+    return true;
+}
+static void parser_stream_info(void) {
+    const uint8_t request[]="{\"cmd\":\"info\"}";
+    parser_expected_len=sizeof request-1;usb_size=0;
+    input_frame(F_CONFIG,request,parser_expected_len,true);run_usb_rx();
+    assert(!usb_frame_allocation && !usb_chunk_live && usb_chunk_max<=416);
+    assert(usb_size==6006 && (usb_bytes[3]|(unsigned)usb_bytes[4]<<8)==6000);
+    for(unsigned i=0;i<6000;i++)assert(usb_bytes[i+5]=='s');
+    assert(link_usb_crc8(0,usb_bytes+5,6000)==usb_bytes[6005]);
+    usb_chunk_failures=1;usb_size=0;
+    input_frame(F_CONFIG,request,parser_expected_len,true);run_usb_rx();
+    assert(!usb_frame_allocation && !usb_chunk_live);parser_error_reply("status unavailable");
+}
 static void parser_limits(void) {
     uint8_t payload[LINK_USB_PAYLOAD_MAX];memset(payload,0x55,sizeof payload);
     uint8_t frame[LINK_USB_PAYLOAD_MAX+6];usb_parser_t parser={0};
@@ -41,7 +67,7 @@ static void parser_limits(void) {
     size_t bytes=parser_packet(frame,F_CONFIG,payload,parser_expected_len);
     unsigned allocated=usb_frame_allocations;
     parser_bytes(&parser,frame,4);assert(!usb_frame_allocation && usb_frame_allocations==allocated);
-    parser_bytes(&parser,frame+4,1);assert(usb_frame_bytes==6144);
+    parser_bytes(&parser,frame+4,1);assert(usb_frame_bytes==4097);
     usb_size=0;parser_bytes(&parser,frame+5,bytes-5);
     assert(parser_configs==1 && !usb_frame_allocation && usb_size==6006);
     assert(usb_bytes[2]==F_CONFIG_REPLY && (usb_bytes[3]|(unsigned)usb_bytes[4]<<8)==6000);
@@ -56,6 +82,19 @@ static void parser_limits(void) {
     unsigned released=usb_frame_frees;usb_size=0;
     input_frame(F_CONFIG,payload,20,false);run_usb_rx();
     assert(parser_configs==1 && usb_frame_frees==released+1 && !usb_frame_allocation && usb_size==0);
+}
+static void parser_reply_oom(void) {
+    uint8_t frame[80], payload[32] = {0}; usb_parser_t parser = {0};
+    size_t bytes = parser_packet(frame, F_CONFIG, payload, sizeof payload);
+    unsigned configs = parser_configs, frees = parser_frees;
+    parser_expected_len=sizeof payload;
+    parser_bytes(&parser, frame, bytes - 1);
+    assert(parser.frame && parser.capacity == sizeof payload + 1);
+    usb_frame_failures = 1; usb_size = 0;
+    parser_bytes(&parser, frame + bytes - 1, 1);
+    assert(parser_configs == configs && parser_frees == frees + 1 && !usb_frame_allocation && !usb_chunk_live);
+    for (size_t i=0;i<sizeof parsed_request;i++) assert(parsed_request[i]==0);
+    parser_error_reply("USB buffer unavailable");
 }
 static void parser_oom(void) {
     uint8_t payload[64]={0},inner[32];
@@ -123,8 +162,9 @@ static void parser_rejected(void) {
 }
 static void usb_parser_cases(void) {
     link_usb_handlers_t saved=s_handlers;
-    s_handlers=(link_usb_handlers_t){.on_config=parser_config,.on_routed=parser_routed,.on_host_hello=parser_hello};
-    parser_limits();parser_oom();parser_timeout();parser_rejected();s_handlers=saved;
+    s_handlers=(link_usb_handlers_t){.on_config_parse=parser_parse,.on_config_info=parser_info,.on_config_reply=parser_config,.on_config_free=parser_free,.on_routed=parser_routed,.on_host_hello=parser_hello};
+    parser_stream_info();
+    parser_limits();parser_oom();parser_reply_oom();parser_timeout();parser_rejected();s_handlers=saved;
     assert(!usb_frame_allocation && usb_frame_allocations==usb_frame_frees);
     puts("USB parser: lazy exact capacities, alias reply lifetime, scrub/free, CRC/OOM exact drain and whole-frame 5s deadline passed");
 }

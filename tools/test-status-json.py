@@ -13,6 +13,13 @@ SOURCE = r'''
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+typedef struct { char data[1024]; size_t used, limit; } capture_t;
+static bool capture(void *context, char value) {
+    capture_t *capture = context;
+    if (capture->used == capture->limit) return false;
+    capture->data[capture->used++] = value;
+    return true;
+}
 static void fields(status_json_t *json) {
     status_json_string(json, "device", "kubik-test");
     status_json_string(json, "escaped", "\"\\\n\r\t\001\037 Tess UTF-8: \320\242\320\265\321\201\321\201");
@@ -37,6 +44,13 @@ int main(void) {
         if (result) assert(!strcmp((char *)guarded + 1, complete));
         else if (capacity) assert(guarded[1] == 0);
     }
+    capture_t streamed = {.limit = sizeof streamed.data};
+    status_json_begin_sink(&json, sizeof streamed.data, capture, &streamed); fields(&json);
+    assert(status_json_end(&json));
+    assert(streamed.used == strlen(complete) && !memcmp(streamed.data, complete, streamed.used));
+    streamed.used = 0; streamed.limit = 10;
+    status_json_begin_sink(&json, sizeof streamed.data, capture, &streamed); fields(&json);
+    assert(!status_json_end(&json) && streamed.used == 10);
     status_json_begin(&json, complete, sizeof complete);
     assert(status_json_end(&json) && !strcmp(complete, "{}"));
 }

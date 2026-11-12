@@ -52,9 +52,9 @@ with tempfile.TemporaryDirectory(prefix="kubik-agent-") as tmp:
     helpers = protocol[protocol.index("static void add_agent_models("):]
     models = Path(tmp) / "models.c"
     config_source = (ROOT / "firmware/main/app_protocol.c").read_text()
-    config = config_source[config_source.index("static void on_config("):config_source.index("void app_protocol_handlers(")]
+    config = config_source[config_source.index("static bool config_contains_nul("):config_source.index("void app_protocol_handlers(")]
     models.write_text((ROOT / "firmware/sim/models_reply_test.c").read_text()
                       .replace("/* PRODUCTION_MODELS */", helpers).replace("/* PRODUCTION_CONFIG */", config))
-    build_test(tmp, "models-reply", str(models), ["firmware/main/agent_protocol.c", "firmware/main/agent_menu.c", str(CJSON / "cJSON.c")])
+    build_test(tmp, "models-reply", str(models), ["firmware/main/agent_protocol.c", "firmware/main/agent_menu.c", "firmware/main/status_json.c", str(CJSON / "cJSON.c")])
 
     build_test(tmp, "hidden-reset", "firmware/sim/menu_service_test.c", [])

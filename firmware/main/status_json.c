@@ -1,8 +1,14 @@
 #include "status_json.h"
 static void byte(status_json_t *json, char value) {
+    if (json->failed) return;
     if (json->used + 1 >= json->capacity) { json->failed = true; return; }
-    json->data[json->used++] = value;
-    json->data[json->used] = 0;
+    if (json->sink) {
+        if (!json->sink(json->context, value)) { json->failed = true; return; }
+        json->used++;
+    } else {
+        json->data[json->used++] = value;
+        json->data[json->used] = 0;
+    }
 }
 static void text(status_json_t *json, const char *value) {
     while (*value) byte(json, *value++);
@@ -28,6 +34,10 @@ void status_json_begin(status_json_t *json, char *data, size_t capacity) {
     if (capacity) data[0] = 0;
     byte(json, '{');
 }
+void status_json_begin_sink(status_json_t *json, size_t limit, status_json_sink_t sink, void *context) {
+    *json = (status_json_t){.capacity = limit, .first = true, .sink = sink, .context = context};
+    byte(json, '{');
+}
 void status_json_string(status_json_t *json, const char *name, const char *value) {
     key(json, name); quoted(json, value);
 }
@@ -45,6 +55,6 @@ void status_json_bool(status_json_t *json, const char *name, bool value) {
 }
 bool status_json_end(status_json_t *json) {
     byte(json, '}');
-    if (json->failed && json->capacity) json->data[0] = 0;
+    if (json->failed && json->capacity && !json->sink) json->data[0] = 0;
     return !json->failed;
 }

@@ -27,15 +27,16 @@ static void audio(uint8_t kind,uint8_t tag,const uint8_t *pcm,size_t n) {
 static void up(bool ready) { events[nevents++]=ready?'U':'D'; }
 static void json(const char *p,size_t n) { events[nevents++]=link_is_welcome(p,n)?'W':'J'; }
 static int config_calls;
-static void config(const char *text,size_t len,char *reply,size_t cap) {
-    assert(text==reply); // Actual USB RX/config reply ownership shares one bounded buffer.
-    cJSON *j=cJSON_ParseWithLength(text,len);assert(j);
+static void *config_parse(const char *text,size_t len) { return cJSON_ParseWithLength(text,len); }
+static void config_reply(void *parsed,char *reply,size_t cap) {
+    cJSON *j=parsed;assert(j);
     if (!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"cmd")),"large")) {
-        assert(cap >= 6001); memset(reply,'x',6000); reply[6000]=0; cJSON_Delete(j); return;
+        assert(cap >= 6001); memset(reply,'x',6000); reply[6000]=0; return;
     }
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"cmd")),"info"));
-    snprintf(reply,cap,"{\"ok\":true}");cJSON_Delete(j);config_calls++;
+    snprintf(reply,cap,"{\"ok\":true}");config_calls++;
 }
+static void config_free(void *parsed) { cJSON_Delete(parsed); }
 static void input_frame(uint8_t type,const void *payload,size_t len,bool valid_crc) {
     assert(usb_input_size+len+6<=sizeof usb_input);
     uint8_t *out=usb_input+usb_input_size;out[0]=0xa5;out[1]=0x5a;out[2]=type;
@@ -111,7 +112,7 @@ static void route_tick(void) {
 }
 static void manager_run(int ticks) { manager_ticks=0;manager_limit=ticks;if(!setjmp(manager_jmp))manager_task(NULL); }
 int main(void) {
-    link_handlers_t handlers={.on_json=json,.on_link=up,.on_audio=audio,.on_pair=pair,.on_config=config}; link_init(&handlers); assert(s_ws_rx==NULL && task_creations==3);
+    link_handlers_t handlers={.on_json=json,.on_link=up,.on_audio=audio,.on_pair=pair,.on_config_parse=config_parse,.on_config_reply=config_reply,.on_config_free=config_free}; link_init(&handlers); assert(s_ws_rx==NULL && task_creations==3);
     {
         size_t before=usb_size;const char *request="{\"cmd\":\"info\"}";
         input_frame(F_CONFIG,request,strlen(request),true);run_usb_rx();

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "status_json.h"
 
 // Fits 16 maximum-length, JSON-escaped model IDs plus voice metadata.
 #define LINK_USB_CONFIG_REPLY_CAP 6144
@@ -20,8 +21,11 @@ enum {
 
 typedef struct {
     void (*on_host_hello)(const char *json, size_t len);
-    // json and reply may alias: parse/copy input before writing a complete reply.
-    void (*on_config)(const char *json, size_t len, char *reply, size_t cap);
+    // Parse the request once; release its raw bytes before allocating any reply.
+    void *(*on_config_parse)(const char *json, size_t len);
+    bool (*on_config_info)(void *parsed, status_json_sink_t sink, void *context, bool *ok);
+    void (*on_config_reply)(void *parsed, char *reply, size_t capacity);
+    void (*on_config_free)(void *parsed);
     void (*on_routed)(uint8_t type, uint8_t *data, size_t len);
 } link_usb_handlers_t;
 

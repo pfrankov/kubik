@@ -38,9 +38,8 @@ typedef enum { VIA_NONE=0, VIA_USB, VIA_WIFI, VIA_MUSE } via_t;
 typedef enum { USB_DISABLED, USB_PROBING, USB_READY, USB_UNAVAILABLE } usb_status_t;
 static link_handlers_t s_h;
 static atomic_int s_via;
-static atomic_uint s_session;
+static atomic_uint s_session, s_host_ms, s_wifi_pause_until_ms;
 static atomic_bool s_host_seen, s_wifi_allowed = true;
-static atomic_uint s_host_ms, s_wifi_pause_until_ms;
 // Route delivery and public send/destroy operations have separate owners.
 static SemaphoreHandle_t s_route_mtx, s_ws_io_mtx;
 static uint32_t s_usb_epoch, s_probe_epoch, s_probe_ms;
@@ -490,7 +489,8 @@ void link_init(const link_handlers_t *h) {
     link_ws_bind(&s_ws_context);
     link_usb_handlers_t usb_handlers = {
         .on_host_hello = host_hello,
-        .on_config = s_h.on_config,
+        .on_config_parse = s_h.on_config_parse, .on_config_info = s_h.on_config_info,
+        .on_config_reply = s_h.on_config_reply, .on_config_free = s_h.on_config_free,
         .on_routed = usb_routed_input,
     };
     link_usb_start(&usb_handlers);
