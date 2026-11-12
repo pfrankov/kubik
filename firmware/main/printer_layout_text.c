@@ -146,7 +146,7 @@ static bool fit_cap(printer_layout_t *layout, unsigned cap, unsigned height_limi
 }
 
 bool printer_layout_text(printer_layout_t *layout, const printer_document_t *doc, printer_layout_error_t *error) {
-    layout->font = &g_fonts[FONT_TITLE];
+    layout->font = &g_fonts[FONT_CARD];
     if (!supported(layout)) { *error = PRINTER_LAYOUT_UNSUPPORTED_CHARACTER; return false; }
     unsigned dpi = layout->info.feed_dpi;
     layout->pad_x = (uint16_t)lround(layout->info.dpi / 25.4);

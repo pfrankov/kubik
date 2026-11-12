@@ -2,7 +2,6 @@
 """Check physical-size text/QR layout through the production row renderer."""
 import argparse
 import json
-import math
 import os
 from pathlib import Path
 import subprocess
@@ -23,19 +22,17 @@ def png(pbm):
     header, density, dimensions, data = pbm.read_bytes().split(b'\n', 3)
     assert header == b'P4' and density.startswith(b'# dpi ')
     dpi, feed_dpi = map(int, density.split()[2:])
-    divisor = math.gcd(dpi, feed_dpi)
-    repeat_x, repeat_y = feed_dpi // divisor, dpi // divisor
     width, height = map(int, dimensions.split())
     assert len(data) == width // 8 * height
+    output_height = max(1, round(height * dpi / feed_dpi))
     rgb = bytearray()
-    for y in range(height):
-        row = bytearray()
-        for value in data[y * (width // 8):(y + 1) * (width // 8)]:
+    for y in range(output_height):
+        source_y = min(height - 1, (2 * y + 1) * height // (2 * output_height))
+        for value in data[source_y * (width // 8):(source_y + 1) * (width // 8)]:
             for bit in range(8):
-                row.extend(bytes((0 if value & (0x80 >> bit) else 255,)) * (3 * repeat_x))
-        rgb.extend(row * repeat_y)
+                rgb.extend(bytes((0 if value & (0x80 >> bit) else 255,)) * 3)
     output = pbm.with_suffix('.png')
-    write_png(output, width * repeat_x, height * repeat_y, rgb)
+    write_png(output, width, output_height, rgb)
     return output
 
 

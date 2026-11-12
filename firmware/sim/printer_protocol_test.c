@@ -25,7 +25,7 @@ static unsigned fail_packet, change_session_packet;
 static bool rx_active, send_ok = true, radio_owned, close_ok = true, close_stuck, launch_ok = true;
 static bool work_finished, booted, fail_alloc, lease, defer_work;
 static unsigned packet_ms, finishes, budget_calls, planned_packets;
-static unsigned profile_feed_dpi = 304, raster_headers, raster_remaining, declared_rows, blank_tail, last_ink_row;
+static unsigned profile_feed_dpi = 225, raster_headers, raster_remaining, declared_rows, blank_tail, last_ink_row;
 static bool finish_ok = true;
 static uint8_t battery_pct = 100;
 static uint8_t finish_battery_pct = 100;
@@ -154,7 +154,7 @@ static void fresh(void) {
     attempts = dispatched = opens = closes = packets = rows = launches = reaps = releases = cancels = 0;
     fail_packet = change_session_packet = packet_ms = finishes = budget_calls = planned_packets = 0;
     finish_ok = true;
-    profile_feed_dpi=304;raster_headers=raster_remaining=declared_rows=blank_tail=last_ink_row=0;
+    profile_feed_dpi=225;raster_headers=raster_remaining=declared_rows=blank_tail=last_ink_row=0;
     battery_pct=finish_battery_pct=100;printer_status_set_visible(false);
     send_ok = close_ok = launch_ok = true; close_stuck = fail_alloc = printed_ink = false;
     open_result = PERIPAGE_OK; session++; clock_ms += 301000;

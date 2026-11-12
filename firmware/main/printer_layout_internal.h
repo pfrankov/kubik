@@ -22,7 +22,7 @@ struct printer_layout {
         printer_line_t lines[PRINTER_LAYOUT_MAX_LINES];
         uint8_t qr[PRINTER_QR_BUFFER];
     } payload;
-    uint16_t qr_size, qr_scale_x, qr_scale_y, qr_x, qr_y;
+    uint16_t qr_size, qr_width, qr_height, qr_x, qr_y;
 };
 
 bool printer_layout_text(printer_layout_t *layout, const printer_document_t *document,

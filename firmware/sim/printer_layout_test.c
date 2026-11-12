@@ -180,7 +180,7 @@ static void full_height_and_glyphs(void) {
     printer_layout_t *layout = make(doc, 203, 384);
     assert(printer_layout_info(layout)->height_mm <= 150 && printer_layout_info(layout)->font_mm <= 8);
     inspect(layout); printer_layout_destroy(layout);
-    const font_t *font = &g_fonts[FONT_TITLE];
+    const font_t *font = &g_fonts[FONT_CARD];
     for (unsigned i = 0; i < font->n; ++i) {
         uint32_t cp = font->g[i].cp;
         if (!font->g[i].w || !font->g[i].h || cp == ' ' || cp == 0xa0) continue;
@@ -196,27 +196,42 @@ static void full_height_and_glyphs(void) {
     }
 }
 
+static unsigned qr_edge(unsigned i, unsigned span, unsigned modules) {
+    return (i * span + modules / 2) / modules;
+}
+
+static void qr_cell(const printer_layout_t *layout, unsigned mx, unsigned my) {
+    unsigned outer = layout->qr_size + 8;
+    unsigned x0 = layout->qr_x + qr_edge(mx, layout->qr_width, outer);
+    unsigned x1 = layout->qr_x + qr_edge(mx + 1, layout->qr_width, outer);
+    unsigned y0 = layout->qr_y + qr_edge(my, layout->qr_height, outer);
+    unsigned y1 = layout->qr_y + qr_edge(my + 1, layout->qr_height, outer);
+    assert(x1 - x0 >= 3 && y1 - y0 >= 2);
+    bool inside = mx >= 4 && my >= 4 && mx < outer - 4 && my < outer - 4;
+    bool expected = inside && qrcodegen_getModule(layout->payload.qr, (int)mx - 4, (int)my - 4);
+    uint8_t row[72];
+    for (unsigned y = y0; y < y1; ++y) {
+        assert(printer_layout_row(layout, y, row, sizeof row));
+        for (unsigned x = x0; x < x1; ++x) assert(dark(row, x) == expected);
+    }
+}
+
 static void qr_geometry(printer_layout_t *layout) {
     const printer_layout_info_t *info = printer_layout_info(layout);
-    ink_t ink = inspect(layout);
+    inspect(layout);
+    assert(layout->qr_x + layout->qr_width <= info->width_dots);
+    assert(layout->qr_y + layout->qr_height <= info->height_dots);
+    int aspect = (int)layout->qr_width * info->feed_dpi - (int)layout->qr_height * info->dpi;
+    assert(abs(aspect) <= (int)(info->dpi > info->feed_dpi ? info->dpi : info->feed_dpi));
+    unsigned outer = layout->qr_size + 8;
+    for (unsigned y = 0; y < outer; ++y)
+        for (unsigned x = 0; x < outer; ++x) qr_cell(layout, x, y);
     uint8_t row[72];
-    assert(printer_layout_row(layout, ink.top, row, sizeof row));
-    unsigned run = 0;
-    while (dark(row, ink.left + run)) ++run;
-    assert(run % 7 == 0);
-    unsigned scale_x = run / 7, scale_y = layout->qr_scale_y;
-    assert(scale_x >= 3 && scale_y >= 2);
-    assert(scale_x * info->feed_dpi == scale_y * info->dpi);
-    assert(ink.left >= 4 * scale_x && ink.top >= 4 * scale_y);
-    assert(info->width_dots - ink.right - 1 >= 4 * scale_x);
-    assert(info->height_dots - ink.bottom - 1 >= 4 * scale_y);
-    for (unsigned y = 0; y < 7 * scale_y; ++y) {
-        assert(printer_layout_row(layout, ink.top + y, row, sizeof row));
-        for (unsigned x = 0; x < 7 * scale_x; ++x) {
-            unsigned mx = x / scale_x, my = y / scale_y;
-            bool expected = !mx || mx == 6 || !my || my == 6 || (mx >= 2 && mx <= 4 && my >= 2 && my <= 4);
-            assert(dark(row, ink.left + x) == expected);
-        }
+    for (unsigned y = 0; y < info->height_dots; ++y) {
+        assert(printer_layout_row(layout, y, row, sizeof row));
+        for (unsigned x = 0; x < info->head_width_dots; ++x)
+            if (y < layout->qr_y || y >= layout->qr_y + layout->qr_height ||
+                x < layout->qr_x || x >= layout->qr_x + layout->qr_width) assert(!dark(row, x));
     }
 }
 
@@ -239,7 +254,8 @@ static void axis_sizes(const char *folder) {
     printer_layout_t *square = make_axes(doc, 304, 304);
     printer_layout_info_t a = *printer_layout_info(square);
     ink_t ink_a = inspect(square);
-    assert(square->font == &g_fonts[FONT_TITLE]);
+    unsigned square_cap_x = square->cap_x;
+    assert(square->font == &g_fonts[FONT_CARD]);
     printer_layout_destroy(square);
     printer_layout_t *calibrated = make_axes(doc, 304, 152);
     const printer_layout_info_t *b = printer_layout_info(calibrated);
@@ -247,10 +263,10 @@ static void axis_sizes(const char *folder) {
     assert(b->feed_dpi == 152 && b->font_mm == calibrated->cap_y * 25.4 / 152);
     assert(calibrated->cap_x == 2 * calibrated->cap_y);
     assert(calibrated->pad_x == 12 && calibrated->pad_y == 6);
-    assert(calibrated->font == &g_fonts[FONT_TITLE]);
+    assert(calibrated->font == &g_fonts[FONT_CARD]);
     assert(a.lines == b->lines && b->font_mm >= 3 - 25.4 / 152);
     ink_t ink_b = inspect(calibrated);
-    assert(ink_a.right - ink_a.left == ink_b.right - ink_b.left);
+    assert(abs((int)square_cap_x - (int)calibrated->cap_x) <= 2);
     double height_a = (ink_a.bottom - ink_a.top + 1) * 25.4 / a.feed_dpi;
     double height_b = (ink_b.bottom - ink_b.top + 1) * 25.4 / b->feed_dpi;
     assert(fabs(height_a - height_b) <= 2 * 25.4 / 152);
@@ -262,10 +278,13 @@ static void axis_sizes(const char *folder) {
     calibrated = make_axes(doc, 304, 152);
     b = printer_layout_info(calibrated);
     assert(b->width_dots == 239 && b->height_dots == 120);
-    assert(calibrated->qr_scale_x == 2 * calibrated->qr_scale_y);
-    assert((inspect(calibrated).right - inspect(calibrated).left + 1) ==
-           2 * (inspect(calibrated).bottom - inspect(calibrated).top + 1));
+    assert(abs((int)calibrated->qr_width - 2 * (int)calibrated->qr_height) <= 1);
     qr_geometry(calibrated); save_raster(calibrated, folder, "qr-calibrated-20mm");
+    printer_layout_destroy(calibrated);
+    calibrated = make_axes(doc, 304, 225);
+    b = printer_layout_info(calibrated);
+    assert(b->width_dots == 239 && b->height_dots == 177);
+    qr_geometry(calibrated); save_raster(calibrated, folder, "qr-225-20mm");
     printer_layout_destroy(calibrated);
     calibrated = make_axes((printer_document_t){.text="A", .height_mm=150, .font_mm=8}, 304, 152);
     assert(calibrated->info.height_dots == 897 && calibrated->info.height_mm <= 150);

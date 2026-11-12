@@ -119,7 +119,7 @@ def verify_result(value, expected):
     assert value['paperConfirmed'] is False, value
     printer = value['printer']
     assert printer['dpi'] == 304 and printer['width_dots'] == 576, printer
-    assert printer['feed_dpi'] == 304 and printer['charging'] is None, printer
+    assert printer['feed_dpi'] == 225 and printer['charging'] is None, printer
     assert printer['size_source'] == 'model_profile' and printer['media_height_mm'] is None, printer
     if expected['action'] == 'print':
         layout = value['layout']

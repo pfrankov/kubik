@@ -141,9 +141,9 @@ static peripage_result_t connect_printer(uint32_t epoch, peripage_info_t *info, 
     peripage_result_t result = peripage_gatt_setup(info, deadline);
     if (result != PERIPAGE_OK) return result;
     if (!peripage_profile_valid(info)) return PERIPAGE_UNSUPPORTED;
-    // Native 1:1 raster for this declared 304-dpi profile. The former visual-only
-    // half-height correction compressed prints; physical dimensions remain nominal.
-    info->dpi = 304; info->feed_dpi = 304; info->width_dots = 576; negotiated_mtu = info->mtu;
+    // Feed calibration 225/304 follows the 74% geometry sample at 20 ms pacing.
+    // It is an effective raster scale, not a measured mechanical DPI.
+    info->dpi = 304; info->feed_dpi = 225; info->width_dots = 576; negotiated_mtu = info->mtu;
     binding_pending = !scan_state.bound;
     return PERIPAGE_OK;
 }
