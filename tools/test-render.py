@@ -2,6 +2,7 @@
 """Run native renderer regressions with memory/undefined-behavior sanitizers."""
 from pathlib import Path
 import os
+import signal
 import subprocess
 import tempfile
 
@@ -16,6 +17,7 @@ def face_sources(extra=(), omit=()):
 TESTS = {
     'render_workspace': RENDER + ['canvas'],
     'render_sqrt': [source for source in RENDER if source != 'render_raster'],
+    'render_bounds': [source for source in RENDER if source != 'render_raster'],
     'face_math': [],
     'tess_scene_capacity': face_sources(),
     'tess_sky_draw': face_sources(),
@@ -107,6 +109,7 @@ def main():
         runs.append(("present", TESTS["present"], ["-DFRAME_STORE_BYTES=8"]))
         runs.append(("icons", TESTS["icons"], ["-DICON_TEST_COUNT=24"]))
         runs.append(("stroke_fast", TESTS["stroke_fast"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
+        runs.append(("render_bounds", TESTS["render_bounds"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("output_flat", TESTS["output_flat"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("overlay_alpha", TESTS["overlay_alpha"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
         runs.append(("dot_alpha", TESTS["dot_alpha"], ["-DCONFIG_IDF_TARGET_ESP32S3=1"]))
@@ -133,6 +136,9 @@ def main():
             subprocess.run([*flags, *compiled, "-lm", "-o", exe], cwd=ROOT, check=True)
             args = ["firmware/assets/sprites.bin"] if name == "canvas" else []
             subprocess.run([exe, *args], cwd=ROOT, check=True)
+            if name == "render_bounds":
+                rejected = subprocess.run([exe, "--outside-domain"], cwd=ROOT, capture_output=True, text=True)
+                assert rejected.returncode == -signal.SIGABRT and "compute_bbox" in rejected.stderr, "Out-of-domain geometry was accepted"
 
 if __name__ == "__main__":
     main()

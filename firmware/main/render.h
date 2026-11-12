@@ -41,6 +41,7 @@
 enum { PK_RBOX = 0, PK_RING, PK_ARC, PK_HEART, PK_SPRITE, PK_QR, PK_TEXT, PK_ICON };
 #define R_TEXT_POOL 640  // glyph indices of all text primitives in a scene
 
+// Axis-aligned RBOX geometry keeps abs(centre) + half-size + soft below 2^24 raw Q4 units.
 typedef struct {
     uint8_t kind;
     uint8_t alpha;       // 0..255

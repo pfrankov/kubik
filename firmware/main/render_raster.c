@@ -3,6 +3,7 @@
 #include "render_pixels.h"
 #include "render_sqrt_table.h"
 
+#include <assert.h>
 #include <math.h>
 #include <string.h>
 #ifdef ESP_PLATFORM
@@ -36,6 +37,8 @@ static inline uint32_t isqrt(uint32_t n) {
 }
 
 static inline int32_t len2(int32_t x, int32_t y) { return (int32_t)isqrt((uint32_t)x * (uint32_t)x + (uint32_t)y * (uint32_t)y); }
+
+static inline int floor_div(int32_t v, int32_t d) { return v >= 0 ? v / d : -((-v + d - 1) / d); }
 
 // ------------------------------------------------------------------ SDF
 
@@ -169,17 +172,23 @@ static void compute_bbox(scene_t *s, prim_t *p) {
     float ext = s_extent[p - s->p];
     if (ext >= 0) ext = ui_canvasf(ext);
     if (ext == -2.f) return;
-    float soft = p->soft / (float)Q;
-    float hx, hy;
-    if (ext < 0) {  // axis aligned box
-        hx = p->a / (float)Q;
-        hy = p->b / (float)Q;
+    int x0, x1, y0, y1;
+    if (ext < 0) {  // Q4 sums are exact; upright boxes need no software floating point.
+        assert(p->a >= 0 && p->b >= 0 && p->soft >= 0);
+        assert((int64_t)p->cx - p->a - p->soft > -(1 << 24) &&
+               (int64_t)p->cx + p->a + p->soft < (1 << 24));
+        assert((int64_t)p->cy - p->b - p->soft > -(1 << 24) &&
+               (int64_t)p->cy + p->b + p->soft < (1 << 24));
+        x0 = floor_div(p->cx - p->a - p->soft, Q) - 1;
+        x1 = -floor_div(-(p->cx + p->a + p->soft), Q) + 1;
+        y0 = floor_div(p->cy - p->b - p->soft, Q) - 1;
+        y1 = -floor_div(-(p->cy + p->b + p->soft), Q) + 1;
     } else {
-        hx = hy = ext;
+        float soft = p->soft / (float)Q;
+        float cx = p->cx / (float)Q, cy = p->cy / (float)Q;
+        x0 = (int)floorf(cx - ext - soft) - 1; x1 = (int)ceilf(cx + ext + soft) + 1;
+        y0 = (int)floorf(cy - ext - soft) - 1; y1 = (int)ceilf(cy + ext + soft) + 1;
     }
-    float cx = p->cx / (float)Q, cy = p->cy / (float)Q;
-    int x0 = (int)floorf(cx - hx - soft) - 1, x1 = (int)ceilf(cx + hx + soft) + 1;
-    int y0 = (int)floorf(cy - hy - soft) - 1, y1 = (int)ceilf(cy + hy + soft) + 1;
     if (p->clip >= 0) {
         const prim_t *c = &s->p[p->clip];
         x0 = imax(x0, c->bx0);
@@ -250,7 +259,6 @@ static inline int32_t rbox_ext(int32_t a, int32_t b, int32_t r, int32_t ly) {
     if (ty <= 0) return a;
     return (a - r) + (int32_t)isqrt((uint32_t)(r * r - ty * ty));
 }
-static inline int floor_div(int32_t v, int32_t d) { return v >= 0 ? v / d : -((-v + d - 1) / d); }
 
 // Upright rounded-box outline (a stroke): per row the band's inner and outer extents are known in closed form,
 // so the hollow is skipped and the band filled outright; only pixels that can be partly covered are evaluated.
