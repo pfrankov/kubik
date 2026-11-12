@@ -26,11 +26,13 @@ def register(ctx):
         allowed_users_env='KUBIK_ALLOWED_USERS', allow_all_env='KUBIK_ALLOW_ALL_USERS',
         max_message_length=1000, allow_update_command=False, display_tier='minimal',
         platform_hint=('You are speaking to a small desk companion. Give concise plain-text replies. '
-            'Use kubik_printer for physical printing. When you generate or see an image, decide from '
-            'the conversation whether a physical print would be useful; you may print it without an '
-            'explicit print command. Do not automatically print every image. To print an image generated '
+            'Use kubik_printer for physical printing. When you produce useful text or generate or see an '
+            'image, decide from the conversation whether a physical print would be useful; you may print '
+            'it without an explicit print command. Do not automatically print every response or image. To print an image generated '
             'here call kubik_printer with action=print, format=image and image_ref=kubik_image_ref. '
             'If asked to print an image already created in this conversation, use its existing reference; '
             'do not generate another image. If it is unavailable, say so. A displayed image or vision '
-            'analysis is not a print. Report the tool result accurately and never retry an unknown outcome.'),
+            'analysis is not a print. For text and images together, use one kubik_printer document with '
+            'ordered text and image blocks; the tool handles pagination. Report the tool result '
+            'accurately and never retry an unknown outcome.'),
     )

@@ -25,6 +25,7 @@ def arguments():
     modes.add_argument('--printer-live-status', action='store_true', help='Physical Live microphone plus one printer status RPC; printing is blocked')
     modes.add_argument('--printer-stream-check', action='store_true', help='Exactly one NEW BLE 20 ms text print, 30x10 mm at 3 mm font')
     modes.add_argument('--printer-image-check', action='store_true', help='Exactly one synthetic image through the physical printer')
+    modes.add_argument('--printer-document-check', action='store_true', help='Exactly one mixed document through the physical printer')
     modes.add_argument('--printer-quality-check', action='store_true', help='Two NEW jobs: personal Apple emoji text and square 20 mm QR')
     modes.add_argument('--screen-emoji-check', action='store_true', help='Real agent Apple emoji cards across pages with Live microphone; zero prints')
     parser.add_argument('--evidence', required=True, type=Path, help='NEW private evidence directory')
@@ -70,7 +71,7 @@ def launch(args):
         if args.wifi:
             command += ['--wifi', '--endpoint', args.endpoint]
         for mode in ('printer', 'printer_live_status', 'printer_stream_check', 'printer_quality_check',
-                     'printer_image_check', 'screen_emoji_check'):
+                     'printer_image_check', 'printer_document_check', 'screen_emoji_check'):
             if getattr(args, mode, False):
                 command.append('--' + mode.replace('_', '-'))
         subprocess.run(command, cwd=ROOT, env=env, timeout=720 if long_mode(args) else 600, check=True)
@@ -120,7 +121,7 @@ async def prepare(args, original, identity):
 
 
 def printer_mode(args):
-    return args.printer or args.printer_live_status or args.printer_stream_check or args.printer_quality_check or getattr(args, 'printer_image_check', False)
+    return args.printer or args.printer_live_status or args.printer_stream_check or args.printer_quality_check or getattr(args, 'printer_image_check', False) or getattr(args, 'printer_document_check', False)
 
 
 def long_mode(args):
@@ -166,6 +167,9 @@ def copy_private_emoji(args, state):
 
 
 def acceptance(args):
+    if getattr(args, 'printer_document_check', False):
+        from device_image import Observations, check_document
+        return Observations, check_document, 'one synthetic mixed document submitted to physical printer'
     if getattr(args, 'printer_image_check', False):
         from device_image import Observations, check
         return Observations, check, 'one synthetic image submitted to physical printer'
@@ -216,7 +220,8 @@ async def worker(args):
         await eventually(lambda: identity in adapter.peers and adapter.peers[identity].ready)
         peer = adapter.peers[identity]
         observations.watch_socket(peer.socket)  # Wi-Fi may authenticate before Gateway.start returns.
-        await control.prepare_screen()
+        if not (getattr(args, 'printer_image_check', False) or getattr(args, 'printer_document_check', False)):
+            await control.prepare_screen()
         result = await check(adapter, peer, control, providers, observations)
         result.update(device=original['device'], transport='wifi' if args.wifi else 'usb',
                       model_provider='local fixture', blocked_network_attempts=len(BLOCKED))

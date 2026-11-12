@@ -113,9 +113,9 @@ class ManagedPreparationTest(unittest.TestCase):
         real_stage = installer.stage_plugin
         count = 0
 
-        def changed_stage(source, staged, echo):
+        def changed_stage(source, staged, echo, font):
             nonlocal count
-            real_stage(source, staged, echo)
+            real_stage(source, staged, echo, font)
             count += 1
             if count == 2:
                 (staged / 'requirements.txt').write_text('changed during sync\n')

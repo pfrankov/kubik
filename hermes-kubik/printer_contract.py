@@ -14,8 +14,15 @@ PARAMETERS = {
     'properties': {
         'action': {'type': 'string', 'enum': ['status', 'print']},
         'text': {'type': 'string', 'minLength': 1, 'maxLength': TEXT_BYTES},
-        'format': {'type': 'string', 'enum': ['text', 'qr', 'image']},
+        'format': {'type': 'string', 'enum': ['text', 'qr', 'image', 'document']},
         'image_ref': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'},
+        'blocks': {'type': 'array', 'minItems': 1, 'maxItems': 20, 'items': {
+            'type': 'object', 'additionalProperties': False, 'required': ['type'],
+            'properties': {'type': {'type': 'string', 'enum': ['text', 'image']},
+                           'text': {'type': 'string', 'minLength': 1, 'maxLength': 4096},
+                           'image_ref': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'},
+                           'width_mm': {'type': 'number', 'minimum': 1, 'maximum': 216},
+                           'font_mm': {'type': 'number', 'minimum': 1.5, 'maximum': 8}}}},
         'width_mm': {'type': 'number', 'minimum': 1, 'maximum': 216},
         'height_mm': {'type': 'number', 'minimum': 1, 'maximum': 150},
         'font_mm': {'type': 'number', 'minimum': 1.5, 'maximum': 8},
@@ -61,7 +68,7 @@ def parameters(value):
     if value.get('action') == 'status':
         return {'action': 'status'} if value.keys() == {'action'} else None
     kind = value.get('format', 'text')
-    if value.get('action') != 'print' or kind not in ('text', 'qr', 'image'):
+    if value.get('action') != 'print' or kind not in ('text', 'qr', 'image', 'document'):
         return None
     if not valid_content(value, kind):
         return None
@@ -71,9 +78,41 @@ def parameters(value):
 
 
 def valid_content(value, kind):
+    if kind == 'document':
+        return 'text' not in value and 'image_ref' not in value and valid_blocks(value.get('blocks'))
+    if 'blocks' in value:
+        return False
     if kind == 'image':
         return request_id(value.get('image_ref')) and 'text' not in value and 'font_mm' not in value
     return 'image_ref' not in value and valid_text(value.get('text'), QR_BYTES if kind == 'qr' else TEXT_BYTES)
+
+
+def valid_blocks(blocks):
+    if not isinstance(blocks, list) or not 1 <= len(blocks) <= 20:
+        return False
+    if not all(valid_block(block) for block in blocks):
+        return False
+    return sum(len(block.get('text', '').encode('utf-8')) for block in blocks) <= 8192
+
+
+def valid_block(block):
+    if not isinstance(block, dict):
+        return False
+    if block.get('type') == 'text':
+        return (not block.keys() - {'type', 'text', 'font_mm'} and valid_text(block.get('text'), 4096)
+                and ('font_mm' not in block or number(block['font_mm'], 1.5, 8)))
+    if block.get('type') == 'image':
+        return (not block.keys() - {'type', 'image_ref', 'width_mm'} and request_id(block.get('image_ref'))
+                and ('width_mm' not in block or number(block['width_mm'], 1, 216)))
+    return False
+
+
+def image_refs(value):
+    if value.get('format') == 'image':
+        return [value['image_ref']]
+    if value.get('format') == 'document':
+        return list(dict.fromkeys(block['image_ref'] for block in value['blocks'] if block['type'] == 'image'))
+    return []
 
 
 def print_dimensions(value, kind):
@@ -165,10 +204,11 @@ def requested_layout(value, request):
     layout, printer = value.get('layout'), value.get('printer')
     if layout is None:
         return True
-    if layout['format'] != request.get('format', 'text'):
+    expected = 'image' if request.get('format') == 'document' else request.get('format', 'text')
+    if layout['format'] != expected:
         return False
     for key, resolution in (('width_mm', printer['dpi']), ('height_mm', printer['feed_dpi'])):
         tolerance = 25.4 / resolution
         if key in request and layout[key] > request[key] + tolerance:
             return False
-    return 'font_mm' not in request or 'font_mm' in layout and layout['font_mm'] <= request['font_mm'] + 25.4 / printer['feed_dpi']
+    return request.get('format') == 'document' or 'font_mm' not in request or 'font_mm' in layout and layout['font_mm'] <= request['font_mm'] + 25.4 / printer['feed_dpi']

@@ -354,20 +354,32 @@ def echo_artifact(source, validate=True):
     return data
 
 
-def stage_plugin(source, staged, echo):
+def document_font(source):
+    path = source.parent / 'tools/font/sources/PT_Sans-Web-Regular.ttf'
+    if path.is_symlink() or not path.is_file() or not 1000 <= path.stat().st_size <= 1024 * 1024:
+        raise ValueError('Missing or invalid PT Sans document font')
+    data = path.read_bytes()
+    if data[:4] != b'\x00\x01\x00\x00':
+        raise ValueError('Invalid PT Sans document font')
+    return data
+
+
+def stage_plugin(source, staged, echo, font):
     staged.mkdir(mode=0o700)
     for path in sorted(source.iterdir()):
         if path.is_file() and path.suffix in ('.py', '.yaml', '.txt'):
             private_write(staged / path.name, path.read_bytes())
     private_write(staged / 'speex-aec.wasm', echo)
+    private_write(staged / 'PT_Sans-Web-Regular.ttf', font)
 
 
 def stage_candidate(source, staged):
-    stage_plugin(source, staged, echo_artifact(source, validate=False))
+    stage_plugin(source, staged, echo_artifact(source, validate=False), document_font(source))
 
 
 def install(source, home, port=None, bind=None, check_only=False):
     echo = echo_artifact(source)
+    font = document_font(source)
     home = home.expanduser().resolve()
     config_path = home / 'config.yaml'
     destination = home / 'plugins' / 'kubik'
@@ -388,7 +400,7 @@ def install(source, home, port=None, bind=None, check_only=False):
         destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with installation_work(home, destination) as (plugin_work, config_work, state):
             staged = plugin_work / 'plugin'
-            stage_plugin(source, staged, echo)
+            stage_plugin(source, staged, echo, font)
             prepared_config = config_work / 'config.yaml'
             private_write(prepared_config, after)
             identity = staged.stat()

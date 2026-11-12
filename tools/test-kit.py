@@ -144,13 +144,14 @@ with zipfile.ZipFile(kit_path) as kit:
                 "openclaw-kubik/README.md", "deploy/cloudflared/README.md",
                 "deploy/cloudflared/probe.mjs", "deploy/cloudflared/install-systemd.sh",
                 "hermes-kubik/adapter.py", "hermes-kubik/plugin.yaml", "hermes-kubik/pair.py",
-                "hermes-kubik/requirements.txt", "tools/install-hermes.py", "tools/hermes_runtime.py", "docs/hermes.md",
+                "hermes-kubik/requirements.txt", "tools/font/sources/PT_Sans-Web-Regular.ttf", "tools/install-hermes.py", "tools/hermes_runtime.py", "docs/hermes.md",
                 "hermes-kubik/echo.py", "openclaw-kubik/src/vendor/speex-aec.wasm",
                 "docs/scenarios/hermes.md", "docs/scenarios/printer.md", "docs/hardware-s3.md", "docs/printer.md", "docs/printer-protocol.md", "docs/printer-emoji.md", "docs/acceptance-pinned-wifi.md", "tools/test-hermes-native.py",
                 "tools/hermes_native/contract.py", "tools/hermes_native/upstream.json", "docs/events.md"}
     assert required <= names, sorted(required - names)
     echo = "openclaw-kubik/src/vendor/speex-aec.wasm"
     assert kit.read(echo) == (source_root / echo).read_bytes(), "Hermes echo artifact differs from the shared build"
+    assert kit.read("tools/font/sources/PT_Sans-Web-Regular.ttf") == (source_root / "tools/font/sources/PT_Sans-Web-Regular.ttf").read_bytes()
     check_hermes_native(kit)
     assert not {"VOICE.html", "CONNECT.html", "ASK-AGENT.txt"} & names, 'Obsolete split buyer flow'
     contents = kit.read("START.html").decode()

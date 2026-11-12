@@ -4,7 +4,7 @@ import asyncio
 
 async def transmit(row):
     peer, raster = row['peer'], row['raster']
-    await peer.send('printer_image', rid=row['rid'], action='start', head_width=raster.head_width,
+    await peer.send('printer_image', rid=row.get('wire_rid', row['rid']), action='start', head_width=raster.head_width,
                     width=raster.width, height=raster.height)
     offset = 0
     while offset < raster.height and not row.get('aborting'):
@@ -23,7 +23,7 @@ async def transmit(row):
         if credit != offset:
             raise ValueError('invalid_image_credit')
         count = min(16, raster.height - offset)
-        frame = b'\x06\x00' + row['rid'].encode('ascii') + offset.to_bytes(2, 'big') + bytes([count])
+        frame = b'\x06\x00' + row.get('wire_rid', row['rid']).encode('ascii') + offset.to_bytes(2, 'big') + bytes([count])
         await peer.socket.send_bytes(frame + raster.block(offset, count))
         offset += count
 
@@ -31,14 +31,14 @@ async def transmit(row):
 async def abort(row):
     try:
         async with asyncio.timeout(3):
-            await row['peer'].send('printer_image', rid=row['rid'], action='abort')
+            await row['peer'].send('printer_image', rid=row.get('wire_rid', row['rid']), action='abort')
     except Exception:
         pass
 
 
 def accept_credit(row, peer, value):
     if (not row or row['peer'] is not peer or not row.get('raster') or not row['dispatched']
-            or set(value) != {'t', 'rid', 'offset'} or value.get('rid') != row['rid']
+            or set(value) != {'t', 'rid', 'offset'} or value.get('rid') != row.get('wire_rid', row['rid'])
             or type(value.get('offset')) is not int or not 0 <= value['offset'] < row['raster'].height):
         return False
     try:

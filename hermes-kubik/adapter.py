@@ -19,7 +19,7 @@ from .peer import Peer
 from .printer_jobs import PrinterJobs
 from .printer_tool import printer_origin, process_bound
 from .voice_controls import VoiceControls
-from .native_jobs import NativeJobs, active_job
+from .native_jobs import NativeJobs, active_job, classic_deadline
 from .native_voice import NativeVoice
 from .security import Security
 from .screen_emoji import ScreenEmoji, display_text
@@ -396,7 +396,7 @@ class KubikAdapter(BasePlatformAdapter):
         peer.complete.clear()
         peer.message_id = event.message_id
         peer.stage = 'agent'
-        async with asyncio.timeout(240):
+        async with classic_deadline(peer, event.message_id):
             await self._handle_bound_message(peer, event)
             if not event._gateway_accepted:
                 raise ValueError('Hermes rejected voice event')

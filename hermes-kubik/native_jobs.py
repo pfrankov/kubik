@@ -1,6 +1,7 @@
 """Accepted Hermes work outlives voice delivery; its output remains connection-bound."""
 import asyncio
 from contextvars import ContextVar
+from contextlib import asynccontextmanager
 
 from gateway.platforms.base import SendResult
 from .runtime import profile_scope
@@ -14,6 +15,30 @@ def active_job(adapter, identity, message_id=None):
         return job
     candidate = adapter.native_jobs.jobs.get(message_id)
     return candidate if candidate and candidate.peer.identity == identity else None
+
+
+def extend_deadline(deadline, started, seconds):
+    if deadline is None or started is None or deadline.expired():
+        return False
+    now = asyncio.get_running_loop().time()
+    if now + seconds > started + 720:
+        return False
+    deadline.reschedule(max(deadline.when(), now + seconds))
+    return True
+
+
+@asynccontextmanager
+async def classic_deadline(peer, event_id):
+    if not hasattr(peer, 'classic_deadlines'):
+        peer.classic_deadlines = {}
+    started = asyncio.get_running_loop().time()
+    async with asyncio.timeout(240) as deadline:
+        peer.classic_deadlines[event_id] = (deadline, started)
+        try:
+            yield
+        finally:
+            if peer.classic_deadlines.get(event_id) == (deadline, started):
+                peer.classic_deadlines.pop(event_id, None)
 
 
 class NativeJobs:
@@ -55,11 +80,14 @@ class NativeJob:
         self.accepted = False
         self.text_size = self.chunks = 0
         self.task = None
+        self.deadline = None
+        self.started = None
 
     async def run(self):
         token = CURRENT_JOB.set(self)
         try:
-            async with asyncio.timeout(240):
+            self.started = asyncio.get_running_loop().time()
+            async with asyncio.timeout(240) as self.deadline:
                 if self.previous:
                     await self.previous.complete.wait()
                 if not self.voice.current():
@@ -80,6 +108,9 @@ class NativeJob:
             if not self.accepted or self.complete.is_set():
                 self.complete.set()
                 self.owner.jobs.pop(self.event.message_id, None)
+
+    def extend_for_document(self, seconds):
+        return extend_deadline(self.deadline, self.started, seconds)
 
     async def deliver(self, content):
         if not self.voice.current():

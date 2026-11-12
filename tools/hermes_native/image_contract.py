@@ -18,7 +18,7 @@ async def check_image_hook(adapter, device, home):
     from PIL import Image
     from agent.system_prompt import _default_platform_hint
     hint = _default_platform_hint('kubik')
-    assert 'decide from' in hint and 'Do not automatically print every image' in hint
+    assert 'decide from' in hint and 'Do not automatically print every response or image' in hint
     module = importlib.import_module(type(adapter).__module__.rsplit('.', 1)[0] + '.printer_tool')
     peer = next(peer for peer in adapter.peers.values() if peer.identity.startswith('kubik-printer:'))
     event = adapter._authorized_voice_event(peer, 'image-hook-test')
@@ -49,6 +49,7 @@ async def check_image_hook(adapter, device, home):
             assert len(device.image_bands) == before
         await adapter.on_processing_complete(event, 'success')
         assert event._kubik_images.get(ref) == path.read_bytes()
+        await check_document(adapter, device, peer, ref)
         await check_next_turn(adapter, device, peer, ref)
         event._kubik_images.close()
         assert event._kubik_images.get(ref) is None
@@ -116,3 +117,26 @@ async def check_next_turn(adapter, device, peer, ref):
     finally:
         clear_session_vars(tokens)
     print('PASS previously generated image prints in the next authenticated turn', flush=True)
+
+
+async def check_document(adapter, device, peer, ref):
+    from gateway.session_context import set_session_vars, clear_session_vars
+    from model_tools import handle_function_call
+    module = importlib.import_module(type(adapter).__module__.rsplit('.', 1)[0] + '.printer_tool')
+    event = adapter._authorized_voice_event(peer, 'mixed document')
+    device.image, device.image_bands = None, []
+    tokens = set_session_vars(platform='kubik', chat_id=peer.identity, message_id=event.message_id,
+                              session_key=adapter._event_session_key(event))
+    try:
+        with module.printer_origin(adapter, peer, event):
+            args = {'action': 'print', 'format': 'document', 'width_mm': 30, 'blocks': [
+                {'type': 'text', 'text': 'Заголовок и текст'}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
+                {'type': 'text', 'text': 'Текст после рисунка'}]}
+            result = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
+                                             tool_call_id='mixed-document', enabled_tools=['kubik_printer'])
+            result = json.loads(result)
+            assert result['status'] == 'sent' and result['layout']['format'] == 'document', result
+            assert device.image_bands and result['paperConfirmed'] is False
+    finally:
+        clear_session_vars(tokens)
+    print('PASS one mixed text/image document through Hermes and the printer stream', flush=True)

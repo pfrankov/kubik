@@ -12,13 +12,16 @@ from .printer_contract import PARAMETERS
 from .printer_jobs import PrinterFailure
 from .printer_image_origin import ImageOrigin
 from .printer_image_raster import RasterError, prepare
+from .printer_document import compose
 
 CURRENT_PRINTER = ContextVar('kubik_printer_origin', default=None)
-DESCRIPTION = ('Inspect or print text, QR codes, and images on this conversation\'s Kubik printer. '
+DESCRIPTION = ('Inspect or print text, QR codes, images, and mixed documents on this conversation\'s Kubik printer. '
+               'For an article with text and pictures use format=document and ordered blocks of type text or image; '
+               'each image block uses its kubik_image_ref. Documents are up to four sequential parts; report partial results. '
                'To print an image, first generate it with image_generate and pass its returned kubik_image_ref as image_ref. '
                'Use status to obtain DPI and printable dimensions before selecting a size. '
-               'For images, decide from the conversation whether a physical print is useful, even without '
-               'an explicit print command. Print text and QR at the user\'s request. '
+               'For text, images, and documents, decide from the conversation whether a physical print is useful, '
+               'even without an explicit print command. Print QR codes at the user\'s request. '
                'Dimensions are millimetres and text wraps without truncation. '
                'The reported width comes from the verified printer model, not sensing the loaded paper; '
                'dpi describes horizontal head dots; feed_dpi describes vertical rows and font height. '
@@ -109,7 +112,7 @@ class PrinterTool:
             if adapter is None or adapter.printer_loop is None or not adapter.printer_loop.is_running():
                 raise PrinterFailure('device_offline')
             peer, call_id, event_id, images = call_origin(adapter)
-            raster = await image_for_print(adapter, peer, call_id, arguments, event_id, images)
+            raster = await raster_for_print(adapter, peer, call_id, arguments, event_id, images)
             value = await on_gateway(adapter, peer, call_id, arguments, event_id, raster)
         except PrinterFailure as error:
             value = error.value()
@@ -132,24 +135,28 @@ async def on_gateway(adapter, peer, call_id, arguments, event_id, raster=None):
         operation.close()
         raise
     action = 'print' if isinstance(arguments, dict) and arguments.get('action') == 'print' else 'status'
+    duration = adapter.printer_jobs.request_duration(arguments) if isinstance(arguments, dict) and arguments.get('format') == 'document' else adapter.printer_jobs.timeouts[action]
     try:
-        return await asyncio.wait_for(asyncio.wrap_future(pending), adapter.printer_jobs.timeouts[action] + 1)
+        return await asyncio.wait_for(asyncio.wrap_future(pending), duration + 1)
     except TimeoutError:
         raise PrinterFailure('timeout', outcome='unknown' if action == 'print' else 'not_sent') from None
 
 
 
-async def image_for_print(adapter, peer, call_id, arguments, event_id, images):
-    if not isinstance(arguments, dict) or arguments.get('format') != 'image':
+async def raster_for_print(adapter, peer, call_id, arguments, event_id, images):
+    if not isinstance(arguments, dict) or arguments.get('format') not in ('image', 'document'):
         return None
     from . import printer_contract as contract
     if contract.parameters(arguments) is None:
         raise PrinterFailure('invalid_input')
-    if images.is_uncertain(arguments['image_ref']):
-        raise PrinterFailure('outcome_unknown', outcome='unknown')
-    data = images.get(arguments['image_ref'])
-    if data is None:
-        raise PrinterFailure('invalid_image_ref')
+    sources = {}
+    for ref in contract.image_refs(arguments):
+        if images.is_uncertain(ref):
+            raise PrinterFailure('outcome_unknown', outcome='unknown')
+        data = images.get(ref)
+        if data is None:
+            raise PrinterFailure('invalid_image_ref')
+        sources[ref] = data
     if getattr(peer, 'printer_image_version', None) != 1:
         raise PrinterFailure('printer_unsupported')
     status = await on_gateway(adapter, peer, call_id + ':image-status', {'action': 'status'}, event_id)
@@ -160,11 +167,14 @@ async def image_for_print(adapter, peer, call_id, arguments, event_id, images):
         raise PrinterFailure('content_does_not_fit')
     width_mm = min(arguments.get('width_mm', profile['printable_width_mm']), profile['printable_width_mm'])
     height_mm = min(arguments.get('height_mm', profile['max_height_mm']), profile['max_height_mm'])
+    geometry = dict(head_width=profile['width_dots'], width_dots=math.floor(width_mm * profile['dpi'] / 25.4),
+                    height_limit=math.floor(height_mm * profile['feed_dpi'] / 25.4),
+                    dpi=profile['dpi'], feed_dpi=profile['feed_dpi'])
     try:
-        return await asyncio.to_thread(prepare, data, head_width=profile['width_dots'],
-            width_dots=math.floor(width_mm * profile['dpi'] / 25.4),
-            height_limit=math.floor(height_mm * profile['feed_dpi'] / 25.4),
-            dpi=profile['dpi'], feed_dpi=profile['feed_dpi'])
+        if arguments['format'] == 'document':
+            return await asyncio.to_thread(compose, arguments['blocks'], sources, adapter.printer_jobs.atlas,
+                                           **geometry, default_font_mm=arguments.get('font_mm', 2.5))
+        return await asyncio.to_thread(prepare, sources[arguments['image_ref']], **geometry)
     except RasterError as error:
         raise PrinterFailure(str(error)) from None
 

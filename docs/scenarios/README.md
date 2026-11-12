@@ -10,6 +10,7 @@
 - [Собственные адаптеры и Agent SDK](agent-sdk.md)
 - [Разговор и ответы](conversation.md)
 - [Принтер Кубика](printer.md)
+- [Смешанный документ для принтера](printer-document.md)
 - [Realtime и GPT-Live](native-voice.md)
 - [Muse напрямую с телефона](muse.md)
 - [Нативный Hermes](hermes.md)

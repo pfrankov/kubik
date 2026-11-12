@@ -62,13 +62,14 @@ class Observations:
             socket.send_json, socket.send_bytes = send_json, send_bytes
 
 
-async def check(adapter, peer, control, providers, observations):
+async def check(adapter, peer, control, providers, observations, *, document=False):
     from gateway.session_context import set_session_vars, clear_session_vars
     from hermes_constants import set_hermes_home_override, reset_hermes_home_override
     from model_tools import handle_function_call
     from image_contract import transform
     from PIL import Image, ImageDraw
     observations.persist(control.evidence, providers)
+    await control.until(lambda state: not state['printer_busy'], 'printer background work finished', timeout=40)
     assert peer.printer_image_version == 1
     module = importlib.import_module(type(adapter).__module__.rsplit('.', 1)[0] + '.printer_tool')
     event = adapter._authorized_voice_event(peer, 'physical-image-check')
@@ -94,13 +95,16 @@ async def check(adapter, peer, control, providers, observations):
         tokens = set_session_vars(platform='kubik', chat_id=peer.identity, message_id=event.message_id,
                                   session_key=adapter._event_session_key(event))
         with module.printer_origin(adapter, peer, event):
-            args = {'action': 'print', 'format': 'image', 'image_ref': result['kubik_image_ref'],
-                    'width_mm': 20, 'height_mm': 20}
+            ref = result['kubik_image_ref']
+            args = ({'action': 'print', 'format': 'document', 'width_mm': 30, 'blocks': [
+                {'type': 'text', 'text': 'Текст перед рисунком'}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
+                {'type': 'text', 'text': 'Текст после рисунка'}]} if document else
+                {'action': 'print', 'format': 'image', 'image_ref': ref, 'width_mm': 20, 'height_mm': 20})
             printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
                                                tool_call_id='physical-image-once', enabled_tools=['kubik_printer'])
             printed = json.loads(printed)
             assert printed.get('status') == 'sent', printed
-            assert printed['layout']['format'] == 'image' and printed['paperConfirmed'] is False
+            assert printed['layout']['format'] == ('document' if document else 'image') and printed['paperConfirmed'] is False
             assert observations.starts == 1 and observations.bands > 1
             return {'image_submitted': True, 'paper_confirmed': False, 'bands': observations.bands,
                     'layout': printed['layout'], 'source': 'synthetic local image', 'separate_turns': True}
@@ -109,3 +113,7 @@ async def check(adapter, peer, control, providers, observations):
         reset_hermes_home_override(profile)
         clear_session_vars(tokens)
         path.unlink(missing_ok=True)
+
+
+async def check_document(adapter, peer, control, providers, observations):
+    return await check(adapter, peer, control, providers, observations, document=True)

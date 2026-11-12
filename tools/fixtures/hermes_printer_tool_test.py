@@ -166,4 +166,4 @@ class PrinterTools(ProtocolFixture):
         self.assertIs(second.tool['handler'].__self__.adapter, two)
         self.assertNotIn('device', first.tool['schema']['parameters']['properties'])
         self.assertIn('decide from', first.platform['platform_hint'])
-        self.assertIn('Do not automatically print every image', first.platform['platform_hint'])
+        self.assertIn('Do not automatically print every response or image', first.platform['platform_hint'])

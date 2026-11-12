@@ -157,6 +157,8 @@ with tempfile.TemporaryDirectory(prefix="kubik-plugin-") as temporary:
         for path in sorted((root / "hermes-kubik").iterdir()):
             if path.is_file() and path.suffix in (".py", ".yaml", ".txt"):
                 write_member(bundle, path.relative_to(root).as_posix(), path.read_bytes())
+        document_font = "tools/font/sources/PT_Sans-Web-Regular.ttf"
+        write_member(bundle, document_font, (root / document_font).read_bytes())
         write_member(bundle, "tools/install-hermes.py", (root / "tools/install-hermes.py").read_bytes())
         write_member(bundle, "tools/hermes_runtime.py", (root / "tools/hermes_runtime.py").read_bytes())
         for path in sorted((root / "tools/emoji").iterdir()):

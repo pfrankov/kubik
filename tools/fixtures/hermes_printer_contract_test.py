@@ -27,6 +27,22 @@ class PrinterContract(unittest.TestCase):
             with self.subTest(value=repr(value)):
                 self.assertIsNone(contract.parameters(value))
 
+    def test_mixed_documents_accept_only_bounded_text_and_owned_image_refs(self):
+        ref = 'a' * 32
+        blocks = [{'type': 'text', 'text': 'Вступление', 'font_mm': 3},
+                  {'type': 'image', 'image_ref': ref, 'width_mm': 20},
+                  {'type': 'text', 'text': 'Заключение'}]
+        value = {'action': 'print', 'format': 'document', 'blocks': blocks}
+        self.assertEqual(contract.parameters(value), value)
+        self.assertEqual(contract.image_refs(value), [ref])
+        for bad in ([], blocks * 8, [{'type': 'image', 'image_ref': 'file:///etc/passwd'}],
+                    [{'type': 'image', 'image_ref': ref, 'url': 'https://example.com/a.png'}],
+                    [{'type': 'text', 'text': 'x' * 4097}], [{'type': 'text', 'text': '\x1b'}]):
+            with self.subTest(blocks=repr(bad)[:80]):
+                self.assertIsNone(contract.parameters({**value, 'blocks': bad}))
+        self.assertIsNone(contract.parameters({**value, 'text': 'extra'}))
+        self.assertIsNone(contract.parameters({'action': 'print', 'text': 'x', 'blocks': blocks}))
+
     def test_model_dimensions_are_complete_and_mathematically_consistent(self):
         self.assertTrue(contract.valid_printer(PRINTER))
         for key, value in [('dpi', True), ('feed_dpi', True), ('feed_dpi', 99), ('feed_dpi', 601),

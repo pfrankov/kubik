@@ -8,6 +8,8 @@ from . import printer_contract as contract
 from .printer_emoji import EmojiAtlas, EmojiError
 from .printer_wire import packet
 from . import printer_image_stream as image_stream
+from . import printer_batch
+from .native_jobs import extend_deadline
 
 
 class PrinterFailure(Exception):
@@ -38,11 +40,10 @@ class PrinterJobs:
             del self.records[rid]
 
     async def request(self, peer, call_id, arguments, event_id, raster=None):
-        values = contract.parameters(arguments)
-        if values is None or not contract.safe_string(call_id, 256) or not contract.safe_string(event_id, 256):
-            return PrinterFailure('invalid_input').value()
-        if values.get('format') == 'image' and (raster is None or getattr(peer, 'printer_image_version', None) != 1):
-            return PrinterFailure('printer_unsupported').value()
+        try:
+            values = self.validate_request(peer, call_id, arguments, event_id, raster)
+        except PrinterFailure as error:
+            return error.value()
         self.prune()
         rid = hashlib.sha256(f'{peer.identity}\n{event_id}\n{call_id}'.encode()).hexdigest()[:32]
         payload = json.dumps(values, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
@@ -56,10 +57,20 @@ class PrinterJobs:
         image_error = self.image_admission(peer, values, rid)
         if image_error:
             return image_error
+        try:
+            pages = self.request_pages(values, raster, rid)
+        except PrinterFailure as error:
+            return error.value()
         loop = asyncio.get_running_loop()
+        duration = self.request_duration(values)
+        try:
+            self.extend_native_document(peer, event_id, values, duration)
+        except PrinterFailure as error:
+            return error.value()
         row = {'peer': peer, 'rid': rid, 'payload': payload, 'parameters': values, 'action': values['action'], 'dispatched': False,
                'future': loop.create_future(), 'quiescent': loop.create_future(), 'finished': None, 'uncertain': False,
-               'deadline': loop.time() + self.timeouts[values['action']], 'raster': raster, 'credits': asyncio.Queue(maxsize=1)}
+               'deadline': loop.time() + duration, 'raster': pages[0] if pages else None, 'pages': pages,
+               'credits': asyncio.Queue(maxsize=1), 'pages_submitted': 0}
         self.records[rid] = self.pending[peer.identity] = row
         row['task'] = asyncio.create_task(self.operate(row))
         self.tasks.add(row['task'])
@@ -74,15 +85,54 @@ class PrinterJobs:
             await self.abandon(row, 'cancelled')
             raise
 
+    def validate_request(self, peer, call_id, arguments, event_id, raster):
+        values = contract.parameters(arguments)
+        if values is None or not contract.safe_string(call_id, 256) or not contract.safe_string(event_id, 256):
+            raise PrinterFailure('invalid_input')
+        if values.get('format') in ('image', 'document') and (raster is None or getattr(peer, 'printer_image_version', None) != 1):
+            raise PrinterFailure('printer_unsupported')
+        return values
+
+    def request_pages(self, values, raster, rid):
+        pages = tuple(raster) if isinstance(raster, list) else ((raster,) if raster is not None else ())
+        if values.get('format') == 'document' and not 1 <= len(pages) <= 4:
+            raise PrinterFailure('invalid_input', rid=rid)
+        return pages
+
+    def request_duration(self, values):
+        return 4 * self.hard_guard + 30 if values.get('format') == 'document' else self.timeouts[values['action']]
+
+    def extend_native_document(self, peer, event_id, values, duration):
+        if values.get('format') != 'document':
+            return
+        job = self.adapter.native_jobs.jobs.get(event_id)
+        if job and job.peer is peer:
+            allowed = job.extend_for_document(duration + 10)
+        elif event_id in getattr(peer, 'classic_deadlines', {}):
+            allowed = extend_deadline(*peer.classic_deadlines[event_id], duration + 10)
+        else:
+            return
+        if not allowed:
+            raise PrinterFailure('deadline_exceeded')
+
     def image_admission(self, peer, values, rid):
         images = getattr(peer, 'printer_images', None)
-        if values.get('format') != 'image' or images is None:
-            return None
-        if images.is_uncertain(values['image_ref']):
+        if values.get('format') == 'document' and self.document_uncertain(peer, values):
             return PrinterFailure('outcome_unknown', outcome='unknown', rid=rid).value()
-        if images.get(values['image_ref']) is None:
-            return PrinterFailure('invalid_image_ref', rid=rid).value()
+        if images is None:
+            return None
+        for ref in contract.image_refs(values):
+            if images.is_uncertain(ref):
+                return PrinterFailure('outcome_unknown', outcome='unknown', rid=rid).value()
+            if images.get(ref) is None:
+                return PrinterFailure('invalid_image_ref', rid=rid).value()
         return None
+
+    def document_uncertain(self, peer, values):
+        key = document_key(values)
+        return any(row['uncertain'] and row['peer'].identity == peer.identity and
+                   row['parameters'].get('format') == 'document' and document_key(row['parameters']) == key
+                   for row in self.records.values())
 
     def admit(self, peer, rid, payload):
         if not self.current(peer):
@@ -119,6 +169,8 @@ class PrinterJobs:
             if row['dispatched']:
                 await self.break_connection(row['peer'])
         finally:
+            row['pages'] = ()
+            row['raster'] = None
             if locked:
                 row['peer'].output_lock.release()
             if self.pending.get(row['peer'].identity) is row:
@@ -171,6 +223,9 @@ class PrinterJobs:
             return
         row['dispatched'] = True
         try:
+            if len(row['pages']) > 1:
+                await printer_batch.transmit(self, row)
+                return
             async with asyncio.timeout(self.hard_guard):
                 try:
                     if row['raster'] is not None:
@@ -210,21 +265,26 @@ class PrinterJobs:
 
     def failure(self, row, code):
         uncertain = row['dispatched'] and row['action'] == 'print'
-        return PrinterFailure(code, rid=row['rid'], outcome='unknown' if uncertain else 'not_sent').value()
+        value = PrinterFailure(code, rid=row['rid'], outcome='unknown' if uncertain else 'not_sent').value()
+        if row.get('pages_submitted'):
+            value.update(pagesSubmitted=row['pages_submitted'], pagesTotal=len(row['pages']))
+        return value
 
     def finish(self, row, value):
         if row['future'].done():
             return
         row['finished'] = self.now()
-        row['uncertain'] = value.get('outcome') == 'unknown'
+        row['uncertain'] = value.get('outcome') in ('unknown', 'partial')
         images = getattr(row['peer'], 'printer_images', None)
-        if row['uncertain'] and row['raster'] is not None and images is not None:
-            images.mark_uncertain(row['parameters']['image_ref'])
+        if row['uncertain'] and row['raster'] is not None:
+            if images is not None:
+                for ref in contract.image_refs(row['parameters']):
+                    images.mark_uncertain(ref)
         row['future'].set_result(value)
 
     def accept(self, peer, value):
         row = self.pending.get(peer.identity)
-        if not row or row['peer'] is not peer or not row['dispatched'] or value.get('rid') != row['rid']:
+        if not row or row['peer'] is not peer or not row['dispatched'] or value.get('rid') != row.get('wire_rid', row['rid']):
             return False
         if not self.current(peer):
             self.finish(row, self.failure(row, 'device_replaced'))
@@ -232,6 +292,8 @@ class PrinterJobs:
             self.finish(row, self.failure(row, 'invalid_response'))
         else:
             result = {key: item for key, item in value.items() if key != 't'} | {'paperConfirmed': False}
+            if result.get('layout') and row['parameters'].get('format') == 'document':
+                result['layout'] = {**result['layout'], 'format': 'document'}
             if not row['quiescent'].done():
                 row['quiescent'].set_result(result)
         return True
@@ -266,3 +328,9 @@ class PrinterJobs:
         for row in tuple(self.pending.values()):
             await self.break_connection(row['peer'])
         await asyncio.gather(*tuple(self.tasks), return_exceptions=True)
+
+
+def document_key(values):
+    blocks = [{key: block[key] for key in ('type', 'text', 'image_ref') if key in block}
+              for block in values['blocks']]
+    return hashlib.sha256(json.dumps(blocks, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

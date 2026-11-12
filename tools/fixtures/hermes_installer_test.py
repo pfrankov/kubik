@@ -49,6 +49,9 @@ class InstallerContractTest(unittest.TestCase):
         self.assertEqual(len(list((self.home / 'plugins').rglob('plugin.yaml'))), 1)
         for name in ('config.yaml', 'config.before-kubik.yaml', '.kubik-install.lock'):
             self.assertEqual(stat.S_IMODE((self.home / name).stat().st_mode), 0o600)
+        font = self.home / 'plugins/kubik/PT_Sans-Web-Regular.ttf'
+        self.assertEqual(font.read_bytes(), installer.document_font(self.source))
+        self.assertEqual(stat.S_IMODE(font.stat().st_mode), 0o600)
         installed = self.home / 'plugins/kubik/speex-aec.wasm'
         self.assertEqual(installed.read_bytes(), installer.echo_artifact(self.source))
         self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o600)
@@ -80,6 +83,22 @@ class InstallerContractTest(unittest.TestCase):
                             installer.install(source, self.home, check_only=check)
                         self.assertEqual(self.config.read_text(), self.original)
                         self.assertFalse((self.home / 'plugins').exists())
+
+    def test_missing_or_invalid_document_font_is_rejected_before_install(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root / 'hermes-kubik'; source.mkdir()
+            echo = root / 'openclaw-kubik/src/vendor/speex-aec.wasm'; echo.parent.mkdir(parents=True)
+            echo.write_bytes(installer.echo_artifact(self.source))
+            font = root / 'tools/font/sources/PT_Sans-Web-Regular.ttf'; font.parent.mkdir(parents=True)
+            for state in ('missing', 'invalid', 'symlink'):
+                if state == 'invalid': font.write_bytes(b'not a font')
+                if state == 'symlink':
+                    font.unlink(); font.symlink_to(ROOT / 'tools/font/sources/PT_Sans-Web-Regular.ttf')
+                with self.subTest(state=state):
+                    with self.assertRaisesRegex(ValueError, 'document font'):
+                        installer.install(source, self.home)
+                    self.assertEqual(self.config.read_text(), self.original)
+                    self.assertFalse((self.home / 'plugins/kubik').exists())
 
     def test_check_is_read_only(self):
         before = {path.relative_to(self.home): (path.read_bytes(), path.stat().st_mode)
