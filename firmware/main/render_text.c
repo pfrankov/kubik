@@ -106,13 +106,16 @@ static inline int icon_mask_sample(const uint8_t *mask, int x, int y) {
     return (mask[i >> 1] >> ((i & 1) ? 0 : 4)) & 15;
 }
 
-static uint32_t icon_mask_coverage(const uint8_t *mask, int xq, int yq) {
-    int x0 = xq >> 8, y0 = yq >> 8;
-    int x1 = imin(x0 + 1, ICON_MASK_SIZE - 1), y1 = imin(y0 + 1, ICON_MASK_SIZE - 1);
-    int fx = xq & 255, fy = yq & 255;
-    int top = icon_mask_sample(mask, x0, y0) * (256 - fx) + icon_mask_sample(mask, x1, y0) * fx;
-    int bottom = icon_mask_sample(mask, x0, y1) * (256 - fx) + icon_mask_sample(mask, x1, y1) * fx;
-    return (uint32_t)((top * (256 - fy) + bottom * fy + 32768) >> 16);
+static void icon_mask_row(const uint8_t *mask, int yq, int first, int last, uint16_t row[ICON_MASK_SIZE]) {
+    int y0 = yq >> 8, y1 = imin(y0 + 1, ICON_MASK_SIZE - 1), fy = yq & 255;
+    // No rounding here: transposing the two interpolation axes is exact.
+    for (int x = first; x <= last; x++)
+        row[x] = (uint16_t)(icon_mask_sample(mask, x, y0) * (256 - fy) + icon_mask_sample(mask, x, y1) * fy);
+}
+
+static uint32_t icon_row_coverage(const uint16_t row[ICON_MASK_SIZE], int xq) {
+    int x0 = xq >> 8, x1 = imin(x0 + 1, ICON_MASK_SIZE - 1), fx = xq & 255;
+    return (uint32_t)((row[x0] * (256 - fx) + row[x1] * fx + 32768) >> 16);
 }
 
 
@@ -129,7 +132,8 @@ static bool icon_window_outside(int left, int top, int size, int x0, int y0, int
 }
 
 static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0, int width, int rows, int stride, bool swap) {
-    if (!p->alpha || p->b < 0 || p->b >= ICON_COUNT || p->a <= 0) return;
+    // All 4-bit mask coverages quantize to zero at opacity 0..3.
+    if (p->alpha < 4 || p->b < 0 || p->b >= ICON_COUNT || p->a <= 0) return;
     const uint8_t *mask = g_icon_masks[p->b];
     int size = p->a, half = size / 2;
     int left = p->sub_x - half, top = p->sub_y - half;
@@ -142,13 +146,16 @@ static void render_icon_primitive(const prim_t *p, uint16_t *out, int x0, int y0
     // Each column samples the same source coordinate on every row of this window.
     uint16_t xq[UI_W];  // fixed frame: no dynamic-SP save/restore across inlined overlay branches
     icon_columns(xq, xs, xe - xs + 1, left, size);
+    int first = xq[0] >> 8, last = imin((xq[xe - xs] >> 8) + 1, ICON_MASK_SIZE - 1);
+    uint16_t vertical[ICON_MASK_SIZE];
     const uint8_t *palette = coverage_palette(p->alpha);
     uint16_t source_color = p->color;
     for (int y = ys; y <= ye; y++) {
         int syq = icon_axis_q8(y, top, size);
+        icon_mask_row(mask, syq, first, last, vertical);
         uint16_t *row = out + (y - y0) * stride - x0;
         for (int x = xs; x <= xe; x++) {
-            uint32_t coverage = icon_mask_coverage(mask, xq[x - xs], syq);
+            uint32_t coverage = icon_row_coverage(vertical, xq[x - xs]);
             icon_composite_pixel(&row[x], source_color, palette, coverage, swap);
         }
     }

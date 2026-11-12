@@ -274,9 +274,18 @@ size_t label_prefix(text_role_t role, const char *utf8, size_t max_bytes, float 
 prim_t *render_make_text(scene_t *s, const font_t *f, int font, int start, int len, float x, float y,
                                    int align, float spacing, uint32_t rgb, float alpha) {
     int track = (int)lrintf(spacing * 16), w = (len - 1) * track;
-    bool emoji = false;
+    int ink_top = 0, ink_bottom = 0;
     for (int i = 0; i < len; i++) {
-        unsigned token=s->text[start+i];emoji |= token>=R_EMOJI_TOKEN;
+        unsigned token=s->text[start+i];
+        int top, bottom;
+        if (token >= R_EMOJI_TOKEN) {
+            top = -(f->cap + R_EMOJI_EDGE) / 2;
+            bottom = top + R_EMOJI_EDGE;
+        } else {
+            const font_glyph_t *glyph = &f->g[token];
+            top = -glyph->top; bottom = top + glyph->h;
+        }
+        ink_top = imin(ink_top, top); ink_bottom = imax(ink_bottom, bottom);
         int kern = i ? render_token_kern(f,s->text[start+i-1],token) : 0;
         s->text_kern[start+i] = (int8_t)kern;
         w += render_token_advance(f,token) + kern;
@@ -296,14 +305,9 @@ prim_t *render_make_text(scene_t *s, const font_t *f, int font, int start, int l
     p->sub_y = base;
     p->clip = -1;
     p->bx0 = (int16_t)imax(ox - 2, 0);
-    p->by0 = (int16_t)imax(base - f->ascent - 2, 0);
+    p->by0 = (int16_t)imax(base + ink_top - 2, 0);
     p->bx1 = (int16_t)imin(ox + (w + 15) / 16 + 2, UI_W - 1);
-    p->by1 = (int16_t)imin(base + f->descent + 2, UI_H - 1);
-    if (emoji) {
-        int top=base-(f->cap+R_EMOJI_EDGE)/2;
-        p->by0=(int16_t)imax(0,imin(p->by0,top-2));
-        p->by1=(int16_t)imin(UI_H-1,imax(p->by1,top+R_EMOJI_EDGE+2));
-    }
+    p->by1 = (int16_t)imin(base + ink_bottom + 2, UI_H - 1);
     s_extent[p - s->p] = -2.f;
     return p;
 }

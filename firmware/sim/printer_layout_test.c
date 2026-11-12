@@ -191,7 +191,7 @@ static void full_height_and_glyphs(void) {
         layout = make((printer_document_t){.text = text, .font_mm = 8}, 304, 576);
         ink_t ink = inspect(layout);
         const printer_layout_info_t *info = printer_layout_info(layout);
-        assert(ink.left >= 12 && ink.right < info->width_dots - 12 && ink.top >= 12 && ink.bottom < info->height_dots - 12);
+        assert(ink.left >= 12 && ink.right + 12u < info->width_dots && ink.top >= 12 && ink.bottom + 12u < info->height_dots);
         printer_layout_destroy(layout);
     }
 }

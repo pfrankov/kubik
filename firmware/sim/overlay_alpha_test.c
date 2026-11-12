@@ -126,14 +126,46 @@ static unsigned mask_pixel(const uint8_t *mask,int x,int y) {
     int i=y*ICON_MASK_SIZE+x;
     return (mask[i/2]>>((i%2)?0:4))&15;
 }
-static unsigned reference_coverage(const prim_t *p,int x,int y) {
-    int left=p->sub_x-p->a/2,top=p->sub_y-p->a/2;
-    int qx=reference_axis(x,left,p->a),qy=reference_axis(y,top,p->a);
+static unsigned reference_filter(const uint8_t *mask,int qx,int qy) {
     int xa=qx/256,ya=qy/256,xb=xa+1<ICON_MASK_SIZE?xa+1:xa,yb=ya+1<ICON_MASK_SIZE?ya+1:ya;
-    int fx=qx%256,fy=qy%256;const uint8_t *mask=g_icon_masks[p->b];
+    int fx=qx%256,fy=qy%256;
     unsigned a=mask_pixel(mask,xa,ya)*(256-fx)+mask_pixel(mask,xb,ya)*fx;
     unsigned b=mask_pixel(mask,xa,yb)*(256-fx)+mask_pixel(mask,xb,yb)*fx;
     return (a*(256-fy)+b*fy+32768u)/65536u;
+}
+static unsigned reference_coverage(const prim_t *p,int x,int y) {
+    int left=p->sub_x-p->a/2,top=p->sub_y-p->a/2;
+    return reference_filter(g_icon_masks[p->b],reference_axis(x,left,p->a),reference_axis(y,top,p->a));
+}
+static void filter_row_case(const uint8_t *mask,int yq) {
+    uint16_t row[ICON_MASK_SIZE+2];
+    row[0]=row[ICON_MASK_SIZE+1]=0xA55A;
+    icon_mask_row(mask,yq,0,ICON_MASK_SIZE-1,row+1);
+    const int bases[]={0,ICON_MASK_SIZE/3,ICON_MASK_SIZE*2/3,ICON_MASK_SIZE-2};
+    for(unsigned i=0;i<sizeof bases/sizeof *bases;i++)for(int phase=0;phase<256;phase++) {
+        int xq=bases[i]*256+phase;
+        assert(icon_row_coverage(row+1,xq)==reference_filter(mask,xq,yq));
+    }
+    assert(icon_row_coverage(row+1,(ICON_MASK_SIZE-1)*256)==reference_filter(mask,(ICON_MASK_SIZE-1)*256,yq));
+    assert(row[0]==0xA55A && row[ICON_MASK_SIZE+1]==0xA55A);
+}
+static void exact_icon_filter(void) {
+    uint8_t mask[ICON_MASK_SIZE*ICON_MASK_SIZE/2];
+    const int bases[]={0,ICON_MASK_SIZE/3,ICON_MASK_SIZE*2/3,ICON_MASK_SIZE-2};
+    for(int pattern=0;pattern<3;pattern++) {
+        for(unsigned i=0;i<sizeof mask;i++)mask[i]=pattern==0?0:pattern==1?255:(uint8_t)(i*37u+i/16u);
+        for(unsigned i=0;i<sizeof bases/sizeof *bases;i++)for(int phase=0;phase<256;phase++)
+            filter_row_case(mask,bases[i]*256+phase);
+        filter_row_case(mask,(ICON_MASK_SIZE-1)*256);
+    }
+    uint16_t partial[ICON_MASK_SIZE];
+    for(int x=0;x<ICON_MASK_SIZE;x++)partial[x]=0xA55A;
+    icon_mask_row(mask,0,4,27,partial);
+    for(int x=0;x<ICON_MASK_SIZE;x++)
+        assert(partial[x]==(x>=4 && x<=27?mask_pixel(mask,x,0)*256:0xA55A));
+    for(int x=4;x<27;x++)for(int phase=0;phase<256;phase+=17)
+        assert(icon_row_coverage(partial,x*256+phase)==reference_filter(mask,x*256+phase,0));
+    puts("icon filter: transposed interpolation matches original scalar math at every phase, zero/full/mixed masks, terminal row/column and clipped scratch guards");
 }
 static uint16_t reference_pixel(const prim_t *p,int x,int y,bool swap) {
     const uint16_t bg=0x2945;uint16_t value=bg;
@@ -160,7 +192,7 @@ static void clipped_case(int offset,int size,uint8_t alpha,bool swap) {
 static void clipped_icons(void) {
     const int offsets[]={-193,-17,-1,0,1,7,15,17,257};
     const int sizes[]={1,16,35,80,287,576,773};
-    const uint8_t alphas[]={0,1,17,64,128,254,255};
+    const uint8_t alphas[]={0,1,2,3,4,17,64,128,254,255};
     for(unsigned a=0;a<sizeof alphas;a++)for(unsigned o=0;o<sizeof offsets/sizeof *offsets;o++)
         for(unsigned s=0;s<sizeof sizes/sizeof *sizes;s++)for(int swap=0;swap<2;swap++)
             clipped_case(offsets[o],sizes[s],alphas[a],swap);
@@ -243,6 +275,7 @@ static void reference_text(const scene_t *scene,const prim_t *p,uint16_t *out,in
     for(int i=0;i<p->b;i++) {
         uint16_t token=scene->text[p->a+i];
         single.p[0]=*p;single.p[0].a=p->a+i;single.p[0].b=1;single.p[0].sub_x=(pen+8)>>4;
+        single.p[0].by0=0; single.p[0].by1=UI_H-1; // Independent uncropped ink oracle.
         single.text_kern[p->a+i]=0;
         render_text_overlay(&single,out,0,0,width,rows,stride,swap);
         pen+=render_token_advance(font,token)+p->sub_r+
@@ -270,6 +303,28 @@ static void kern_pixels(void) {
         scene_end(&scene);
     }
 }
+// Every shipped glyph and Emoji placeholder must fit the damage envelope,
+// including descenders, accents, empty ink and the S3 interpolation halo.
+static void tight_text_bounds(void) {
+    enum {W=128,H=96,STRIDE=136};
+    static scene_t scene; static uint16_t actual[H*STRIDE],reference[H*STRIDE];
+    for (unsigned f=0;f<FONT_COUNT;f++) for (unsigned token=0;token<=g_fonts[f].n;token++) {
+        scene_begin(&scene,0);
+        scene.text[0]=(uint8_t)(token==g_fonts[f].n ? R_EMOJI_PLACEHOLDER : token);
+        scene.text_n=1;
+        prim_t *p=render_make_text(&scene,&g_fonts[f],(int)f,0,1,13,64,-1,0,0xFFFFFF,.73f);
+        memset(actual,0,sizeof actual); memset(reference,0,sizeof reference);
+        reference_text(&scene,p,reference,W,H,STRIDE,false);
+        for(int y=0;y<H;y+=4) render_text_overlay(&scene,actual+y*STRIDE,0,y,W,4,STRIDE,false);
+        assert(!memcmp(actual,reference,sizeof actual));
+        render_overlay_item_t bounds; assert(render_overlay_item(&scene,p,&bounds));
+        for(int y=0;y<H;y++) for(int x=0;x<W;x++) if(reference[y*STRIDE+x])
+            assert(x>=bounds.x0*R_SCALE && x<bounds.x1*R_SCALE &&
+                   y>=bounds.y0*R_SCALE && y<bounds.y1*R_SCALE);
+        scene_end(&scene);
+    }
+    puts("text bounds: all shipped glyphs/placeholder, uncropped pixel oracle and damage halo exact");
+}
 static void kern_clones(void) {
     static scene_t scene,copy;
     scene_begin(&scene,0);
@@ -291,7 +346,7 @@ static void kern_clones(void) {
     scene_end(&scene);scene_end(&copy);
 }
 int main(void) {
-    black_first_use();palettes();black_palettes();black_glyphs();interval_bounds();column_coordinates();clipped_icons();full_width_icon();text_boundaries();kern_pairs();kern_pixels();kern_clones();
+    black_first_use();palettes();black_palettes();black_glyphs();interval_bounds();column_coordinates();exact_icon_filter();clipped_icons();full_width_icon();text_boundaries();kern_pairs();kern_pixels();tight_text_bounds();kern_clones();
     puts("black palette: all opacity/coverage, all RGB565 colors at boundaries, key churn, clipped/overlapping glyphs and stride guards exact");
     puts("scene kerning: every font pair/emoji, signed/zero deltas, prefix guards, old scalar pen pixels, split windows and clone/rebuild exact");
     puts("overlay alpha: all 4096 opacity/coverage values, eviction churn, fractional clipping and stride guards match original scalar math");
