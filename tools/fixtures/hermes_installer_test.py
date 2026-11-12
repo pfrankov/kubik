@@ -238,6 +238,12 @@ class InstallerContractTest(unittest.TestCase):
                 self.assertFalse((self.home / 'plugins/kubik').exists())
                 self.assertFalse(list((self.home / 'plugins').glob('.kubik-install-*')))
 
+    def test_missing_image_decoder_is_rejected_before_install(self):
+        with patch.object(installer.sys, 'version_info', (3, 14)):
+            with patch.object(installer.importlib.util, 'find_spec', side_effect=lambda name: None if name == 'PIL' else object()):
+                with self.assertRaisesRegex(ValueError, 'PIL'):
+                    installer.require_runtime()
+
     def test_unsupported_interpreter_fails_before_any_dependency_probe(self):
         with patch.object(installer.sys, 'version_info', (3, 11)):
             with self.assertRaisesRegex(ValueError, 'Python 3.14'):
