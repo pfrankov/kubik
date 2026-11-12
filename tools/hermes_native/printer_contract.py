@@ -169,6 +169,8 @@ async def check_printer_tools(adapter, providers, client, port, home, codec, pai
                                          tool_call_id='outside-kubik', enabled_tools=['kubik_printer'])
         assert json.loads(result)['code'] == 'unauthorized', result
         assert len(device.requests) == 3
+        from image_contract import check_image_hook
+        await check_image_hook(adapter, home)
         await synthetic_emoji_transport(adapter, device, home)
         await reject_foreign_context(adapter, client, port, home, codec, pair, key)
         print('PASS native Hermes printer tool in Classic/Realtime/Live, actual call IDs, audio lease, continuous mic and outside-channel rejection', flush=True)
