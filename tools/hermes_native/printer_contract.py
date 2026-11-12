@@ -80,10 +80,32 @@ class PrinterDevice(Device):
     def __init__(self, socket, codec):
         self.requests = []
         self.hold_printer = False
+        self.image = None
+        self.image_bands = []
         super().__init__(socket, codec)
 
+    async def binary(self, data):
+        if data[0] != 6:
+            return await super().binary(data)
+        image = self.image
+        assert image and data[1] == 0 and data[2:34].decode() == image['rid']
+        offset, count = int.from_bytes(data[34:36], 'big'), data[36]
+        assert offset == sum(self.image_bands) and 1 <= count <= 16 and len(data) == 37 + count * 72
+        self.image_bands.append(count)
+        if offset + count < image['height']:
+            await self.send(t='printer_image_ready', rid=image['rid'], offset=offset + count)
+        else:
+            layout = {'format': 'image', 'width_dots': image['width'], 'height_dots': image['height'],
+                      'width_mm': image['width'] * 25.4 / 304, 'height_mm': image['height'] * 25.4 / 225}
+            await self.send(t='printer_result', rid=image['rid'], status='sent', outcome='submitted',
+                            printer=PROFILE, layout=layout)
+
     async def acknowledge(self, value):
-        if value['t'] == 'printer':
+        if value['t'] == 'printer_image':
+            assert value['action'] == 'start' and self.image is None
+            self.image = value
+            await self.send(t='printer_image_ready', rid=value['rid'], offset=0)
+        elif value['t'] == 'printer':
             if value['action'] == 'print' and value.get('format') == 'text':
                 expected = ['😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺'] if value['text'] == QUALITY_TEXT['text'] else []
                 glyphs = value.get('emoji')
@@ -169,9 +191,9 @@ async def check_printer_tools(adapter, providers, client, port, home, codec, pai
                                          tool_call_id='outside-kubik', enabled_tools=['kubik_printer'])
         assert json.loads(result)['code'] == 'unauthorized', result
         assert len(device.requests) == 3
-        from image_contract import check_image_hook
-        await check_image_hook(adapter, home)
         await synthetic_emoji_transport(adapter, device, home)
+        from image_contract import check_image_hook
+        await check_image_hook(adapter, device, home)
         await reject_foreign_context(adapter, client, port, home, codec, pair, key)
         print('PASS native Hermes printer tool in Classic/Realtime/Live, actual call IDs, audio lease, continuous mic and outside-channel rejection', flush=True)
     finally:

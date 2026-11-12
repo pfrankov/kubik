@@ -11,7 +11,7 @@ def transform(result):
                                              _CallIds(tool_call_id='generated-image-test'))
 
 
-async def check_image_hook(adapter, home):
+async def check_image_hook(adapter, device, home):
     from gateway.session_context import set_session_vars, clear_session_vars
     from hermes_constants import set_hermes_home_override, reset_hermes_home_override
     from PIL import Image
@@ -30,6 +30,13 @@ async def check_image_hook(adapter, home):
             value = json.loads(await asyncio.to_thread(transform, result))
             ref = value['kubik_image_ref']
             assert event._kubik_images.get(ref) == path.read_bytes()
+            from model_tools import handle_function_call
+            arguments = {'action': 'print', 'format': 'image', 'image_ref': ref, 'width_mm': 10}
+            printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', arguments,
+                                              tool_call_id='print-image-test', enabled_tools=['kubik_printer'])
+            printed = json.loads(printed)
+            assert printed['status'] == 'sent' and printed['layout']['format'] == 'image', printed
+            assert printed['paperConfirmed'] is False and device.image_bands
         await adapter.on_processing_complete(event, 'success')
         assert event._kubik_images.get(ref) is None
         assert 'kubik_image_ref' not in json.loads(await asyncio.to_thread(transform, result))
@@ -37,4 +44,4 @@ async def check_image_hook(adapter, home):
         reset_hermes_home_override(profile)
         clear_session_vars(tokens)
         path.unlink(missing_ok=True)
-    print('PASS real Hermes image result hook, authenticated turn, snapshot and cleanup', flush=True)
+    print('PASS real Hermes image result hook, authenticated turn, snapshot, streamed tool call and cleanup', flush=True)

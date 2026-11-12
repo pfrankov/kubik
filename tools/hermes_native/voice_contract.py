@@ -21,17 +21,20 @@ class Device:
     async def read(self):
         async for frame in self.socket:
             if frame.type == WSMsgType.BINARY:
-                assert frame.data[0] == 3
-                pcm = self.codec.decode(frame.data[2:], max_samples=2400)
-                self.audio.extend(pcm)
-                gen = frame.data[1]
-                self.played[gen] = self.played.get(gen, 0) + len(pcm) // 48
-                self.events.append({'t': 'audio', 'gen': gen})
-                await self.send(t='progress', gen=gen, ms=self.played[gen])
+                await self.binary(frame.data)
             elif frame.type == WSMsgType.TEXT:
                 value = json.loads(frame.data)
                 self.events.append(value)
                 await self.acknowledge(value)
+
+    async def binary(self, data):
+        assert data[0] == 3
+        pcm = self.codec.decode(data[2:], max_samples=2400)
+        self.audio.extend(pcm)
+        gen = data[1]
+        self.played[gen] = self.played.get(gen, 0) + len(pcm) // 48
+        self.events.append({'t': 'audio', 'gen': gen})
+        await self.send(t='progress', gen=gen, ms=self.played[gen])
 
     async def acknowledge(self, value):
         kind = value['t']
