@@ -141,6 +141,29 @@ if(KUBIK_CHARACTER STREQUAL "PLUSH")
         PROPERTIES COMPILE_OPTIONS "-Os")
 endif()
 
+# C6 Plush needs flash headroom. Share prologues only in cold menu, status,
+# emoji selection, setup and protocol code: no ISR/IRAM, audio or raster loops.
+if(IDF_TARGET STREQUAL "esp32c6" AND KUBIK_CHARACTER STREQUAL "PLUSH")
+    set_property(SOURCE face_agent.c face_menu.c face_setup.c face_card.c face_status.c ui_kit.c
+        app_game_probe.c app_emoji.c face_emoji.c muse_noise.cc app_config_info.c
+        event_journal.c app_journal.c APPEND PROPERTY COMPILE_OPTIONS "-msave-restore")
+    foreach(component json http_parser esp_http_server esp_http_client)
+        idf_component_get_property(cold_lib ${component} COMPONENT_LIB)
+        target_compile_options(${cold_lib} PRIVATE -msave-restore)
+    endforeach()
+    set_property(SOURCE
+        "$ENV{IDF_PATH}/components/lwip/lwip/src/core/dns.c"
+        "$ENV{IDF_PATH}/components/lwip/lwip/src/core/ipv4/dhcp.c"
+        TARGET_DIRECTORY ${lwip_lib} APPEND PROPERTY COMPILE_OPTIONS "-msave-restore")
+    set_property(SOURCE
+        "$ENV{IDF_PATH}/components/mbedtls/mbedtls/library/x509.c"
+        "$ENV{IDF_PATH}/components/mbedtls/mbedtls/library/x509_crt.c"
+        TARGET_DIRECTORY mbedx509 APPEND PROPERTY COMPILE_OPTIONS "-msave-restore")
+    set_property(SOURCE
+        "$ENV{IDF_PATH}/components/mbedtls/mbedtls/library/pkparse.c"
+        TARGET_DIRECTORY mbedcrypto APPEND PROPERTY COMPILE_OPTIONS "-msave-restore")
+endif()
+
 # Keep the C6 icon shader stack frame bounded before any hardware flash.
 set_property(SOURCE render_text.c APPEND PROPERTY COMPILE_OPTIONS -Werror=vla)
 
