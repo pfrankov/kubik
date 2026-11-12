@@ -40,41 +40,41 @@ class PrinterContract(unittest.TestCase):
             old = deepcopy(PRINTER); old.pop(missing)
             self.assertFalse(contract.valid_printer(old))
 
-    def test_feed_rows_use_vertical_calibration_instead_of_head_dpi(self):
+    def test_native_profile_reports_matching_raster_axes(self):
         request = {'action': 'print', 'rid': 'a' * 32, 'text': 'X', 'width_mm': 20, 'height_mm': 10}
         value = reply(request)
         self.assertEqual(value['layout']['width_dots'], 239)
-        self.assertEqual(value['layout']['height_dots'], 60)
-        self.assertAlmostEqual(value['layout']['height_mm'], 60 * 25.4 / 152)
+        self.assertEqual(value['layout']['height_dots'], 120)
+        self.assertAlmostEqual(value['layout']['height_mm'], 120 * 25.4 / 304)
         self.assertTrue(contract.result(value, 'print'))
         old_math = deepcopy(value)
-        old_math['layout']['height_mm'] = 60 * 25.4 / 304
+        old_math['layout']['height_mm'] = 120 * 25.4 / 152
         self.assertFalse(contract.result(old_math, 'print'))
         too_tall = deepcopy(value)
-        too_tall['layout'].update(height_dots=898, height_mm=898 * 25.4 / 152)
+        too_tall['layout'].update(height_dots=1796, height_mm=1796 * 25.4 / 304)
         self.assertFalse(contract.result(too_tall, 'print'))
 
     def test_requested_height_and_font_tolerances_use_feed_rows(self):
         request = {'action': 'print', 'rid': 'a' * 32, 'text': 'X',
                    'width_mm': 20.1, 'height_mm': 10.1, 'font_mm': 3}
         value = reply(request)
-        value['layout'].update(height_dots=61, height_mm=61 * 25.4 / 152, font_mm=3.12)
+        value['layout'].update(height_dots=121, height_mm=121 * 25.4 / 304, font_mm=3.06)
         self.assertTrue(contract.result(value, 'print'))
         self.assertTrue(contract.requested_layout(value, request))
         wide = deepcopy(value)
         wide['layout'].update(width_dots=242, width_mm=242 * 25.4 / 304)
         self.assertTrue(contract.result(wide, 'print'))
         self.assertFalse(contract.requested_layout(wide, request))
-        tall = deepcopy(value); tall['layout'].update(height_dots=62, height_mm=62 * 25.4 / 152)
+        tall = deepcopy(value); tall['layout'].update(height_dots=122, height_mm=122 * 25.4 / 304)
         self.assertFalse(contract.requested_layout(tall, request))
         large_font = deepcopy(value); large_font['layout']['font_mm'] = 3.18
         self.assertFalse(contract.requested_layout(large_font, request))
 
-    def test_physically_square_qr_uses_twice_as_many_head_dots_as_feed_rows(self):
+    def test_nominal_square_qr_uses_equal_head_dots_and_feed_rows(self):
         value = reply({'action': 'print', 'rid': 'a' * 32, 'text': 'https://example.com',
                        'format': 'qr', 'width_mm': 240 * 25.4 / 304})
         self.assertEqual(value['layout']['width_dots'], 240)
-        self.assertEqual(value['layout']['height_dots'], 120)
+        self.assertEqual(value['layout']['height_dots'], 240)
         self.assertEqual(value['layout']['width_mm'], value['layout']['height_mm'])
         self.assertTrue(contract.result(value, 'print'))
 

@@ -8,6 +8,8 @@
 #include "link.h"
 #include <string.h>
 
+#define TEAR_OFF_MM 10
+
 static bool current(const printer_job_t *job) {
     return !atomic_load(&job->cancelled) && job->session == link_session() &&
         printer_platform_now_ms() < job->deadline_ms;
@@ -63,7 +65,8 @@ static bool finish_stream(printer_job_t *job, peripage_info_t *printer) {
 
 static const char *send_document(printer_job_t *job, printer_layout_t *layout, peripage_info_t *printer) {
     const printer_layout_info_t *info = printer_layout_info(layout);
-    unsigned total = info->height_dots + (unsigned)(4 * info->feed_dpi / 25.4 + .5);
+    unsigned trailing_rows = (TEAR_OFF_MM * 10u * info->feed_dpi + 253u) / 254u;
+    unsigned total = info->height_dots + trailing_rows;
     size_t packets = total + 3 * ((total + 254) / 255);
     int64_t remaining = job->deadline_ms - printer_platform_now_ms();
     if (!current(job) || remaining < peripage_packet_stream_budget_ms(packets)) return "printer_busy";

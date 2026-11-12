@@ -287,7 +287,7 @@ static void cancellation_checks(peripage_info_t *info,uint8_t row[72]) {
 
 static void profile_checks(const peripage_info_t *info) {
     assert(info->dpi==304);assert(info->width_dots==576);
-    assert(info->feed_dpi==152);assert(info->charging==-1);
+    assert(info->feed_dpi==304);assert(info->charging==-1);
     assert(info->mtu==136);assert(info->battery_pct==100);
     assert(!strcmp(info->name,"PeriPage+2E34"));
 }

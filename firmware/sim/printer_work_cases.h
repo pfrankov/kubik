@@ -3,13 +3,13 @@ static void status_and_print(void) {
     fresh();request(RID,"\"action\":\"status\"");assert(!opens);finish_request();
     cJSON *j=reply(0,"ready",NULL,NULL);cJSON *p=cJSON_GetObjectItem(j,"printer");assert(p);
     assert(cJSON_GetObjectItem(p,"width_dots")->valueint==576);assert(cJSON_GetObjectItem(p,"dpi")->valueint==304);
-    assert(cJSON_GetObjectItem(p,"feed_dpi")->valueint==152);assert(cJSON_IsNull(cJSON_GetObjectItem(p,"charging")));
+    assert(cJSON_GetObjectItem(p,"feed_dpi")->valueint==304);assert(cJSON_IsNull(cJSON_GetObjectItem(p,"charging")));
     assert(cJSON_IsNull(cJSON_GetObjectItem(p,"media_height_mm")));cJSON_Delete(j);assert(!packets);
     printf("PIPELINE_WIRE %s\n",sent[0]);assert(reaps==1 && releases==1);
     request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"Привет, Кубик!\\nMilk\\t2\",\"width_mm\":30,\"height_mm\":20,\"font_mm\":3");
     finish_request();j=reply(1,"sent",NULL,"submitted");p=cJSON_GetObjectItem(j,"layout");assert(p);
-    unsigned height=(unsigned)cJSON_GetObjectItem(p,"height_dots")->valueint;assert(height==120);
-    assert(rows==height+24);assert(packets==rows+3);assert(printed_ink);cJSON_Delete(j);
+    unsigned height=(unsigned)cJSON_GetObjectItem(p,"height_dots")->valueint;assert(height==239);
+    assert(rows==height+120 && last_ink_row<=height && blank_tail>=120);assert(packets==rows+6);assert(printed_ink);cJSON_Delete(j);
     assert(finishes==1 && budget_calls==1 && planned_packets==packets);
     printf("PIPELINE_WIRE %s\n",sent[1]);assert(!printer_work_busy());
 }
@@ -97,14 +97,45 @@ static void resource_and_deadline(void) {
 }
 static void stream_budget_and_finish(void) {
     fresh();packet_ms=20;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"budget fits\",\"height_mm\":150");
-    clock_ms+=53340;finish_request();cJSON_Delete(reply(0,"sent",NULL,"submitted"));
-    assert(rows==921 && packets==933 && planned_packets==933 && finishes==1);
+    clock_ms+=33220;finish_request();cJSON_Delete(reply(0,"sent",NULL,"submitted"));
+    assert(rows==1915 && packets==1939 && planned_packets==1939 && finishes==1);
     fresh();packet_ms=20;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"one ms too late\",\"height_mm\":150");
-    clock_ms+=53341;finish_request();cJSON_Delete(reply(0,"error","printer_busy","not_sent"));
-    assert(planned_packets==933 && !packets && !finishes && closes==1);
+    clock_ms+=33221;finish_request();cJSON_Delete(reply(0,"error","printer_busy","not_sent"));
+    assert(planned_packets==1939 && !packets && !finishes && closes==1);
     fresh();finish_ok=false;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"final query fails\"");
     finish_request();cJSON_Delete(reply(0,"error","printer_disconnected","unknown"));
     assert(finishes==1 && packets==planned_packets && closes==1);
+}
+static void assert_tear_result(unsigned trailing) {
+    cJSON *j=reply(0,"sent",NULL,"submitted");
+    cJSON *layout=cJSON_GetObjectItem(j,"layout");assert(layout);
+    unsigned content=(unsigned)cJSON_GetObjectItem(layout,"height_dots")->valueint;
+    assert(printed_ink && rows==content+trailing && last_ink_row<=content);
+    assert(blank_tail>=trailing && !raster_remaining && declared_rows==rows);
+    assert(raster_headers==(rows+254)/255 && packets==rows+3*raster_headers);
+    assert(planned_packets==packets && finishes==1);cJSON_Delete(j);
+}
+static void tear_off_tail(void) {
+    static const unsigned axes[]={152,203,304};
+    static const unsigned trailing[]={60,80,120};
+    for(unsigned i=0;i<3;i++)for(unsigned qr=0;qr<2;qr++) {
+        fresh();profile_feed_dpi=axes[i];
+        request(RID,qr ? "\"action\":\"print\",\"format\":\"qr\",\"text\":\"https://kubik.local\",\"width_mm\":20,\"height_mm\":20" :
+            "\"action\":\"print\",\"emoji\":[],\"text\":\"A\",\"font_mm\":3");
+        finish_request();
+        if(qr && axes[i]==203) {
+            cJSON_Delete(reply(0,"error","content_does_not_fit","not_sent"));
+            assert(!packets && !finishes);continue;
+        }
+        assert_tear_result(trailing[i]);
+    }
+}
+static void tail_failure_no_replay(void) {
+    fresh();fail_packet=1939;request(RID,"\"action\":\"print\",\"emoji\":[],\"text\":\"tail failure\",\"height_mm\":150");
+    finish_request();cJSON_Delete(reply(0,"error","printer_disconnected","unknown"));
+    assert(packets==1939 && blank_tail>=120 && !finishes && closes==1);
+    for(unsigned i=0;i<10;i++) { app_tick(); }
+    assert(packets==1939 && attempts==1 && opens==1 && !printer_work_busy());
 }
 static void crash_guard(void) {
     fresh();printer_guard_begin();printer_guard_boot(false);assert(!printer_guard_background_allowed());

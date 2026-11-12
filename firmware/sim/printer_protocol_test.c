@@ -25,6 +25,7 @@ static unsigned fail_packet, change_session_packet;
 static bool rx_active, send_ok = true, radio_owned, close_ok = true, close_stuck, launch_ok = true;
 static bool work_finished, booted, fail_alloc, lease, defer_work;
 static unsigned packet_ms, finishes, budget_calls, planned_packets;
+static unsigned profile_feed_dpi = 304, raster_headers, raster_remaining, declared_rows, blank_tail, last_ink_row;
 static bool finish_ok = true;
 static uint8_t battery_pct = 100;
 static uint8_t finish_battery_pct = 100;
@@ -106,7 +107,7 @@ void printer_platform_wait_tick(void) {
 peripage_result_t peripage_open(peripage_info_t *info, uint32_t timeout) {
     assert(!rx_active && lease && timeout >= 4000 && timeout <= 12000); opens++; radio_owned = true;
     *info = (peripage_info_t){.name="PeriPage+test", .firmware="V1.12_304dpi", .hardware="v3.38.21_AY",
-        .dpi=304, .feed_dpi=152, .width_dots=576, .mtu=136, .battery_pct=battery_pct, .charging=-1};
+        .dpi=304, .feed_dpi=profile_feed_dpi, .width_dots=576, .mtu=136, .battery_pct=battery_pct, .charging=-1};
     return open_result;
 }
 bool peripage_write_packet(const uint8_t *data, size_t size, uint32_t timeout) {
@@ -114,8 +115,12 @@ bool peripage_write_packet(const uint8_t *data, size_t size, uint32_t timeout) {
     packets++; clock_ms += packet_ms;
     if (change_session_packet == packets) session++;
     if (size == 72) {
-        rows++;
-        for (unsigned i = 0; i < 72; i++) printed_ink |= data[i] != 0;
+        assert(raster_remaining);raster_remaining--;rows++;
+        bool ink=false;
+        for (unsigned i = 0; i < 72; i++) ink |= data[i] != 0;
+        printed_ink |= ink;
+        if(ink) { last_ink_row=rows;blank_tail=0; }
+        else blank_tail++;
     } else if (size == 16) {
         static const uint8_t reset[16] = {0x10,0xff,0xfe,1}; assert(!memcmp(data,reset,16));
     } else if (size == 5) {
@@ -123,6 +128,7 @@ bool peripage_write_packet(const uint8_t *data, size_t size, uint32_t timeout) {
     } else {
         assert(size == 8 && !memcmp(data,"\x1d\x76\x30\x00\x48\x00",6));
         assert(data[6] && !data[7]);
+        assert(!raster_remaining);raster_headers++;raster_remaining=data[6];declared_rows+=data[6];
     }
     return packets != fail_packet;
 }
@@ -132,6 +138,7 @@ uint32_t peripage_packet_stream_budget_ms(size_t count) {
 }
 bool peripage_finish_packet_stream(uint32_t timeout, peripage_info_t *info) {
     assert(radio_owned && lease && !rx_active && packets && timeout > 0 && timeout <= 3000);
+    assert(!raster_remaining && declared_rows==rows);
     finishes++;if(finish_ok){info->battery_pct=finish_battery_pct;info->charging=-1;}return finish_ok;
 }
 bool peripage_close(void) {
@@ -147,6 +154,7 @@ static void fresh(void) {
     attempts = dispatched = opens = closes = packets = rows = launches = reaps = releases = cancels = 0;
     fail_packet = change_session_packet = packet_ms = finishes = budget_calls = planned_packets = 0;
     finish_ok = true;
+    profile_feed_dpi=304;raster_headers=raster_remaining=declared_rows=blank_tail=last_ink_row=0;
     battery_pct=finish_battery_pct=100;printer_status_set_visible(false);
     send_ok = close_ok = launch_ok = true; close_stuck = fail_alloc = printed_ink = false;
     open_result = PERIPAGE_OK; session++; clock_ms += 301000;
@@ -165,6 +173,8 @@ static void request(const char *rid, const char *fields) {
 }
 static cJSON *reply(unsigned index, const char *status, const char *code, const char *outcome) {
     assert(index < attempts); cJSON *j = cJSON_Parse(sent[index]); assert(j);
+    if(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"status")),status))
+        fprintf(stderr,"Expected printer status %s, received %s\n",status,sent[index]);
     assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"status")),status));
     if (code) assert(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(j,"code")),code));
     else assert(!cJSON_GetObjectItem(j,"code"));
@@ -209,6 +219,6 @@ int main(void) {
     emoji_owned_eight();
     status_and_print(); job_errors();
     no_replay_and_sessions(); automatic_discovery(); discovery_voice_admission(); foreground_voice_unchanged();
-    diagnostic_snapshot(); resource_and_deadline(); stream_budget_and_finish(); crash_guard(); hello_descriptor();
+    diagnostic_snapshot(); resource_and_deadline(); stream_budget_and_finish(); tear_off_tail(); tail_failure_no_replay(); crash_guard(); hello_descriptor();
     puts("Printer v2: production RX/tick/parser/job/renderer/worker passed with no physical side-effect mocks in firmware");
 }

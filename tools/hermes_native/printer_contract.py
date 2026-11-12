@@ -11,12 +11,12 @@ from voice_contract import Device
 from voice_fixture import eventually
 
 PROFILE = {'name': 'PeriPage+FIXTURE', 'model': 'PeriPage A6+', 'firmware': 'V1.12_304dpi',
-           'hardware': 'v3.38.21_AY', 'dpi': 304, 'feed_dpi': 152, 'width_dots': 576,
+           'hardware': 'v3.38.21_AY', 'dpi': 304, 'feed_dpi': 304, 'width_dots': 576,
            'printable_width_mm': 576 * 25.4 / 304, 'battery_pct': 100, 'charging': None,
            'formats': ['text', 'qr'], 'max_height_mm': 150, 'media_height_mm': None,
            'size_source': 'model_profile'}
 QUALITY_TEXT = {'action': 'print', 'text': 'Apple 😀 ❤️ 👍🏽 👩‍💻 🇷🇺', 'width_mm': 40, 'font_mm': 3}
-QUALITY_QR = {'action': 'print', 'text': 'KUBIK 304/152', 'format': 'qr', 'width_mm': 20}
+QUALITY_QR = {'action': 'print', 'text': 'KUBIK 304x304', 'format': 'qr', 'width_mm': 20}
 
 
 def printer_response(request):
@@ -24,10 +24,10 @@ def printer_response(request):
     if request['action'] == 'print':
         width = round(request.get('width_mm', PROFILE['printable_width_mm']) * 304 / 25.4)
         extent = request.get('width_mm', PROFILE['printable_width_mm']) if request.get('format') == 'qr' else 10
-        height = round(request.get('height_mm', extent) * 152 / 25.4)
+        height = round(request.get('height_mm', extent) * 304 / 25.4)
         value.update(status='sent', outcome='submitted', layout={'format': request.get('format', 'text'),
                      'width_dots': width, 'height_dots': height,
-                     'width_mm': width * 25.4 / 304, 'height_mm': height * 25.4 / 152})
+                     'width_mm': width * 25.4 / 304, 'height_mm': height * 25.4 / 304})
         if 'font_mm' in request:
             value['layout']['font_mm'] = request['font_mm']
     return value
@@ -65,7 +65,7 @@ def printer_answer(messages):
         value = tools[-1]
         assert 'printer' in value, value
         assert value['printer']['width_dots'] == 576 and value['printer']['dpi'] == 304, value
-        assert value['printer']['feed_dpi'] == 152 and value['printer']['charging'] is None, value
+        assert value['printer']['feed_dpi'] == 304 and value['printer']['charging'] is None, value
         assert value['paperConfirmed'] is False and value['status'] == ('ready' if status else 'sent'), value
         if not status:
             assert value['layout']['format'] == arguments.get('format', 'text'), value

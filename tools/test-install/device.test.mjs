@@ -101,7 +101,7 @@ test('printer model fixture is inactive by default and requires the real tool re
   assert.equal(first.tool_calls[0].function.name, 'kubik_printer');
   assert.deepEqual(JSON.parse(first.tool_calls[0].function.arguments), { action: 'status' });
   const statusMessages = [...messages, first, { role: 'tool', tool_call_id: first.tool_calls[0].id,
-    content: '{"status":"ready","printer":{"width_dots":576,"dpi":304,"feed_dpi":152,"charging":null}}' }];
+    content: '{"status":"ready","printer":{"width_dots":576,"dpi":304,"feed_dpi":304,"charging":null}}' }];
   const print = fixture.chatReply({ tools: [{ function: { name: 'kubik_printer' } }], messages: statusMessages });
   const parameters = JSON.parse(print.tool_calls[0].function.arguments);
   assert.equal(parameters.action, 'print');assert.equal(parameters.width_mm, 30);assert.equal(parameters.height_mm, 20);
@@ -136,7 +136,7 @@ test('compact model fixture follows normalized reply ids and the exact qualified
   const status = fixture.chatReply({ tools, messages }).tool_calls[0];
   assert.equal(status.function.name, 'tool_call');assert.equal(JSON.parse(status.function.arguments).args.action, 'status');
   messages.push({ role: 'assistant', tool_calls: [{ id: 'normalized-status-789', function: { name: 'tool_call' } }] },
-    { role: 'tool', tool_call_id: 'normalized-status-789', content: '{"result":{"details":{"status":"ready","printer":{"width_dots":576,"dpi":304,"feed_dpi":152,"charging":null}}}}' });
+    { role: 'tool', tool_call_id: 'normalized-status-789', content: '{"result":{"details":{"status":"ready","printer":{"width_dots":576,"dpi":304,"feed_dpi":304,"charging":null}}}}' });
   const print = fixture.chatReply({ tools, messages }).tool_calls[0];
   assert.equal(print.function.name, 'tool_call'); assert.equal(JSON.parse(print.function.arguments).id, id);
   messages.push({ role: 'assistant', tool_calls: [{ id: 'normalized-print-789', function: { name: 'tool_call' } }] },
