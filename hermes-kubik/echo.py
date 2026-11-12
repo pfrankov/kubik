@@ -6,6 +6,7 @@ import struct
 import wasmtime
 
 FRAME_BYTES = 960  # 20 ms, mono PCM16 at 24 kHz.
+PACKET_BYTES = FRAME_BYTES * 2  # A synchronized 40 ms capture.
 MEMORY_BYTES = 1024 * 1024
 
 
@@ -34,7 +35,7 @@ class EchoCleaner:
             self._api = wasmtime.Instance(self._store, module, imports).exports(self._store)
             self._api['_initialize'](self._store)
             self._state = self._api['speex_echo_state_init'](self._store, 480, 2400)
-            self._scratch = self._api['malloc'](self._store, FRAME_BYTES * 3)
+            self._scratch = self._api['malloc'](self._store, PACKET_BYTES * 3)
             if not self._state or not self._scratch:
                 raise ValueError('Echo canceller allocation failed')
             self._api['memory'].write(self._store, struct.pack('<i', 24000), self._scratch)
@@ -86,18 +87,16 @@ class EchoCleaner:
 
     def process(self, pcm, reference):
         if (not self._state or not isinstance(pcm, bytes) or not isinstance(reference, bytes)
-                or len(pcm) != 1920 or len(reference) != 1920):
+                or len(pcm) != PACKET_BYTES or len(reference) != PACKET_BYTES):
             raise ValueError('Live requires synchronized 40 ms mic/reference')
         memory, store = self._api['memory'], self._store
-        rec, far, clean = self._scratch, self._scratch + FRAME_BYTES, self._scratch + FRAME_BYTES * 2
-        output = bytearray()
-        for at in range(0, len(pcm), FRAME_BYTES):
-            memory.write(store, pcm[at:at + FRAME_BYTES], rec)
-            memory.write(store, reference[at:at + FRAME_BYTES], far)
-            self._api['speex_echo_cancellation'](store, self._state, rec, far, clean)
-            self._api['speex_preprocess_run'](store, self._preprocess, clean)
-            output.extend(memory.read(store, clean, clean + FRAME_BYTES))
-        return bytes(output)
+        rec, far, clean = self._scratch, self._scratch + PACKET_BYTES, self._scratch + PACKET_BYTES * 2
+        memory.write(store, pcm, rec)
+        memory.write(store, reference, far)
+        for at in range(0, PACKET_BYTES, FRAME_BYTES):
+            self._api['speex_echo_cancellation'](store, self._state, rec + at, far + at, clean + at)
+            self._api['speex_preprocess_run'](store, self._preprocess, clean + at)
+        return bytes(memory.read(store, clean, clean + PACKET_BYTES))
 
     def close(self):
         if self._store is None:

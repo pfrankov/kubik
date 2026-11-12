@@ -46,6 +46,20 @@ def aligned_output(cleaner, output):
     return output[LATENCY_SAMPLES:LATENCY_SAMPLES + length]
 
 
+def original_process(cleaner, mic, reference):
+    """Prior 20 ms copy/call ordering, retained only as an independent PCM oracle."""
+    memory, store = cleaner._api['memory'], cleaner._store
+    rec, far, clean = cleaner._scratch, cleaner._scratch + 960, cleaner._scratch + 1920
+    output = bytearray()
+    for at in range(0, 1920, 960):
+        memory.write(store, mic[at:at + 960], rec)
+        memory.write(store, reference[at:at + 960], far)
+        cleaner._api['speex_echo_cancellation'](store, cleaner._state, rec, far, clean)
+        cleaner._api['speex_preprocess_run'](store, cleaner._preprocess, clean)
+        output.extend(memory.read(store, clean, clean + 960))
+    return bytes(output)
+
+
 class AcousticSignal:
     def __init__(self, delay, gain):
         self.delay, self.gain = delay, gain
@@ -82,14 +96,17 @@ class EchoContractTest(unittest.TestCase):
 
     def acoustic_case(self, delay, gain):
         cleaner = self.cleaner()
+        original = self.cleaner()
         signal = AcousticSignal(delay, gain)
         raw, near_voice, output = [], [], []
         elapsed = 0
         for frame in range(300):
             decoded, reference, near = signal.next(frame)
             start = time.perf_counter()
-            output.extend(samples(cleaner.process(decoded, reference)))
+            cleaned_frame = cleaner.process(decoded, reference)
             elapsed += time.perf_counter() - start
+            output.extend(samples(cleaned_frame))
+            self.assertEqual(cleaned_frame, original_process(original, decoded, reference))
             raw.extend(samples(decoded))
             near_voice.extend(near)
         cleaned = aligned_output(cleaner, output)
@@ -215,6 +232,34 @@ class EchoContractTest(unittest.TestCase):
                     expected.insert(0, 'speex_preprocess_state_destroy')
                 self.assertEqual(events, expected)
                 self.assertEqual(closed, [(None, None)])
+
+
+class ProcessingBudgetTest(unittest.TestCase):
+    def test_budget_counts_processing_and_excludes_test_analysis(self):
+        process, unpack = echo.EchoCleaner.process, samples
+        for cost in (.001, .003):
+            with self.subTest(process_seconds=cost):
+                print(f"Synthetic budget clock: filter={cost:g}s/frame, analysis=0.01s/call")
+                clock = [0.0]
+                case = EchoContractTest()
+                self.addCleanup(case.doCleanups)
+
+                def filtered(cleaner, mic, reference):
+                    clock[0] += cost
+                    return process(cleaner, mic, reference)
+
+                def analyzed(data):
+                    clock[0] += .01  # Test-only analysis is deliberately much slower than the filter.
+                    return unpack(data)
+
+                with patch.object(time, 'perf_counter', lambda: clock[0]), \
+                        patch.object(echo.EchoCleaner, 'process', filtered), \
+                        patch.dict(globals(), {'samples': analyzed}):
+                    if cost == .001:
+                        case.acoustic_case(600, 1)  # 300 ms filter, >3 s analysis: must pass.
+                    else:
+                        with self.assertRaisesRegex(AssertionError, 'AEC lacks CPU margin'):
+                            case.acoustic_case(600, 1)  # 900 ms filter: the unchanged 600 ms cap must fail.
 
 
 if __name__ == '__main__':

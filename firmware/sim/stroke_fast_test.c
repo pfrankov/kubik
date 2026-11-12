@@ -1,6 +1,7 @@
 // The closed-form outline path (raster_frame) must match the generic sphere tracer. Pixels whose distance sits
 // within integer-sqrt rounding of a coverage step may differ by a couple of levels; nothing else may.
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,10 +108,26 @@ static void flags_reset(void) {
     }
     puts("primitive flags: poison/reset, prepared clone, covering/equal/partial clips and byte order match flags-zero raster exactly");
 }
+static void straight_filled_rows(void) {
+    static scene_t scene;
+    // Compare against the old flags-zero sphere tracer, including both byte orders,
+    // fractional origins/radii, thin boxes and rows at the straight/corner boundary.
+    for (unsigned i=0;i<192;i++) for (int swap=0;swap<2;swap++) {
+        scene_begin(&scene,0x2945);
+        float cx=240+(int)(i%17)-8+i%3*.27f, cy=240+(int)(i%23)-11+i%5*.19f;
+        float hw=2+(i*13)%153, hh=2+(i*17)%187;
+        float radius=fminf(hw,hh)*(i%13)/12.f;
+        prim_t *p=sc_rbox(&scene,cx,cy,hw,hh,radius,0,0xE61A7C,((i*73u)%256)/255.f);
+        if(i%7==0)pr_soft(p,5); // Existing soft-step interpolation must stay untouched.
+        compare_flags(&scene,swap);
+        scene_end(&scene);
+    }
+    puts("filled rounded boxes: straight rows match the flags-zero scalar raster bit-for-bit");
+}
 int main(void) {
     static uint16_t a[R_H][R_W], b[R_H][R_W];
     int cases = 0, bad = 0;
-    flags_reset();
+    flags_reset();straight_filled_rows();
     srand(7);
     for (int i = 0; i < 400; i++) { test_case(i,a,b,&bad); cases++; }
     printf("%d/%d outline and box cases identical\n", cases - bad, cases);

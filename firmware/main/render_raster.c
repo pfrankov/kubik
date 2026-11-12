@@ -212,7 +212,8 @@ static bool s_convex[R_MAX_PRIMS];  // prim and its whole clip chain are convex 
 
 // Axis-aligned sharp box without modifiers (bands, bars): distances computed inline, no tracing. A row running
 // along a horizontal edge would otherwise be traced a pixel or two at a time across its whole width.
-static R_HOT void raster_rect(const prim_t *p, uint16_t *buf, int bx0, int bw, int xs, int xe, int ya, int yb, int band_y0) {
+// Share one flash body; outlining must not consume the printer/Live IRAM heap.
+static __attribute__((noinline)) void raster_rect(const prim_t *p, uint16_t *buf, int bx0, int bw, int xs, int xe, int ya, int yb, int band_y0) {
     int32_t half = p->soft / 2;
     int32_t inv = (int32_t)((256u << 16) / (uint32_t)p->soft);
     uint32_t solid_a = ((uint32_t)p->alpha + 1) >> 3;
@@ -387,7 +388,16 @@ static R_HOT void raster_rows(const scene_t *s, const prim_t *p, uint16_t *buf, 
     bool convex = s_convex[p - s->p];
     uint16_t col = g_render_swap ? rgb565_bswap(p->color) : p->color;
     int step = p->soft >= 8 * Q ? 4 : p->soft >= 4 * Q ? 2 : 1;
+    int straight_first = yb + 1, straight_last = yb;
+    if ((p->raster_flags & RASTER_PLAIN) && p->soft == Q) {
+        int reach = p->b - p->r;
+        straight_first = imax(ya, -floor_div(-(p->cy - reach - Q / 2), Q));
+        straight_last = imin(yb, floor_div(p->cy + reach - Q / 2, Q));
+        // Here qy <= 0, so rounded-box SDF equals the sharp-box SDF exactly.
+        raster_rect(p, buf, bx0, bw, xs, xe, straight_first, straight_last, band_y0);
+    }
     for (int y = ya; y <= yb; y++) {
+        if (y >= straight_first && y <= straight_last) continue;
         uint16_t *row = buf + (y - band_y0) * bw - bx0;
         int32_t py = y * Q + Q / 2;
         if (upright && iabs(py - p->cy) - p->b >= half) continue;
