@@ -79,7 +79,10 @@ static void transparent_colors_do_not_bleed(void) {
     for(int y=0;y<UI_OUTPUT_H;y++)for(int x=0;x<UI_OUTPUT_W;x++) {
         uint16_t pixel=whole[y][x];assert(!(pixel&0x07ff));
         if(!pixel)continue;
-        if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
+        if(x<x0) { x0=x; }
+        if(x>x1) { x1=x; }
+        if(y<y0) { y0=y; }
+        if(y>y1) { y1=y; }
     }
     assert(x1>x0 && y1>y0); // Exactly one half-width red box survives interpolation.
     assert(abs(2*(x1-x0+1)-(y1-y0+1))<=2);

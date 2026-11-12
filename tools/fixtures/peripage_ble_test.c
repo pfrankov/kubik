@@ -103,7 +103,8 @@ static int xSemaphoreTake(SemaphoreHandle_t s, TickType_t ticks) {
 static void xSemaphoreGive(SemaphoreHandle_t s) { s->available=true; }
 static int ble_uuid_u16(const ble_uuid_t *u) { return ((const ble_uuid16_t *)u)->value; }
 static int ble_hs_mbuf_to_flat(const struct os_mbuf *m,void *p,uint16_t n,uint16_t *size) {
-    if(m->size>n)return -1;memcpy(p,m->bytes,m->size);*size=m->size;return 0;
+    if(m->size>n) { return -1; }
+    memcpy(p,m->bytes,m->size);*size=m->size;return 0;
 }
 static int ble_hs_adv_parse_fields(struct ble_hs_adv_fields *f,const uint8_t *p,uint8_t n) {
     assert(n==sizeof(*f));memcpy(f,p,n);return 0;

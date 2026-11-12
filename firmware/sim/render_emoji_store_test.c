@@ -10,7 +10,8 @@ void *heap_caps_malloc(size_t bytes,unsigned caps) {
     unsigned expected=CONFIG_IDF_TARGET_ESP32S3 ? MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT :
         MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT|MALLOC_CAP_DMA;
     assert(bytes==584 && caps==expected);attempts++;
-    if(fail_allocation)return NULL;allocations++;return malloc(bytes);
+    if(fail_allocation) { return NULL; }
+    allocations++;return malloc(bytes);
 }
 void heap_caps_free(void *data) {assert(data);frees++;free(data);}
 int main(void) {
