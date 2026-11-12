@@ -67,12 +67,12 @@ static bool frame_matches(const printer_preview_t *p, const uint8_t *data, uint3
     return p && p->session == session && !memcmp(p->rid, data, 32) && !p->active;
 }
 #if !CONFIG_IDF_TARGET_ESP32S3
-// The wire remains 128x128/16 colors. Retain three of each four source
-// columns and rows before BLE starts, halving the C6 framebuffer footprint.
+// The wire remains 128x128/16 colors. Retain alternate source columns and
+// rows before BLE starts to preserve memory for Wi-Fi and continuous Live.
 static void write_pixel(printer_preview_t *p, unsigned source, unsigned color) {
     unsigned x = source % 128, y = source / 128;
-    if (x % 4 == 3 || y % 4 == 3) return;
-    unsigned dst = ((y / 4) * 3 + y % 4) * 96 + (x / 4) * 3 + x % 4;
+    if ((x & 1) || (y & 1)) return;
+    unsigned dst = (y / 2) * PRINTER_PREVIEW_EDGE + x / 2;
     unsigned index = 32 + dst / 2;
     if (dst & 1) p->data[index] |= color;
     else p->data[index] = color << 4;
