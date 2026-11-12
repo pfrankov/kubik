@@ -122,18 +122,22 @@ class PrinterDevice(Device):
                 self.all_image_jobs.append(value['rid'])
                 await self.send(t='printer_image_ready', rid=value['rid'], offset=0)
         elif value['t'] == 'printer':
-            if value['action'] == 'print' and value.get('format') == 'text':
-                expected = ['😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺'] if value['text'] == QUALITY_TEXT['text'] else []
-                glyphs = value.get('emoji')
-                assert isinstance(glyphs, list) and [glyph['sequence'] for glyph in glyphs] == expected, value
-                assert all(len(base64.b64decode(glyph['bitmap'], validate=True)) == 128 for glyph in glyphs), value
-            else:
-                assert 'emoji' not in value, value
+            check_text_emoji(value)
             self.requests.append(value)
             if not self.hold_printer:
                 await self.socket.send_json(printer_response(value))
         else:
             await super().acknowledge(value)
+
+
+def check_text_emoji(value):
+    if value['action'] == 'print' and value.get('format') == 'text':
+        expected = ['😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺'] if value['text'] == QUALITY_TEXT['text'] else []
+        glyphs = value.get('emoji')
+        assert isinstance(glyphs, list) and [glyph['sequence'] for glyph in glyphs] == expected, value
+        assert all(len(base64.b64decode(glyph['bitmap'], validate=True)) == 128 for glyph in glyphs), value
+    else:
+        assert 'emoji' not in value, value
 
 
 async def classic(device, providers):

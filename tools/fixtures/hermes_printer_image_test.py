@@ -171,6 +171,7 @@ class ImageJobsTest(ProtocolFixture):
                                                'outcome': 'submitted', 'printer': PRINTER, 'layout': layout})
         value = await task
         self.assertEqual(value['layout']['format'], 'document')
+        self.assertEqual((value['pagesSubmitted'], value['pagesTotal']), (1, 1))
         self.assertEqual(len(self.peer.socket.messages), 3)
         self.assertEqual(await self.jobs.request(self.peer, 'document', args, 'event', self.raster), value)
         self.assertEqual(len(self.peer.socket.messages), 3)

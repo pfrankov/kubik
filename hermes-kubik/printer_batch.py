@@ -23,7 +23,7 @@ def summary(row, results):
 
 def failed(row, value, submitted):
     if not submitted:
-        return value
+        return {**value, 'rid': row['rid'], 'pagesSubmitted': 0, 'pagesTotal': len(row['pages'])}
     return {'rid': row['rid'], 'status': 'error', 'code': value.get('code', 'document_incomplete'),
             'outcome': 'unknown' if value.get('outcome') == 'unknown' else 'partial',
             'pagesSubmitted': submitted, 'pagesTotal': len(row['pages']), 'paperConfirmed': False}

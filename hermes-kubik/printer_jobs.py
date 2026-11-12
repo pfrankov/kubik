@@ -266,7 +266,7 @@ class PrinterJobs:
     def failure(self, row, code):
         uncertain = row['dispatched'] and row['action'] == 'print'
         value = PrinterFailure(code, rid=row['rid'], outcome='unknown' if uncertain else 'not_sent').value()
-        if row.get('pages_submitted'):
+        if row['parameters'].get('format') == 'document':
             value.update(pagesSubmitted=row['pages_submitted'], pagesTotal=len(row['pages']))
         return value
 
@@ -292,8 +292,11 @@ class PrinterJobs:
             self.finish(row, self.failure(row, 'invalid_response'))
         else:
             result = {key: item for key, item in value.items() if key != 't'} | {'paperConfirmed': False}
-            if result.get('layout') and row['parameters'].get('format') == 'document':
-                result['layout'] = {**result['layout'], 'format': 'document'}
+            if row['parameters'].get('format') == 'document':
+                if result.get('layout'):
+                    result['layout'] = {**result['layout'], 'format': 'document'}
+                if len(row['pages']) == 1:
+                    result.update(pagesSubmitted=int(result['status'] == 'sent'), pagesTotal=1)
             if not row['quiescent'].done():
                 row['quiescent'].set_result(result)
         return True
