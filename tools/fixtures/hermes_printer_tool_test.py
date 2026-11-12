@@ -146,7 +146,7 @@ class PrinterTools(ProtocolFixture):
         first, second = Context(), Context()
         entry.register(first); entry.register(second)
         self.assertEqual(first.tool['toolset'], 'kubik')
-        self.assertTrue(first.tool['is_async'])
+        self.assertFalse(first.tool['is_async'])
         one = first.platform['adapter_factory'](SimpleNamespace(extra={}, enabled=True))
         two = second.platform['adapter_factory'](SimpleNamespace(extra={}, enabled=True))
         self.assertIs(first.tool['handler'].__self__.adapter, one)

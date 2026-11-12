@@ -2,6 +2,7 @@
 import asyncio
 import importlib
 import json
+import threading
 from pathlib import Path
 
 
@@ -37,6 +38,7 @@ async def check_image_hook(adapter, device, home):
             printed = json.loads(printed)
             assert printed['status'] == 'sent' and printed['layout']['format'] == 'image', printed
             assert printed['paperConfirmed'] is False and device.image_bands
+            await check_interrupt(adapter, device, ref)
         await adapter.on_processing_complete(event, 'success')
         assert event._kubik_images.get(ref) is None
         assert 'kubik_image_ref' not in json.loads(await asyncio.to_thread(transform, result))
@@ -45,3 +47,27 @@ async def check_image_hook(adapter, device, home):
         clear_session_vars(tokens)
         path.unlink(missing_ok=True)
     print('PASS real Hermes image result hook, authenticated turn, snapshot, streamed tool call and cleanup', flush=True)
+
+
+async def check_interrupt(adapter, device, ref):
+    from model_tools import handle_function_call
+    from tools.interrupt import set_interrupt
+    from voice_fixture import eventually
+    device.image, device.image_bands, device.hold_image_after = None, [], 1
+    owner = {}
+    def invoke():
+        owner['thread'] = threading.get_ident()
+        try:
+            args = {'action': 'print', 'format': 'image', 'image_ref': ref, 'width_mm': 10}
+            return json.loads(handle_function_call('kubik_printer', args, tool_call_id='image-interrupted',
+                                                   enabled_tools=['kubik_printer']))
+        finally:
+            set_interrupt(False)
+    task = asyncio.create_task(asyncio.to_thread(invoke))
+    await eventually(lambda: 'thread' in owner and len(device.image_bands) == 1)
+    set_interrupt(True, thread_id=owner['thread'])
+    result = await asyncio.wait_for(task, 3)
+    assert result['code'] == 'cancelled' and result['outcome'] == 'unknown', result
+    await eventually(lambda: device.image_aborts == 1 and not adapter.printer_jobs.pending)
+    assert len(device.image_bands) == 1 and not device.image_bands[1:]
+    print('PASS real Hermes thread interrupt aborts image stream without replay', flush=True)

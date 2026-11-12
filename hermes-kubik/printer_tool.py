@@ -2,6 +2,7 @@
 import asyncio
 from contextlib import contextmanager
 from contextvars import ContextVar
+from concurrent.futures import TimeoutError as FutureTimeout
 import json
 import math
 from pathlib import Path
@@ -78,6 +79,25 @@ def call_origin(adapter):
 class PrinterTool:
     def __init__(self):
         self.adapter = None
+
+    def execute_sync(self, arguments, **_):
+        # Hermes interrupts the registry worker thread, not its async bridge.
+        from tools.interrupt import is_interrupted
+        adapter = self.adapter
+        if adapter is None or adapter.printer_loop is None or not adapter.printer_loop.is_running():
+            return json.dumps(PrinterFailure('device_offline').value())
+        if is_interrupted():
+            return json.dumps(PrinterFailure('cancelled').value())
+        pending = asyncio.run_coroutine_threadsafe(self.execute(arguments), adapter.printer_loop)
+        while True:
+            if is_interrupted():
+                pending.cancel()
+                printing = isinstance(arguments, dict) and arguments.get('action') == 'print'
+                return json.dumps(PrinterFailure('cancelled', outcome='unknown' if printing else 'not_sent').value())
+            try:
+                return pending.result(timeout=.1)
+            except FutureTimeout:
+                continue
 
     async def execute(self, arguments, **_):
         try:
@@ -161,5 +181,5 @@ def register_printer(ctx):
     ctx.register_hook('transform_tool_result', lambda **kwargs: image_hook(tool, **kwargs))
     ctx.register_tool(name='kubik_printer', toolset='kubik',
                       schema={'name': 'kubik_printer', 'description': DESCRIPTION, 'parameters': PARAMETERS},
-                      handler=tool.execute, is_async=True, description='Print with this Kubik', emoji='🖨️')
+                      handler=tool.execute_sync, is_async=False, description='Print with this Kubik', emoji='🖨️')
     return tool

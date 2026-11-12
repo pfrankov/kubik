@@ -82,6 +82,8 @@ class PrinterDevice(Device):
         self.hold_printer = False
         self.image = None
         self.image_bands = []
+        self.hold_image_after = None
+        self.image_aborts = 0
         super().__init__(socket, codec)
 
     async def binary(self, data):
@@ -93,7 +95,8 @@ class PrinterDevice(Device):
         assert offset == sum(self.image_bands) and 1 <= count <= 16 and len(data) == 37 + count * 72
         self.image_bands.append(count)
         if offset + count < image['height']:
-            await self.send(t='printer_image_ready', rid=image['rid'], offset=offset + count)
+            if self.hold_image_after is None or len(self.image_bands) < self.hold_image_after:
+                await self.send(t='printer_image_ready', rid=image['rid'], offset=offset + count)
         else:
             layout = {'format': 'image', 'width_dots': image['width'], 'height_dots': image['height'],
                       'width_mm': image['width'] * 25.4 / 304, 'height_mm': image['height'] * 25.4 / 225}
@@ -102,9 +105,14 @@ class PrinterDevice(Device):
 
     async def acknowledge(self, value):
         if value['t'] == 'printer_image':
-            assert value['action'] == 'start' and self.image is None
-            self.image = value
-            await self.send(t='printer_image_ready', rid=value['rid'], offset=0)
+            if value['action'] == 'abort':
+                self.image_aborts += 1
+                await self.send(t='printer_result', rid=value['rid'], status='error',
+                                code='printer_disconnected', outcome='unknown')
+            else:
+                assert value['action'] == 'start' and self.image is None
+                self.image = value
+                await self.send(t='printer_image_ready', rid=value['rid'], offset=0)
         elif value['t'] == 'printer':
             if value['action'] == 'print' and value.get('format') == 'text':
                 expected = ['😀', '❤️', '👍🏽', '👩‍💻', '🇷🇺'] if value['text'] == QUALITY_TEXT['text'] else []
