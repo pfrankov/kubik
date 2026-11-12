@@ -15,6 +15,7 @@
 - [Realtime и GPT-Live](native-voice.md)
 - [Muse напрямую с телефона](muse.md)
 - [Нативный Hermes](hermes.md)
+- [Изображение в ответе Hermes](hermes-image.md)
 - [Персонажи и реакции](characters.md)
 - [Игры и рост Tess](tess-games.md)
 - [Tess Skies](tess-skies.md)

@@ -923,6 +923,25 @@ host не меняет её при welcome или изменении volume. Л�
 `set` принимает `ui_volume` (целое 0–100); `info` возвращает `ui_volume` и
 `sound_menu`. Это диагностический локальный интерфейс, не новый сетевой контракт.
 
+
+## Hermes image attachments
+
+`hello.screen_image:1` advertises display of a generated local PNG. After
+checking the authenticated current device and the connection-owned generated
+image snapshot, Hermes sends the 8224-byte palette/index representation in
+binary frames: `07 01`, 32 lowercase ASCII hex `rid`, a big-endian 16-bit
+byte offset and up to 896 bytes of payload. This is the same bounded image
+encoding as [printer preview](printer-protocol.md), but is not a print job.
+
+`screen_image` with `action=show` and `rid` publishes the completed image; the
+device answers `screen_image_result` with that `rid` and `status=shown` only
+after a frame containing it has been presented. Failure returns `status=error`
+and a bounded `code`. `action=cancel` cancels the matching delivery. The
+image is scoped to the authenticated connection and expires after 15 seconds;
+Back, replacement content, a disconnect or a failed delivery also releases it.
+An open menu retains priority. This route never triggers printer work and does
+not accept arbitrary URLs or files from other sessions.
+
 ## Printer
 
 Printer RPC v2 uses the same authenticated device socket as voice. `hello.printer`

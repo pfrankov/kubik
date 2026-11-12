@@ -144,7 +144,7 @@ async def pair(client, port, home, private_key, name='kubik-integration', volume
     ws = await client.ws_connect(f'wss://127.0.0.1:{port}/kubik/v1', ssl=False, compress=0)
     key = base64.b64encode(private_key.public_key().public_bytes(serialization.Encoding.X962,
         serialization.PublicFormat.UncompressedPoint)).decode()
-    await ws.send_json({'t': 'hello', 'v': 5, 'device': name, 'key': key, 'volume': volume, 'printer': 2, 'printer_image': 1, 'screen_emoji': 1})
+    await ws.send_json({'t': 'hello', 'v': 5, 'device': name, 'key': key, 'volume': volume, 'printer': 2, 'printer_image': 1, 'screen_emoji': 1, 'screen_image': 1})
     challenge = await get_json(ws)
     assert challenge['t'] == 'challenge', challenge
     cert = x509.load_pem_x509_certificate((home / 'kubik/cert.pem').read_bytes())

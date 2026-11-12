@@ -10,6 +10,7 @@
 #include "setup_request.h"
 #include "printer_protocol.h"
 #include "printer_preview.h"
+#include "screen_image.h"
 #include "link_usb.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -101,6 +102,7 @@ static void handle_text_json(cJSON *j) {
     const char *text = cJSON_GetStringValue(cJSON_GetObjectItem(j, "text"));
     const char *kind = cJSON_GetStringValue(cJSON_GetObjectItem(j, "kind"));
     if (!text) return;
+    printer_preview_dismiss_screen(link_session());
     portENTER_CRITICAL(&s_text_mux);
     snprintf(s_text_rx, sizeof s_text_rx, "%s", text);
     cJSON *receipt = cJSON_GetObjectItem(j, "receipt");
@@ -140,7 +142,8 @@ static void on_json(const char *json, size_t len) {
     const char *end; cJSON *j = cJSON_ParseWithLengthOpts(json, len, &end, false);
     if (!j) { ESP_LOGW(TAG, "JSON rejected (%u bytes)", (unsigned)len); return; }
     const char *type = cJSON_GetStringValue(cJSON_GetObjectItem(j, "t"));
-    if (!app_emoji_receive(j, json, len, (size_t)(end - json)) && !printer_protocol_receive(j, json, len, (size_t)(end - json), link_session()) && type &&
+    if (!app_emoji_receive(j, json, len, (size_t)(end - json)) && !printer_protocol_receive(j, json, len, (size_t)(end - json), link_session()) &&
+        !screen_image_receive(j, json, len, (size_t)(end - json), link_session()) && type &&
         (!strcmp(type, "agent_options") ? !agent_protocol_has_nul_escape(json, len) : true)) dispatch_json(j, type);
     cJSON_Delete(j);
 }

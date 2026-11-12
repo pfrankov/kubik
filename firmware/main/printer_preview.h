@@ -7,6 +7,7 @@
 #endif
 #define PRINTER_PREVIEW_KIND 0x07
 #define PRINTER_PREVIEW_VERSION 1
+#define SCREEN_IMAGE_VERSION 1
 #define PRINTER_PREVIEW_BYTES 8224
 #define PRINTER_PREVIEW_CHUNK 896
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -19,6 +20,11 @@
 typedef struct printer_preview printer_preview_t;
 void printer_preview_receive(uint8_t tag, const uint8_t *data, size_t length, uint32_t session);
 bool printer_preview_activate(uint32_t session, const char *rid);
+bool printer_preview_activate_screen(uint32_t session, const char *rid);
+bool printer_preview_screen_presented(uint32_t session, const char *rid);
+bool printer_preview_dismiss_screen(uint32_t session);
+void printer_preview_cancel_screen(uint32_t session, const char *rid);
+void printer_preview_clear_print(uint32_t session);
 void printer_preview_discard(uint32_t session, const char *rid);
 void printer_preview_clear(uint32_t session);
 printer_preview_t *printer_preview_snapshot(uint32_t session);
@@ -26,5 +32,7 @@ void printer_preview_retain(printer_preview_t *preview);
 void printer_preview_release(printer_preview_t *preview);
 const uint8_t *printer_preview_pixels(const printer_preview_t *preview);
 uint32_t printer_preview_hash(const printer_preview_t *preview);
+bool printer_preview_is_screen(const printer_preview_t *preview);
+bool printer_preview_draw_allowed(const printer_preview_t *preview, bool menu_open, float menu_progress);
 void printer_preview_presented(printer_preview_t *preview);
 bool printer_preview_was_presented(const printer_preview_t *preview);

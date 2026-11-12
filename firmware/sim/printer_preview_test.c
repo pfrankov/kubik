@@ -8,13 +8,15 @@
 bool g_render_swap;
 static int64_t now;
 int64_t esp_timer_get_time(void) { return now; }
-void *heap_caps_calloc(size_t n, size_t s, unsigned caps) { (void)caps; return calloc(n, s); }
+static unsigned alloc_count;
+void *heap_caps_calloc(size_t n, size_t s, unsigned caps) { (void)caps; alloc_count++; return calloc(n, s); }
 static const char rid[] = "0123456789abcdef0123456789abcdef";
 static uint8_t frame[34 + PRINTER_PREVIEW_CHUNK];
+static uint8_t kind;
 static void chunk(unsigned offset, unsigned count, uint32_t session) {
     memcpy(frame, rid, 32); frame[32] = offset >> 8; frame[33] = offset;
     for (unsigned i = 0; i < count; i++) frame[34 + i] = (uint8_t)(offset + i);
-    printer_preview_receive(0, frame, 34 + count, session);
+    printer_preview_receive(kind, frame, 34 + count, session);
 }
 static void transfer(uint32_t session) {
     for (unsigned offset = 0; offset < PRINTER_PREVIEW_BYTES;) {
@@ -70,7 +72,8 @@ int main(void) {
 #else
     assert(row[1] == 0x0504);
 #endif
-    uint32_t hash = printer_preview_hash(a); chunk(0, 80, 1);
+    uint32_t hash = printer_preview_hash(a); unsigned before_alloc = alloc_count; chunk(0, 80, 1);
+    assert(alloc_count == before_alloc);
     printer_preview_t *same = printer_preview_snapshot(1); assert(same == a && printer_preview_hash(same) == hash);
     printer_preview_release(same); printer_preview_clear(1);
     assert(!printer_preview_snapshot(1)); assert(printer_preview_pixels(a)[100] == saved);
@@ -79,5 +82,22 @@ int main(void) {
     printer_preview_release(a);
     transfer(3); assert(printer_preview_activate(3, rid));
     now += 100000001; assert(!printer_preview_snapshot(3));
+    kind = 1; transfer(4); assert(!printer_preview_activate(4, rid));
+    assert(printer_preview_activate_screen(4, rid));
+    assert(!printer_preview_screen_presented(4, rid));
+    printer_preview_t *screen = printer_preview_snapshot(4); assert(screen);
+    assert(printer_preview_draw_allowed(screen, false, 0));
+    assert(!printer_preview_draw_allowed(screen, true, 0));
+    assert(!printer_preview_draw_allowed(screen, false, .1f));
+    printer_preview_presented(screen); assert(printer_preview_screen_presented(4, rid));
+    printer_preview_clear_print(4); assert(printer_preview_screen_presented(4, rid));
+    assert(!printer_preview_dismiss_screen(5));
+    kind = 0; transfer(4); assert(printer_preview_activate(4, rid));
+    assert(!printer_preview_dismiss_screen(4));
+    printer_preview_t *printing = printer_preview_snapshot(4); assert(printing);
+    assert(printer_preview_draw_allowed(printing, true, .1f)); printer_preview_release(printing);
+    printer_preview_clear_print(4); printer_preview_release(screen);
+    kind = 1; transfer(5); assert(printer_preview_activate_screen(5, rid));
+    now += 15000001; assert(!printer_preview_snapshot(5));
     puts("printer preview: ordered bounded frames, session, immutable snapshots, timeout passed");
 }

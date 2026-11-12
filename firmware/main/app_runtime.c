@@ -5,9 +5,9 @@
 #include "app_game_probe.h"
 #include "muse_backend.h"
 #include "printer_protocol.h"
+#include "screen_image.h"
 #include "printer_platform.h"
 #include "printer_status.h"
-
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -324,7 +324,7 @@ void printer_app_state(printer_app_state_t *state) {
 
 void app_tick(void) {
     app_emoji_poll();
-    printer_protocol_poll();
+    printer_protocol_poll(); screen_image_poll();
     int64_t t = now_ms();
     if (tick_power_off(t)) return;
     tick_ui_timeouts(t);

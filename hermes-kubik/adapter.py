@@ -23,9 +23,10 @@ from .native_jobs import NativeJobs, active_job, classic_deadline
 from .native_voice import NativeVoice
 from .security import Security
 from .screen_emoji import ScreenEmoji, display_text
+from . import screen_image
 from .runtime import listener_options, profile_scope, speech_available
 
-class KubikAdapter(BasePlatformAdapter):
+class KubikAdapter(screen_image.AttachmentMixin, BasePlatformAdapter):
     def __init__(self, config):
         super().__init__(config, Platform('kubik'))
         from hermes_constants import get_hermes_home
@@ -140,6 +141,7 @@ class KubikAdapter(BasePlatformAdapter):
             return
         peer.ready = False
         await self.screen_emoji.close(peer)
+        screen_image.close(peer)
         self.printer_jobs.close(peer)
         images = getattr(peer, 'printer_images', None)
         if images:
@@ -191,6 +193,7 @@ class KubikAdapter(BasePlatformAdapter):
             self.printer_jobs.accept(peer, value)
         elif kind == 'printer_image_ready':
             self.printer_jobs.accept_credit(peer, value)
+        elif kind == 'screen_image_result': screen_image.accept(peer, value)
         elif kind == 'emoji_get':
             await self.screen_emoji.handle(peer, value)
         elif kind == 'live_input_ack' and peer.native:

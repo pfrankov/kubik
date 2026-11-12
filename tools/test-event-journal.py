@@ -33,7 +33,7 @@ fixture = r'''
 #include <stdint.h>
 #define portENTER_CRITICAL(p) ((void)(p))
 #define portEXIT_CRITICAL(p) ((void)(p))
-static int s_text_mux, applied, cards, wakes, receipts, locks;
+static int s_text_mux, applied, cards, wakes, receipts, locks, dismissed;
 static char s_text_rx[1024];
 static uint32_t s_text_receipt, s_text_session, s_text_revision, session=1;
 static bool s_text_notify;
@@ -47,6 +47,7 @@ static int s_power, display_brightness;
 static unsigned settings_saves;
 static const char *const k_states[] = {"idle","listening","transcribing","thinking","speaking"};
 static uint32_t link_session(void) { return session; }
+static bool printer_preview_dismiss_screen(uint32_t value) {assert(value==session); dismissed++; return true;}
 static void app_post_in_session(int type,int a,int b,uint32_t epoch) {queued=(app_ev_t){.type=type,.a=a,.b=b,.session=epoch};}
 static int64_t now_ms(void) {return 1000;}
 static void face_lock(void) {assert(!locks); locks++;}
@@ -104,7 +105,7 @@ int main(void) {
  session=2;assert(handle_server_event(&queued) && !applied && !g_face.journal.count);
  queued.session=2;assert(handle_server_event(&queued) && applied==1);
  receive("{\"text\":\"First\",\"receipt\":1}");app_ev_t old=queued;
- receive("{\"text\":\"Second\",\"receipt\":2}");
+ receive("{\"text\":\"Second\",\"receipt\":2}"); assert(dismissed==2);
  handle_text_event(&old);assert(!cards && !wakes && !receipts && !g_face.journal.count);
  handle_text_event(&queued);assert(cards==1 && wakes==1 && receipts==1 && g_face.journal.count==1);
  assert(!strcmp(event_journal_at(&g_face.journal,0)->text,"Second"));

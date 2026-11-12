@@ -76,6 +76,11 @@ class ImageOrigin:
             item = None if self.closed else self.images.get(ref)
             return item[1] if item else None
 
+    def contains(self, data):
+        with self.lock:
+            self.prune()
+            return not self.closed and any(item[1] == data for item in self.images.values())
+
     def capture(self, home, call_id, result):
         if not isinstance(call_id, str) or not call_id or len(call_id) > 256:
             return None

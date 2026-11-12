@@ -57,6 +57,13 @@ uint32_t link_session(void) { return session; }
 bool printer_preview_activate(uint32_t expected, const char *rid) { (void)expected; (void)rid; return false; }
 void printer_preview_discard(uint32_t expected, const char *rid) { (void)expected; (void)rid; }
 void printer_preview_clear(uint32_t expected) { (void)expected; }
+void printer_preview_clear_print(uint32_t expected) { (void)expected; }
+bool printer_preview_dismiss_screen(uint32_t expected) { (void)expected; return false; }
+bool screen_image_receive(const cJSON *j, const char *raw, size_t len, size_t consumed, uint32_t expected) {
+    (void)j; (void)raw; (void)len; (void)consumed; (void)expected; return false;
+}
+static void screen_image_poll(void) {}
+
 printer_preview_t *printer_preview_snapshot(uint32_t expected) { (void)expected; return NULL; }
 void printer_preview_release(printer_preview_t *preview) { (void)preview; }
 bool printer_preview_was_presented(const printer_preview_t *preview) { (void)preview; return false; }

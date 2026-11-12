@@ -29,7 +29,8 @@ static bool add_hello_settings(cJSON *j, int volume) {
     return cJSON_AddStringToObject(j, "name", g_settings.name) && cJSON_AddStringToObject(j, "server", g_settings.server_url) &&
         cJSON_AddNumberToObject(j, "volume", volume) && cJSON_AddNumberToObject(j, "printer", PRINTER_PROTOCOL_VERSION) &&
         cJSON_AddNumberToObject(j, "screen_emoji", 1) && cJSON_AddNumberToObject(j, "printer_image", PRINTER_IMAGE_VERSION) &&
-        cJSON_AddNumberToObject(j, "printer_preview", PRINTER_PREVIEW_VERSION);
+        cJSON_AddNumberToObject(j, "printer_preview", PRINTER_PREVIEW_VERSION) &&
+        cJSON_AddNumberToObject(j, "screen_image", SCREEN_IMAGE_VERSION);
 }
 
 bool link_make_hello(char *buf, size_t cap) {

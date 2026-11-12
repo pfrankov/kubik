@@ -23,6 +23,7 @@ class Peer:
         self.printer_version = version(hello, 'printer')
         self.printer_image_version = version(hello, 'printer_image')
         self.printer_preview_version = version(hello, 'printer_preview')
+        self.screen_image_version = version(hello, 'screen_image')
         self.volume = hello.get('volume', 0)
         if type(self.volume) is not int or not 0 <= self.volume <= 100:
             raise ValueError('Invalid volume')
@@ -34,6 +35,8 @@ class Peer:
         self.played_ms = 0
         self.progress = asyncio.Event()
         self.receipts = {}
+        self.image_receipts = {}
+        self.image_busy = False
         self.complete = asyncio.Event()
         self.message_id = None
         self.session_key = None

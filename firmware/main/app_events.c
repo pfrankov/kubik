@@ -1,4 +1,5 @@
 #include "app_lab.h"
+#include "printer_preview.h"
 #include "app_journal.h"
 #include "app_internal.h"
 #include "tess.h"
@@ -97,6 +98,11 @@ static void handle_menu_swipe(void) {
         menu_close(true);
 }
 
+static bool dismiss_image_on_back(void) {
+    if (s_menu) return false;
+    return printer_preview_dismiss_screen(link_session()) && !KUBIK_VOICE_BUTTON_IS_BOOT;
+}
+
 static bool handle_control_event(const app_ev_t *e) {
     switch (e->type) {
     case EV_PWR_LONG:
@@ -120,6 +126,7 @@ static bool handle_control_event(const app_ev_t *e) {
         ptt_up();
         return true;
     case EV_BOOT_SHORT:
+        if (dismiss_image_on_back()) return true;
         handle_boot_short();
         return true;
     case EV_BOOT_LONG:

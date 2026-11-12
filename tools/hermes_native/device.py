@@ -29,9 +29,21 @@ def arguments():
     modes.add_argument('--printer-document-check', action='store_true', help='Exactly one mixed document through the physical printer')
     modes.add_argument('--printer-quality-check', action='store_true', help='Two NEW jobs: personal Apple emoji text and square 20 mm QR')
     modes.add_argument('--screen-emoji-check', action='store_true', help='Real agent Apple emoji cards across pages with Live microphone; zero prints')
+    modes.add_argument('--screen-image-check', action='store_true', help='One image attachment shown by C6; no printer commands')
+    modes.add_argument('--screen-image-live-check', action='store_true', help='One image attachment while GPT Live microphone continues; no printing')
+    parser.add_argument('--screen-image-source', type=Path, help='Previously verified local PNG for the screen image fixture')
+    parser.add_argument('--screen-image-source-sha256', help='Verified SHA-256 of that exact local PNG')
+    parser.add_argument('--screen-image-source-owner', help='Verified complete current peer identity')
     parser.add_argument('--evidence', required=True, type=Path, help='NEW private evidence directory')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    source_options = (args.screen_image_source, args.screen_image_source_sha256, args.screen_image_source_owner)
+    if any(source_options) and (not args.screen_image_check or not all(source_options)):
+        parser.error('screen image source requires the screen-image mode, verified SHA-256 and verified owner')
+    if args.screen_image_source_sha256 and not __import__('re').fullmatch('[0-9a-f]{64}', args.screen_image_source_sha256):
+        parser.error('screen image source SHA-256 must be 64 lowercase hexadecimal characters')
+    if args.screen_image_source:
+        args.screen_image_source = args.screen_image_source.expanduser().absolute()
     if not 1024 <= args.port <= 65535:
         parser.error('--port must be 1024..65535')
     from device_transport import validate_options
@@ -71,8 +83,12 @@ def launch(args):
                    '--port', str(args.port), '--evidence', str(args.evidence)]
         if args.wifi:
             command += ['--wifi', '--endpoint', args.endpoint]
+        if args.screen_image_source:
+            command += ['--screen-image-source', str(args.screen_image_source),
+                        '--screen-image-source-sha256', args.screen_image_source_sha256,
+                        '--screen-image-source-owner', args.screen_image_source_owner]
         for mode in ('printer', 'printer_live_status', 'printer_stream_check', 'printer_quality_check',
-                     'printer_image_check', 'printer_live_image_check', 'printer_document_check', 'screen_emoji_check'):
+                     'printer_image_check', 'printer_live_image_check', 'printer_document_check', 'screen_emoji_check', 'screen_image_check', 'screen_image_live_check'):
             if getattr(args, mode, False):
                 command.append('--' + mode.replace('_', '-'))
         subprocess.run(command, cwd=ROOT, env=env, timeout=720 if long_mode(args) else 600, check=True)
@@ -126,7 +142,7 @@ def printer_mode(args):
 
 
 def long_mode(args):
-    return printer_mode(args) or args.screen_emoji_check
+    return printer_mode(args) or args.screen_emoji_check or getattr(args, 'screen_image_check', False) or getattr(args, 'screen_image_live_check', False)
 
 
 def copy_private_color(args, state):
@@ -168,6 +184,12 @@ def copy_private_emoji(args, state):
 
 
 def acceptance(args):
+    if getattr(args, 'screen_image_live_check', False):
+        from device_screen_image import LiveObservations, check_live
+        return LiveObservations, check_live, 'one image attachment with continuous Live microphone and no printing'
+    if getattr(args, 'screen_image_check', False):
+        from device_screen_image import Observations, check
+        return Observations, check, 'one image attachment shown without printing'
     if getattr(args, 'printer_live_image_check', False):
         from device_image import LiveObservations, check_live_image
         return LiveObservations, check_live_image, 'one synthetic image with Live microphone and preview'
@@ -207,6 +229,7 @@ async def worker(args):
     logging.basicConfig(level=logging.WARNING)
     sys.addaudithook(network_guard)
     control = Control(args.control, args.evidence)
+    control.screen_image_source = (args.screen_image_source, args.screen_image_source_sha256, args.screen_image_source_owner) if args.screen_image_source else None
     gateway = backend = adapter = peer = observations = providers = None
     original = primary = None
     try:

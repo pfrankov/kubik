@@ -49,6 +49,8 @@ async def check_image_hook(adapter, device, home):
             assert len(device.image_bands) == before
         await adapter.on_processing_complete(event, 'success')
         assert event._kubik_images.get(ref) == path.read_bytes()
+        from attachment_contract import check_attachment_delivery
+        await check_attachment_delivery(adapter, device, peer, event, path)
         await check_document(adapter, device, peer, ref)
         await check_next_turn(adapter, device, peer, ref)
         event._kubik_images.close()

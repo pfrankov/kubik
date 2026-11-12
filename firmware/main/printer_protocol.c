@@ -97,7 +97,7 @@ void printer_protocol_poll(void) {
     printer_preview_release(preview);
     char *json; uint32_t session;
     if (printer_work_poll(&json, &session)) {
-        printer_preview_clear(session);
+        printer_preview_clear_print(session);
         if (json && session == link_session()) link_send_json_in_session(json, session);
         free(json);
         return;

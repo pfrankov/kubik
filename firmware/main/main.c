@@ -5,7 +5,6 @@
 #include "app_lab.h"
 // Kubik: a push-to-talk desk companion for OpenClaw.
 #include <string.h>
-
 #include "app.h"
 #include "face_internal.h"
 #include "link.h"
@@ -31,16 +30,11 @@
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "frame_pacing_s3.h"
 #endif
-
 static const char *TAG = "main";
 atomic_bool g_mode_report;
-
-
-
 static volatile int s_req_brightness = -1, s_req_fade_ms;
 static volatile int s_req_power = -1;
 static TaskHandle_t s_display_task;
-
 void disp_brightness_fade(int level, int ms) {
     s_req_fade_ms = ms < 0 ? 0 : ms;
     s_req_brightness = level < 0 ? 0 : level > 255 ? 255 : level;
@@ -52,7 +46,6 @@ void disp_power(bool on) {
     s_req_power = on;
     if (s_display_task) xTaskNotifyGive(s_display_task);
 }
-
 // Automatic light sleep is configured once; this lock keeps it off except while the app allows it.
 static esp_pm_lock_handle_t s_awake_lock;
 static atomic_bool s_light_sleep_ok;
@@ -62,11 +55,8 @@ void power_light_sleep_allow(bool allow) {
     s_light_sleep_ok = allow;
     ESP_ERROR_CHECK(allow ? esp_pm_lock_release(s_awake_lock) : esp_pm_lock_acquire(s_awake_lock));
 }
-
 static volatile bool s_req_reinit;
 void disp_reinit(void) { s_req_reinit = true; }
-
-
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
 // CPU share per task since the last call (profiling builds only).
 static void log_cpu(void) {
@@ -92,7 +82,6 @@ static void log_cpu(void) {
 #endif
 }
 #endif
-
 static int step_brightness(int requested, int *brightness, int *fade_from, int *fade_to,
                            int64_t *fade_started, int64_t *fade_duration) {
     if (requested >= 0) {
@@ -181,9 +170,25 @@ static void play_sounds(const tess_sounds_t *in, bool lab) {
         else audio_tess_tone(&in->tone[i]);
     }
 }
-
 static struct { int lock, update, draw, sounds; } s_scene_cost;
-
+static void draw_preview(scene_t *scene) {
+    if (g_face.mode != MODE_SETUP && g_face.menu.k < MENU_SWAP) {
+        printer_preview_t *preview = printer_preview_snapshot(link_session());
+        if (preview && !printer_preview_draw_allowed(preview, g_face.menu.open, g_face.menu.k)) {
+            printer_preview_release(preview); preview = NULL;
+        }
+        if (preview) {
+            bool live_image = g_face.live_active && printer_preview_is_screen(preview);
+            if (!live_image) { scene_end(scene); scene_begin(scene, 0); }
+            scene->printer_preview = preview;
+            int side = live_image ? 112 : 336;
+            int x = live_image ? UI_W - 170 : (UI_W - side) / 2;
+            int y = live_image ? 90 : (UI_H - side) / 2;
+            prim_t *p = sc_image(scene, UINT32_MAX, x, y, x, y, x + side - 1, y + side - 1, 1.f);
+            if (p) p->b = (int32_t)printer_preview_hash(preview);
+        }
+    }
+}
 static face_mode_t update_scene(scene_t *scene, float elapsed, bool powered) {
     int64_t started = esp_timer_get_time();
     xSemaphoreTake(g_face_mtx, portMAX_DELAY);
@@ -195,17 +200,7 @@ static face_mode_t update_scene(scene_t *scene, float elapsed, bool powered) {
     int64_t updated = esp_timer_get_time();
     if (!lab && powered) {
         face_draw(&g_face, scene);
-        if (g_face.mode != MODE_SETUP && g_face.menu.k < MENU_SWAP) {
-            printer_preview_t *preview = printer_preview_snapshot(link_session());
-            if (preview) {
-                scene_end(scene);
-                scene_begin(scene, 0);
-                scene->printer_preview = preview;
-                int x = (UI_W - 336) / 2, y = (UI_H - 336) / 2;
-                prim_t *p = sc_image(scene, UINT32_MAX, x, y, x, y, x + 335, y + 335, 1.f);
-                if (p) p->b = (int32_t)printer_preview_hash(preview);
-            }
-        }
+        draw_preview(scene);
     }
     int64_t drawn = esp_timer_get_time();
     static tess_sounds_t sounds;  // (the display task's own: kept off its stack)
@@ -388,6 +383,14 @@ static void allocate_output_buffers(frame_out_t *f) {
 #endif
 }
 
+static void note_preview_presented(bool presented, printer_preview_t *preview) {
+    if (!presented || !preview) return;
+#if CONFIG_IDF_TARGET_ESP32S3
+    if (printer_preview_is_screen(preview) && !printer_preview_was_presented(preview))
+        display_wait_idle(); // A receipt waits for this snapshot's DMA completion.
+#endif
+    printer_preview_presented(preview);
+}
 static void display_task(void *arg) {
     static scene_t scene;
     static render_state_t rs;
@@ -427,7 +430,7 @@ static void display_task(void *arg) {
         face_mode_t frame_mode = update_scene(&scene, dt, powered);
         int64_t t_face = esp_timer_get_time();
         bool presented = powered && present_frame(f, &rs, &scene);
-        if (presented && scene.printer_preview) printer_preview_presented(scene.printer_preview);
+        note_preview_presented(presented, scene.printer_preview);
         scene_end(&scene); // Only completed RGB buffers/frame remain in DMA ownership.
         int64_t t1 = esp_timer_get_time();
 #if !CONFIG_IDF_TARGET_ESP32S3
