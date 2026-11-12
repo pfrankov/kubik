@@ -84,6 +84,7 @@ class PrinterDevice(Device):
         self.image_bands = []
         self.hold_image_after = None
         self.image_aborts = 0
+        self.hold_abort_reply = False
         super().__init__(socket, codec)
 
     async def binary(self, data):
@@ -107,8 +108,9 @@ class PrinterDevice(Device):
         if value['t'] == 'printer_image':
             if value['action'] == 'abort':
                 self.image_aborts += 1
-                await self.send(t='printer_result', rid=value['rid'], status='error',
-                                code='printer_disconnected', outcome='unknown')
+                if not self.hold_abort_reply:
+                    await self.send(t='printer_result', rid=value['rid'], status='error',
+                                    code='printer_disconnected', outcome='unknown')
             else:
                 assert value['action'] == 'start' and self.image is None
                 self.image = value

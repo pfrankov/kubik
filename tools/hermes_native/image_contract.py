@@ -54,6 +54,7 @@ async def check_interrupt(adapter, device, ref):
     from tools.interrupt import set_interrupt
     from voice_fixture import eventually
     device.image, device.image_bands, device.hold_image_after = None, [], 1
+    device.hold_abort_reply = True
     owner = {}
     def invoke():
         owner['thread'] = threading.get_ident()
@@ -68,6 +69,12 @@ async def check_interrupt(adapter, device, ref):
     set_interrupt(True, thread_id=owner['thread'])
     result = await asyncio.wait_for(task, 3)
     assert result['code'] == 'cancelled' and result['outcome'] == 'unknown', result
-    await eventually(lambda: device.image_aborts == 1 and not adapter.printer_jobs.pending)
-    assert len(device.image_bands) == 1 and not device.image_bands[1:]
+    await eventually(lambda: device.image_aborts == 1)
+    peer = next(peer for peer in adapter.peers.values() if peer.identity.startswith('kubik-printer:'))
+    assert peer.output_lock.locked() and peer.identity in adapter.printer_jobs.pending
+    assert len(device.image_bands) == 1
+    await device.send(t='printer_result', rid=device.image['rid'], status='error',
+                      code='printer_disconnected', outcome='unknown')
+    await eventually(lambda: not adapter.printer_jobs.pending)
+    assert not peer.output_lock.locked() and len(device.image_bands) == 1
     print('PASS real Hermes thread interrupt aborts image stream without replay', flush=True)
