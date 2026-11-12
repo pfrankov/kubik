@@ -192,10 +192,10 @@ class PrinterHarnessTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(SystemExit):
                     arguments()
 
-    def test_physical_layout_checks_use_independent_head_and_feed_rounding(self):
+    def test_physical_layout_checks_use_current_profile_point_rounding(self):
         value = {'status': 'sent', 'outcome': 'submitted', 'paperConfirmed': False,
                  'printer': dict(PROFILE), 'layout': {'format': 'text', 'width_mm': 30,
-                                                    'height_mm': 10.12, 'font_mm': 3.12}}
+                                                    'height_mm': 10.06, 'font_mm': 3.06}}
         verify_result(value, STREAM_PLAN)
         value['layout']['width_mm'] = 30.1
         with self.assertRaises(AssertionError):
