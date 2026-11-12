@@ -17,7 +17,7 @@ struct printer_preview {
     unsigned offset;
     char rid[33];
     bool active;
-    uint8_t data[PRINTER_PREVIEW_BYTES];
+    uint8_t data[PRINTER_PREVIEW_STORAGE];
 };
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 static printer_preview_t *current;
@@ -66,9 +66,35 @@ static bool active_session(uint32_t session, int64_t now) {
 static bool frame_matches(const printer_preview_t *p, const uint8_t *data, uint32_t session) {
     return p && p->session == session && !memcmp(p->rid, data, 32) && !p->active;
 }
+#if !CONFIG_IDF_TARGET_ESP32S3
+// The wire remains 128x128/16 colors. Retain three of each four source
+// columns and rows before BLE starts, halving the C6 framebuffer footprint.
+static void write_pixel(printer_preview_t *p, unsigned source, unsigned color) {
+    unsigned x = source % 128, y = source / 128;
+    if (x % 4 == 3 || y % 4 == 3) return;
+    unsigned dst = ((y / 4) * 3 + y % 4) * 96 + (x / 4) * 3 + x % 4;
+    unsigned index = 32 + dst / 2;
+    if (dst & 1) p->data[index] |= color;
+    else p->data[index] = color << 4;
+}
+#endif
 static void write_frame(printer_preview_t *p, const uint8_t *data, unsigned offset, unsigned count) {
-    memcpy(p->data + offset, data + 34, count); p->offset += count;
-    for (unsigned i = 0; i < count; i++) p->hash = (p->hash ^ data[34 + i]) * 16777619u;
+    for (unsigned i = 0; i < count; i++) {
+        unsigned at = offset + i;
+        uint8_t value = data[34 + i];
+        p->hash = (p->hash ^ value) * 16777619u;
+#if CONFIG_IDF_TARGET_ESP32S3
+        p->data[at] = value;
+#else
+        if (at < 32) p->data[at] = value;
+        else {
+            unsigned source = 2 * (at - 32);
+            write_pixel(p, source, value >> 4);
+            write_pixel(p, source + 1, value & 15);
+        }
+#endif
+    }
+    p->offset += count;
 }
 void printer_preview_receive(uint8_t tag, const uint8_t *data, size_t length, uint32_t session) {
     if (!frame_valid(tag, data, length, session)) return;

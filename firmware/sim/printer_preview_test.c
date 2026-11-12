@@ -33,23 +33,39 @@ int main(void) {
     chunk(55, 50, 1); assert(!printer_preview_activate(1, rid));
     transfer(1); assert(!printer_preview_activate(2, rid)); assert(printer_preview_activate(1, rid));
     printer_preview_discard(1, rid); // Refused unrelated admission cannot discard an active image.
-    printer_preview_t *a = printer_preview_snapshot(1); assert(a && printer_preview_pixels(a)[100] == 100);
+    printer_preview_t *a = printer_preview_snapshot(1); assert(a);
+    const uint8_t *pixels = printer_preview_pixels(a);
+    uint8_t saved = pixels[100];
+    for (unsigned y = 0; y < PRINTER_PREVIEW_EDGE; y++) {
+        for (unsigned x = 0; x < PRINTER_PREVIEW_EDGE; x++) {
+#if CONFIG_IDF_TARGET_ESP32S3
+            unsigned sx = x, sy = y;
+#else
+            unsigned sx = x / 3 * 4 + x % 3, sy = y / 3 * 4 + y % 3;
+#endif
+            unsigned src = sy * 128 + sx, dst = y * PRINTER_PREVIEW_EDGE + x;
+            uint8_t pair = (uint8_t)(32 + src / 2);
+            unsigned expected = src & 1 ? pair & 15 : pair >> 4;
+            pair = pixels[32 + dst / 2];
+            assert((dst & 1 ? pair & 15 : pair >> 4) == expected);
+        }
+    }
     assert(!printer_preview_was_presented(a)); printer_preview_presented(a);
     assert(printer_preview_was_presented(a));
     scene_t scene = {0}; scene.printer_preview = a;
-    prim_t prim = {.bx0 = 0, .by0 = 0, .bx1 = 127, .by1 = 127};
-    uint16_t row[128] = {0};
-    render_printer_preview(&scene, &prim, row, 0, 128, 0, 0, 0);
+    prim_t prim = {.bx0 = 0, .by0 = 0, .bx1 = PRINTER_PREVIEW_EDGE - 1, .by1 = PRINTER_PREVIEW_EDGE - 1};
+    uint16_t row[PRINTER_PREVIEW_EDGE] = {0};
+    render_printer_preview(&scene, &prim, row, 0, PRINTER_PREVIEW_EDGE, 0, 0, 0);
     assert(row[0] == 0x0405 && row[1] == 0x0001); // first index pair is 0x20
     g_render_swap = true;
-    render_printer_preview(&scene, &prim, row, 0, 128, 0, 0, 0);
+    render_printer_preview(&scene, &prim, row, 0, PRINTER_PREVIEW_EDGE, 0, 0, 0);
     assert(row[0] == 0x0504 && row[1] == 0x0100);
     uint32_t hash = printer_preview_hash(a); chunk(0, 80, 1);
     printer_preview_t *same = printer_preview_snapshot(1); assert(same == a && printer_preview_hash(same) == hash);
     printer_preview_release(same); printer_preview_clear(1);
-    assert(!printer_preview_snapshot(1)); assert(printer_preview_pixels(a)[100] == 100);
+    assert(!printer_preview_snapshot(1)); assert(printer_preview_pixels(a)[100] == saved);
     transfer(2); assert(printer_preview_activate(2, rid));
-    assert(!printer_preview_snapshot(1)); assert(printer_preview_pixels(a)[100] == 100);
+    assert(!printer_preview_snapshot(1)); assert(printer_preview_pixels(a)[100] == saved);
     printer_preview_release(a);
     transfer(3); assert(printer_preview_activate(3, rid));
     now += 100000001; assert(!printer_preview_snapshot(3));

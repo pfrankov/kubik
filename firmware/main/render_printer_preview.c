@@ -9,10 +9,10 @@ void render_printer_preview(const scene_t *scene, const prim_t *prim, uint16_t *
     int w = prim->bx1 - prim->bx0 + 1, h = prim->by1 - prim->by0 + 1;
     if (w <= 0 || h <= 0) return;
     for (int y = y0; y <= y1; y++) {
-        int sy = (y - prim->by0) * 128 / h;
+        int sy = (y - prim->by0) * PRINTER_PREVIEW_EDGE / h;
         uint16_t *row = buffer + (y - band_y0) * width;
         for (int x = xs; x <= xe; x++) {
-            int sx = (x - prim->bx0) * 128 / w, index = sy * 128 + sx;
+            int sx = (x - prim->bx0) * PRINTER_PREVIEW_EDGE / w, index = sy * PRINTER_PREVIEW_EDGE + sx;
             uint8_t pair = data[32 + index / 2];
             unsigned color = index & 1 ? pair & 15 : pair >> 4;
             uint16_t value = ((uint16_t)data[color * 2] << 8) | data[color * 2 + 1];

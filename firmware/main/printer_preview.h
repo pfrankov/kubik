@@ -2,10 +2,19 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
 #define PRINTER_PREVIEW_KIND 0x07
 #define PRINTER_PREVIEW_VERSION 1
 #define PRINTER_PREVIEW_BYTES 8224
 #define PRINTER_PREVIEW_CHUNK 896
+#if CONFIG_IDF_TARGET_ESP32S3
+#define PRINTER_PREVIEW_EDGE 128
+#else
+#define PRINTER_PREVIEW_EDGE 96
+#endif
+#define PRINTER_PREVIEW_STORAGE (32 + PRINTER_PREVIEW_EDGE * PRINTER_PREVIEW_EDGE / 2)
 
 typedef struct printer_preview printer_preview_t;
 void printer_preview_receive(uint8_t tag, const uint8_t *data, size_t length, uint32_t session);

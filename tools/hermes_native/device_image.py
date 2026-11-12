@@ -70,7 +70,7 @@ async def observe_preview(control, stopped, evidence):
         await asyncio.sleep(.15)
 
 
-async def check(adapter, peer, control, providers, observations, *, document=False):
+async def check(adapter, peer, control, providers, observations, *, document=False, external_preview=None):
     from gateway.session_context import set_session_vars, clear_session_vars
     from hermes_constants import set_hermes_home_override, reset_hermes_home_override
     from model_tools import handle_function_call
@@ -108,15 +108,16 @@ async def check(adapter, peer, control, providers, observations, *, document=Fal
                 {'type': 'text', 'text': 'Текст перед рисунком'}, {'type': 'image', 'image_ref': ref, 'width_mm': 20},
                 {'type': 'text', 'text': 'Текст после рисунка'}]} if document else
                 {'action': 'print', 'format': 'image', 'image_ref': ref, 'width_mm': 20, 'height_mm': 20})
-            evidence = {'preview_active': False, 'preview_presented': False}
+            evidence = external_preview if external_preview is not None else {'preview_active': False, 'preview_presented': False}
             stopped = asyncio.Event()
-            monitor = asyncio.create_task(observe_preview(control, stopped, evidence))
+            monitor = None if external_preview is not None else asyncio.create_task(observe_preview(control, stopped, evidence))
             try:
                 printed = await asyncio.to_thread(handle_function_call, 'kubik_printer', args,
                                                    tool_call_id='physical-image-once', enabled_tools=['kubik_printer'])
             finally:
                 stopped.set()
-                await monitor
+                if monitor:
+                    await monitor
             printed = json.loads(printed)
             if not document:
                 assert peer.printer_preview_version == 1
@@ -135,3 +136,131 @@ async def check(adapter, peer, control, providers, observations, *, document=Fal
 
 async def check_document(adapter, peer, control, providers, observations):
     return await check(adapter, peer, control, providers, observations, document=True)
+
+
+class LiveObservations(Observations):
+    """Record the physical preview window without widening the one-print budget."""
+    def __init__(self, adapter):
+        super().__init__(adapter)
+        self.states, self.errors = [], []
+        self.connection = None
+        self.start_at = self.end_at = None
+        self.print_rid = None
+        self.authenticate = adapter.authenticate
+
+    def install(self):
+        import time
+        super().install()
+        parent = self.adapter.command
+        async def command(peer, value):
+            if (value.get('t') == 'printer_result' and value.get('rid') == self.print_rid
+                    and value.get('status') in ('sent', 'error')):
+                self.end_at = time.monotonic()
+            return await parent(peer, value)
+        self.adapter.command = command
+        async def authenticate(socket):
+            peer = await self.authenticate(socket)
+            self.watch_socket(socket)
+            return peer
+        self.adapter.authenticate = authenticate
+
+    def restore(self):
+        super().restore()
+        self.adapter.authenticate = self.authenticate
+
+    def watch_socket(self, socket):
+        import time
+        if any(item[0] is socket for item in self.senders):
+            return
+        super().watch_socket(socket)
+        guarded = socket.send_json
+        async def send(value, **kwargs):
+            if value.get('t') == 'printer_image' and value.get('action') == 'start':
+                self.print_rid = value['rid']
+                self.start_at = time.monotonic()
+            return await guarded(value, **kwargs)
+        socket.send_json = send
+
+    def persist(self, evidence, providers):
+        super().persist(evidence, providers)
+        save(evidence / 'image-live-states.json', self.states)
+        save(evidence / 'image-live-errors.json', self.errors)
+        save(evidence / 'image-live-mic-times.json', self.connection.mic_times if self.connection else [])
+
+
+async def monitor_live_image(control, observations, stopped, preview):
+    import time
+    fields = ('heap_failures', 'heap_internal', 'heap_dma', 'printer_busy', 'printer_preview_active',
+              'printer_preview_presented', 'live_active', 'mic_open', 'mic_rx_enabled', 'online')
+    try:
+        while not stopped.is_set():
+            state = await control.info()
+            assert all(field in state for field in fields), 'Live image diagnostics incomplete'
+            if len(observations.states) >= 2048:
+                raise AssertionError('Live image observation limit')
+            observations.states.append({'at': time.monotonic(), **{key: state[key] for key in fields}})
+            preview['preview_active'] |= state['printer_preview_active']
+            preview['preview_presented'] |= state['printer_preview_presented']
+            await asyncio.sleep(.3)
+    except Exception as error:
+        observations.errors.append({'type': type(error).__name__, 'message': str(error)[:200]})
+
+
+def shown_during_print(row, start, end):
+    return (start <= row['at'] <= end and row['printer_busy'] and row['printer_preview_active']
+            and row['printer_preview_presented'])
+
+
+def live_input_ready(row):
+    return row['live_active'] and row['mic_open'] and row['mic_rx_enabled'] and row['online']
+
+
+def verify_live_image(observations, baseline):
+    assert not observations.errors, observations.errors
+    assert observations.start_at is not None and observations.end_at is not None
+    rows = observations.states
+    assert rows and all(row['heap_failures'] == baseline['heap_failures'] for row in rows), 'Heap allocation failed'
+    active = [row for row in rows if shown_during_print(row, observations.start_at, observations.end_at)]
+    assert len(active) >= 2, 'No sustained printed preview was presented during BLE work'
+    assert all(live_input_ready(row) for row in active), 'Live microphone or connection stopped during preview'
+    frames = [stamp for stamp in observations.connection.mic_times if active[0]['at'] < stamp < active[-1]['at']]
+    assert frames, 'No Live microphone frame arrived during the observed preview window'
+    return {'mic_frames_during_preview': len(frames), 'preview_samples': len(active),
+            'heap_internal_min': min(row['heap_internal'] for row in rows),
+            'heap_dma_min': min(row['heap_dma'] for row in rows)}
+
+
+async def check_live_image(adapter, peer, control, providers, observations):
+    from device_control import fault_window
+    from device_printer import MicConnection, wait_discovery
+    from device_voice import begin
+    from voice_fixture import VoiceFixture
+    observations.evidence = control.evidence
+    assert peer.printer_preview_version == 1
+    before = await control.request(cmd='bridge-diagnostics')
+    await wait_discovery(control)
+    baseline = await control.info()
+    providers.voice = VoiceFixture(MicConnection)
+    old_volume, stopped, monitor = peer.volume, asyncio.Event(), None
+    peer.volume = 0
+    try:
+        observations.connection = await begin('live', adapter, peer, control, providers.voice)
+        await control.sim('ptt_up')
+        preview = {'preview_active': False, 'preview_presented': False}
+        monitor = asyncio.create_task(monitor_live_image(control, observations, stopped, preview))
+        result = await check(adapter, peer, control, providers, observations, external_preview=preview)
+        await control.until(lambda state: not state['printer_busy'] and not state['printer_preview_active']
+                            and not state['printer_preview_presented'], 'preview and printer released', timeout=15)
+        stopped.set()
+        await monitor
+        monitor = None
+        assert peer.native and peer.native.current(), 'Live closed during image printing'
+        measured = verify_live_image(observations, baseline)
+        fault_window(before, await control.request(cmd='bridge-diagnostics'))
+        return {**result, 'live_microphone_during_preview': True, 'paid_provider_calls': 0, **measured}
+    finally:
+        stopped.set()
+        if monitor:
+            await monitor
+        peer.volume = old_volume
+        observations.persist(control.evidence, providers)
