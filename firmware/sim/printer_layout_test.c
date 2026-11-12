@@ -286,6 +286,16 @@ static void axis_sizes(const char *folder) {
     assert(b->width_dots == 239 && b->height_dots == 177);
     qr_geometry(calibrated); save_raster(calibrated, folder, "qr-225-20mm");
     printer_layout_destroy(calibrated);
+    doc.width_mm = 32; doc.height_mm = 22;
+    calibrated = make_axes(doc, 304, 225);
+    assert(calibrated->info.width_dots == 383 && calibrated->info.height_dots == 195);
+    assert(calibrated->qr_width == 263 && calibrated->qr_height == 195);
+    qr_geometry(calibrated); save_raster(calibrated, folder, "qr-225-rectangle");
+    printer_layout_destroy(calibrated);
+    printer_layout_error_t too_small;
+    doc.width_mm = 5; doc.height_mm = 0;
+    assert(!printer_layout_create(&doc, 304, 225, 576, &too_small));
+    assert(too_small == PRINTER_LAYOUT_CONTENT_DOES_NOT_FIT);
     calibrated = make_axes((printer_document_t){.text="A", .height_mm=150, .font_mm=8}, 304, 152);
     assert(calibrated->info.height_dots == 897 && calibrated->info.height_mm <= 150);
     inspect(calibrated); printer_layout_destroy(calibrated);
